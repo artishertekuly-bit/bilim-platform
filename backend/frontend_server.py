@@ -1,0 +1,120 @@
+from pathlib import Path
+import os
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DIST_DIR = BASE_DIR / "dist"
+ASSETS_DIR = DIST_DIR / "assets"
+INDEX_FILE = DIST_DIR / "index.html"
+ENV_FILE = BASE_DIR / ".env"
+
+load_dotenv(ENV_FILE)
+
+app = FastAPI(title="Bilim Platform Local Server", version="1.3.0")
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+if ASSETS_DIR.exists() and ASSETS_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+
+@app.get("/api/health")
+def health():
+    return {
+        "status": "ok",
+        "project_root": str(BASE_DIR),
+        "frontend_dist_present": DIST_DIR.exists(),
+        "frontend_index_present": INDEX_FILE.exists(),
+        "frontend_assets_present": ASSETS_DIR.exists(),
+        "env_file_present": ENV_FILE.exists(),
+        "supabase_url_present": bool(os.getenv("VITE_SUPABASE_URL")),
+        "supabase_key_present": bool(os.getenv("VITE_SUPABASE_PUBLISHABLE_KEY")),
+        "ai_api_base_url_present": bool(os.getenv("VITE_AI_API_BASE_URL")),
+    }
+
+
+@app.get("/api/config-check")
+def config_check():
+    missing = []
+
+    if not ENV_FILE.exists():
+        missing.append(".env")
+    if not os.getenv("VITE_SUPABASE_URL"):
+        missing.append("VITE_SUPABASE_URL")
+    if not os.getenv("VITE_SUPABASE_PUBLISHABLE_KEY"):
+        missing.append("VITE_SUPABASE_PUBLISHABLE_KEY")
+    if not os.getenv("VITE_AI_API_BASE_URL"):
+        missing.append("VITE_AI_API_BASE_URL")
+    if not DIST_DIR.exists():
+        missing.append("dist/")
+    if not INDEX_FILE.exists():
+        missing.append("dist/index.html")
+
+    return JSONResponse(
+        {
+            "project_root": str(BASE_DIR),
+            "dist_dir": str(DIST_DIR),
+            "assets_dir": str(ASSETS_DIR),
+            "env_file": str(ENV_FILE),
+            "missing": missing,
+        }
+    )
+
+
+@app.get("/")
+def root():
+    if not DIST_DIR.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Frontend build табылмады. Алдымен npm run build орындаңыз.",
+        )
+
+    if not INDEX_FILE.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="dist/index.html табылмады. Алдымен npm run build орындаңыз.",
+        )
+
+    return FileResponse(INDEX_FILE)
+
+
+@app.get("/{full_path:path}")
+def spa(full_path: str):
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint табылмады.")
+
+    if not DIST_DIR.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Frontend build табылмады. Алдымен npm run build орындаңыз.",
+        )
+
+    target = DIST_DIR / full_path
+    if full_path and target.exists() and target.is_file():
+        return FileResponse(target)
+
+    if not INDEX_FILE.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="dist/index.html табылмады. Алдымен npm run build орындаңыз.",
+        )
+
+    return FileResponse(INDEX_FILE)
