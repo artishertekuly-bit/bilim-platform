@@ -402,6 +402,50 @@ export default function TeacherCreateTestPage() {
       }),
   });
 
+  const publishTestMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedTest) throw new Error('Тест таңдалмады.');
+
+      if (!testEdit.title.trim()) {
+        throw new Error('Тест атауы міндетті.');
+      }
+
+      if (!testEdit.subjectId) {
+        throw new Error('Тест пәнін таңдаңыз.');
+      }
+
+      if (!selectedTest.questions.length) {
+        throw new Error('Жариялау үшін тестте кемінде 1 сұрақ болуы керек.');
+      }
+
+      return updateTest({
+        testId: selectedTest.id,
+        title: testEdit.title.trim(),
+        topic: testEdit.topic.trim(),
+        subjectId: testEdit.subjectId || null,
+        durationMinutes: Number(testEdit.duration) || 20,
+        status: 'published',
+      });
+    },
+    onSuccess: async () => {
+      setTestEdit((prev) => ({ ...prev, status: 'published' }));
+      await refetch();
+      toast({
+        title: 'Тест жарияланды',
+        description: 'Енді бұл тест оқушыларға көрінеді.',
+      });
+    },
+    onError: (error) =>
+      toast({
+        title: t('page.teacher_test_builder.toast.error_title'),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('page.teacher_test_builder.toast.error_text'),
+        variant: 'destructive',
+      }),
+  });
+
   const deleteTestMutation = useMutation({
     mutationFn: async (testId: string) => {
       await deleteTest(testId);
@@ -654,6 +698,14 @@ export default function TeacherCreateTestPage() {
     !!selectedTest &&
     hasPendingAiImport &&
     !importAiQuestionsMutation.isPending;
+
+  const canPublishSelectedTest =
+    !!selectedTest &&
+    !!testEdit.title.trim() &&
+    !!testEdit.subjectId &&
+    selectedTest.questions.length > 0 &&
+    !publishTestMutation.isPending &&
+    !updateTestMutation.isPending;
 
   return (
     <DashboardLayout>
@@ -934,31 +986,63 @@ export default function TeacherCreateTestPage() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        onClick={() => updateTestMutation.mutate()}
-                        disabled={updateTestMutation.isPending}
-                      >
-                        {t('page.teacher_test_builder.action.save_test')}
-                      </Button>
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          onClick={() => updateTestMutation.mutate()}
+                          disabled={updateTestMutation.isPending}
+                        >
+                          {t('page.teacher_test_builder.action.save_test')}
+                        </Button>
 
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              t('page.teacher_test_builder.confirm.delete_test')
-                            )
-                          ) {
-                            deleteTestMutation.mutate(selectedTest.id);
+                        <Button
+                          variant={
+                            testEdit.status === 'published' ? 'secondary' : 'default'
                           }
-                        }}
-                        disabled={deleteTestMutation.isPending}
-                      >
-                        <Trash2 size={14} className="mr-1.5" />
-                        {t('page.teacher_test_builder.action.delete_test')}
-                      </Button>
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                testEdit.status === 'published'
+                                  ? 'Бұл тест қазірдің өзінде жарияланған. Өзгерістерді қайта жариялағыңыз келе ме?'
+                                  : 'Осы тестті жариялап, оқушыларға қолжетімді еткіңіз келе ме?'
+                              )
+                            ) {
+                              publishTestMutation.mutate();
+                            }
+                          }}
+                          disabled={!canPublishSelectedTest}
+                        >
+                          {publishTestMutation.isPending
+                            ? 'Жариялануда...'
+                            : testEdit.status === 'published'
+                            ? 'Қайта жариялау'
+                            : 'Жариялау'}
+                        </Button>
+
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                t('page.teacher_test_builder.confirm.delete_test')
+                              )
+                            ) {
+                              deleteTestMutation.mutate(selectedTest.id);
+                            }
+                          }}
+                          disabled={deleteTestMutation.isPending}
+                        >
+                          <Trash2 size={14} className="mr-1.5" />
+                          {t('page.teacher_test_builder.action.delete_test')}
+                        </Button>
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        Тестті оқушыларға ашу үшін бөлек жариялау керек. Жариялау
+                        батырмасы тест статусын <span className="font-medium">published</span>{' '}
+                        күйіне ауыстырады және ағымдағы өзгерістерді бірден сақтайды.
+                      </p>
                     </div>
                   </div>
                 ) : (
