@@ -9,6 +9,7 @@ import { AuthProvider, type UserRole } from '@/lib/auth-context';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { LoadingState } from '@/components/common/DataState';
 import t from '@/lib/i18n';
+const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 
 const LandingPage = lazy(() => import('./pages/LandingPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -83,6 +84,7 @@ const publicRoutes: AppRouteConfig[] = [
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/update-password', element: <UpdatePasswordPage /> },
   { path: '/about', element: <AboutPage /> },
+  { path: '/auth/callback', element: <AuthCallbackPage /> },
 ];
 
 const commonProtectedRoutes: AppRouteConfig[] = [

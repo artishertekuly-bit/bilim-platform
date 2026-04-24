@@ -62,24 +62,21 @@ function normalizeFullName(value: string) {
   return value.trim();
 }
 
-function isUserRole(value: unknown): value is UserRole {
-  return (
-    value === 'student' ||
-    value === 'teacher' ||
-    value === 'parent' ||
-    value === 'admin'
-  );
+function isRegisterableRole(value: unknown): value is Exclude<UserRole, 'admin'> {
+  return value === 'student' || value === 'teacher' || value === 'parent';
 }
 
 function getPendingOAuthRole(): UserRole | null {
   if (typeof window === 'undefined') return null;
 
   const value = window.localStorage.getItem(PENDING_OAUTH_ROLE_KEY);
-  return isUserRole(value) ? value : null;
+  return isRegisterableRole(value) ? value : null;
 }
 
 function setPendingOAuthRole(role: UserRole) {
   if (typeof window === 'undefined') return;
+  if (!isRegisterableRole(role)) return;
+
   window.localStorage.setItem(PENDING_OAUTH_ROLE_KEY, role);
 }
 
@@ -122,7 +119,7 @@ async function fetchProfile(userId: string) {
   return data;
 }
 
-async function syncRequestedRole(requestedRole?: UserRole) {
+async function syncRequestedRole(requestedRole?: UserRole | null) {
   const { error } = await supabase.rpc('claim_requested_role' as never, {
     p_requested_role: requestedRole ?? null,
   } as never);
@@ -148,12 +145,11 @@ async function syncRequestedRole(requestedRole?: UserRole) {
 async function applyPendingOAuthRoleIfNeeded(_supabaseUser: SupabaseUser) {
   const pendingRole = getPendingOAuthRole();
 
-  try {
-    await syncRequestedRole(pendingRole || undefined);
+  if (!pendingRole) return;
 
-    if (pendingRole) {
-      clearPendingOAuthRole();
-    }
+  try {
+    await syncRequestedRole(pendingRole);
+    clearPendingOAuthRole();
   } catch (error) {
     console.error('Failed to apply pending OAuth role', error);
     throw error;
@@ -273,7 +269,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
 
-      await syncRequestedRole();
+      await syncRequestedRole(null);
 
       const appUser = await hydrateSession(data.session);
       return { user: appUser };
@@ -317,7 +313,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
 
-      await syncRequestedRole();
+      await syncRequestedRole(role);
 
       const appUser = await hydrateSession(data.session);
       return { user: appUser };
@@ -326,27 +322,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const loginWithGoogle = useCallback(async (role?: UserRole) => {
-  if (role) {
-    setPendingOAuthRole(role);
-  } else {
-    clearPendingOAuthRole();
-  }
+    const callbackUrl = new URL(`${window.location.origin}/auth/callback`);
 
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: `${window.location.origin}/auth/callback`,
-    },
-  });
-
-  if (error) {
-    if (role) {
-      clearPendingOAuthRole();
+    if (role && isRegisterableRole(role)) {
+      setPendingOAuthRole(role);
+      callbackUrl.searchParams.set('role', role);
     }
 
-    throw new Error(error.message);
-  }
-}, []);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: callbackUrl.toString(),
+      },
+    });
+
+    if (error) {
+      if (role) {
+        clearPendingOAuthRole();
+      }
+
+      throw new Error(error.message);
+    }
+  }, []);
 
   const verifyEmailOtp = useCallback(
     async (email: string, token: string) => {
@@ -365,7 +362,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Код расталғаннан кейін сессия ашылмады');
       }
 
-      await syncRequestedRole();
+      await syncRequestedRole(null);
 
       return hydrateSession(data.session);
     },
@@ -413,6 +410,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw new Error(error.message);
+
     clearPendingOAuthRole();
     setUser(null);
     setSession(null);
