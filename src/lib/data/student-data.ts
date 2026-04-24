@@ -5,10 +5,18 @@ import { isSoftSchemaError, queryOrThrow } from './common';
 import type { Locale } from './common';
 
 import type {
+  CourseAccessState,
+  CourseAccessType,
+  CourseAccessView,
+  CourseUnlockAction,
   CourseView,
+  CourseVisibility,
+  CurrencyCode,
   DashboardStudentData,
+  EntitlementRow,
   LessonDetailView,
   LeaderboardView,
+  OrderRow,
   ProfileMap,
   RpcMutationResponse,
   SubjectMap,
@@ -17,6 +25,16 @@ import type {
   TestCatalogItem,
   LessonView,
 } from '@/lib/app-data-types';
+
+type CourseRowWithAccess = Tables<'courses'> & {
+  access_type?: CourseAccessType | null;
+  visibility?: CourseVisibility | null;
+  price?: number | null;
+  currency?: CurrencyCode | null;
+  published_at?: string | null;
+  enrollment_open?: boolean | null;
+  max_students?: number | null;
+};
 
 function localizedText(locale: Locale, kk: string, ru: string) {
   return locale === 'ru' ? ru : kk;
@@ -80,6 +98,268 @@ function groupLessonsByModuleId(rows: Tables<'lessons'>[]) {
   return map;
 }
 
+/* ================= COURSE ACCESS HELPERS ================= */
+
+function getCourseAccessType(course: CourseRowWithAccess | null | undefined): CourseAccessType {
+  return course?.access_type || 'public_free';
+}
+
+function getCourseVisibility(course: CourseRowWithAccess | null | undefined): CourseVisibility {
+  return course?.visibility || 'public';
+}
+
+function getCoursePrice(course: CourseRowWithAccess | null | undefined): number {
+  return Number(course?.price ?? 0);
+}
+
+function getCourseCurrency(course: CourseRowWithAccess | null | undefined): CurrencyCode {
+  return course?.currency || 'KZT';
+}
+
+function getCourseEnrollmentOpen(course: CourseRowWithAccess | null | undefined): boolean {
+  return course?.enrollment_open ?? true;
+}
+
+function getCourseMaxStudents(course: CourseRowWithAccess | null | undefined): number | null {
+  return course?.max_students ?? null;
+}
+
+function getCoursePublishedAt(course: CourseRowWithAccess | null | undefined): string | null {
+  return course?.published_at ?? null;
+}
+
+function isCoursePublished(course: CourseRowWithAccess | null | undefined) {
+  return course?.status === 'published';
+}
+
+function isEntitlementCurrentlyActive(row: Pick<EntitlementRow, 'status' | 'valid_from' | 'valid_until'>) {
+  const now = Date.now();
+  const validFrom = new Date(row.valid_from).getTime();
+  const validUntil = row.valid_until ? new Date(row.valid_until).getTime() : null;
+
+  return (
+    row.status === 'active' &&
+    validFrom <= now &&
+    (validUntil === null || validUntil > now)
+  );
+}
+
+async function getActiveCourseEntitlementsSafe(userId?: string) {
+  if (!userId) return [] as EntitlementRow[];
+
+  const db = supabase as any;
+
+  const { data, error } = await db
+    .from('entitlements')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('resource_type', 'course')
+    .eq('status', 'active');
+
+  if (error) {
+    if (isSoftSchemaError(error.message || '')) {
+      return [] as EntitlementRow[];
+    }
+
+    throw new Error(error.message);
+  }
+
+  return ((data || []) as EntitlementRow[]).filter(isEntitlementCurrentlyActive);
+}
+
+async function getPendingCourseOrdersSafe(userId?: string) {
+  if (!userId) return [] as OrderRow[];
+
+  const db = supabase as any;
+
+  const { data, error } = await db
+    .from('orders')
+    .select('*')
+    .eq('buyer_id', userId)
+    .eq('product_type', 'course')
+    .eq('status', 'pending');
+
+  if (error) {
+    if (isSoftSchemaError(error.message || '')) {
+      return [] as OrderRow[];
+    }
+
+    throw new Error(error.message);
+  }
+
+  return (data || []) as OrderRow[];
+}
+
+async function userHasCourseEntitlementSafe(userId: string, courseId: string) {
+  const entitlements = await getActiveCourseEntitlementsSafe(userId);
+  return entitlements.some((row) => row.resource_id === courseId);
+}
+
+async function getCourseStudentCountSafe(courseId: string) {
+  const { count, error } = await supabase
+    .from('course_enrollments')
+    .select('id', { count: 'exact', head: true })
+    .eq('course_id', courseId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return count ?? 0;
+}
+
+function resolveCourseAccess(input: {
+  course: CourseRowWithAccess;
+  userId?: string;
+  teacherId?: string;
+  isEnrolled: boolean;
+  hasEntitlement: boolean;
+  pendingOrder: OrderRow | null;
+}): CourseAccessView {
+  const { course, userId, teacherId, isEnrolled, hasEntitlement, pendingOrder } = input;
+
+  const accessType = getCourseAccessType(course);
+  const visibility = getCourseVisibility(course);
+  const price = getCoursePrice(course);
+  const currency = getCourseCurrency(course);
+  const publishedAt = getCoursePublishedAt(course);
+  const enrollmentOpen = getCourseEnrollmentOpen(course);
+  const maxStudents = getCourseMaxStudents(course);
+
+  const isFree = accessType === 'public_free';
+  const isPaid = accessType === 'paid';
+  const isInviteOnly = accessType === 'private_invite';
+  const isSubscriptionOnly = accessType === 'subscription_only';
+  const isSchoolOnly = accessType === 'school_only';
+
+  const isOwner = Boolean(teacherId && course.teacher_id === teacherId);
+
+  let canAccess = false;
+  let accessState: CourseAccessState = 'unknown';
+  let unlockAction: CourseUnlockAction = 'none';
+
+  if (isOwner) {
+    canAccess = true;
+    accessState = 'owner';
+    unlockAction = 'manage_course';
+  } else if (!isCoursePublished(course)) {
+    canAccess = false;
+    accessState = 'draft_or_unpublished';
+    unlockAction = 'none';
+  } else if (isEnrolled || hasEntitlement) {
+    canAccess = true;
+    accessState = isEnrolled ? 'enrolled' : 'has_entitlement';
+    unlockAction = 'open_course';
+  } else if (!enrollmentOpen) {
+    canAccess = false;
+    accessState = 'enrollment_closed';
+    unlockAction = 'none';
+  } else if (visibility === 'private' && !userId) {
+    canAccess = false;
+    accessState = 'not_available';
+    unlockAction = 'none';
+  } else if (accessType === 'public_free') {
+    canAccess = true;
+    accessState = 'public_free';
+    unlockAction = 'enroll';
+  } else if (accessType === 'private_invite') {
+    canAccess = false;
+    accessState = 'requires_invite';
+    unlockAction = 'redeem_invite';
+  } else if (accessType === 'paid') {
+    canAccess = false;
+    accessState = 'requires_payment';
+    unlockAction = pendingOrder ? 'none' : 'request_paid_access';
+  } else if (accessType === 'subscription_only') {
+    canAccess = false;
+    accessState = 'requires_subscription';
+    unlockAction = 'subscribe';
+  } else if (accessType === 'school_only') {
+    canAccess = false;
+    accessState = 'requires_school_access';
+    unlockAction = 'request_school_access';
+  } else {
+    canAccess = false;
+    accessState = 'not_available';
+    unlockAction = 'none';
+  }
+
+  return {
+    accessType,
+    visibility,
+    price,
+    currency,
+    publishedAt,
+    enrollmentOpen,
+    maxStudents,
+
+    canAccess,
+    accessState,
+    unlockAction,
+
+    isFree,
+    isPaid,
+    isInviteOnly,
+    isSubscriptionOnly,
+    isSchoolOnly,
+
+    hasEntitlement,
+    isEnrolled,
+
+    pendingOrderId: pendingOrder?.id || null,
+    pendingOrderStatus: pendingOrder?.status || null,
+  };
+}
+
+function shouldShowCourseInStudentCatalog(input: {
+  course: CourseRowWithAccess;
+  isEnrolled: boolean;
+  hasEntitlement: boolean;
+  hasPendingOrder: boolean;
+}) {
+  const { course, isEnrolled, hasEntitlement, hasPendingOrder } = input;
+
+  if (!isCoursePublished(course)) return false;
+
+  const visibility = getCourseVisibility(course);
+
+  if (visibility === 'public') return true;
+
+  /**
+   * Unlisted/private course catalog-та көрінбеуі керек.
+   * Бірақ user осы курсқа already enrolled/entitled/pending болса,
+   * оны жоғалтпай көрсетеміз.
+   */
+  return isEnrolled || hasEntitlement || hasPendingOrder;
+}
+
+async function canAccessCourseByRpc(courseId: string, userId?: string) {
+  const db = supabase as any;
+
+  const args = userId
+    ? {
+        p_course_id: courseId,
+        p_user_id: userId,
+      }
+    : {
+        p_course_id: courseId,
+      };
+
+  const { data, error } = await db.rpc('can_access_course', args);
+
+  if (error) {
+    if (isSoftSchemaError(error.message || '') || /function .* does not exist/i.test(error.message || '')) {
+      return null;
+    }
+
+    throw new Error(error.message);
+  }
+
+  return Boolean(data);
+}
+
+/* ================= COMMON DATA ================= */
+
 export async function getSubjects() {
   return queryOrThrow(
     supabase.from('subjects').select('*').order('sort_order', { ascending: true })
@@ -129,6 +409,8 @@ async function getBookmarkedRowsSafe(studentId: string) {
   return (data || []) as Tables<'course_bookmarks'>[];
 }
 
+/* ================= STUDENT DASHBOARD ================= */
+
 export async function getStudentDashboard(
   userId: string,
   locale: Locale = 'kk'
@@ -140,10 +422,12 @@ export async function getStudentDashboard(
     studentPoints,
     leaderboardRows,
     attempts,
-    courses,
+    rawCourses,
     modules,
     lessons,
     tests,
+    entitlements,
+    pendingOrders,
   ] = await Promise.all([
     getSubjects(),
     queryOrThrow(
@@ -181,14 +465,22 @@ export async function getStudentDashboard(
         .order('sort_order', { ascending: true })
     ),
     queryOrThrow(supabase.from('tests').select('*')),
+    getActiveCourseEntitlementsSafe(userId),
+    getPendingCourseOrdersSafe(userId),
   ]);
 
+  const courses = rawCourses as CourseRowWithAccess[];
   const subjectMap = buildSubjectMap(subjects);
   const courseMap = new Map(courses.map((course) => [course.id, course]));
   const moduleMap = new Map(modules.map((module) => [module.id, module]));
   const testMap = new Map(tests.map((test) => [test.id, test]));
   const teacherIds = courses.map((course) => course.teacher_id);
   const profiles = await getProfilesMap(teacherIds);
+
+  const entitlementCourseIds = new Set(entitlements.map((row) => row.resource_id));
+  const pendingOrderByCourseId = new Map(
+    pendingOrders.map((order) => [order.product_id, order])
+  );
 
   const lessonsByModuleId = groupLessonsByModuleId(lessons as Tables<'lessons'>[]);
   const lessonProgressMap = new Map(lessonProgress.map((row) => [row.lesson_id, row]));
@@ -230,6 +522,14 @@ export async function getStudentDashboard(
     ).length;
     const studentCount = enrollments.filter((row) => row.course_id === course.id).length;
 
+    const access = resolveCourseAccess({
+      course,
+      userId,
+      isEnrolled: true,
+      hasEntitlement: entitlementCourseIds.has(course.id),
+      pendingOrder: pendingOrderByCourseId.get(course.id) || null,
+    });
+
     return {
       id: course.id,
       title: course.title,
@@ -249,6 +549,15 @@ export async function getStudentDashboard(
       progress: enrollment.progress_pct,
       status: course.status,
       bookmarked: false,
+
+      accessType: access.accessType,
+      visibility: access.visibility,
+      price: access.price,
+      currency: access.currency,
+      publishedAt: access.publishedAt,
+      enrollmentOpen: access.enrollmentOpen,
+      maxStudents: access.maxStudents,
+      access,
     };
   });
 
@@ -278,6 +587,7 @@ export async function getStudentDashboard(
         sortOrder: lesson.sort_order,
         isCompleted: completed,
         isLocked,
+        lockedReason: isLocked ? 'previous_lesson_required' : 'none',
       };
     })
     .filter((lesson) => !lesson.isCompleted)
@@ -348,12 +658,14 @@ export async function getStudentDashboard(
   };
 }
 
+/* ================= COURSE CATALOG ================= */
+
 export async function getCourseCatalog(
   userId?: string,
   teacherId?: string,
   locale: Locale = 'kk'
 ) {
-  const [subjects, rawCourses, enrollments, modules, lessons, bookmarks] = await Promise.all([
+  const [subjects, rawCourses, enrollments, modules, lessons, bookmarks, entitlements, pendingOrders] = await Promise.all([
     getSubjects(),
     queryOrThrow(
       teacherId
@@ -370,16 +682,11 @@ export async function getCourseCatalog(
     queryOrThrow(supabase.from('modules').select('*')),
     queryOrThrow(supabase.from('lessons').select('id, module_id')),
     userId ? getBookmarkedRowsSafe(userId) : Promise.resolve([] as Tables<'course_bookmarks'>[]),
+    getActiveCourseEntitlementsSafe(userId),
+    getPendingCourseOrdersSafe(userId),
   ]);
 
-  const courses =
-    userId && !teacherId
-      ? rawCourses.filter((course) => course.status === 'published')
-      : rawCourses;
-
-  const subjectMap = buildSubjectMap(subjects);
-  const profiles = await getProfilesMap(courses.map((course) => course.teacher_id));
-  const moduleMap = new Map(modules.map((module) => [module.id, module.course_id]));
+  const allCourses = rawCourses as CourseRowWithAccess[];
 
   const progressMap = new Map(
     (enrollments as Tables<'course_enrollments'>[]).map((row) => [row.course_id, row.progress_pct])
@@ -390,6 +697,26 @@ export async function getCourseCatalog(
   const bookmarkedIds = new Set(
     (bookmarks as Tables<'course_bookmarks'>[]).map((row) => row.course_id)
   );
+  const entitlementCourseIds = new Set(entitlements.map((row) => row.resource_id));
+  const pendingOrderByCourseId = new Map(
+    pendingOrders.map((order) => [order.product_id, order])
+  );
+
+  const courses =
+    userId && !teacherId
+      ? allCourses.filter((course) =>
+          shouldShowCourseInStudentCatalog({
+            course,
+            isEnrolled: enrolledIds.has(course.id),
+            hasEntitlement: entitlementCourseIds.has(course.id),
+            hasPendingOrder: pendingOrderByCourseId.has(course.id),
+          })
+        )
+      : allCourses;
+
+  const subjectMap = buildSubjectMap(subjects);
+  const profiles = await getProfilesMap(courses.map((course) => course.teacher_id));
+  const moduleMap = new Map(modules.map((module) => [module.id, module.course_id]));
 
   const courseStudentCounts = new Map<string, number>();
   const teacherCourseCounts = new Map<string, number>();
@@ -417,31 +744,155 @@ export async function getCourseCatalog(
     });
   }
 
-  return courses.map((course) => ({
-    id: course.id,
-    title: course.title,
-    description: course.description,
-    subjectName: subjectLabel(
-      course.subject_id ? subjectMap[course.subject_id] : null,
-      locale
-    ),
-    teacherId: course.teacher_id,
-    teacherName: profiles[course.teacher_id]?.full_name || unknownTeacherLabel(locale),
-    teacherAvatarUrl: profiles[course.teacher_id]?.avatar_url || null,
-    teacherBio: profiles[course.teacher_id]?.bio || null,
-    teacherCoursesCount: teacherCourseCounts.get(course.teacher_id) || 0,
-    students: courseStudentCounts.get(course.id) || 0,
-    lessons: lessons.filter(
-      (lesson) => moduleMap.get(lesson.module_id) === course.id
-    ).length,
-    enrolled: enrolledIds.has(course.id),
-    progress: progressMap.get(course.id) || 0,
-    status: course.status,
-    bookmarked: bookmarkedIds.has(course.id),
-  })) satisfies CourseView[];
+  return courses.map((course) => {
+    const access = resolveCourseAccess({
+      course,
+      userId,
+      teacherId,
+      isEnrolled: enrolledIds.has(course.id),
+      hasEntitlement: entitlementCourseIds.has(course.id),
+      pendingOrder: pendingOrderByCourseId.get(course.id) || null,
+    });
+
+    return {
+      id: course.id,
+      title: course.title,
+      description: course.description,
+      subjectName: subjectLabel(
+        course.subject_id ? subjectMap[course.subject_id] : null,
+        locale
+      ),
+      teacherId: course.teacher_id,
+      teacherName: profiles[course.teacher_id]?.full_name || unknownTeacherLabel(locale),
+      teacherAvatarUrl: profiles[course.teacher_id]?.avatar_url || null,
+      teacherBio: profiles[course.teacher_id]?.bio || null,
+      teacherCoursesCount: teacherCourseCounts.get(course.teacher_id) || 0,
+      students: courseStudentCounts.get(course.id) || 0,
+      lessons: lessons.filter(
+        (lesson) => moduleMap.get(lesson.module_id) === course.id
+      ).length,
+      enrolled: enrolledIds.has(course.id),
+      progress: progressMap.get(course.id) || 0,
+      status: course.status,
+      bookmarked: bookmarkedIds.has(course.id),
+
+      accessType: access.accessType,
+      visibility: access.visibility,
+      price: access.price,
+      currency: access.currency,
+      publishedAt: access.publishedAt,
+      enrollmentOpen: access.enrollmentOpen,
+      maxStudents: access.maxStudents,
+      access,
+    };
+  }) satisfies CourseView[];
 }
 
-export async function enrollInCourse(studentId: string, courseId: string) {
+/* ================= ENROLLMENT / BOOKMARKS ================= */
+
+export async function enrollInCourse(studentId: string, courseId: string, locale: Locale = 'kk') {
+  const course = await queryOrThrow(
+    supabase.from('courses').select('*').eq('id', courseId).single()
+  ) as CourseRowWithAccess;
+
+  if (!course) {
+    throw new Error(localizedText(locale, 'Курс табылмады.', 'Курс не найден.'));
+  }
+
+  if (!isCoursePublished(course)) {
+    throw new Error(
+      localizedText(
+        locale,
+        'Бұл курс әлі жарияланбаған.',
+        'Этот курс еще не опубликован.'
+      )
+    );
+  }
+
+  if (!getCourseEnrollmentOpen(course)) {
+    throw new Error(
+      localizedText(
+        locale,
+        'Бұл курсқа жазылу уақытша жабық.',
+        'Запись на этот курс временно закрыта.'
+      )
+    );
+  }
+
+  const maxStudents = getCourseMaxStudents(course);
+
+  if (maxStudents !== null) {
+    const currentStudents = await getCourseStudentCountSafe(courseId);
+
+    if (currentStudents >= maxStudents) {
+      throw new Error(
+        localizedText(
+          locale,
+          'Бұл курста орын қалмаған.',
+          'В этом курсе больше нет свободных мест.'
+        )
+      );
+    }
+  }
+
+  const accessType = getCourseAccessType(course);
+  const rpcAccess = await canAccessCourseByRpc(courseId, studentId);
+
+  const canAccess =
+    rpcAccess ??
+    accessType === 'public_free' ||
+    (await userHasCourseEntitlementSafe(studentId, courseId));
+
+  if (!canAccess) {
+    if (accessType === 'private_invite') {
+      throw new Error(
+        localizedText(
+          locale,
+          'Бұл курсқа кіру үшін invite code қажет.',
+          'Для доступа к этому курсу нужен invite code.'
+        )
+      );
+    }
+
+    if (accessType === 'paid') {
+      throw new Error(
+        localizedText(
+          locale,
+          'Бұл ақылы курс. Алдымен access сұранысын жіберіңіз.',
+          'Это платный курс. Сначала отправьте запрос на доступ.'
+        )
+      );
+    }
+
+    if (accessType === 'subscription_only') {
+      throw new Error(
+        localizedText(
+          locale,
+          'Бұл курс subscription арқылы ашылады.',
+          'Этот курс открывается через подписку.'
+        )
+      );
+    }
+
+    if (accessType === 'school_only') {
+      throw new Error(
+        localizedText(
+          locale,
+          'Бұл курс тек мектеп/ұйым оқушыларына арналған.',
+          'Этот курс доступен только ученикам школы/организации.'
+        )
+      );
+    }
+
+    throw new Error(
+      localizedText(
+        locale,
+        'Бұл курсқа кіруге рұқсат жоқ.',
+        'Нет доступа к этому курсу.'
+      )
+    );
+  }
+
   const { error } = await supabase
     .from('course_enrollments')
     .insert({ student_id: studentId, course_id: courseId, progress_pct: 0 });
@@ -471,6 +922,8 @@ export async function unbookmarkCourse(studentId: string, courseId: string) {
   if (error) throw new Error(error.message);
 }
 
+/* ================= LESSONS ================= */
+
 export async function getLessonDetail(
   lessonId: string,
   studentId?: string,
@@ -493,14 +946,14 @@ export async function getLessonDetail(
 
   const module = modules.find((row) => row.id === lesson.module_id) ?? null;
 
-  const course: { id: string; title: string } | null = module
+  const course: CourseRowWithAccess | null = module
     ? await queryOrThrow(
         supabase
           .from('courses')
-          .select('id, title')
+          .select('*')
           .eq('id', module.course_id)
           .single()
-      )
+      ) as CourseRowWithAccess
     : null;
 
   const subjectMap = buildSubjectMap(subjects);
@@ -515,6 +968,28 @@ export async function getLessonDetail(
     .sort((a, b) => a.sort_order - b.sort_order);
   const previous = siblings.find((row) => row.sort_order === lesson.sort_order - 1);
 
+  const previousLessonLocked = Boolean(previous && !progressSet.has(previous.id));
+
+  let courseAccessLocked = false;
+
+  if (studentId && course) {
+    const rpcAccess = await canAccessCourseByRpc(course.id, studentId);
+
+    const canAccess =
+      rpcAccess ??
+      getCourseAccessType(course) === 'public_free' ||
+      (await userHasCourseEntitlementSafe(studentId, course.id));
+
+    courseAccessLocked = !canAccess;
+  }
+
+  const isLocked = courseAccessLocked || previousLessonLocked;
+  const lockedReason = courseAccessLocked
+    ? 'course_access_required'
+    : previousLessonLocked
+      ? 'previous_lesson_required'
+      : 'none';
+
   return {
     id: lesson.id,
     title: lesson.title,
@@ -524,12 +999,20 @@ export async function getLessonDetail(
     ),
     moduleTitle: module?.title || '—',
     courseTitle: course?.title || '—',
-    contentBody: lesson.content_body,
-    practiceContent: lesson.practice_content,
-    mediaUrl: lesson.media_url,
+
+    /**
+     * UI деңгейіндегі қорғаныс:
+     * access жоқ болса, сабақ контентін қайтармаймыз.
+     * Нақты security бәрібір Supabase RLS/RPC арқылы қатайтылуы керек.
+     */
+    contentBody: isLocked ? null : lesson.content_body,
+    practiceContent: isLocked ? null : lesson.practice_content,
+    mediaUrl: isLocked ? null : lesson.media_url,
+
     sortOrder: lesson.sort_order,
     isCompleted: progressSet.has(lesson.id),
-    isLocked: Boolean(previous && !progressSet.has(previous.id)),
+    isLocked,
+    lockedReason,
   };
 }
 
@@ -563,10 +1046,10 @@ export async function getLessonsForStudent(
     ? await queryOrThrow(
         supabase
           .from('courses')
-          .select('id, title')
+          .select('*')
           .in('id', enrollments.map((row) => row.course_id))
       )
-    : await queryOrThrow(supabase.from('courses').select('id, title'));
+    : await queryOrThrow(supabase.from('courses').select('*'));
 
   const subjectMap = buildSubjectMap(subjects);
   const progressSet = new Set(
@@ -574,7 +1057,7 @@ export async function getLessonsForStudent(
       .filter((row) => row.is_completed)
       .map((row) => row.lesson_id)
   );
-  const courseMap = new Map(courses.map((course) => [course.id, course.title]));
+  const courseMap = new Map((courses as CourseRowWithAccess[]).map((course) => [course.id, course]));
   const moduleMap = new Map(modules.map((module) => [module.id, module]));
   const lessonsByModuleId = groupLessonsByModuleId(lessons as Tables<'lessons'>[]);
 
@@ -586,10 +1069,21 @@ export async function getLessonsForStudent(
     })
     .map((lesson) => {
       const module = moduleMap.get(lesson.module_id) ?? null;
+      const course = module ? courseMap.get(module.course_id) ?? null : null;
       const siblings = (lessonsByModuleId.get(lesson.module_id) || [])
         .slice()
         .sort((a, b) => a.sort_order - b.sort_order);
       const previous = siblings.find((row) => row.sort_order === lesson.sort_order - 1);
+
+      const previousLessonLocked = Boolean(previous && !progressSet.has(previous.id));
+      const courseAccessLocked = Boolean(
+        studentId &&
+        course &&
+        !enrolledCourseIds.has(course.id) &&
+        getCourseAccessType(course) !== 'public_free'
+      );
+
+      const isLocked = courseAccessLocked || previousLessonLocked;
 
       return {
         id: lesson.id,
@@ -599,10 +1093,15 @@ export async function getLessonsForStudent(
           locale
         ),
         moduleTitle: module?.title || '—',
-        courseTitle: module ? courseMap.get(module.course_id) || '—' : '—',
+        courseTitle: course?.title || '—',
         sortOrder: lesson.sort_order,
         isCompleted: progressSet.has(lesson.id),
-        isLocked: Boolean(previous && !progressSet.has(previous.id)),
+        isLocked,
+        lockedReason: courseAccessLocked
+          ? 'course_access_required'
+          : previousLessonLocked
+            ? 'previous_lesson_required'
+            : 'none',
       };
     }) as LessonView[];
 }
@@ -612,6 +1111,8 @@ export async function markLessonComplete(_studentId: string, lessonId: string) {
   if (error) throw new Error(error.message);
   return (data || null) as RpcMutationResponse | null;
 }
+
+/* ================= TESTS ================= */
 
 export async function getTestsCatalog(
   studentId?: string,
@@ -756,6 +1257,8 @@ export async function getTestAttemptBreakdown(
     .filter((item): item is TestAttemptBreakdownItem => item !== null)
     .sort((a, b) => a.questionOrder - b.questionOrder);
 }
+
+/* ================= ANALYTICS / ACHIEVEMENTS / LEADERBOARD ================= */
 
 export async function getAnalytics(userId: string, locale: Locale = 'kk') {
   const [subjects, tests, attempts, _lessons, progress, enrollments] = await Promise.all([
@@ -907,6 +1410,8 @@ export async function getLeaderboard(locale: Locale = 'kk') {
     coursesCompleted: entry.courses_completed,
   })) satisfies LeaderboardView[];
 }
+
+/* ================= PARENT LINK REQUESTS ================= */
 
 type ParentLinkRequestStatus =
   | 'pending'

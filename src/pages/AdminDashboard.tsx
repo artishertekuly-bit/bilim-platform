@@ -1,12 +1,31 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import DashboardLayout from '@/components/DashboardLayout';
 import StatCard from '@/components/StatCard';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
-import { useAdminDashboard } from '@/hooks/use-platform-data';
+import {
+  useAdminDashboard,
+  useManualApproveOrderMutation,
+  useManualGrantCourseAccessMutation,
+  usePendingOrdersForAdmin,
+} from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
-import { Users, BookOpen, FileText, ClipboardList, Eye } from 'lucide-react';
+import {
+  BookOpen,
+  CheckCircle2,
+  ClipboardList,
+  CreditCard,
+  Eye,
+  FileText,
+  KeyRound,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
 
 function formatReviewDate(value: string | null | undefined) {
   if (!value) return t('page.admin_dashboard.not_available');
@@ -15,6 +34,37 @@ function formatReviewDate(value: string | null | undefined) {
   if (Number.isNaN(parsed.getTime())) return value;
 
   return parsed.toLocaleDateString('kk-KZ');
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return '—';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return parsed.toLocaleString('kk-KZ', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatMoney(amount: number | string | null | undefined, currency?: string | null) {
+  const value = Number(amount || 0);
+  const code = currency || 'KZT';
+
+  if (!Number.isFinite(value)) return `0 ${code}`;
+
+  return `${value.toLocaleString('kk-KZ')} ${code}`;
+}
+
+function truncateId(value: string | null | undefined) {
+  if (!value) return '—';
+  if (value.length <= 14) return value;
+
+  return `${value.slice(0, 8)}…${value.slice(-4)}`;
 }
 
 function getContentTypeLabel(value: string) {
@@ -57,7 +107,23 @@ function StatRow({
 
 export default function AdminDashboard() {
   const { user } = useAuth();
+  const { toast } = useToast();
+
   const { data, isLoading, error } = useAdminDashboard(!!user?.id);
+  const {
+    data: pendingOrders,
+    isLoading: pendingOrdersLoading,
+    error: pendingOrdersError,
+  } = usePendingOrdersForAdmin(!!user?.id);
+
+  const approveOrderMutation = useManualApproveOrderMutation(user?.id);
+  const manualGrantMutation = useManualGrantCourseAccessMutation(user?.id);
+
+  const [manualGrantForm, setManualGrantForm] = useState({
+    userId: '',
+    courseId: '',
+    reason: '',
+  });
 
   const firstName = useMemo(
     () => user?.fullName?.trim().split(/\s+/)[0] || t('role.admin'),
@@ -78,6 +144,80 @@ export default function AdminDashboard() {
     () => data?.subjectStats || [],
     [data?.subjectStats]
   );
+
+  const sortedPendingOrders = useMemo(
+    () =>
+      [...(pendingOrders || [])].sort((a, b) => {
+        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return db - da;
+      }),
+    [pendingOrders]
+  );
+
+  const approveOrder = async (orderId: string) => {
+    try {
+      await approveOrderMutation.mutateAsync(orderId);
+
+      toast({
+        title: 'Order расталды',
+        description: 'Оқушыға курс access берілді.',
+      });
+    } catch (approveError) {
+      toast({
+        title: 'Order растау мүмкін болмады',
+        description:
+          approveError instanceof Error
+            ? approveError.message
+            : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const grantManualAccess = async () => {
+    const userId = manualGrantForm.userId.trim();
+    const courseId = manualGrantForm.courseId.trim();
+    const reason = manualGrantForm.reason.trim();
+
+    if (!userId || !courseId) {
+      toast({
+        title: 'User ID және Course ID қажет',
+        description: 'Manual access беру үшін екі ID да толтырылуы керек.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      await manualGrantMutation.mutateAsync({
+        userId,
+        courseId,
+        reason: reason || 'Manual admin grant',
+        adminId: user?.id,
+      });
+
+      setManualGrantForm({
+        userId: '',
+        courseId: '',
+        reason: '',
+      });
+
+      toast({
+        title: 'Access берілді',
+        description: 'Оқушыға курс entitlement қосылды.',
+      });
+    } catch (grantError) {
+      toast({
+        title: 'Manual access беру мүмкін болмады',
+        description:
+          grantError instanceof Error
+            ? grantError.message
+            : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -129,6 +269,157 @@ export default function AdminDashboard() {
 
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="space-y-4 lg:col-span-2">
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                      <CreditCard size={14} />
+                      Ақылы курс сұраныстары
+                    </CardTitle>
+                  </CardHeader>
+
+                  <CardContent className="space-y-3">
+                    {pendingOrdersLoading ? (
+                      <LoadingState text="Pending order-лар жүктелуде..." />
+                    ) : null}
+
+                    {pendingOrdersError ? (
+                      <ErrorState text="Pending order-ларды жүктеу мүмкін болмады." />
+                    ) : null}
+
+                    {!pendingOrdersLoading &&
+                    !pendingOrdersError &&
+                    sortedPendingOrders.length === 0 ? (
+                      <EmptyState
+                        title="Pending order жоқ"
+                        text="Оқушылардан ақылы курсқа access сұранысы түскен жоқ."
+                      />
+                    ) : null}
+
+                    {!pendingOrdersLoading &&
+                    !pendingOrdersError &&
+                    sortedPendingOrders.length > 0 ? (
+                      <div className="space-y-3">
+                        {sortedPendingOrders.map((order) => (
+                          <div
+                            key={order.id}
+                            className="rounded-xl border border-border p-4"
+                          >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700">
+                                    {order.status}
+                                  </span>
+                                  <span className="rounded-full border px-2 py-1 text-[10px] text-muted-foreground">
+                                    {order.product_type}
+                                  </span>
+                                </div>
+
+                                <p className="text-sm font-semibold">
+                                  {formatMoney(order.amount, order.currency)}
+                                </p>
+
+                                <p className="text-[11px] text-muted-foreground">
+                                  Order: #{truncateId(order.id)}
+                                </p>
+
+                                <p className="text-[11px] text-muted-foreground">
+                                  Buyer: #{truncateId(order.buyer_id)}
+                                </p>
+
+                                <p className="text-[11px] text-muted-foreground">
+                                  Course/Product: #{truncateId(order.product_id)}
+                                </p>
+
+                                <p className="text-[11px] text-muted-foreground">
+                                  Жіберілген уақыты: {formatDateTime(order.created_at)}
+                                </p>
+                              </div>
+
+                              <Button
+                                size="sm"
+                                onClick={() => approveOrder(order.id)}
+                                disabled={approveOrderMutation.isPending}
+                              >
+                                <CheckCircle2 size={14} className="mr-1.5" />
+                                Approve
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                      <ShieldCheck size={14} />
+                      Manual course access
+                    </CardTitle>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    <p className="text-xs text-muted-foreground">
+                      Бұл бөлім payment қоспай тұрып, admin арқылы оқушыға ақылы
+                      немесе жабық курсқа қолмен access беру үшін керек.
+                    </p>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>User ID</Label>
+                        <Input
+                          value={manualGrantForm.userId}
+                          onChange={(e) =>
+                            setManualGrantForm((prev) => ({
+                              ...prev,
+                              userId: e.target.value,
+                            }))
+                          }
+                          placeholder="student user_id"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Course ID</Label>
+                        <Input
+                          value={manualGrantForm.courseId}
+                          onChange={(e) =>
+                            setManualGrantForm((prev) => ({
+                              ...prev,
+                              courseId: e.target.value,
+                            }))
+                          }
+                          placeholder="course id"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label>Себебі</Label>
+                      <Input
+                        value={manualGrantForm.reason}
+                        onChange={(e) =>
+                          setManualGrantForm((prev) => ({
+                            ...prev,
+                            reason: e.target.value,
+                          }))
+                        }
+                        placeholder="Мысалы: қолма-қол төледі / тест үшін ашылды"
+                      />
+                    </div>
+
+                    <Button
+                      onClick={grantManualAccess}
+                      disabled={manualGrantMutation.isPending}
+                    >
+                      <KeyRound size={14} className="mr-1.5" />
+                      Access беру
+                    </Button>
+                  </CardContent>
+                </Card>
+
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-sm font-semibold">

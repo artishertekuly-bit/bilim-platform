@@ -10,12 +10,25 @@ import {
 } from './student-data';
 
 import type {
+  CourseAccessType,
+  CourseVisibility,
+  CurrencyCode,
   SubjectMap,
   TeacherCourseWorkspace,
   TeacherDashboardData,
   TeacherStudentCourseRow,
   TeacherTestWorkspace,
 } from '@/lib/app-data-types';
+
+type CourseRowWithAccess = Tables<'courses'> & {
+  access_type?: CourseAccessType | null;
+  visibility?: CourseVisibility | null;
+  price?: number | null;
+  currency?: CurrencyCode | null;
+  published_at?: string | null;
+  enrollment_open?: boolean | null;
+  max_students?: number | null;
+};
 
 function groupByCourseId<T extends { course_id: string }>(rows: T[]) {
   const map = new Map<string, T[]>();
@@ -65,6 +78,30 @@ function groupAttemptsByTestId(rows: Array<{ test_id: string; score: number | nu
   return map;
 }
 
+function getCourseAccessType(course: CourseRowWithAccess): CourseAccessType {
+  return course.access_type || 'public_free';
+}
+
+function getCourseVisibility(course: CourseRowWithAccess): CourseVisibility {
+  return course.visibility || 'public';
+}
+
+function getCoursePrice(course: CourseRowWithAccess): number {
+  return Number(course.price ?? 0);
+}
+
+function getCourseCurrency(course: CourseRowWithAccess): CurrencyCode {
+  return course.currency || 'KZT';
+}
+
+function getCourseEnrollmentOpen(course: CourseRowWithAccess): boolean {
+  return course.enrollment_open ?? true;
+}
+
+function getCourseMaxStudents(course: CourseRowWithAccess): number | null {
+  return course.max_students ?? null;
+}
+
 export async function getTeacherDashboard(
   teacherId: string,
   locale: 'kk' | 'ru' = 'kk'
@@ -85,12 +122,37 @@ export async function getTeacherDashboard(
     courseIds.length
       ? queryOrThrow(supabase.from('modules').select('*').in('course_id', courseIds))
       : Promise.resolve([] as Tables<'modules'>[]),
-    queryOrThrow(supabase.from('lessons').select('*').eq('is_published', true)),
+    courseIds.length
+      ? queryOrThrow(
+          supabase
+            .from('modules')
+            .select('id, course_id, lessons(*)')
+            .in('course_id', courseIds)
+        )
+      : Promise.resolve([]),
   ]);
 
   const enrollmentRows = enrollments as Tables<'course_enrollments'>[];
   const moduleRows = modules as Tables<'modules'>[];
-  const lessonRows = lessons as Tables<'lessons'>[];
+
+  /**
+   * Жаңа оптимизация:
+   * Бұрын барлық published lessons алынып тұрған.
+   * Енді тек осы мұғалімнің курстарына тиесілі сабақтарды жинаймыз.
+   */
+  const lessonRows = (lessons as Array<{
+    id: string;
+    course_id: string;
+    lessons: Tables<'lessons'>[] | Tables<'lessons'> | null;
+  }>).flatMap((module) => {
+    if (!module.lessons) return [];
+
+    return Array.isArray(module.lessons)
+      ? module.lessons
+      : [module.lessons];
+  });
+
+  const publishedLessonRows = lessonRows.filter((lesson) => lesson.is_published);
 
   const studentIds = [...new Set(enrollmentRows.map((row) => row.student_id))];
 
@@ -126,7 +188,7 @@ export async function getTeacherDashboard(
   const lessonIdsByCourse = new Map<string, string[]>();
   courses.forEach((course) => {
     const moduleIds = moduleIdsByCourse.get(course.id) || new Set<string>();
-    const lessonIds = lessonRows
+    const lessonIds = publishedLessonRows
       .filter((lesson) => moduleIds.has(lesson.module_id))
       .map((lesson) => lesson.id);
 
@@ -225,7 +287,7 @@ export async function getTeacherCourseWorkspace(
   teacherId: string,
   locale: 'kk' | 'ru' = 'kk'
 ): Promise<TeacherCourseWorkspace> {
-  const [subjects, courses, modules, lessons] = await Promise.all([
+  const [subjects, rawCourses] = await Promise.all([
     getSubjects(),
     queryOrThrow(
       supabase
@@ -234,28 +296,47 @@ export async function getTeacherCourseWorkspace(
         .eq('teacher_id', teacherId)
         .order('created_at', { ascending: false })
     ),
-    queryOrThrow(
-      supabase.from('modules').select('*').order('sort_order', { ascending: true })
-    ),
-    queryOrThrow(
-      supabase.from('lessons').select('*').order('sort_order', { ascending: true })
-    ),
   ]);
 
-  const subjectMap = Object.fromEntries(subjects.map((s) => [s.id, s])) as SubjectMap;
-  const profiles = await getProfilesMap([teacherId]);
+  const courses = rawCourses as CourseRowWithAccess[];
+  const courseIds = courses.map((course) => course.id);
 
-  const allEnrollments = courses.length
+  const modules = courseIds.length
+    ? await queryOrThrow(
+        supabase
+          .from('modules')
+          .select('*')
+          .in('course_id', courseIds)
+          .order('sort_order', { ascending: true })
+      )
+    : [];
+
+  const moduleRows = modules as Tables<'modules'>[];
+  const moduleIds = moduleRows.map((module) => module.id);
+
+  const lessons = moduleIds.length
+    ? await queryOrThrow(
+        supabase
+          .from('lessons')
+          .select('*')
+          .in('module_id', moduleIds)
+          .order('sort_order', { ascending: true })
+      )
+    : [];
+
+  const allEnrollments = courseIds.length
     ? await queryOrThrow(
         supabase
           .from('course_enrollments')
           .select('course_id, progress_pct')
-          .in('course_id', courses.map((course) => course.id))
+          .in('course_id', courseIds)
       )
     : [];
 
+  const subjectMap = Object.fromEntries(subjects.map((s) => [s.id, s])) as SubjectMap;
+  const profiles = await getProfilesMap([teacherId]);
+
   const lessonRows = lessons as Tables<'lessons'>[];
-  const moduleRows = modules as Tables<'modules'>[];
   const lessonsByModuleId = groupLessonsByModuleId(lessonRows);
   const enrollmentsByCourseId = groupByCourseId(
     allEnrollments as Array<{ course_id: string; progress_pct: number }>
@@ -294,6 +375,13 @@ export async function getTeacherCourseWorkspace(
         )
       : 0;
 
+    const accessType = getCourseAccessType(course);
+    const visibility = getCourseVisibility(course);
+    const price = getCoursePrice(course);
+    const currency = getCourseCurrency(course);
+    const enrollmentOpen = getCourseEnrollmentOpen(course);
+    const maxStudents = getCourseMaxStudents(course);
+
     return {
       id: course.id,
       title: course.title,
@@ -313,6 +401,15 @@ export async function getTeacherCourseWorkspace(
       progress: avgProgress,
       status: course.status,
       bookmarked: false,
+
+      accessType,
+      visibility,
+      price,
+      currency,
+      publishedAt: course.published_at ?? null,
+      enrollmentOpen,
+      maxStudents,
+
       subjectId: course.subject_id,
       thumbnailUrl: course.thumbnail_url,
       modules: courseModules,
@@ -369,7 +466,9 @@ export async function getTeacherTestsWorkspace(
 
   return {
     tests: tests.map((test) => {
-      const testQuestions = (questionsByTestId.get(test.id) || []).map(({ course_id: _courseId, ...row }) => row);
+      const testQuestions = (questionsByTestId.get(test.id) || []).map(
+        ({ course_id: _courseId, ...row }) => row
+      );
       const testAttempts = (attemptsByTestId.get(test.id) || []).filter(
         (row) => row.score !== null
       );

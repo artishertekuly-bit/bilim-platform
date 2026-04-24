@@ -1,12 +1,97 @@
 import type {
-  ContentStatus,
-  QuestionType,
+  Enums,
   Tables,
 } from '@/integrations/supabase/types';
 
+/**
+ * Supabase generated aliases.
+ * Бұларды осы жерде alias қылып ұстаймыз, себебі generated types.ts ішінде
+ * ContentStatus / QuestionType бөлек export болмауы мүмкін.
+ */
+export type ContentStatus = Enums<'content_status'>;
+export type QuestionType = Enums<'question_type'>;
+
+/**
+ * MVP 1–3 access/payment foundation types.
+ *
+ * Ескерту:
+ * Бұлар SQL migration-дағы enum мәндерімен бірдей болуы керек.
+ * Supabase types.ts қайта generate болғаннан кейін де осы union-дар frontend layer үшін тұрақты API болып қала береді.
+ */
+export type CourseAccessType =
+  | 'public_free'
+  | 'private_invite'
+  | 'paid'
+  | 'subscription_only'
+  | 'school_only';
+
+export type CourseVisibility = 'public' | 'unlisted' | 'private';
+
+export type EntitlementResourceType =
+  | 'course'
+  | 'subscription'
+  | 'ai_feature'
+  | 'consultation'
+  | 'certificate';
+
+export type EntitlementSource =
+  | 'free'
+  | 'invite'
+  | 'manual'
+  | 'paid_order'
+  | 'subscription'
+  | 'school'
+  | 'admin_grant';
+
+export type EntitlementStatus = 'active' | 'revoked' | 'expired';
+
+export type OrderProductType =
+  | 'course'
+  | 'subscription'
+  | 'ai_credits'
+  | 'consultation'
+  | 'certificate';
+
+export type OrderStatus =
+  | 'pending'
+  | 'approved'
+  | 'cancelled'
+  | 'refunded';
+
+export type PaymentStatus =
+  | 'pending'
+  | 'succeeded'
+  | 'failed'
+  | 'refunded'
+  | 'cancelled';
+
+export type CurrencyCode = 'KZT' | 'USD' | 'EUR' | 'RUB' | string;
+
+export type JsonRecord = Record<string, unknown>;
+
+/**
+ * Existing Supabase rows.
+ */
 export type SubjectRow = Tables<'subjects'>;
 export type CourseBookmarkRow = Tables<'course_bookmarks'>;
-export type CourseRow = Tables<'courses'>;
+
+/**
+ * CourseRow-ға жаңа column-дарды intersection арқылы қостық.
+ *
+ * Себебі Supabase generated types.ts әлі жаңартылмаған болса,
+ * Tables<'courses'> ішінде access_type / price / visibility болмайды.
+ * Бірақ frontend type layer осы жаңа өрістерді қазірден тани береді.
+ */
+export type CourseRow = Tables<'courses'> & {
+  access_type?: CourseAccessType;
+  visibility?: CourseVisibility;
+  price?: number;
+  currency?: CurrencyCode;
+  published_at?: string | null;
+  enrollment_open?: boolean;
+  max_students?: number | null;
+};
+
 export type LessonRow = Tables<'lessons'>;
 export type TestRow = Tables<'tests'>;
 export type AchievementRow = Tables<'achievements'>;
@@ -25,6 +110,67 @@ export type ProfileMap = Record<
   }
 >;
 
+/**
+ * MVP 1: Course access state.
+ *
+ * Бұл UI-да қандай кнопка шығатынын анықтауға керек:
+ * - enroll
+ * - invite code енгізу
+ * - paid access request
+ * - course жабық
+ * - мұғалім/admin ретінде басқару
+ */
+export type CourseAccessState =
+  | 'owner'
+  | 'admin'
+  | 'public_free'
+  | 'has_entitlement'
+  | 'enrolled'
+  | 'requires_invite'
+  | 'requires_payment'
+  | 'requires_subscription'
+  | 'requires_school_access'
+  | 'draft_or_unpublished'
+  | 'enrollment_closed'
+  | 'not_available'
+  | 'unknown';
+
+export type CourseUnlockAction =
+  | 'open_course'
+  | 'enroll'
+  | 'redeem_invite'
+  | 'request_paid_access'
+  | 'subscribe'
+  | 'request_school_access'
+  | 'manage_course'
+  | 'none';
+
+export interface CourseAccessView {
+  accessType: CourseAccessType;
+  visibility: CourseVisibility;
+  price: number;
+  currency: CurrencyCode;
+  publishedAt: string | null;
+  enrollmentOpen: boolean;
+  maxStudents: number | null;
+
+  canAccess: boolean;
+  accessState: CourseAccessState;
+  unlockAction: CourseUnlockAction;
+
+  isFree: boolean;
+  isPaid: boolean;
+  isInviteOnly: boolean;
+  isSubscriptionOnly: boolean;
+  isSchoolOnly: boolean;
+
+  hasEntitlement: boolean;
+  isEnrolled: boolean;
+
+  pendingOrderId: string | null;
+  pendingOrderStatus: OrderStatus | null;
+}
+
 export interface CourseView {
   id: string;
   title: string;
@@ -41,6 +187,21 @@ export interface CourseView {
   progress: number;
   status: CourseViewStatus;
   bookmarked: boolean;
+
+  /**
+   * MVP 1 access fields.
+   *
+   * Әзірге optional қойылды.
+   * Себебі келесі файлдарда data mapping-ті біртіндеп жаңартамыз.
+   */
+  accessType?: CourseAccessType;
+  visibility?: CourseVisibility;
+  price?: number;
+  currency?: CurrencyCode;
+  publishedAt?: string | null;
+  enrollmentOpen?: boolean;
+  maxStudents?: number | null;
+  access?: CourseAccessView;
 }
 
 export interface LessonView {
@@ -52,6 +213,16 @@ export interface LessonView {
   sortOrder: number;
   isCompleted: boolean;
   isLocked: boolean;
+
+  /**
+   * MVP 1: lesson lock енді тек progress емес,
+   * course access арқылы да анықталуы мүмкін.
+   */
+  lockedReason?:
+    | 'course_access_required'
+    | 'previous_lesson_required'
+    | 'lesson_unpublished'
+    | 'none';
 }
 
 export interface TestCatalogItem {
@@ -125,6 +296,19 @@ export interface LessonDetailView {
   sortOrder: number;
   isCompleted: boolean;
   isLocked: boolean;
+  lockedReason?:
+    | 'course_access_required'
+    | 'previous_lesson_required'
+    | 'lesson_unpublished'
+    | 'none';
+
+  /**
+   * MVP 2 үшін орын.
+   * Notes/bookmarks/files келесі кезеңде осы detail view-ға байланысады.
+   */
+  bookmarked?: boolean;
+  hasNotes?: boolean;
+  attachmentsCount?: number;
 }
 
 export interface TeacherStudentCourseRow {
@@ -190,6 +374,17 @@ export interface TeacherCourseWorkspace {
       teacherId: string;
       thumbnailUrl: string | null;
       modules: CourseBuilderModuleView[];
+
+      /**
+       * Teacher course builder ішінде курс access баптаулары көрінуі керек.
+       */
+      accessType: CourseAccessType;
+      visibility: CourseVisibility;
+      price: number;
+      currency: CurrencyCode;
+      publishedAt: string | null;
+      enrollmentOpen: boolean;
+      maxStudents: number | null;
     }
   >;
 }
@@ -216,6 +411,147 @@ export interface ModerationItem {
   extra: string;
 }
 
+/**
+ * MVP 1: Invite system rows.
+ *
+ * Бұларды қолмен жазып отырмыз.
+ * Кейін Supabase types.ts қайта generate болса, Tables<'course_invites'> ретінде ауыстыруға болады.
+ */
+export interface CourseInviteRow {
+  id: string;
+  course_id: string;
+  code: string;
+  created_by: string;
+  max_uses: number | null;
+  used_count: number;
+  expires_at: string | null;
+  is_active: boolean;
+  access_grants_entitlement: boolean;
+  metadata: JsonRecord;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseInviteRedemptionRow {
+  id: string;
+  invite_id: string;
+  course_id: string;
+  student_id: string;
+  entitlement_id: string | null;
+  redeemed_at: string;
+}
+
+export interface CourseInviteView {
+  id: string;
+  courseId: string;
+  courseTitle: string;
+  code: string;
+  maxUses: number | null;
+  usedCount: number;
+  remainingUses: number | null;
+  expiresAt: string | null;
+  isActive: boolean;
+  isExpired: boolean;
+  createdAt: string;
+}
+
+/**
+ * MVP 1 + MVP 3: Entitlement system.
+ */
+export interface EntitlementRow {
+  id: string;
+  user_id: string;
+  resource_type: EntitlementResourceType;
+  resource_id: string;
+  source: EntitlementSource;
+  source_id: string | null;
+  status: EntitlementStatus;
+  valid_from: string;
+  valid_until: string | null;
+  created_by: string | null;
+  metadata: JsonRecord;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EntitlementView {
+  id: string;
+  userId: string;
+  resourceType: EntitlementResourceType;
+  resourceId: string;
+  resourceTitle: string | null;
+  source: EntitlementSource;
+  status: EntitlementStatus;
+  validFrom: string;
+  validUntil: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+/**
+ * MVP 3: Order / Payment skeleton.
+ *
+ * Нақты payment gateway жоқ.
+ * Бұл manual approve және future payment integration үшін керек.
+ */
+export interface OrderRow {
+  id: string;
+  buyer_id: string;
+  product_type: OrderProductType;
+  product_id: string;
+  status: OrderStatus;
+  amount: number;
+  currency: CurrencyCode;
+  approved_by: string | null;
+  approved_at: string | null;
+  metadata: JsonRecord;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentRow {
+  id: string;
+  order_id: string;
+  provider: string;
+  provider_payment_id: string | null;
+  status: PaymentStatus;
+  amount: number;
+  currency: CurrencyCode;
+  paid_at: string | null;
+  metadata: JsonRecord;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrderView {
+  id: string;
+  buyerId: string;
+  buyerName: string | null;
+  productType: OrderProductType;
+  productId: string;
+  productTitle: string | null;
+  status: OrderStatus;
+  amount: number;
+  currency: CurrencyCode;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+}
+
+export interface PaymentView {
+  id: string;
+  orderId: string;
+  provider: string;
+  status: PaymentStatus;
+  amount: number;
+  currency: CurrencyCode;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+/**
+ * RPC responses.
+ */
 export type RpcMutationResponse = {
   lesson_id?: string;
   course_id?: string;
@@ -224,3 +560,53 @@ export type RpcMutationResponse = {
   correct_count?: number;
   total_questions?: number;
 };
+
+export interface RedeemCourseInviteResponse {
+  course_id: string;
+  entitlement_id: string | null;
+  already_redeemed: boolean;
+}
+
+export interface ManualApproveOrderResponse {
+  order_id: string;
+  payment_id: string;
+  entitlement_id: string | null;
+  status: OrderStatus;
+}
+
+export interface CourseAccessCheckResponse {
+  canAccess: boolean;
+  accessState: CourseAccessState;
+}
+
+/**
+ * Form payloads.
+ */
+export interface CourseAccessSettingsPayload {
+  accessType: CourseAccessType;
+  visibility: CourseVisibility;
+  price: number;
+  currency: CurrencyCode;
+  enrollmentOpen: boolean;
+  maxStudents: number | null;
+}
+
+export interface CreateCourseInvitePayload {
+  courseId: string;
+  maxUses?: number | null;
+  expiresAt?: string | null;
+}
+
+export interface RedeemCourseInvitePayload {
+  code: string;
+}
+
+export interface RequestPaidCourseAccessPayload {
+  courseId: string;
+}
+
+export interface ManualGrantCourseAccessPayload {
+  userId: string;
+  courseId: string;
+  reason?: string | null;
+}

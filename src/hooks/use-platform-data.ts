@@ -1,20 +1,30 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { getLocale, type Locale } from '@/lib/i18n';
 import {
+  acceptParentLinkRequest,
   cancelParentLinkRequest,
+  createCourseInvite,
+  deactivateCourseInvite,
+  declineParentLinkRequest,
   getAchievements,
   getAdminDashboard,
   getAnalytics,
   getCourseCatalog,
-  getLeaderboard,
-  acceptParentLinkRequest,
-  declineParentLinkRequest,
+  getCourseInvites,
   getIncomingParentLinkRequests,
+  getLeaderboard,
   getLessonDetail,
   getLessonsForStudent,
   getModerationQueue,
+  getMyOrders,
   getParentDashboard,
   getParentLinkRequests,
+  getPendingOrdersForAdmin,
   getStudentDashboard,
   getSubjects,
   getTeacherCourseWorkspace,
@@ -22,8 +32,21 @@ import {
   getTeacherTestsWorkspace,
   getTestsCatalog,
   getUsersWithRoles,
+  manualApproveOrder,
+  manualGrantCourseAccess,
+  redeemCourseInvite,
+  requestPaidCourseAccess,
   requestParentLink,
+  setCourseInviteActive,
+  updateCourseAccessSettings,
 } from '@/lib/app-data';
+import type {
+  CourseAccessSettingsPayload,
+  CreateCourseInvitePayload,
+  ManualGrantCourseAccessPayload,
+  RedeemCourseInvitePayload,
+  RequestPaidCourseAccessPayload,
+} from '@/lib/app-data-types';
 
 function resolveLocale(locale?: Locale): Locale {
   return locale ?? getLocale();
@@ -38,7 +61,7 @@ const testsKey = (userId?: string, locale?: Locale) =>
 export const platformKeys = {
   subjects: ['subjects'] as const,
 
-    incomingParentLinkRequestsBase: ['incoming-parent-link-requests'] as const,
+  incomingParentLinkRequestsBase: ['incoming-parent-link-requests'] as const,
   incomingParentLinkRequests: (userId: string, locale?: Locale) =>
     ['incoming-parent-link-requests', resolveLocale(locale), userId] as const,
 
@@ -54,6 +77,10 @@ export const platformKeys = {
     courseKey(undefined, teacherId, locale),
   courseCatalogAdmin: (locale?: Locale) =>
     courseKey(undefined, undefined, locale),
+
+  courseInvitesBase: ['course-invites'] as const,
+  courseInvites: (courseId: string) =>
+    ['course-invites', courseId] as const,
 
   lessonsBase: ['lessons'] as const,
   lessons: (userId?: string, locale?: Locale) =>
@@ -100,6 +127,13 @@ export const platformKeys = {
   parentLinkRequests: (userId: string, locale?: Locale) =>
     ['parent-link-requests', resolveLocale(locale), userId] as const,
 
+  myOrdersBase: ['my-orders'] as const,
+  myOrders: (userId?: string) =>
+    ['my-orders', userId ?? 'me'] as const,
+
+  pendingOrdersBase: ['pending-orders'] as const,
+  pendingOrders: ['pending-orders'] as const,
+
   adminDashboard: ['admin-dashboard'] as const,
   adminDashboardByLocale: (locale?: Locale) =>
     ['admin-dashboard', resolveLocale(locale)] as const,
@@ -112,6 +146,85 @@ export const platformKeys = {
   usersByLocale: (locale?: Locale) =>
     ['users', resolveLocale(locale)] as const,
 };
+
+async function invalidateCourseAccessCaches(
+  queryClient: QueryClient,
+  input?: {
+    userId?: string;
+    teacherId?: string;
+    courseId?: string;
+    locale?: Locale;
+  }
+) {
+  const activeLocale = resolveLocale(input?.locale);
+
+  const tasks: Array<Promise<unknown>> = [
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.coursesBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.teacherCourseWorkspaceBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.studentDashboardBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonDetailBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.myOrdersBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.pendingOrdersBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.adminDashboard,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.moderationQueue,
+    }),
+  ];
+
+  if (input?.userId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.studentDashboard(input.userId, activeLocale),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.myOrders(input.userId),
+      })
+    );
+  }
+
+  if (input?.teacherId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.teacherDashboard(input.teacherId, activeLocale),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.courseCatalogTeacher(input.teacherId, activeLocale),
+      })
+    );
+  }
+
+  if (input?.courseId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.courseInvites(input.courseId),
+      })
+    );
+  }
+
+  await Promise.all(tasks);
+}
+
+/* ================= READ QUERIES ================= */
 
 export function useSubjects(enabled = true) {
   return useQuery({
@@ -143,6 +256,14 @@ export function useCourseCatalog(
     queryKey: platformKeys.courses(userId, teacherId, activeLocale),
     queryFn: () => getCourseCatalog(userId, teacherId, activeLocale),
     enabled,
+  });
+}
+
+export function useCourseInvites(courseId: string, enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.courseInvites(courseId),
+    queryFn: () => getCourseInvites(courseId),
+    enabled: enabled && !!courseId,
   });
 }
 
@@ -275,6 +396,279 @@ export function useIncomingParentLinkRequests(
   });
 }
 
+export function useMyOrders(userId?: string, enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.myOrders(userId),
+    queryFn: getMyOrders,
+    enabled,
+  });
+}
+
+export function usePendingOrdersForAdmin(enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.pendingOrders,
+    queryFn: getPendingOrdersForAdmin,
+    enabled,
+  });
+}
+
+export function useAdminDashboard(enabled = true, locale?: Locale) {
+  const activeLocale = resolveLocale(locale);
+
+  return useQuery({
+    queryKey: platformKeys.adminDashboardByLocale(activeLocale),
+    queryFn: () => getAdminDashboard(activeLocale),
+    enabled,
+  });
+}
+
+export function useModerationQueue(enabled = true, locale?: Locale) {
+  const activeLocale = resolveLocale(locale);
+
+  return useQuery({
+    queryKey: platformKeys.moderationQueueByLocale(activeLocale),
+    queryFn: () => getModerationQueue(activeLocale),
+    enabled,
+  });
+}
+
+export function useUsers(enabled = true, locale?: Locale) {
+  const activeLocale = resolveLocale(locale);
+
+  return useQuery({
+    queryKey: platformKeys.usersByLocale(activeLocale),
+    queryFn: () => getUsersWithRoles(activeLocale),
+    enabled,
+  });
+}
+
+/* ================= COURSE ACCESS MUTATIONS ================= */
+
+type UpdateCourseAccessSettingsMutationInput =
+  CourseAccessSettingsPayload & {
+    courseId: string;
+    userId?: string;
+    teacherId?: string;
+    locale?: Locale;
+  };
+
+export function useUpdateCourseAccessSettingsMutation(
+  userId?: string,
+  locale?: Locale
+) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      userId: _userId,
+      teacherId: _teacherId,
+      locale: _locale,
+      ...payload
+    }: UpdateCourseAccessSettingsMutationInput) => updateCourseAccessSettings(payload),
+    onSuccess: async (_, variables) => {
+      const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
+
+      await invalidateCourseAccessCaches(queryClient, {
+        userId: variables.userId ?? userId,
+        teacherId: variables.teacherId ?? userId,
+        courseId: variables.courseId,
+        locale: resolvedLocale,
+      });
+    },
+  });
+}
+
+type CreateCourseInviteMutationInput =
+  CreateCourseInvitePayload & {
+    userId?: string;
+    teacherId?: string;
+    locale?: Locale;
+  };
+
+export function useCreateCourseInviteMutation(userId?: string, locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      userId: _userId,
+      teacherId: _teacherId,
+      locale: _locale,
+      ...payload
+    }: CreateCourseInviteMutationInput) => createCourseInvite(payload),
+    onSuccess: async (_, variables) => {
+      const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
+
+      await invalidateCourseAccessCaches(queryClient, {
+        userId: variables.userId ?? userId,
+        teacherId: variables.teacherId ?? userId,
+        courseId: variables.courseId,
+        locale: resolvedLocale,
+      });
+    },
+  });
+}
+
+export function useSetCourseInviteActiveMutation(userId?: string, locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: setCourseInviteActive,
+    onSuccess: async (invite) => {
+      await invalidateCourseAccessCaches(queryClient, {
+        userId,
+        teacherId: userId,
+        courseId: invite.course_id,
+        locale: activeLocale,
+      });
+    },
+  });
+}
+
+export function useDeactivateCourseInviteMutation(userId?: string, locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: deactivateCourseInvite,
+    onSuccess: async (invite) => {
+      await invalidateCourseAccessCaches(queryClient, {
+        userId,
+        teacherId: userId,
+        courseId: invite.course_id,
+        locale: activeLocale,
+      });
+    },
+  });
+}
+
+type RedeemCourseInviteMutationInput =
+  RedeemCourseInvitePayload & {
+    userId?: string;
+    locale?: Locale;
+  };
+
+export function useRedeemCourseInviteMutation(userId?: string, locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      userId: _userId,
+      locale: _locale,
+      ...payload
+    }: RedeemCourseInviteMutationInput) => redeemCourseInvite(payload),
+    onSuccess: async (result, variables) => {
+      const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
+
+      await invalidateCourseAccessCaches(queryClient, {
+        userId: variables.userId ?? userId,
+        courseId: result.course_id,
+        locale: resolvedLocale,
+      });
+    },
+  });
+}
+
+type RequestPaidCourseAccessMutationInput =
+  RequestPaidCourseAccessPayload & {
+    userId?: string;
+    locale?: Locale;
+  };
+
+export function useRequestPaidCourseAccessMutation(userId?: string, locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      userId: _userId,
+      locale: _locale,
+      ...payload
+    }: RequestPaidCourseAccessMutationInput) => requestPaidCourseAccess(payload),
+    onSuccess: async (order, variables) => {
+      const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
+
+      await invalidateCourseAccessCaches(queryClient, {
+        userId: variables.userId ?? userId,
+        courseId: order.product_type === 'course' ? order.product_id : undefined,
+        locale: resolvedLocale,
+      });
+    },
+  });
+}
+
+type ManualGrantCourseAccessMutationInput =
+  ManualGrantCourseAccessPayload & {
+    adminId?: string;
+    locale?: Locale;
+  };
+
+export function useManualGrantCourseAccessMutation(adminId?: string, locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      adminId: _adminId,
+      locale: _locale,
+      ...payload
+    }: ManualGrantCourseAccessMutationInput) => manualGrantCourseAccess(payload),
+    onSuccess: async (entitlement, variables) => {
+      const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
+
+      await invalidateCourseAccessCaches(queryClient, {
+        userId: entitlement.user_id,
+        teacherId: adminId,
+        courseId: entitlement.resource_type === 'course'
+          ? entitlement.resource_id
+          : undefined,
+        locale: resolvedLocale,
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.usersByLocale(resolvedLocale),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.adminDashboardByLocale(resolvedLocale),
+        }),
+      ]);
+    },
+  });
+}
+
+export function useManualApproveOrderMutation(adminId?: string, locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: manualApproveOrder,
+    onSuccess: async () => {
+      await invalidateCourseAccessCaches(queryClient, {
+        teacherId: adminId,
+        locale: activeLocale,
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.pendingOrders,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.adminDashboardByLocale(activeLocale),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.usersByLocale(activeLocale),
+        }),
+      ]);
+    },
+  });
+}
+
+/* ================= PARENT LINK MUTATIONS ================= */
+
 type StudentParentLinkRequestActionInput = {
   requestId: string;
   locale?: Locale;
@@ -295,15 +689,21 @@ export function useAcceptParentLinkRequestMutation(userId?: string, locale?: Loc
     onSuccess: async (_, variables) => {
       const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
 
-      if (userId) {
-        await queryClient.invalidateQueries({
-          queryKey: platformKeys.incomingParentLinkRequests(userId, resolvedLocale),
-        });
-      } else {
-        await queryClient.invalidateQueries({
-          queryKey: platformKeys.incomingParentLinkRequestsBase,
-        });
-      }
+      await Promise.all([
+        userId
+          ? queryClient.invalidateQueries({
+              queryKey: platformKeys.incomingParentLinkRequests(userId, resolvedLocale),
+            })
+          : queryClient.invalidateQueries({
+              queryKey: platformKeys.incomingParentLinkRequestsBase,
+            }),
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.parentDashboardBase,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.parentLinkRequestsBase,
+        }),
+      ]);
     },
   });
 }
@@ -323,15 +723,18 @@ export function useDeclineParentLinkRequestMutation(userId?: string, locale?: Lo
     onSuccess: async (_, variables) => {
       const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
 
-      if (userId) {
-        await queryClient.invalidateQueries({
-          queryKey: platformKeys.incomingParentLinkRequests(userId, resolvedLocale),
-        });
-      } else {
-        await queryClient.invalidateQueries({
-          queryKey: platformKeys.incomingParentLinkRequestsBase,
-        });
-      }
+      await Promise.all([
+        userId
+          ? queryClient.invalidateQueries({
+              queryKey: platformKeys.incomingParentLinkRequests(userId, resolvedLocale),
+            })
+          : queryClient.invalidateQueries({
+              queryKey: platformKeys.incomingParentLinkRequestsBase,
+            }),
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.parentLinkRequestsBase,
+        }),
+      ]);
     },
   });
 }
@@ -361,6 +764,9 @@ export function useRequestParentLinkMutation(userId?: string, locale?: Locale) {
           queryClient.invalidateQueries({
             queryKey: platformKeys.parentDashboard(userId, resolvedLocale),
           }),
+          queryClient.invalidateQueries({
+            queryKey: platformKeys.incomingParentLinkRequestsBase,
+          }),
         ]);
 
         return;
@@ -372,6 +778,9 @@ export function useRequestParentLinkMutation(userId?: string, locale?: Locale) {
         }),
         queryClient.invalidateQueries({
           queryKey: platformKeys.parentDashboardBase,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.incomingParentLinkRequestsBase,
         }),
       ]);
     },
@@ -406,6 +815,9 @@ export function useCancelParentLinkRequestMutation(userId?: string, locale?: Loc
           queryClient.invalidateQueries({
             queryKey: platformKeys.parentDashboard(userId, resolvedLocale),
           }),
+          queryClient.invalidateQueries({
+            queryKey: platformKeys.incomingParentLinkRequestsBase,
+          }),
         ]);
 
         return;
@@ -418,37 +830,10 @@ export function useCancelParentLinkRequestMutation(userId?: string, locale?: Loc
         queryClient.invalidateQueries({
           queryKey: platformKeys.parentDashboardBase,
         }),
+        queryClient.invalidateQueries({
+          queryKey: platformKeys.incomingParentLinkRequestsBase,
+        }),
       ]);
     },
-  });
-}
-
-export function useAdminDashboard(enabled = true, locale?: Locale) {
-  const activeLocale = resolveLocale(locale);
-
-  return useQuery({
-    queryKey: platformKeys.adminDashboardByLocale(activeLocale),
-    queryFn: () => getAdminDashboard(activeLocale),
-    enabled,
-  });
-}
-
-export function useModerationQueue(enabled = true, locale?: Locale) {
-  const activeLocale = resolveLocale(locale);
-
-  return useQuery({
-    queryKey: platformKeys.moderationQueueByLocale(activeLocale),
-    queryFn: () => getModerationQueue(activeLocale),
-    enabled,
-  });
-}
-
-export function useUsers(enabled = true, locale?: Locale) {
-  const activeLocale = resolveLocale(locale);
-
-  return useQuery({
-    queryKey: platformKeys.usersByLocale(activeLocale),
-    queryFn: () => getUsersWithRoles(activeLocale),
-    enabled,
   });
 }

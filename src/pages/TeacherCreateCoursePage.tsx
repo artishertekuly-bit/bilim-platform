@@ -18,8 +18,15 @@ import {
   updateLesson,
   updateModule,
 } from '@/lib/app-data';
+import type {
+  CourseAccessType,
+  CourseVisibility,
+} from '@/lib/app-data-types';
 import {
   platformKeys,
+  useCourseInvites,
+  useCreateCourseInviteMutation,
+  useDeactivateCourseInviteMutation,
   useSubjects,
   useTeacherCourseWorkspace,
 } from '@/hooks/use-platform-data';
@@ -36,10 +43,26 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
 import { normalizeMediaUrl } from '@/lib/media-url';
-import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Copy,
+  KeyRound,
+  Trash2,
+} from 'lucide-react';
 
 const courseStatuses = ['draft', 'under_review', 'published', 'archived'] as const;
 type CourseStatus = (typeof courseStatuses)[number];
+
+const courseAccessTypes: CourseAccessType[] = [
+  'public_free',
+  'private_invite',
+  'paid',
+  'subscription_only',
+  'school_only',
+];
+
+const courseVisibilityOptions: CourseVisibility[] = ['public', 'unlisted', 'private'];
 
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   const next = [...items];
@@ -61,6 +84,120 @@ function getNextSortOrder<T extends { sortOrder: number }>(items: T[] = []) {
   return String(maxSortOrder + 1);
 }
 
+function getAccessTypeLabel(type: CourseAccessType) {
+  const map: Record<CourseAccessType, string> = {
+    public_free: 'Тегін ашық курс',
+    private_invite: 'Invite арқылы ашылады',
+    paid: 'Ақылы курс',
+    subscription_only: 'Subscription арқылы',
+    school_only: 'Мектеп/ұйым курсы',
+  };
+
+  return map[type];
+}
+
+function getAccessTypeHint(type: CourseAccessType) {
+  const map: Record<CourseAccessType, string> = {
+    public_free: 'Оқушы курсты каталогтан көріп, бірден жазыла алады.',
+    private_invite: 'Оқушы курсқа тек invite code арқылы кіре алады.',
+    paid: 'Оқушы access сұранысын жібереді, admin manual approve жасайды.',
+    subscription_only: 'Кейін subscription plan арқылы ашылады.',
+    school_only: 'Кейін мектеп/organization access арқылы ашылады.',
+  };
+
+  return map[type];
+}
+
+function getVisibilityLabel(visibility: CourseVisibility) {
+  const map: Record<CourseVisibility, string> = {
+    public: 'Public',
+    unlisted: 'Unlisted',
+    private: 'Private',
+  };
+
+  return map[visibility];
+}
+
+function getVisibilityHint(visibility: CourseVisibility) {
+  const map: Record<CourseVisibility, string> = {
+    public: 'Каталогта көрінеді.',
+    unlisted: 'Каталогта көрінбейді, бірақ link/invite арқылы ашылады.',
+    private: 'Тек access бар қолданушыларға көрінеді.',
+  };
+
+  return map[visibility];
+}
+
+function normalizeCurrency(value: string) {
+  return (value || 'KZT').trim().toUpperCase();
+}
+
+function parsePrice(value: string) {
+  const parsed = Number(value || 0);
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error('Баға 0 немесе одан жоғары болуы керек.');
+  }
+
+  return parsed;
+}
+
+function parseMaxStudents(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  const parsed = Number(trimmed);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error('Оқушы лимиті бос немесе 1-ден жоғары бүтін сан болуы керек.');
+  }
+
+  return parsed;
+}
+
+function formatPrice(price: number, currency: string) {
+  if (!price) return 'Тегін';
+  return `${price.toLocaleString('kk-KZ')} ${currency}`;
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return 'Шектеусіз';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString('kk-KZ', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function toDateTimeLocalValue(value: string | null | undefined) {
+  if (!value) return '';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const pad = (part: number) => String(part).padStart(2, '0');
+
+  return [
+    date.getFullYear(),
+    '-',
+    pad(date.getMonth() + 1),
+    '-',
+    pad(date.getDate()),
+    'T',
+    pad(date.getHours()),
+    ':',
+    pad(date.getMinutes()),
+  ].join('');
+}
+
 export default function TeacherCreateCoursePage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -80,6 +217,12 @@ export default function TeacherCreateCoursePage() {
     title: '',
     description: '',
     subjectId: '',
+    accessType: 'public_free' as CourseAccessType,
+    visibility: 'public' as CourseVisibility,
+    price: '0',
+    currency: 'KZT',
+    enrollmentOpen: true,
+    maxStudents: '',
     moduleTitle: t('page.teacher_course_builder.defaults.module_title'),
     lessonTitle: t('page.teacher_course_builder.defaults.lesson_title'),
     lessonBody: t('page.teacher_course_builder.defaults.lesson_body'),
@@ -96,12 +239,24 @@ export default function TeacherCreateCoursePage() {
     subjectId: string;
     thumbnailUrl: string;
     status: CourseStatus;
+    accessType: CourseAccessType;
+    visibility: CourseVisibility;
+    price: string;
+    currency: string;
+    enrollmentOpen: boolean;
+    maxStudents: string;
   }>({
     title: '',
     description: '',
     subjectId: '',
     thumbnailUrl: '',
     status: 'draft',
+    accessType: 'public_free',
+    visibility: 'public',
+    price: '0',
+    currency: 'KZT',
+    enrollmentOpen: true,
+    maxStudents: '',
   });
 
   const [moduleForm, setModuleForm] = useState({ title: '' });
@@ -116,6 +271,11 @@ export default function TeacherCreateCoursePage() {
   });
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
 
+  const [inviteForm, setInviteForm] = useState({
+    maxUses: '',
+    expiresAt: '',
+  });
+
   const selectedCourse = useMemo(
     () =>
       workspace?.courses.find((course) => course.id === selectedCourseId) ||
@@ -129,6 +289,14 @@ export default function TeacherCreateCoursePage() {
     () => getSortedBySortOrder(selectedCourse?.modules || []),
     [selectedCourse]
   );
+
+  const {
+    data: courseInvites,
+    isLoading: courseInvitesLoading,
+  } = useCourseInvites(selectedCourse?.id || '', !!selectedCourse?.id);
+
+  const createInviteMutation = useCreateCourseInviteMutation(user?.id);
+  const deactivateInviteMutation = useDeactivateCourseInviteMutation(user?.id);
 
   const selectedCourseModuleSignature =
     selectedCourseModules.map((module) => module.id).join('|') || '';
@@ -182,6 +350,12 @@ export default function TeacherCreateCoursePage() {
       title: '',
       description: '',
       subjectId: '',
+      accessType: 'public_free',
+      visibility: 'public',
+      price: '0',
+      currency: 'KZT',
+      enrollmentOpen: true,
+      maxStudents: '',
       moduleTitle: t('page.teacher_course_builder.defaults.module_title'),
       lessonTitle: t('page.teacher_course_builder.defaults.lesson_title'),
       lessonBody: t('page.teacher_course_builder.defaults.lesson_body'),
@@ -219,6 +393,12 @@ export default function TeacherCreateCoursePage() {
       subjectId: course.subjectId || '',
       thumbnailUrl: course.thumbnailUrl || '',
       status: course.status as CourseStatus,
+      accessType: course.accessType || 'public_free',
+      visibility: course.visibility || 'public',
+      price: String(course.price ?? 0),
+      currency: course.currency || 'KZT',
+      enrollmentOpen: course.enrollmentOpen ?? true,
+      maxStudents: course.maxStudents ? String(course.maxStudents) : '',
     });
     setLessonForm((prev) => ({
       ...prev,
@@ -269,6 +449,12 @@ export default function TeacherCreateCoursePage() {
       subjectId: selectedCourse.subjectId || '',
       thumbnailUrl: selectedCourse.thumbnailUrl || '',
       status: selectedCourse.status as CourseStatus,
+      accessType: selectedCourse.accessType || 'public_free',
+      visibility: selectedCourse.visibility || 'public',
+      price: String(selectedCourse.price ?? 0),
+      currency: selectedCourse.currency || 'KZT',
+      enrollmentOpen: selectedCourse.enrollmentOpen ?? true,
+      maxStudents: selectedCourse.maxStudents ? String(selectedCourse.maxStudents) : '',
     });
   }, [selectedCourse]);
 
@@ -314,6 +500,7 @@ export default function TeacherCreateCoursePage() {
         queryKey: platformKeys.teacherDashboard(user?.id || ''),
       }),
       queryClient.invalidateQueries({ queryKey: ['courses'] }),
+      queryClient.invalidateQueries({ queryKey: ['course-invites'] }),
       queryClient.invalidateQueries({ queryKey: ['lessons'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
       queryClient.invalidateQueries({ queryKey: ['student-dashboard'] }),
@@ -327,12 +514,26 @@ export default function TeacherCreateCoursePage() {
     mutationFn: async () => {
       if (!user) throw new Error('User not found');
 
+      const price = parsePrice(newCourse.price);
+      const maxStudents = parseMaxStudents(newCourse.maxStudents);
+      const currency = normalizeCurrency(newCourse.currency);
+
+      if (newCourse.accessType === 'paid' && price <= 0) {
+        throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
+      }
+
       const course = await createCourse({
         title: newCourse.title.trim(),
         description: newCourse.description.trim(),
         subjectId: newCourse.subjectId,
         teacherId: user.id,
         status: 'draft',
+        accessType: newCourse.accessType,
+        visibility: newCourse.visibility,
+        price,
+        currency,
+        enrollmentOpen: newCourse.enrollmentOpen,
+        maxStudents,
       });
 
       if (!course) {
@@ -376,10 +577,13 @@ export default function TeacherCreateCoursePage() {
         description: t('page.teacher_course_builder.toast.create_course_text'),
       });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('page.teacher_course_builder.toast.error_text'),
         variant: 'destructive',
       }),
   });
@@ -388,6 +592,14 @@ export default function TeacherCreateCoursePage() {
     mutationFn: async () => {
       if (!selectedCourse) throw new Error('Course not selected');
 
+      const price = parsePrice(courseEdit.price);
+      const maxStudents = parseMaxStudents(courseEdit.maxStudents);
+      const currency = normalizeCurrency(courseEdit.currency);
+
+      if (courseEdit.accessType === 'paid' && price <= 0) {
+        throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
+      }
+
       await updateCourse({
         courseId: selectedCourse.id,
         title: courseEdit.title.trim(),
@@ -395,16 +607,25 @@ export default function TeacherCreateCoursePage() {
         subjectId: courseEdit.subjectId || null,
         thumbnailUrl: courseEdit.thumbnailUrl.trim() || null,
         status: courseEdit.status,
+        accessType: courseEdit.accessType,
+        visibility: courseEdit.visibility,
+        price,
+        currency,
+        enrollmentOpen: courseEdit.enrollmentOpen,
+        maxStudents,
       });
     },
     onSuccess: async () => {
       await refetchWorkspace();
       toast({ title: t('page.teacher_course_builder.toast.update_course_title') });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('page.teacher_course_builder.toast.error_text'),
         variant: 'destructive',
       }),
   });
@@ -432,17 +653,17 @@ export default function TeacherCreateCoursePage() {
       toast({ title: t('page.teacher_course_builder.toast.delete_course_title') });
     },
     onError: (error) => {
-  console.error('[deleteCourseMutation error]', error);
+      console.error('[deleteCourseMutation error]', error);
 
-  toast({
-    title: t('page.teacher_course_builder.toast.error_title'),
-    description:
-      error instanceof Error
-        ? error.message
-        : t('page.teacher_course_builder.toast.error_text'),
-    variant: 'destructive',
-  });
-},
+      toast({
+        title: t('page.teacher_course_builder.toast.error_title'),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('page.teacher_course_builder.toast.error_text'),
+        variant: 'destructive',
+      });
+    },
   });
 
   const addModuleMutation = useMutation({
@@ -693,6 +914,84 @@ export default function TeacherCreateCoursePage() {
     });
   };
 
+  const handleCreateInvite = async () => {
+    if (!selectedCourse) return;
+
+    const maxUses = inviteForm.maxUses.trim()
+      ? Number(inviteForm.maxUses)
+      : null;
+
+    if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses <= 0)) {
+      toast({
+        title: 'Invite лимиті қате',
+        description: 'Қолдану лимиті бос немесе 1-ден жоғары бүтін сан болуы керек.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      await createInviteMutation.mutateAsync({
+        courseId: selectedCourse.id,
+        teacherId: user?.id,
+        maxUses,
+        expiresAt: inviteForm.expiresAt
+          ? new Date(inviteForm.expiresAt).toISOString()
+          : null,
+      });
+
+      setInviteForm({ maxUses: '', expiresAt: '' });
+      await refetchWorkspace();
+
+      toast({
+        title: 'Invite code жасалды',
+        description: 'Оқушылар осы code арқылы курсқа кіре алады.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Invite code жасау мүмкін болмады',
+        description:
+          error instanceof Error ? error.message : t('page.teacher_course_builder.toast.error_text'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeactivateInvite = async (inviteId: string) => {
+    try {
+      await deactivateInviteMutation.mutateAsync(inviteId);
+      await refetchWorkspace();
+
+      toast({
+        title: 'Invite өшірілді',
+      });
+    } catch (error) {
+      toast({
+        title: 'Invite өшіру мүмкін болмады',
+        description:
+          error instanceof Error ? error.message : t('page.teacher_course_builder.toast.error_text'),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const copyInviteCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+
+      toast({
+        title: 'Invite code көшірілді',
+        description: code,
+      });
+    } catch {
+      toast({
+        title: 'Көшіру мүмкін болмады',
+        description: code,
+        variant: 'destructive',
+      });
+    }
+  };
+
   const canCreateCourse =
     !!newCourse.title.trim() &&
     !!newCourse.subjectId &&
@@ -714,6 +1013,11 @@ export default function TeacherCreateCoursePage() {
       (sum, module) => sum + (module.lessons?.length || 0),
       0
     ) || 0;
+
+  const selectedCoursePrice = formatPrice(
+    parsePrice(courseEdit.price || '0'),
+    normalizeCurrency(courseEdit.currency)
+  );
 
   return (
     <DashboardLayout>
@@ -780,6 +1084,121 @@ export default function TeacherCreateCoursePage() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Access параметрлері
+                  </p>
+
+                  <div className="space-y-1.5">
+                    <Label>Курс түрі</Label>
+                    <select
+                      value={newCourse.accessType}
+                      onChange={(e) =>
+                        setNewCourse((p) => ({
+                          ...p,
+                          accessType: e.target.value as CourseAccessType,
+                          price:
+                            e.target.value === 'paid' && Number(p.price || 0) <= 0
+                              ? '5000'
+                              : p.price,
+                        }))
+                      }
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      {courseAccessTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {getAccessTypeLabel(type)}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">
+                      {getAccessTypeHint(newCourse.accessType)}
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Көріну режимі</Label>
+                    <select
+                      value={newCourse.visibility}
+                      onChange={(e) =>
+                        setNewCourse((p) => ({
+                          ...p,
+                          visibility: e.target.value as CourseVisibility,
+                        }))
+                      }
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      {courseVisibilityOptions.map((visibility) => (
+                        <option key={visibility} value={visibility}>
+                          {getVisibilityLabel(visibility)}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">
+                      {getVisibilityHint(newCourse.visibility)}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label>Баға</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={newCourse.price}
+                        onChange={(e) =>
+                          setNewCourse((p) => ({ ...p, price: e.target.value }))
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label>Валюта</Label>
+                      <Input
+                        value={newCourse.currency}
+                        onChange={(e) =>
+                          setNewCourse((p) => ({
+                            ...p,
+                            currency: e.target.value.toUpperCase(),
+                          }))
+                        }
+                        maxLength={3}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Оқушы лимиті</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={newCourse.maxStudents}
+                      onChange={(e) =>
+                        setNewCourse((p) => ({ ...p, maxStudents: e.target.value }))
+                      }
+                      placeholder="Бос қалса — шектеусіз"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                    <div>
+                      <Label htmlFor="new-course-enrollment-open">
+                        Жазылу ашық
+                      </Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Өшірулі болса, оқушы жаңа жазыла алмайды.
+                      </p>
+                    </div>
+                    <Switch
+                      id="new-course-enrollment-open"
+                      checked={newCourse.enrollmentOpen}
+                      onCheckedChange={(checked) =>
+                        setNewCourse((p) => ({ ...p, enrollmentOpen: checked }))
+                      }
+                    />
+                  </div>
                 </div>
 
                 <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
@@ -895,6 +1314,8 @@ export default function TeacherCreateCoursePage() {
                             <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                               {[
                                 course.subjectName,
+                                getAccessTypeLabel(course.accessType || 'public_free'),
+                                formatPrice(Number(course.price || 0), course.currency || 'KZT'),
                                 `${course.lessons} ${t('course.lessons_count')}`,
                                 `${course.students} ${t(
                                   'page.teacher_course_builder.students_label'
@@ -1000,6 +1421,137 @@ export default function TeacherCreateCoursePage() {
                       />
                     </div>
 
+                    <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                      <div>
+                        <p className="text-sm font-semibold">Access және монетизация</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Бұл бөлім курс тегін, invite-only, ақылы немесе жабық режимде
+                          ашылатынын басқарады.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label>Курс түрі</Label>
+                          <select
+                            value={courseEdit.accessType}
+                            onChange={(e) =>
+                              setCourseEdit((p) => ({
+                                ...p,
+                                accessType: e.target.value as CourseAccessType,
+                                price:
+                                  e.target.value === 'paid' && Number(p.price || 0) <= 0
+                                    ? '5000'
+                                    : p.price,
+                              }))
+                            }
+                            className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          >
+                            {courseAccessTypes.map((type) => (
+                              <option key={type} value={type}>
+                                {getAccessTypeLabel(type)}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[11px] text-muted-foreground">
+                            {getAccessTypeHint(courseEdit.accessType)}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label>Көріну режимі</Label>
+                          <select
+                            value={courseEdit.visibility}
+                            onChange={(e) =>
+                              setCourseEdit((p) => ({
+                                ...p,
+                                visibility: e.target.value as CourseVisibility,
+                              }))
+                            }
+                            className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          >
+                            {courseVisibilityOptions.map((visibility) => (
+                              <option key={visibility} value={visibility}>
+                                {getVisibilityLabel(visibility)}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[11px] text-muted-foreground">
+                            {getVisibilityHint(courseEdit.visibility)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-1.5">
+                          <Label>Баға</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            value={courseEdit.price}
+                            onChange={(e) =>
+                              setCourseEdit((p) => ({ ...p, price: e.target.value }))
+                            }
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label>Валюта</Label>
+                          <Input
+                            value={courseEdit.currency}
+                            onChange={(e) =>
+                              setCourseEdit((p) => ({
+                                ...p,
+                                currency: e.target.value.toUpperCase(),
+                              }))
+                            }
+                            maxLength={3}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label>Оқушы лимиті</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={courseEdit.maxStudents}
+                            onChange={(e) =>
+                              setCourseEdit((p) => ({
+                                ...p,
+                                maxStudents: e.target.value,
+                              }))
+                            }
+                            placeholder="Шектеусіз"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-lg border bg-background px-4 py-3">
+                        <div>
+                          <Label htmlFor="course-enrollment-open">
+                            Жазылу ашық
+                          </Label>
+                          <p className="text-[11px] text-muted-foreground">
+                            Өшірулі болса, жаңа оқушы курсқа жазыла алмайды.
+                          </p>
+                        </div>
+                        <Switch
+                          id="course-enrollment-open"
+                          checked={courseEdit.enrollmentOpen}
+                          onCheckedChange={(checked) =>
+                            setCourseEdit((p) => ({
+                              ...p,
+                              enrollmentOpen: checked,
+                            }))
+                          }
+                        />
+                      </div>
+
+                      <div className="rounded-lg border bg-background px-3 py-2 text-xs text-muted-foreground">
+                        Қазіргі баға: <span className="font-medium text-foreground">{selectedCoursePrice}</span>
+                      </div>
+                    </div>
+
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Button
                         onClick={() => updateCourseMutation.mutate()}
@@ -1028,6 +1580,159 @@ export default function TeacherCreateCoursePage() {
                       <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
                         <span className="text-muted-foreground">Студенттер</span>
                         <span className="font-medium">{selectedCourse.students}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                        <span className="text-muted-foreground">Access</span>
+                        <span className="text-right text-xs font-medium">
+                          {getAccessTypeLabel(courseEdit.accessType)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                        <span className="text-muted-foreground">Баға</span>
+                        <span className="font-medium">{selectedCoursePrice}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-semibold">
+                        <span className="inline-flex items-center gap-1.5">
+                          <KeyRound size={14} />
+                          Invite codes
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Invite code оқушыға course access береді және автоматты түрде
+                        course enrollment жасайды.
+                      </p>
+
+                      {courseEdit.accessType !== 'private_invite' ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                          Бұл бөлім толық қолданылуы үшін курс түрін “Invite арқылы
+                          ашылады” етіп қойыңыз.
+                        </div>
+                      ) : null}
+
+                      <div className="space-y-2 rounded-lg border p-3">
+                        <div className="space-y-1.5">
+                          <Label>Қолдану лимиті</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={inviteForm.maxUses}
+                            onChange={(e) =>
+                              setInviteForm((p) => ({
+                                ...p,
+                                maxUses: e.target.value,
+                              }))
+                            }
+                            placeholder="Бос болса — шектеусіз"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label>Мерзімі</Label>
+                          <Input
+                            type="datetime-local"
+                            value={inviteForm.expiresAt}
+                            onChange={(e) =>
+                              setInviteForm((p) => ({
+                                ...p,
+                                expiresAt: e.target.value,
+                              }))
+                            }
+                            min={toDateTimeLocalValue(new Date().toISOString())}
+                          />
+                        </div>
+
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          onClick={handleCreateInvite}
+                          disabled={createInviteMutation.isPending}
+                        >
+                          Invite code жасау
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        {courseInvitesLoading ? (
+                          <p className="text-xs text-muted-foreground">Invite codes жүктелуде...</p>
+                        ) : null}
+
+                        {!courseInvitesLoading && (!courseInvites || courseInvites.length === 0) ? (
+                          <p className="text-xs text-muted-foreground">
+                            Әлі invite code жоқ.
+                          </p>
+                        ) : null}
+
+                        {(courseInvites || []).map((invite) => {
+                          const remaining =
+                            invite.max_uses === null
+                              ? null
+                              : Math.max(invite.max_uses - invite.used_count, 0);
+
+                          return (
+                            <div
+                              key={invite.id}
+                              className={`rounded-lg border p-3 text-xs ${
+                                invite.is_active ? 'bg-background' : 'bg-muted/50 opacity-70'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="font-mono text-sm font-semibold">
+                                    {invite.code}
+                                  </p>
+                                  <p className="mt-1 text-muted-foreground">
+                                    Қолданылды: {invite.used_count}
+                                    {invite.max_uses === null
+                                      ? ' / шектеусіз'
+                                      : ` / ${invite.max_uses}`}
+                                  </p>
+                                  <p className="text-muted-foreground">
+                                    Қалғаны:{' '}
+                                    {remaining === null ? 'шектеусіз' : remaining}
+                                  </p>
+                                  <p className="text-muted-foreground">
+                                    Мерзімі: {formatDateTime(invite.expires_at)}
+                                  </p>
+                                  <p className="text-muted-foreground">
+                                    Статус: {invite.is_active ? 'Белсенді' : 'Өшірілген'}
+                                  </p>
+                                </div>
+
+                                <div className="flex shrink-0 gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={() => copyInviteCode(invite.code)}
+                                  >
+                                    <Copy size={13} />
+                                  </Button>
+
+                                  {invite.is_active ? (
+                                    <Button
+                                      type="button"
+                                      variant="destructive"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      disabled={deactivateInviteMutation.isPending}
+                                      onClick={() => handleDeactivateInvite(invite.id)}
+                                    >
+                                      <Trash2 size={13} />
+                                    </Button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </CardContent>
                   </Card>

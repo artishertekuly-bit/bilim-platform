@@ -2,11 +2,26 @@ import DashboardLayout from '@/components/DashboardLayout';
 import ProgressBar from '@/components/ProgressBar';
 import TeacherProfileCard from '@/components/TeacherProfileCard';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
-import { useCourseCatalog, useSubjects } from '@/hooks/use-platform-data';
+import {
+  useCourseCatalog,
+  useRedeemCourseInviteMutation,
+  useRequestPaidCourseAccessMutation,
+  useSubjects,
+} from '@/hooks/use-platform-data';
 import { bookmarkCourse, enrollInCourse, unbookmarkCourse } from '@/lib/app-data';
+import type { CourseView } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
-import { BookOpen, ArrowRight, Users, Clock, Bookmark } from 'lucide-react';
+import {
+  ArrowRight,
+  BookOpen,
+  Bookmark,
+  Clock,
+  KeyRound,
+  Lock,
+  Tag,
+  Users,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useMemo, useState } from 'react';
@@ -42,6 +57,93 @@ function normalizeText(value: string | null | undefined) {
   return (value || '').toLowerCase().trim();
 }
 
+function formatCoursePrice(course: CourseView) {
+  const price = Number(course.price ?? course.access?.price ?? 0);
+  const currency = course.currency ?? course.access?.currency ?? 'KZT';
+
+  if (!price) return 'Тегін';
+
+  return `${price.toLocaleString('kk-KZ')} ${currency}`;
+}
+
+function getCourseAccessBadge(course: CourseView) {
+  const accessType = course.accessType ?? course.access?.accessType ?? 'public_free';
+
+  const map: Record<string, { label: string; className: string }> = {
+    public_free: {
+      label: 'Тегін',
+      className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    },
+    private_invite: {
+      label: 'Invite арқылы',
+      className: 'border-blue-200 bg-blue-50 text-blue-700',
+    },
+    paid: {
+      label: 'Ақылы',
+      className: 'border-amber-200 bg-amber-50 text-amber-700',
+    },
+    subscription_only: {
+      label: 'Subscription',
+      className: 'border-violet-200 bg-violet-50 text-violet-700',
+    },
+    school_only: {
+      label: 'Мектепке арналған',
+      className: 'border-slate-200 bg-slate-50 text-slate-700',
+    },
+  };
+
+  return map[accessType] || {
+    label: accessType,
+    className: 'border-border bg-muted text-muted-foreground',
+  };
+}
+
+function getStudentActionLabel(course: CourseView) {
+  const access = course.access;
+
+  if (course.enrolled) return t('course.continue');
+
+  if (!access) return t('course.enroll');
+
+  if (access.pendingOrderId) return 'Сұраныс қаралуда';
+
+  switch (access.unlockAction) {
+    case 'open_course':
+    case 'enroll':
+      return 'Курсты бастау';
+    case 'redeem_invite':
+      return 'Invite code енгізу';
+    case 'request_paid_access':
+      return 'Access сұрау';
+    case 'subscribe':
+      return 'Subscription қажет';
+    case 'request_school_access':
+      return 'Мектеп access қажет';
+    case 'manage_course':
+      return t('common.edit');
+    default:
+      if (access.accessState === 'draft_or_unpublished') return 'Жарияланбаған';
+      if (access.accessState === 'enrollment_closed') return 'Жазылу жабық';
+      return 'Қолжетімсіз';
+  }
+}
+
+function getStudentActionDisabled(course: CourseView, pendingCourseId: string | null) {
+  const access = course.access;
+
+  if (pendingCourseId === course.id) return true;
+  if (course.enrolled) return false;
+  if (!access) return false;
+
+  if (access.pendingOrderId) return true;
+
+  return (
+    access.unlockAction === 'none' ||
+    access.unlockAction === 'subscribe' ||
+    access.unlockAction === 'request_school_access'
+  );
+}
+
 export default function CourseCatalogPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -59,6 +161,8 @@ export default function CourseCatalogPage() {
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
   const [pendingCourseId, setPendingCourseId] = useState<string | null>(null);
   const [pendingBookmarkCourseId, setPendingBookmarkCourseId] = useState<string | null>(null);
+  const [inviteCourseId, setInviteCourseId] = useState<string | null>(null);
+  const [inviteCode, setInviteCode] = useState('');
 
   const { data: subjects } = useSubjects();
   const { data, isLoading, error } = useCourseCatalog(
@@ -66,6 +170,22 @@ export default function CourseCatalogPage() {
     isTeacherView ? user?.id : undefined,
     !!user?.id
   );
+
+  const redeemInviteMutation = useRedeemCourseInviteMutation(user?.id);
+  const requestPaidAccessMutation = useRequestPaidCourseAccessMutation(user?.id);
+
+  const invalidateCatalogData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['courses'] }),
+      queryClient.invalidateQueries({ queryKey: ['lessons'] }),
+      queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
+      queryClient.invalidateQueries({ queryKey: ['student-dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['analytics'] }),
+      queryClient.invalidateQueries({ queryKey: ['parent-dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['my-orders'] }),
+      queryClient.invalidateQueries({ queryKey: ['pending-orders'] }),
+    ]);
+  };
 
   const enrollMutation = useMutation({
     mutationFn: async (courseId: string) => {
@@ -77,23 +197,17 @@ export default function CourseCatalogPage() {
       return enrollInCourse(user.id, courseId);
     },
     onSuccess: async () => {
-      if (user?.id) {
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['courses'] }),
-          queryClient.invalidateQueries({ queryKey: ['lessons'] }),
-          queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
-          queryClient.invalidateQueries({ queryKey: ['student-dashboard'] }),
-          queryClient.invalidateQueries({ queryKey: ['analytics'] }),
-          queryClient.invalidateQueries({ queryKey: ['parent-dashboard'] }),
-        ]);
-      }
+      await invalidateCatalogData();
 
       toast({ title: t('page.course_catalog.toast.enroll_success') });
     },
-    onError: () =>
+    onError: (mutationError) =>
       toast({
         title: t('page.course_catalog.toast.error_title'),
-        description: t('page.course_catalog.toast.error_text'),
+        description:
+          mutationError instanceof Error
+            ? mutationError.message
+            : t('page.course_catalog.toast.error_text'),
         variant: 'destructive',
       }),
     onSettled: () => {
@@ -167,6 +281,103 @@ export default function CourseCatalogPage() {
       }),
     [activeSubject, data, normalizedSearch, showBookmarksOnly]
   );
+
+  const handleStudentCourseAction = async (course: CourseView) => {
+    const access = course.access;
+
+    if (course.enrolled) {
+      navigate('/lessons');
+      return;
+    }
+
+    if (!access || access.unlockAction === 'enroll' || access.unlockAction === 'open_course') {
+      enrollMutation.mutate(course.id);
+      return;
+    }
+
+    if (access.unlockAction === 'redeem_invite') {
+      setInviteCourseId((current) => (current === course.id ? null : course.id));
+      setInviteCode('');
+      return;
+    }
+
+    if (access.unlockAction === 'request_paid_access') {
+      setPendingCourseId(course.id);
+
+      try {
+        await requestPaidAccessMutation.mutateAsync({
+          courseId: course.id,
+          userId: user?.id,
+        });
+
+        await invalidateCatalogData();
+
+        toast({
+          title: 'Access сұранысы жіберілді',
+          description: 'Admin растағаннан кейін курс ашылады.',
+        });
+      } catch (requestError) {
+        toast({
+          title: t('page.course_catalog.toast.error_title'),
+          description:
+            requestError instanceof Error
+              ? requestError.message
+              : 'Ақылы курсқа сұраныс жіберу мүмкін болмады.',
+          variant: 'destructive',
+        });
+      } finally {
+        setPendingCourseId(null);
+      }
+
+      return;
+    }
+
+    toast({
+      title: 'Курс әзірге қолжетімсіз',
+      description: getStudentActionLabel(course),
+      variant: 'destructive',
+    });
+  };
+
+  const handleRedeemInvite = async (course: CourseView) => {
+    if (!inviteCode.trim()) {
+      toast({
+        title: 'Invite code енгізіңіз',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setPendingCourseId(course.id);
+
+    try {
+      await redeemInviteMutation.mutateAsync({
+        code: inviteCode,
+        userId: user?.id,
+      });
+
+      await invalidateCatalogData();
+
+      setInviteCourseId(null);
+      setInviteCode('');
+
+      toast({
+        title: 'Invite қабылданды',
+        description: 'Курс сізге ашылды.',
+      });
+    } catch (inviteError) {
+      toast({
+        title: 'Invite code қате',
+        description:
+          inviteError instanceof Error
+            ? inviteError.message
+            : 'Invite code арқылы курс ашу мүмкін болмады.',
+        variant: 'destructive',
+      });
+    } finally {
+      setPendingCourseId(null);
+    }
+  };
 
   const pageTitle = isTeacherView
     ? t('nav.my_courses')
@@ -265,6 +476,14 @@ export default function CourseCatalogPage() {
         {!isLoading && !error && filtered.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((course) => {
+              const accessBadge = getCourseAccessBadge(course);
+              const actionLabel = getStudentActionLabel(course);
+              const actionDisabled = getStudentActionDisabled(course, pendingCourseId);
+              const showInviteInput =
+                isStudentView &&
+                inviteCourseId === course.id &&
+                course.access?.unlockAction === 'redeem_invite';
+
               const cardBody = (
                 <>
                   <div className="relative flex h-28 items-center justify-center border-b border-border bg-accent">
@@ -272,6 +491,18 @@ export default function CourseCatalogPage() {
                       size={28}
                       className="text-muted-foreground/40 transition-transform duration-200 group-hover:scale-110"
                     />
+
+                    <div
+                      className={`absolute left-3 top-3 rounded-full border px-2 py-1 text-[10px] font-medium ${accessBadge.className}`}
+                    >
+                      {accessBadge.label}
+                    </div>
+
+                    {course.access?.pendingOrderId ? (
+                      <div className="absolute bottom-3 left-3 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700">
+                        Сұраныс қаралуда
+                      </div>
+                    ) : null}
                   </div>
 
                   <CardContent className="space-y-3 p-4">
@@ -289,7 +520,7 @@ export default function CourseCatalogPage() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Users size={11} />
                         {course.students}
@@ -298,7 +529,18 @@ export default function CourseCatalogPage() {
                         <Clock size={11} />
                         {course.lessons} {t('course.lessons_count')}
                       </span>
+                      <span className="flex items-center gap-1 font-medium text-foreground">
+                        <Tag size={11} />
+                        {formatCoursePrice(course)}
+                      </span>
                     </div>
+
+                    {course.access?.accessState === 'enrollment_closed' ? (
+                      <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1.5 text-[11px] text-muted-foreground">
+                        <Lock size={12} />
+                        Курсқа жазылу уақытша жабық
+                      </div>
+                    ) : null}
 
                     <TeacherProfileCard
                       compact
@@ -362,7 +604,7 @@ export default function CourseCatalogPage() {
                       </button>
                     ) : null}
 
-                    <div className="px-4 pb-4">
+                    <div className="space-y-2 px-4 pb-4">
                       {isStudentView && course.enrolled ? (
                         <div className="space-y-2">
                           <ProgressBar value={course.progress} size="sm" />
@@ -374,17 +616,59 @@ export default function CourseCatalogPage() {
                           </button>
                         </div>
                       ) : isStudentView ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="w-full text-xs"
-                          onClick={() => enrollMutation.mutate(course.id)}
-                          disabled={pendingCourseId === course.id}
-                        >
-                          {pendingCourseId === course.id
-                            ? t('page.course_catalog.enrolling')
-                            : t('course.enroll')}
-                        </Button>
+                        <>
+                          {showInviteInput ? (
+                            <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-2">
+                              <div className="flex items-center gap-1.5 text-[11px] font-medium">
+                                <KeyRound size={12} />
+                                Invite code
+                              </div>
+                              <Input
+                                value={inviteCode}
+                                onChange={(e) => setInviteCode(e.target.value)}
+                                placeholder="Мысалы: ABC123XYZ"
+                                className="h-8 text-xs uppercase"
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs"
+                                  onClick={() => {
+                                    setInviteCourseId(null);
+                                    setInviteCode('');
+                                  }}
+                                >
+                                  Жабу
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="text-xs"
+                                  disabled={pendingCourseId === course.id}
+                                  onClick={() => handleRedeemInvite(course)}
+                                >
+                                  Қабылдау
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <Button
+                            size="sm"
+                            variant={
+                              course.access?.unlockAction === 'request_paid_access'
+                                ? 'default'
+                                : 'outline'
+                            }
+                            className="w-full text-xs"
+                            onClick={() => handleStudentCourseAction(course)}
+                            disabled={actionDisabled}
+                          >
+                            {pendingCourseId === course.id
+                              ? t('page.course_catalog.enrolling')
+                              : actionLabel}
+                          </Button>
+                        </>
                       ) : isTeacherView ? (
                         <Link
                           to={buildCourseEditPath(course.id)}
@@ -393,9 +677,14 @@ export default function CourseCatalogPage() {
                           {t('common.edit')} <ArrowRight size={12} />
                         </Link>
                       ) : (
-                        <div className="text-[11px] text-muted-foreground">
-                          {t('page.course_catalog.current_status')}:{' '}
-                          {getCourseStatusLabel(course.status)}
+                        <div className="space-y-1 text-[11px] text-muted-foreground">
+                          <div>
+                            {t('page.course_catalog.current_status')}:{' '}
+                            {getCourseStatusLabel(course.status)}
+                          </div>
+                          <div>
+                            Access: {accessBadge.label} · {formatCoursePrice(course)}
+                          </div>
                         </div>
                       )}
                     </div>
