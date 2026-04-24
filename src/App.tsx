@@ -23,6 +23,7 @@ const TestsPage = lazy(() => import('./pages/TestsPage'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
 const GamificationPage = lazy(() => import('./pages/GamificationPage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
+const ChatPage = lazy(() => import('./pages/ChatPage'));
 
 const TeacherCreateCoursePage = lazy(() => import('./pages/TeacherCreateCoursePage'));
 const TeacherCreateTestPage = lazy(() => import('./pages/TeacherCreateTestPage'));
@@ -87,6 +88,11 @@ const publicRoutes: AppRouteConfig[] = [
 const commonProtectedRoutes: AppRouteConfig[] = [
   { path: '/dashboard', element: <DashboardRouter /> },
   { path: '/profile', element: <ProfileSettingsPage /> },
+  {
+    path: '/chat',
+    element: <ChatPage />,
+    allowedRoles: ['student', 'teacher', 'parent', 'admin'],
+  },
 ];
 
 const sharedContentRoutes: AppRouteConfig[] = [

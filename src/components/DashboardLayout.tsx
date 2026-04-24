@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Bot,
   Sparkles,
+  MessageCircle,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -30,7 +31,8 @@ import KazakhOrnament from '@/components/KazakhOrnament';
 import UserAvatar from '@/components/UserAvatar';
 
 type NavItemConfig = {
-  labelKey: TranslationKey;
+  labelKey?: TranslationKey;
+  label?: string;
   path: string;
   icon: LucideIcon;
   matchMode?: 'exact' | 'section';
@@ -44,10 +46,18 @@ const roleTitleKeys: Record<UserRole, TranslationKey> = {
   admin: 'role.admin',
 };
 
+const chatNavItem: NavItemConfig = {
+  label: 'Чат',
+  path: '/chat',
+  icon: MessageCircle,
+  matchMode: 'section',
+};
+
 const roleNavItems: Record<UserRole, NavItemConfig[]> = {
   student: [
     { labelKey: 'nav.profile', path: '/profile', icon: Settings, matchMode: 'exact' },
     { labelKey: 'nav.dashboard', path: '/dashboard', icon: LayoutDashboard, matchMode: 'exact' },
+    chatNavItem,
     { labelKey: 'nav.courses', path: '/courses', icon: BookOpen, matchMode: 'section' },
     { labelKey: 'nav.lessons', path: '/lessons', icon: FileText, matchMode: 'section' },
     { labelKey: 'nav.tests', path: '/tests', icon: ClipboardList, matchMode: 'section' },
@@ -61,6 +71,7 @@ const roleNavItems: Record<UserRole, NavItemConfig[]> = {
   teacher: [
     { labelKey: 'nav.profile', path: '/profile', icon: Settings, matchMode: 'exact' },
     { labelKey: 'nav.dashboard', path: '/dashboard', icon: LayoutDashboard, matchMode: 'exact' },
+    chatNavItem,
     { labelKey: 'nav.my_courses', path: '/my-courses', icon: BookOpen, matchMode: 'section' },
     { labelKey: 'nav.create_course', path: '/create-course', icon: Plus, matchMode: 'section' },
     { labelKey: 'nav.create_test', path: '/create-test', icon: ClipboardList, matchMode: 'section' },
@@ -83,6 +94,7 @@ const roleNavItems: Record<UserRole, NavItemConfig[]> = {
   parent: [
     { labelKey: 'nav.profile', path: '/profile', icon: Settings, matchMode: 'exact' },
     { labelKey: 'nav.dashboard', path: '/dashboard', icon: LayoutDashboard, matchMode: 'exact' },
+    chatNavItem,
     { labelKey: 'nav.children', path: '/children', icon: Users, matchMode: 'section' },
     { labelKey: 'nav.child_progress', path: '/child-progress', icon: BarChart3, matchMode: 'section' },
     { labelKey: 'nav.child_tests', path: '/child-tests', icon: ClipboardList, matchMode: 'section' },
@@ -91,6 +103,7 @@ const roleNavItems: Record<UserRole, NavItemConfig[]> = {
   admin: [
     { labelKey: 'nav.profile', path: '/profile', icon: Settings, matchMode: 'exact' },
     { labelKey: 'nav.dashboard', path: '/dashboard', icon: LayoutDashboard, matchMode: 'exact' },
+    chatNavItem,
     { labelKey: 'nav.subjects', path: '/subjects', icon: GraduationCap, matchMode: 'section' },
     { labelKey: 'nav.manage_lessons', path: '/manage-lessons', icon: FileText, matchMode: 'section' },
     { labelKey: 'nav.manage_courses', path: '/manage-courses', icon: BookOpen, matchMode: 'section' },
@@ -101,6 +114,12 @@ const roleNavItems: Record<UserRole, NavItemConfig[]> = {
     { labelKey: 'nav.users', path: '/manage-users', icon: Users, matchMode: 'section' },
   ],
 };
+
+function getNavLabel(item: NavItemConfig) {
+  if (item.label) return item.label;
+  if (item.labelKey) return t(item.labelKey);
+  return '';
+}
 
 function matchesPath(
   pathname: string,
@@ -239,6 +258,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = isPathActive(location.pathname, item);
+            const label = getNavLabel(item);
 
             return (
               <Link
@@ -256,7 +276,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 aria-current={isActive ? 'page' : undefined}
               >
                 <Icon size={18} />
-                <span>{t(item.labelKey)}</span>
+                <span>{label}</span>
                 {isActive ? (
                   <ChevronRight size={14} className="ml-auto text-muted-foreground" />
                 ) : null}
@@ -312,7 +332,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </button>
 
           <h1 className="text-sm font-medium">
-            {activeItem ? t(activeItem.labelKey) : t('nav.dashboard')}
+            {activeItem ? getNavLabel(activeItem) : t('nav.dashboard')}
           </h1>
         </header>
 
