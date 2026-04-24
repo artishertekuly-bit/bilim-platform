@@ -128,8 +128,14 @@ async function fetchProfile(userId: string) {
   return data;
 }
 
-async function syncRequestedRole() {
-  const { error } = await supabase.rpc('claim_requested_role');
+async function syncRequestedRole(requestedRole?: UserRole) {
+  const result = requestedRole
+    ? await supabase.rpc('claim_requested_role' as never, {
+        p_requested_role: requestedRole,
+      } as never)
+    : await supabase.rpc('claim_requested_role');
+
+  const { error } = result;
 
   if (!error) return;
 
@@ -149,39 +155,13 @@ async function syncRequestedRole() {
   throw new Error(error.message);
 }
 
-async function applyPendingOAuthRoleIfNeeded(supabaseUser: SupabaseUser) {
+async function applyPendingOAuthRoleIfNeeded(_supabaseUser: SupabaseUser) {
   const pendingRole = getPendingOAuthRole();
 
   if (!pendingRole) return;
 
   try {
-    const existingRole = await fetchUserRoleRecord(supabaseUser.id);
-
-    if (existingRole?.role) {
-      clearPendingOAuthRole();
-      return;
-    }
-
-    const metadata = supabaseUser.user_metadata || {};
-    const fullName =
-      metadata.full_name ||
-      metadata.name ||
-      supabaseUser.email?.split('@')[0] ||
-      '';
-
-    const { error } = await supabase.auth.updateUser({
-      data: {
-        ...metadata,
-        full_name: fullName,
-        role: pendingRole,
-      },
-    });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    await syncRequestedRole();
+    await syncRequestedRole(pendingRole);
     clearPendingOAuthRole();
   } catch (error) {
     console.error('Failed to apply pending OAuth role', error);
