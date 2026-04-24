@@ -41,9 +41,18 @@ export const supabase = createClient<Database>(
   {
     auth: {
       storage: getBrowserStorage(),
+      storageKey: 'bilim-auth-token',
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true,
+
+      /*
+        Маңызды:
+        OAuth callback-ты src/pages/AuthCallbackPage.tsx өзі өңдейді.
+        Егер detectSessionInUrl true болса, Supabase client code exchange-ті автоматты жасап,
+        AuthCallbackPage тағы exchange жасап, PKCE verifier error береді.
+      */
+      detectSessionInUrl: false,
+
       flowType: 'pkce',
     },
   }
