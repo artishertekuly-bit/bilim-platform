@@ -78,15 +78,9 @@ function getPendingOAuthRole(): UserRole | null {
   return isUserRole(value) ? value : null;
 }
 
-function setPendingOAuthRole(role?: UserRole) {
+function setPendingOAuthRole(role: UserRole) {
   if (typeof window === 'undefined') return;
-
-  if (role) {
-    window.localStorage.setItem(PENDING_OAUTH_ROLE_KEY, role);
-    return;
-  }
-
-  window.localStorage.removeItem(PENDING_OAUTH_ROLE_KEY);
+  window.localStorage.setItem(PENDING_OAUTH_ROLE_KEY, role);
 }
 
 function clearPendingOAuthRole() {
@@ -129,13 +123,9 @@ async function fetchProfile(userId: string) {
 }
 
 async function syncRequestedRole(requestedRole?: UserRole) {
-  const result = requestedRole
-    ? await supabase.rpc('claim_requested_role' as never, {
-        p_requested_role: requestedRole,
-      } as never)
-    : await supabase.rpc('claim_requested_role');
-
-  const { error } = result;
+  const { error } = await supabase.rpc('claim_requested_role' as never, {
+    p_requested_role: requestedRole ?? null,
+  } as never);
 
   if (!error) return;
 
@@ -158,11 +148,12 @@ async function syncRequestedRole(requestedRole?: UserRole) {
 async function applyPendingOAuthRoleIfNeeded(_supabaseUser: SupabaseUser) {
   const pendingRole = getPendingOAuthRole();
 
-  if (!pendingRole) return;
-
   try {
-    await syncRequestedRole(pendingRole);
-    clearPendingOAuthRole();
+    await syncRequestedRole(pendingRole || undefined);
+
+    if (pendingRole) {
+      clearPendingOAuthRole();
+    }
   } catch (error) {
     console.error('Failed to apply pending OAuth role', error);
     throw error;
@@ -335,20 +326,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const loginWithGoogle = useCallback(async (role?: UserRole) => {
+  if (role) {
     setPendingOAuthRole(role);
+  }
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${window.location.origin}/dashboard`,
-      },
-    });
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${window.location.origin}/dashboard`,
+    },
+  });
 
-    if (error) {
-      clearPendingOAuthRole();
-      throw new Error(error.message);
-    }
-  }, []);
+  if (error) {
+    throw new Error(error.message);
+  }
+}, []);
 
   const verifyEmailOtp = useCallback(
     async (email: string, token: string) => {
