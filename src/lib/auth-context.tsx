@@ -221,25 +221,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      void hydrateSession(nextSession).catch((error) => {
-        console.error('Failed to hydrate auth session', error);
-      });
-    });
+    let mounted = true;
+    let subscription: { unsubscribe: () => void } | null = null;
 
-    void supabase.auth
-      .getSession()
-      .then(({ data: { session: initialSession } }) => hydrateSession(initialSession))
-      .catch((error) => {
-        console.error('Failed to get initial auth session', error);
+    const bootstrapAuth = async () => {
+      try {
+        /*
+          Mobile reload fix:
+          Алдымен persisted session-ды localStorage-тан оқимыз.
+          Содан кейін ғана auth listener қосамыз.
+
+          Бұрын listener бірінші қосылып, mobile reload кезінде INITIAL_SESSION/null ерте келіп,
+          ProtectedRoute user-ді /login-ге лақтырып жіберуі мүмкін еді.
+        */
+        const {
+          data: { session: initialSession },
+          error,
+        } = await supabase.auth.getSession();
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        if (!mounted) return;
+
+        await hydrateSession(initialSession);
+
+        if (!mounted) return;
+
+        const {
+          data: { subscription: authSubscription },
+        } = supabase.auth.onAuthStateChange((event, nextSession) => {
+          /*
+            INITIAL_SESSION-ды bootstrapAuth already өңдеді.
+            Қалған нақты auth event-терді ғана қабылдаймыз.
+          */
+          if (event === 'INITIAL_SESSION') return;
+
+          void hydrateSession(nextSession).catch((authError) => {
+            console.error('Failed to hydrate auth session', authError);
+          });
+        });
+
+        subscription = authSubscription;
+      } catch (error) {
+        console.error('Failed to bootstrap auth session', error);
+
+        if (!mounted) return;
+
         setUser(null);
         setSession(null);
         setIsLoading(false);
-      });
+      }
+    };
 
-    return () => subscription.unsubscribe();
+    void bootstrapAuth();
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
   }, [hydrateSession]);
 
   const refreshUser = useCallback(async () => {
