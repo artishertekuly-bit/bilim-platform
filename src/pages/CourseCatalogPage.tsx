@@ -58,42 +58,45 @@ function normalizeText(value: string | null | undefined) {
 }
 
 function formatCoursePrice(course: CourseView) {
+  const accessType = getNormalizedCatalogAccessType(course);
   const price = Number(course.price ?? course.access?.price ?? 0);
   const currency = course.currency ?? course.access?.currency ?? 'KZT';
 
-  if (!price) return 'Тегін';
+  if (accessType !== 'paid') return 'Тегін';
+  if (!price) return 'Ақылы';
 
   return `${price.toLocaleString('kk-KZ')} ${currency}`;
 }
 
-function getCourseAccessBadge(course: CourseView) {
+function getNormalizedCatalogAccessType(course: CourseView) {
   const accessType = course.accessType ?? course.access?.accessType ?? 'public_free';
+
+  if (accessType === 'subscription_only') return 'paid';
+  if (accessType === 'school_only') return 'private_invite';
+
+  return accessType;
+}
+
+function getCourseAccessBadge(course: CourseView) {
+  const accessType = getNormalizedCatalogAccessType(course);
 
   const map: Record<string, { label: string; className: string }> = {
     public_free: {
-      label: 'Тегін',
+      label: 'Ашық',
       className: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     },
     private_invite: {
-      label: 'Invite арқылы',
+      label: 'Жабық',
       className: 'border-blue-200 bg-blue-50 text-blue-700',
     },
     paid: {
       label: 'Ақылы',
       className: 'border-amber-200 bg-amber-50 text-amber-700',
     },
-    subscription_only: {
-      label: 'Subscription',
-      className: 'border-violet-200 bg-violet-50 text-violet-700',
-    },
-    school_only: {
-      label: 'Мектепке арналған',
-      className: 'border-slate-200 bg-slate-50 text-slate-700',
-    },
   };
 
   return map[accessType] || {
-    label: accessType,
+    label: 'Белгісіз',
     className: 'border-border bg-muted text-muted-foreground',
   };
 }
@@ -115,10 +118,10 @@ function getStudentActionLabel(course: CourseView) {
       return 'Invite code енгізу';
     case 'request_paid_access':
       return 'Access сұрау';
-    case 'subscribe':
-      return 'Subscription қажет';
-    case 'request_school_access':
-      return 'Мектеп access қажет';
+      case 'subscribe':
+  return 'Ақылы access қажет';
+case 'request_school_access':
+  return 'Жабық курс';
     case 'manage_course':
       return t('common.edit');
     default:
@@ -333,10 +336,13 @@ export default function CourseCatalogPage() {
     }
 
     toast({
-      title: 'Курс әзірге қолжетімсіз',
-      description: getStudentActionLabel(course),
-      variant: 'destructive',
-    });
+  title: 'Курс қолжетімсіз',
+  description:
+    course.access?.accessState === 'requires_invite'
+      ? 'Бұл жабық курс. Мұғалім берген invite code қажет.'
+      : getStudentActionLabel(course),
+  variant: 'destructive',
+});
   };
 
   const handleRedeemInvite = async (course: CourseView) => {

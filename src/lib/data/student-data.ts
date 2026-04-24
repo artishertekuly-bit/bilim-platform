@@ -321,17 +321,40 @@ function shouldShowCourseInStudentCatalog(input: {
 
   if (!isCoursePublished(course)) return false;
 
-  const visibility = getCourseVisibility(course);
-
-  if (visibility === 'public') return true;
+  const accessType = getCourseAccessType(course);
 
   /**
-   * Unlisted/private course catalog-та көрінбеуі керек.
-   * Бірақ user осы курсқа already enrolled/entitled/pending болса,
-   * оны жоғалтпай көрсетеміз.
+   * Жабық курс:
+   * - басқа оқушыларға каталогта көрінбейді
+   * - тек invite алған / enrolled / entitlement бар user ғана көреді
    */
-  return isEnrolled || hasEntitlement || hasPendingOrder;
-}
+  if (accessType === 'private_invite') {
+    return isEnrolled || hasEntitlement || hasPendingOrder;
+  }
+
+  /**
+   * Ашық және ақылы курстар каталогта көрінуі керек.
+   * Ақылы курсқа кіру кейін order/payment/subscription арқылы ашылады.
+   */
+  if (accessType === 'public_free' || accessType === 'paid') {
+    return true;
+  }
+
+  /**
+   * Бұрын қосылған legacy түрлер.
+   * UI-дан алып тастаймыз, бірақ база ішінде бұрыннан бар row-лар болса,
+   * build/runtime сынбасын деп fallback қалдырамыз.
+   */
+  if (accessType === 'subscription_only') {
+    return true;
+  }
+
+  if (accessType === 'school_only') {
+    return isEnrolled || hasEntitlement || hasPendingOrder;
+  }
+
+  return false;
+} 
 
 async function canAccessCourseByRpc(courseId: string, userId?: string) {
   const db = supabase as any;

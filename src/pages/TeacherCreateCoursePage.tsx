@@ -58,11 +58,17 @@ const courseAccessTypes: CourseAccessType[] = [
   'public_free',
   'private_invite',
   'paid',
-  'subscription_only',
-  'school_only',
 ];
 
-const courseVisibilityOptions: CourseVisibility[] = ['public', 'unlisted', 'private'];
+function resolveVisibilityFromAccessType(accessType: CourseAccessType): CourseVisibility {
+  if (accessType === 'private_invite') return 'unlisted';
+  return 'public';
+}
+
+function shouldShowCoursePricing(accessType: CourseAccessType) {
+  return accessType === 'paid';
+}
+
 
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   const next = [...items];
@@ -86,47 +92,28 @@ function getNextSortOrder<T extends { sortOrder: number }>(items: T[] = []) {
 
 function getAccessTypeLabel(type: CourseAccessType) {
   const map: Record<CourseAccessType, string> = {
-    public_free: 'Тегін ашық курс',
-    private_invite: 'Invite арқылы ашылады',
+    public_free: 'Ашық курс',
+    private_invite: 'Жабық курс',
     paid: 'Ақылы курс',
-    subscription_only: 'Subscription арқылы',
-    school_only: 'Мектеп/ұйым курсы',
+    subscription_only: 'Ақылы курс',
+    school_only: 'Жабық курс',
   };
 
-  return map[type];
+  return map[type] || type;
 }
 
 function getAccessTypeHint(type: CourseAccessType) {
   const map: Record<CourseAccessType, string> = {
-    public_free: 'Оқушы курсты каталогтан көріп, бірден жазыла алады.',
-    private_invite: 'Оқушы курсқа тек invite code арқылы кіре алады.',
-    paid: 'Оқушы access сұранысын жібереді, admin manual approve жасайды.',
-    subscription_only: 'Кейін subscription plan арқылы ашылады.',
-    school_only: 'Кейін мектеп/organization access арқылы ашылады.',
+    public_free: 'Каталогта көрінеді. Оқушы тегін жазыла алады.',
+    private_invite: 'Каталогта көрінбейді. Оқушы тек invite code арқылы кіреді.',
+    paid: 'Каталогта көрінеді. Оқушы access сұрайды, кейін payment немесе subscription арқылы ашылады.',
+    subscription_only: 'Ақылы курс ретінде өңделеді.',
+    school_only: 'Жабық курс ретінде өңделеді.',
   };
 
-  return map[type];
+  return map[type] || '';
 }
 
-function getVisibilityLabel(visibility: CourseVisibility) {
-  const map: Record<CourseVisibility, string> = {
-    public: 'Public',
-    unlisted: 'Unlisted',
-    private: 'Private',
-  };
-
-  return map[visibility];
-}
-
-function getVisibilityHint(visibility: CourseVisibility) {
-  const map: Record<CourseVisibility, string> = {
-    public: 'Каталогта көрінеді.',
-    unlisted: 'Каталогта көрінбейді, бірақ link/invite арқылы ашылады.',
-    private: 'Тек access бар қолданушыларға көрінеді.',
-  };
-
-  return map[visibility];
-}
 
 function normalizeCurrency(value: string) {
   return (value || 'KZT').trim().toUpperCase();
@@ -514,11 +501,14 @@ export default function TeacherCreateCoursePage() {
     mutationFn: async () => {
       if (!user) throw new Error('User not found');
 
-      const price = parsePrice(newCourse.price);
-      const maxStudents = parseMaxStudents(newCourse.maxStudents);
-      const currency = normalizeCurrency(newCourse.currency);
+      const accessType = newCourse.accessType;
+      const isPaidCourse = shouldShowCoursePricing(accessType);
 
-      if (newCourse.accessType === 'paid' && price <= 0) {
+      const price = isPaidCourse ? parsePrice(newCourse.price) : 0;
+      const maxStudents = parseMaxStudents(newCourse.maxStudents);
+      const currency = isPaidCourse ? normalizeCurrency(newCourse.currency) : 'KZT';
+
+      if (isPaidCourse && price <= 0) {
         throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
       }
 
@@ -528,11 +518,11 @@ export default function TeacherCreateCoursePage() {
         subjectId: newCourse.subjectId,
         teacherId: user.id,
         status: 'draft',
-        accessType: newCourse.accessType,
-        visibility: newCourse.visibility,
+        accessType,
+        visibility: resolveVisibilityFromAccessType(accessType),
         price,
         currency,
-        enrollmentOpen: newCourse.enrollmentOpen,
+        enrollmentOpen: true,
         maxStudents,
       });
 
@@ -592,11 +582,14 @@ export default function TeacherCreateCoursePage() {
     mutationFn: async () => {
       if (!selectedCourse) throw new Error('Course not selected');
 
-      const price = parsePrice(courseEdit.price);
-      const maxStudents = parseMaxStudents(courseEdit.maxStudents);
-      const currency = normalizeCurrency(courseEdit.currency);
+      const accessType = courseEdit.accessType;
+      const isPaidCourse = shouldShowCoursePricing(accessType);
 
-      if (courseEdit.accessType === 'paid' && price <= 0) {
+      const price = isPaidCourse ? parsePrice(courseEdit.price) : 0;
+      const maxStudents = parseMaxStudents(courseEdit.maxStudents);
+      const currency = isPaidCourse ? normalizeCurrency(courseEdit.currency) : 'KZT';
+
+      if (isPaidCourse && price <= 0) {
         throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
       }
 
@@ -607,11 +600,11 @@ export default function TeacherCreateCoursePage() {
         subjectId: courseEdit.subjectId || null,
         thumbnailUrl: courseEdit.thumbnailUrl.trim() || null,
         status: courseEdit.status,
-        accessType: courseEdit.accessType,
-        visibility: courseEdit.visibility,
+        accessType,
+        visibility: resolveVisibilityFromAccessType(accessType),
         price,
         currency,
-        enrollmentOpen: courseEdit.enrollmentOpen,
+        enrollmentOpen: true,
         maxStudents,
       });
     },
@@ -1014,10 +1007,9 @@ export default function TeacherCreateCoursePage() {
       0
     ) || 0;
 
-  const selectedCoursePrice = formatPrice(
-    parsePrice(courseEdit.price || '0'),
-    normalizeCurrency(courseEdit.currency)
-  );
+  const selectedCoursePrice = shouldShowCoursePricing(courseEdit.accessType)
+    ? formatPrice(parsePrice(courseEdit.price || '0'), normalizeCurrency(courseEdit.currency))
+    : 'Тегін';
 
   return (
     <DashboardLayout>
@@ -1037,7 +1029,7 @@ export default function TeacherCreateCoursePage() {
           <ErrorState text={t('page.teacher_course_builder.error')} />
         ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-6">
           <div className="space-y-6">
             <Card>
               <CardHeader className="pb-4">
@@ -1087,120 +1079,88 @@ export default function TeacherCreateCoursePage() {
                 </div>
 
                 <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Access параметрлері
-                  </p>
+  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    Access параметрлері
+  </p>
 
-                  <div className="space-y-1.5">
-                    <Label>Курс түрі</Label>
-                    <select
-                      value={newCourse.accessType}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({
-                          ...p,
-                          accessType: e.target.value as CourseAccessType,
-                          price:
-                            e.target.value === 'paid' && Number(p.price || 0) <= 0
-                              ? '5000'
-                              : p.price,
-                        }))
-                      }
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      {courseAccessTypes.map((type) => (
-                        <option key={type} value={type}>
-                          {getAccessTypeLabel(type)}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-muted-foreground">
-                      {getAccessTypeHint(newCourse.accessType)}
-                    </p>
-                  </div>
+  <div className="space-y-1.5">
+    <Label>Курс түрі</Label>
+    <select
+      value={newCourse.accessType}
+      onChange={(e) =>
+        setNewCourse((p) => {
+          const nextAccessType = e.target.value as CourseAccessType;
 
-                  <div className="space-y-1.5">
-                    <Label>Көріну режимі</Label>
-                    <select
-                      value={newCourse.visibility}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({
-                          ...p,
-                          visibility: e.target.value as CourseVisibility,
-                        }))
-                      }
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      {courseVisibilityOptions.map((visibility) => (
-                        <option key={visibility} value={visibility}>
-                          {getVisibilityLabel(visibility)}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-muted-foreground">
-                      {getVisibilityHint(newCourse.visibility)}
-                    </p>
-                  </div>
+          return {
+            ...p,
+            accessType: nextAccessType,
+            visibility: resolveVisibilityFromAccessType(nextAccessType),
+            price:
+              nextAccessType === 'paid'
+                ? Number(p.price || 0) > 0
+                  ? p.price
+                  : '5000'
+                : '0',
+            currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
+          };
+        })
+      }
+      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+    >
+      {courseAccessTypes.map((type) => (
+        <option key={type} value={type}>
+          {getAccessTypeLabel(type)}
+        </option>
+      ))}
+    </select>
+    <p className="text-[11px] text-muted-foreground">
+      {getAccessTypeHint(newCourse.accessType)}
+    </p>
+  </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <Label>Баға</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={newCourse.price}
-                        onChange={(e) =>
-                          setNewCourse((p) => ({ ...p, price: e.target.value }))
-                        }
-                      />
-                    </div>
+  {shouldShowCoursePricing(newCourse.accessType) ? (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1.5">
+        <Label>Баға</Label>
+        <Input
+          type="number"
+          min={0}
+          value={newCourse.price}
+          onChange={(e) =>
+            setNewCourse((p) => ({ ...p, price: e.target.value }))
+          }
+        />
+      </div>
 
-                    <div className="space-y-1.5">
-                      <Label>Валюта</Label>
-                      <Input
-                        value={newCourse.currency}
-                        onChange={(e) =>
-                          setNewCourse((p) => ({
-                            ...p,
-                            currency: e.target.value.toUpperCase(),
-                          }))
-                        }
-                        maxLength={3}
-                      />
-                    </div>
-                  </div>
+      <div className="space-y-1.5">
+        <Label>Валюта</Label>
+        <Input
+          value={newCourse.currency}
+          onChange={(e) =>
+            setNewCourse((p) => ({
+              ...p,
+              currency: e.target.value.toUpperCase(),
+            }))
+          }
+          maxLength={3}
+        />
+      </div>
+    </div>
+  ) : null}
 
-                  <div className="space-y-1.5">
-                    <Label>Оқушы лимиті</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={newCourse.maxStudents}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({ ...p, maxStudents: e.target.value }))
-                      }
-                      placeholder="Бос қалса — шектеусіз"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                    <div>
-                      <Label htmlFor="new-course-enrollment-open">
-                        Жазылу ашық
-                      </Label>
-                      <p className="text-[11px] text-muted-foreground">
-                        Өшірулі болса, оқушы жаңа жазыла алмайды.
-                      </p>
-                    </div>
-                    <Switch
-                      id="new-course-enrollment-open"
-                      checked={newCourse.enrollmentOpen}
-                      onCheckedChange={(checked) =>
-                        setNewCourse((p) => ({ ...p, enrollmentOpen: checked }))
-                      }
-                    />
-                  </div>
-                </div>
-
+  <div className="space-y-1.5">
+    <Label>Оқушы лимиті</Label>
+    <Input
+      type="number"
+      min={1}
+      value={newCourse.maxStudents}
+      onChange={(e) =>
+        setNewCourse((p) => ({ ...p, maxStudents: e.target.value }))
+      }
+      placeholder="Бос қалса — шектеусіз"
+    />
+  </div>
+</div>
                 <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Алғашқы құрылым
@@ -1340,7 +1300,7 @@ export default function TeacherCreateCoursePage() {
 
           {selectedCourse ? (
             <div className="space-y-6">
-              <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="space-y-6">
                 <Card>
                   <CardHeader className="pb-4">
                     <CardTitle className="text-base font-semibold">
@@ -1368,48 +1328,25 @@ export default function TeacherCreateCoursePage() {
                       />
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label>{t('page.teacher_course_builder.field.subject')}</Label>
-                        <select
-                          value={courseEdit.subjectId}
-                          onChange={(e) =>
-                            setCourseEdit((p) => ({ ...p, subjectId: e.target.value }))
-                          }
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        >
-                          <option value="">
-                            {t('page.teacher_course_builder.placeholder.select_subject')}
+                    <div className="space-y-1.5">
+                      <Label>{t('page.teacher_course_builder.field.subject')}</Label>
+                      <select
+                        value={courseEdit.subjectId}
+                        onChange={(e) =>
+                          setCourseEdit((p) => ({ ...p, subjectId: e.target.value }))
+                        }
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        <option value="">
+                          {t('page.teacher_course_builder.placeholder.select_subject')}
+                        </option>
+                        {subjectOptions.map((subject) => (
+                          <option key={subject.id} value={subject.id}>
+                            {subject.name_kk}
                           </option>
-                          {subjectOptions.map((subject) => (
-                            <option key={subject.id} value={subject.id}>
-                              {subject.name_kk}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>{t('page.teacher_course_builder.field.status')}</Label>
-                        <select
-                          value={courseEdit.status}
-                          onChange={(e) =>
-                            setCourseEdit((p) => ({
-                              ...p,
-                              status: e.target.value as CourseStatus,
-                            }))
-                          }
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        >
-                          {courseStatuses.map((status) => (
-                            <option key={status} value={status}>
-                              {courseStatusLabels[status]}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                        ))}
+                      </select>
                     </div>
-
                     <div className="space-y-1.5">
                       <Label>{t('page.teacher_course_builder.field.thumbnail')}</Label>
                       <Input
@@ -1425,133 +1362,106 @@ export default function TeacherCreateCoursePage() {
                       <div>
                         <p className="text-sm font-semibold">Access және монетизация</p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Бұл бөлім курс тегін, invite-only, ақылы немесе жабық режимде
-                          ашылатынын басқарады.
+                          Курс ашық, жабық немесе ақылы режимде жұмыс істейді.
                         </p>
                       </div>
 
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-1.5">
-                          <Label>Курс түрі</Label>
-                          <select
-                            value={courseEdit.accessType}
-                            onChange={(e) =>
-                              setCourseEdit((p) => ({
+                      <div className="space-y-1.5">
+                        <Label>Курс түрі</Label>
+                        <select
+                          value={courseEdit.accessType}
+                          onChange={(e) =>
+                            setCourseEdit((p) => {
+                              const nextAccessType = e.target.value as CourseAccessType;
+
+                              return {
                                 ...p,
-                                accessType: e.target.value as CourseAccessType,
+                                accessType: nextAccessType,
+                                visibility: resolveVisibilityFromAccessType(nextAccessType),
                                 price:
-                                  e.target.value === 'paid' && Number(p.price || 0) <= 0
-                                    ? '5000'
-                                    : p.price,
-                              }))
-                            }
-                            className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          >
-                            {courseAccessTypes.map((type) => (
-                              <option key={type} value={type}>
-                                {getAccessTypeLabel(type)}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-[11px] text-muted-foreground">
-                            {getAccessTypeHint(courseEdit.accessType)}
-                          </p>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <Label>Көріну режимі</Label>
-                          <select
-                            value={courseEdit.visibility}
-                            onChange={(e) =>
-                              setCourseEdit((p) => ({
-                                ...p,
-                                visibility: e.target.value as CourseVisibility,
-                              }))
-                            }
-                            className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          >
-                            {courseVisibilityOptions.map((visibility) => (
-                              <option key={visibility} value={visibility}>
-                                {getVisibilityLabel(visibility)}
-                              </option>
-                            ))}
-                          </select>
-                          <p className="text-[11px] text-muted-foreground">
-                            {getVisibilityHint(courseEdit.visibility)}
-                          </p>
-                        </div>
+                                  nextAccessType === 'paid'
+                                    ? Number(p.price || 0) > 0
+                                      ? p.price
+                                      : '5000'
+                                    : '0',
+                                currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
+                              };
+                            })
+                          }
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          {courseAccessTypes.map((type) => (
+                            <option key={type} value={type}>
+                              {getAccessTypeLabel(type)}
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] text-muted-foreground">
+                          {getAccessTypeHint(courseEdit.accessType)}
+                        </p>
                       </div>
 
-                      <div className="grid gap-4 md:grid-cols-3">
-                        <div className="space-y-1.5">
-                          <Label>Баға</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            value={courseEdit.price}
-                            onChange={(e) =>
-                              setCourseEdit((p) => ({ ...p, price: e.target.value }))
-                            }
-                          />
-                        </div>
+                      {shouldShowCoursePricing(courseEdit.accessType) ? (
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label>Баға</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              value={courseEdit.price}
+                              onChange={(e) =>
+                                setCourseEdit((p) => ({ ...p, price: e.target.value }))
+                              }
+                            />
+                          </div>
 
-                        <div className="space-y-1.5">
-                          <Label>Валюта</Label>
-                          <Input
-                            value={courseEdit.currency}
-                            onChange={(e) =>
-                              setCourseEdit((p) => ({
-                                ...p,
-                                currency: e.target.value.toUpperCase(),
-                              }))
-                            }
-                            maxLength={3}
-                          />
+                          <div className="space-y-1.5">
+                            <Label>Валюта</Label>
+                            <Input
+                              value={courseEdit.currency}
+                              onChange={(e) =>
+                                setCourseEdit((p) => ({
+                                  ...p,
+                                  currency: e.target.value.toUpperCase(),
+                                }))
+                              }
+                              maxLength={3}
+                            />
+                          </div>
                         </div>
+                      ) : null}
 
-                        <div className="space-y-1.5">
-                          <Label>Оқушы лимиті</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={courseEdit.maxStudents}
-                            onChange={(e) =>
-                              setCourseEdit((p) => ({
-                                ...p,
-                                maxStudents: e.target.value,
-                              }))
-                            }
-                            placeholder="Шектеусіз"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between rounded-lg border bg-background px-4 py-3">
-                        <div>
-                          <Label htmlFor="course-enrollment-open">
-                            Жазылу ашық
-                          </Label>
-                          <p className="text-[11px] text-muted-foreground">
-                            Өшірулі болса, жаңа оқушы курсқа жазыла алмайды.
-                          </p>
-                        </div>
-                        <Switch
-                          id="course-enrollment-open"
-                          checked={courseEdit.enrollmentOpen}
-                          onCheckedChange={(checked) =>
+                      <div className="space-y-1.5">
+                        <Label>Оқушы лимиті</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={courseEdit.maxStudents}
+                          onChange={(e) =>
                             setCourseEdit((p) => ({
                               ...p,
-                              enrollmentOpen: checked,
+                              maxStudents: e.target.value,
                             }))
                           }
+                          placeholder="Шектеусіз"
                         />
                       </div>
 
                       <div className="rounded-lg border bg-background px-3 py-2 text-xs text-muted-foreground">
-                        Қазіргі баға: <span className="font-medium text-foreground">{selectedCoursePrice}</span>
+                        Қазіргі режим:{' '}
+                        <span className="font-medium text-foreground">
+                          {getAccessTypeLabel(courseEdit.accessType)}
+                        </span>
+                        {shouldShowCoursePricing(courseEdit.accessType) ? (
+                          <>
+                            {' '}· Баға:{' '}
+                            <span className="font-medium text-foreground">
+                              {selectedCoursePrice}
+                            </span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
-
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Button
                         onClick={() => updateCourseMutation.mutate()}
@@ -1739,31 +1649,92 @@ export default function TeacherCreateCoursePage() {
 
                   <Card>
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">Жылдам статус</CardTitle>
+                      <CardTitle className="text-sm font-semibold">Жариялау</CardTitle>
                     </CardHeader>
-                    <CardContent className="flex flex-wrap gap-2">
-                      {courseStatuses.map(
-                        (status) =>
-                          status !== courseEdit.status && (
-                            <Button
-                              key={status}
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                quickStatusMutation.mutate({
-                                  courseId: selectedCourse.id,
-                                  status,
-                                })
-                              }
-                              disabled={quickStatusMutation.isPending}
-                            >
-                              {courseStatusLabels[status]}
-                            </Button>
-                          )
+
+                    <CardContent className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Жарияланған курс каталогта көрінеді. Жабық курс жарияланса да,
+                        тек invite арқылы ашылады.
+                      </p>
+
+                      {courseEdit.status === 'archived' ? (
+                        <div className="rounded-lg border bg-muted px-3 py-2 text-xs text-muted-foreground">
+                          Курс архивте тұр. Алдымен архивтен қайтарыңыз.
+                        </div>
+                      ) : courseEdit.status === 'published' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            quickStatusMutation.mutate({
+                              courseId: selectedCourse.id,
+                              status: 'draft',
+                            })
+                          }
+                          disabled={quickStatusMutation.isPending}
+                        >
+                          Жариялаудан алу
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() =>
+                            quickStatusMutation.mutate({
+                              courseId: selectedCourse.id,
+                              status: 'published',
+                            })
+                          }
+                          disabled={quickStatusMutation.isPending}
+                        >
+                          Жариялау
+                        </Button>
                       )}
                     </CardContent>
                   </Card>
 
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-semibold">Архив</CardTitle>
+                    </CardHeader>
+
+                    <CardContent className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Архивке түскен курс оқушыларға белсенді курс ретінде көрсетілмейді.
+                        Кейін оны қайта draft күйіне қайтаруға болады.
+                      </p>
+
+                      {courseEdit.status === 'archived' ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            quickStatusMutation.mutate({
+                              courseId: selectedCourse.id,
+                              status: 'draft',
+                            })
+                          }
+                          disabled={quickStatusMutation.isPending}
+                        >
+                          Архивтен қайтару
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            quickStatusMutation.mutate({
+                              courseId: selectedCourse.id,
+                              status: 'archived',
+                            })
+                          }
+                          disabled={quickStatusMutation.isPending}
+                        >
+                          Архивке жіберу
+                        </Button>
+                      )}
+                    </CardContent>
+                  </Card>
                   <Card className="border-destructive/30">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-semibold text-destructive">
@@ -1797,7 +1768,7 @@ export default function TeacherCreateCoursePage() {
                 </div>
               </div>
 
-              <div className="grid gap-6 2xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+              <div className="space-y-6">
                 <Card>
                   <CardHeader className="pb-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
