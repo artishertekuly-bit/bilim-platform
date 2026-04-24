@@ -839,9 +839,9 @@ export async function enrollInCourse(studentId: string, courseId: string, locale
   const rpcAccess = await canAccessCourseByRpc(courseId, studentId);
 
   const canAccess =
-    rpcAccess ??
-    accessType === 'public_free' ||
-    (await userHasCourseEntitlementSafe(studentId, courseId));
+  rpcAccess ??
+  (accessType === 'public_free' ||
+    (await userHasCourseEntitlementSafe(studentId, courseId)));
 
   if (!canAccess) {
     if (accessType === 'private_invite') {
@@ -976,9 +976,9 @@ export async function getLessonDetail(
     const rpcAccess = await canAccessCourseByRpc(course.id, studentId);
 
     const canAccess =
-      rpcAccess ??
-      getCourseAccessType(course) === 'public_free' ||
-      (await userHasCourseEntitlementSafe(studentId, course.id));
+  rpcAccess ??
+  (getCourseAccessType(course) === 'public_free' ||
+    (await userHasCourseEntitlementSafe(studentId, course.id)));
 
     courseAccessLocked = !canAccess;
   }
