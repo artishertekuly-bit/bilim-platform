@@ -45,6 +45,10 @@ const AiTutorPage = lazy(() => import('./pages/AiTutorPage'));
 const AiExamSessionPage = lazy(() => import('./pages/AiExamSessionPage'));
 const AiStudentExamsPage = lazy(() => import('./pages/AiStudentExamsPage'));
 
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
+const UpdatePasswordPage = lazy(() => import('./pages/UpdatePasswordPage'));
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -74,6 +78,9 @@ const publicRoutes: AppRouteConfig[] = [
   { path: '/', element: <LandingPage /> },
   { path: '/login', element: <LoginPage /> },
   { path: '/register', element: <RegisterPage /> },
+  { path: '/verify-email', element: <VerifyEmailPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/update-password', element: <UpdatePasswordPage /> },
   { path: '/about', element: <AboutPage /> },
 ];
 
@@ -187,6 +194,7 @@ export default function App() {
         <AuthProvider>
           <Toaster />
           <Sonner />
+
           <BrowserRouter>
             <Suspense
               fallback={

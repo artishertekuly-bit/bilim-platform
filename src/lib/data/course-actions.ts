@@ -1,6 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
-import { deleteContentReviewsSafe, localizedText, queryOrThrow } from './common';
+import { execOrThrow, localizedText, queryOrThrow } from './common';
 
 /* ================= UPDATE ================= */
 
@@ -20,7 +20,11 @@ export async function updateCourse(input: {
   if (input.thumbnailUrl !== undefined) patch.thumbnail_url = input.thumbnailUrl;
   if (input.status !== undefined) patch.status = input.status;
 
-  const { error } = await supabase.from('courses').update(patch).eq('id', input.courseId);
+  const { error } = await supabase
+    .from('courses')
+    .update(patch)
+    .eq('id', input.courseId);
+
   if (error) throw new Error(error.message);
 }
 
@@ -34,7 +38,11 @@ export async function updateModule(input: {
   if (input.title !== undefined) patch.title = input.title;
   if (input.sortOrder !== undefined) patch.sort_order = input.sortOrder;
 
-  const { error } = await supabase.from('modules').update(patch).eq('id', input.moduleId);
+  const { error } = await supabase
+    .from('modules')
+    .update(patch)
+    .eq('id', input.moduleId);
+
   if (error) throw new Error(error.message);
 }
 
@@ -56,7 +64,11 @@ export async function updateLesson(input: {
   if (input.sortOrder !== undefined) patch.sort_order = input.sortOrder;
   if (input.isPublished !== undefined) patch.is_published = input.isPublished;
 
-  const { error } = await supabase.from('lessons').update(patch).eq('id', input.lessonId);
+  const { error } = await supabase
+    .from('lessons')
+    .update(patch)
+    .eq('id', input.lessonId);
+
   if (error) throw new Error(error.message);
 }
 
@@ -156,73 +168,42 @@ export async function updateCourseStatus(
   courseId: string,
   status: Tables<'courses'>['status']
 ) {
-  const { error } = await supabase.from('courses').update({ status }).eq('id', courseId);
+  const { error } = await supabase
+    .from('courses')
+    .update({ status })
+    .eq('id', courseId);
+
   if (error) throw new Error(error.message);
 }
 
 /* ================= DELETE ================= */
 
 export async function deleteLesson(lessonId: string) {
-  await queryOrThrow(supabase.from('lesson_progress').delete().eq('lesson_id', lessonId));
-
-  const { error } = await supabase.from('lessons').delete().eq('id', lessonId);
-  if (error) throw new Error(error.message);
+  await execOrThrow(
+    supabase.rpc('delete_lesson_deep' as never, {
+      p_lesson_id: lessonId,
+    } as never)
+  );
 }
 
 export async function deleteModule(moduleId: string) {
-  const lessons = await queryOrThrow(
-    supabase.from('lessons').select('id').eq('module_id', moduleId)
+  await execOrThrow(
+    supabase.rpc('delete_module_deep' as never, {
+      p_module_id: moduleId,
+    } as never)
   );
-
-  const lessonIds = lessons.map((l) => l.id);
-
-  if (lessonIds.length) {
-    await queryOrThrow(
-      supabase.from('lesson_progress').delete().in('lesson_id', lessonIds)
-    );
-    await queryOrThrow(supabase.from('lessons').delete().in('id', lessonIds));
-  }
-
-  const { error } = await supabase.from('modules').delete().eq('id', moduleId);
-  if (error) throw new Error(error.message);
 }
 
 export async function deleteCourse(courseId: string) {
-  const modules = await queryOrThrow(
-    supabase.from('modules').select('id').eq('course_id', courseId)
-  );
+  console.log('[deleteCourse] start', courseId);
 
-  const moduleIds = modules.map((m) => m.id);
+  const result = await supabase.rpc('delete_course_deep' as never, {
+    p_course_id: courseId,
+  } as never);
 
-  if (moduleIds.length) {
-    const lessons = await queryOrThrow(
-      supabase.from('lessons').select('id').in('module_id', moduleIds)
-    );
+  console.log('[deleteCourse] rpc result', result);
 
-    const lessonIds = lessons.map((l) => l.id);
-
-    if (lessonIds.length) {
-      await queryOrThrow(
-        supabase.from('lesson_progress').delete().in('lesson_id', lessonIds)
-      );
-      await queryOrThrow(supabase.from('lessons').delete().in('id', lessonIds));
-    }
-
-    await queryOrThrow(supabase.from('modules').delete().in('id', moduleIds));
-  }
-
-  await queryOrThrow(
-    supabase.from('course_bookmarks').delete().eq('course_id', courseId)
-  );
-
-  await queryOrThrow(
-    supabase.from('course_enrollments').delete().eq('course_id', courseId)
-  );
-
-  await deleteContentReviewsSafe(courseId);
-
-  const { error } = await supabase.from('courses').delete().eq('id', courseId);
-  if (error) throw new Error(error.message);
+  await execOrThrow(Promise.resolve(result));
 }
 
 /* ================= REORDER ================= */

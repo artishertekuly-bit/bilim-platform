@@ -10,8 +10,11 @@ export default function DashboardRouter() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-foreground" />
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-b-foreground" />
+          <p className="text-sm text-muted-foreground">Dashboard жүктелуде...</p>
+        </div>
       </div>
     );
   }
@@ -23,13 +26,26 @@ export default function DashboardRouter() {
   switch (user.role) {
     case 'student':
       return <StudentDashboard />;
+
     case 'teacher':
       return <TeacherDashboard />;
+
     case 'parent':
       return <ParentDashboard />;
+
     case 'admin':
       return <AdminDashboard />;
+
     default:
-      return <Navigate to="/login" replace />;
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background p-6">
+          <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
+            <h1 className="text-lg font-semibold">Рөл анықталмады</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Аккаунт рөлі дұрыс орнатылмаған. Қайта кіріп көріңіз немесе әкімшіге хабарласыңыз.
+            </p>
+          </div>
+        </div>
+      );
   }
 }

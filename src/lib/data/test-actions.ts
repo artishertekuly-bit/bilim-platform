@@ -1,6 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
-import { deleteContentReviewsSafe, localizedText, queryOrThrow } from './common';
+import { execOrThrow, localizedText, queryOrThrow } from './common';
 
 /* ================= HELPERS ================= */
 
@@ -165,65 +165,25 @@ export async function updateTestStatus(
 /* ================= DELETE ================= */
 
 export async function deleteTestQuestion(questionId: string) {
-  await queryOrThrow(
-    supabase.from('test_attempt_answers').delete().eq('question_id', questionId)
+  await execOrThrow(
+    supabase.rpc('delete_test_question_deep' as never, {
+      p_question_id: questionId,
+    } as never)
   );
-
-  const { error } = await supabase
-    .from('test_questions')
-    .delete()
-    .eq('id', questionId);
-
-  if (error) throw new Error(error.message);
 }
 
 export async function deleteTest(testId: string) {
-  const [questions, attempts] = await Promise.all([
-    queryOrThrow(
-      supabase.from('test_questions').select('id').eq('test_id', testId)
-    ),
-    queryOrThrow(
-      supabase.from('test_attempts').select('id').eq('test_id', testId)
-    ),
-  ]);
+  console.log('[deleteTest] start', testId);
 
-  const questionIds = questions.map((q) => q.id);
-  const attemptIds = attempts.map((a) => a.id);
+  const result = await supabase.rpc('delete_test_deep' as never, {
+    p_test_id: testId,
+  } as never);
 
-  // 🔥 delete answers FIRST (both cases)
-  if (questionIds.length) {
-    await queryOrThrow(
-      supabase.from('test_attempt_answers').delete().in('question_id', questionIds)
-    );
-  }
+  console.log('[deleteTest] rpc result', result);
 
-  if (attemptIds.length) {
-    await queryOrThrow(
-      supabase.from('test_attempt_answers').delete().in('attempt_id', attemptIds)
-    );
-  }
-
-  if (questionIds.length) {
-    await queryOrThrow(
-      supabase.from('test_questions').delete().in('id', questionIds)
-    );
-  }
-
-  if (attemptIds.length) {
-    await queryOrThrow(
-      supabase.from('test_attempts').delete().in('id', attemptIds)
-    );
-  }
-
-  await deleteContentReviewsSafe(testId);
-
-  const { error } = await supabase
-    .from('tests')
-    .delete()
-    .eq('id', testId);
-
-  if (error) throw new Error(error.message);
+  await execOrThrow(Promise.resolve(result));
 }
+
 
 /* ================= REORDER ================= */
 

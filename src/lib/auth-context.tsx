@@ -39,11 +39,18 @@ interface AuthContextType {
     fullName: string,
     role: UserRole
   ) => Promise<AuthActionResult>;
+  loginWithGoogle: (role?: UserRole) => Promise<void>;
+  verifyEmailOtp: (email: string, token: string) => Promise<User | null>;
+  resendSignupOtp: (email: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<User | null>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+const PENDING_OAUTH_ROLE_KEY = 'bilim.pendingOAuthRole';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -53,6 +60,38 @@ function normalizeEmail(value: string) {
 
 function normalizeFullName(value: string) {
   return value.trim();
+}
+
+function isUserRole(value: unknown): value is UserRole {
+  return (
+    value === 'student' ||
+    value === 'teacher' ||
+    value === 'parent' ||
+    value === 'admin'
+  );
+}
+
+function getPendingOAuthRole(): UserRole | null {
+  if (typeof window === 'undefined') return null;
+
+  const value = window.localStorage.getItem(PENDING_OAUTH_ROLE_KEY);
+  return isUserRole(value) ? value : null;
+}
+
+function setPendingOAuthRole(role?: UserRole) {
+  if (typeof window === 'undefined') return;
+
+  if (role) {
+    window.localStorage.setItem(PENDING_OAUTH_ROLE_KEY, role);
+    return;
+  }
+
+  window.localStorage.removeItem(PENDING_OAUTH_ROLE_KEY);
+}
+
+function clearPendingOAuthRole() {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(PENDING_OAUTH_ROLE_KEY);
 }
 
 async function fetchUserRoleRecord(userId: string) {
@@ -110,6 +149,46 @@ async function syncRequestedRole() {
   throw new Error(error.message);
 }
 
+async function applyPendingOAuthRoleIfNeeded(supabaseUser: SupabaseUser) {
+  const pendingRole = getPendingOAuthRole();
+
+  if (!pendingRole) return;
+
+  try {
+    const existingRole = await fetchUserRoleRecord(supabaseUser.id);
+
+    if (existingRole?.role) {
+      clearPendingOAuthRole();
+      return;
+    }
+
+    const metadata = supabaseUser.user_metadata || {};
+    const fullName =
+      metadata.full_name ||
+      metadata.name ||
+      supabaseUser.email?.split('@')[0] ||
+      '';
+
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        ...metadata,
+        full_name: fullName,
+        role: pendingRole,
+      },
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    await syncRequestedRole();
+    clearPendingOAuthRole();
+  } catch (error) {
+    console.error('Failed to apply pending OAuth role', error);
+    throw error;
+  }
+}
+
 async function buildUser(supabaseUser: SupabaseUser): Promise<User> {
   const [role, profile] = await Promise.all([
     fetchUserRole(supabaseUser.id),
@@ -122,6 +201,7 @@ async function buildUser(supabaseUser: SupabaseUser): Promise<User> {
     fullName:
       profile?.full_name ||
       supabaseUser.user_metadata?.full_name ||
+      supabaseUser.user_metadata?.name ||
       supabaseUser.email?.split('@')[0] ||
       '',
     role,
@@ -160,6 +240,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     try {
+      await applyPendingOAuthRoleIfNeeded(nextSession.user);
+
       const appUser = await buildUserWithRetry(nextSession.user);
       setUser(appUser);
       return appUser;
@@ -216,7 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return {
           user: null,
           requiresEmailConfirmation: true,
-          message: 'Email мекенжайын растағаннан кейін қайта кіріңіз.',
+          message: 'Email растау коды жіберілді. Кодты енгізіп тіркелуді аяқтаңыз.',
         };
       }
 
@@ -246,7 +328,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             full_name: normalizedFullName,
             role,
           },
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: `${window.location.origin}/verify-email`,
         },
       });
 
@@ -260,7 +342,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return {
           user: null,
           requiresEmailConfirmation: true,
-          message: 'Тіркелу аяқталды. Енді email-дағы сілтемені басып, қайта кіріңіз.',
+          message: 'Email-ға жіберілген 6 таңбалы кодты енгізіңіз.',
         };
       }
 
@@ -272,9 +354,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [hydrateSession]
   );
 
+  const loginWithGoogle = useCallback(async (role?: UserRole) => {
+    setPendingOAuthRole(role);
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
+    });
+
+    if (error) {
+      clearPendingOAuthRole();
+      throw new Error(error.message);
+    }
+  }, []);
+
+  const verifyEmailOtp = useCallback(
+    async (email: string, token: string) => {
+      const normalizedEmail = normalizeEmail(email);
+      const normalizedToken = token.trim();
+
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: normalizedEmail,
+        token: normalizedToken,
+        type: 'email',
+      });
+
+      if (error) throw new Error(error.message);
+
+      if (!data.session || !data.user) {
+        throw new Error('Код расталғаннан кейін сессия ашылмады');
+      }
+
+      await syncRequestedRole();
+
+      return hydrateSession(data.session);
+    },
+    [hydrateSession]
+  );
+
+  const resendSignupOtp = useCallback(async (email: string) => {
+    const normalizedEmail = normalizeEmail(email);
+
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: normalizedEmail,
+    });
+
+    if (error) throw new Error(error.message);
+  }, []);
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const normalizedEmail = normalizeEmail(email);
+
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+      redirectTo: `${window.location.origin}/update-password`,
+    });
+
+    if (error) throw new Error(error.message);
+  }, []);
+
+  const updatePassword = useCallback(
+    async (newPassword: string) => {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) throw new Error(error.message);
+
+      const {
+        data: { session: currentSession },
+      } = await supabase.auth.getSession();
+
+      await hydrateSession(currentSession);
+    },
+    [hydrateSession]
+  );
+
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw new Error(error.message);
+    clearPendingOAuthRole();
     setUser(null);
     setSession(null);
   }, []);
@@ -289,10 +450,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       login,
       register,
+      loginWithGoogle,
+      verifyEmailOtp,
+      resendSignupOtp,
+      requestPasswordReset,
+      updatePassword,
       logout,
       refreshUser,
     }),
-    [user, session, isAuthenticated, isLoading, login, register, logout, refreshUser]
+    [
+      user,
+      session,
+      isAuthenticated,
+      isLoading,
+      login,
+      register,
+      loginWithGoogle,
+      verifyEmailOtp,
+      resendSignupOtp,
+      requestPasswordReset,
+      updatePassword,
+      logout,
+      refreshUser,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

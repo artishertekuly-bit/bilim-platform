@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
@@ -9,10 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 function resolveLoginError(error: unknown): { error?: string; info?: string } {
-  const message =
-    error instanceof Error
-      ? error.message
-      : t('auth.login_failed');
+  const message = error instanceof Error ? error.message : t('auth.login_failed');
 
   if (message.toLowerCase().includes('email not confirmed')) {
     return {
@@ -33,7 +30,7 @@ type LoginLocationState = {
 };
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -41,6 +38,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
@@ -64,8 +62,9 @@ export default function LoginPage() {
   }, [incomingInfo]);
 
   const canSubmit = email.trim().length > 0 && password.length > 0 && !loading;
+  const authBusy = loading || googleLoading;
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!canSubmit) return;
@@ -96,12 +95,30 @@ export default function LoginPage() {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    setError('');
+    setInfo('');
+
+    try {
+      await loginWithGoogle();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Google арқылы кіру мүмкін болмады.'
+      );
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex kazakh-ornament-bg">
       <div className="relative hidden items-center justify-center overflow-hidden bg-primary lg:flex lg:w-1/2">
         <div className="absolute left-8 top-8">
           <KazakhOrnament variant="corner" className="text-primary-foreground" />
         </div>
+
         <div className="absolute bottom-8 right-8 rotate-180">
           <KazakhOrnament variant="corner" className="text-primary-foreground" />
         </div>
@@ -112,6 +129,7 @@ export default function LoginPage() {
           </div>
 
           <h1 className="mb-3 text-3xl font-bold text-primary-foreground">Bilim</h1>
+
           <p className="mx-auto max-w-sm text-sm leading-relaxed text-primary-foreground/70">
             {t('landing.hero_subtitle')}
           </p>
@@ -147,6 +165,7 @@ export default function LoginPage() {
               <Label htmlFor="email" className="text-xs font-medium">
                 {t('auth.email')}
               </Label>
+
               <Input
                 id="email"
                 type="email"
@@ -155,6 +174,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="email@example.com"
                 required
+                disabled={authBusy}
               />
             </div>
 
@@ -173,28 +193,67 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   required
                   className="pr-10"
+                  disabled={authBusy}
                 />
 
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground"
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
                   aria-label={
-                    showPassword
-                      ? t('auth.hide_password')
-                      : t('auth.show_password')
+                    showPassword ? t('auth.hide_password') : t('auth.show_password')
                   }
+                  disabled={authBusy}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            <Button type="submit" className="w-full" disabled={!canSubmit}>
+            <Button type="submit" className="w-full" disabled={!canSubmit || authBusy}>
               {loading ? t('common.loading') : t('auth.login_btn')}
               <ArrowRight size={15} className="ml-2" />
             </Button>
           </form>
+
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">немесе</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={handleGoogleLogin}
+            disabled={authBusy}
+          >
+            {googleLoading ? 'Google ашылуда...' : 'Google арқылы кіру'}
+          </Button>
+
+          <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+            <Link to="/forgot-password" className="text-muted-foreground hover:underline">
+              Құпия сөзді ұмыттым
+            </Link>
+
+            {email.trim() ? (
+              <button
+                type="button"
+                onClick={() =>
+                  navigate('/verify-email', {
+                    state: {
+                      email: email.trim(),
+                      info: 'Email растау кодын енгізіңіз.',
+                    },
+                  })
+                }
+                className="text-right text-foreground hover:underline"
+              >
+                Email кодын енгізу
+              </button>
+            ) : null}
+          </div>
 
           <KazakhOrnament variant="divider" className="my-4" />
 

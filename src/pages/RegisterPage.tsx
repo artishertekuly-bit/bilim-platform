@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 import t from '@/lib/i18n';
@@ -17,7 +17,7 @@ function resolveRegisterError(error: unknown) {
 }
 
 export default function RegisterPage() {
-  const { register } = useAuth();
+  const { register, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
 
   const [fullName, setFullName] = useState('');
@@ -26,6 +26,7 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<UserRole>('student');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
 
   const roles: { value: UserRole; label: string }[] = [
@@ -34,17 +35,20 @@ export default function RegisterPage() {
     { value: 'parent', label: t('role.parent') },
   ];
 
+  const authBusy = loading || googleLoading;
+
   const canSubmit = useMemo(
     () =>
       fullName.trim().length > 0 &&
       email.trim().length > 0 &&
       password.length >= 6 &&
-      !loading,
-    [fullName, email, password, loading]
+      !authBusy,
+    [fullName, email, password, authBusy]
   );
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
     if (!canSubmit) return;
 
     setLoading(true);
@@ -54,10 +58,11 @@ export default function RegisterPage() {
       const result = await register(email, password, fullName, role);
 
       if (result.requiresEmailConfirmation) {
-        navigate('/login', {
+        navigate('/verify-email', {
           replace: true,
           state: {
-            info: result.message || t('auth.email_confirmation_required'),
+            email: email.trim(),
+            info: result.message || 'Email-ға жіберілген кодты енгізіңіз.',
           },
         });
         return;
@@ -68,6 +73,22 @@ export default function RegisterPage() {
       setError(resolveRegisterError(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleRegister = async () => {
+    setGoogleLoading(true);
+    setError('');
+
+    try {
+      await loginWithGoogle(role);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Google арқылы тіркелу мүмкін болмады.'
+      );
+      setGoogleLoading(false);
     }
   };
 
@@ -84,6 +105,7 @@ export default function RegisterPage() {
         <h2 className="mb-1 text-center text-xl font-semibold">
           {t('auth.register_title')}
         </h2>
+
         <p className="mb-6 text-center text-sm text-muted-foreground">
           {t('auth.register_hint')}
         </p>
@@ -94,11 +116,55 @@ export default function RegisterPage() {
           </p>
         ) : null}
 
+        <div className="mb-4 space-y-1.5">
+          <Label className="text-xs font-medium">{t('auth.role')}</Label>
+
+          <div className="grid grid-cols-3 gap-2">
+            {roles.map((r) => (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setRole(r.value)}
+                aria-pressed={role === r.value}
+                disabled={authBusy}
+                className={`rounded-md border px-3 py-2.5 text-center text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                  role === r.value
+                    ? 'border-foreground bg-primary text-primary-foreground'
+                    : 'border-border hover:bg-accent'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          <p className="text-[11px] text-muted-foreground">
+            Google арқылы тіркелсеңіз де, осы таңдалған рөл қолданылады.
+          </p>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={handleGoogleRegister}
+          disabled={authBusy}
+        >
+          {googleLoading ? 'Google ашылуда...' : 'Google арқылы тіркелу'}
+        </Button>
+
+        <div className="my-4 flex items-center gap-3">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-xs text-muted-foreground">немесе</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="fullName" className="text-xs font-medium">
               {t('auth.full_name')}
             </Label>
+
             <Input
               id="fullName"
               autoComplete="name"
@@ -106,6 +172,7 @@ export default function RegisterPage() {
               onChange={(e) => setFullName(e.target.value)}
               placeholder={t('auth.full_name_placeholder')}
               required
+              disabled={authBusy}
             />
           </div>
 
@@ -113,6 +180,7 @@ export default function RegisterPage() {
             <Label htmlFor="email" className="text-xs font-medium">
               {t('auth.email')}
             </Label>
+
             <Input
               id="email"
               type="email"
@@ -121,6 +189,7 @@ export default function RegisterPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="email@example.com"
               required
+              disabled={authBusy}
             />
           </div>
 
@@ -140,42 +209,25 @@ export default function RegisterPage() {
                 required
                 minLength={6}
                 className="pr-10"
+                disabled={authBusy}
               />
 
               <button
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground"
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
                 aria-label={
-                  showPassword
-                    ? t('auth.hide_password')
-                    : t('auth.show_password')
+                  showPassword ? t('auth.hide_password') : t('auth.show_password')
                 }
+                disabled={authBusy}
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-          </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('auth.role')}</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {roles.map((r) => (
-                <button
-                  key={r.value}
-                  type="button"
-                  onClick={() => setRole(r.value)}
-                  aria-pressed={role === r.value}
-                  className={`rounded-md border px-3 py-2.5 text-center text-xs transition-colors ${
-                    role === r.value
-                      ? 'border-foreground bg-primary text-primary-foreground'
-                      : 'border-border hover:bg-accent'
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Құпия сөз кемінде 6 таңбадан тұруы керек.
+            </p>
           </div>
 
           <Button type="submit" className="w-full" disabled={!canSubmit}>

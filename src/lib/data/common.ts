@@ -53,6 +53,9 @@ export async function deleteContentReviewsSafe(contentId: string) {
   }
 }
 
+/**
+ * For SELECT / INSERT ... .select() / RPC calls where data is required.
+ */
 export async function queryOrThrow<T>(
   promise: PromiseLike<{ data: T; error: { message: string } | null }>
 ): Promise<Exclude<T, null | undefined>> {
@@ -67,4 +70,11 @@ export async function queryOrThrow<T>(
   }
 
   return data as Exclude<T, null | undefined>;
+}
+
+export async function execOrThrow(
+  promise: PromiseLike<{ error: { message: string } | null }>
+): Promise<void> {
+  const { error } = await promise;
+  if (error) throw new Error(error.message);
 }

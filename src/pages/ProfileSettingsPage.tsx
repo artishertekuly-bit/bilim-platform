@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import DashboardLayout from '@/components/DashboardLayout';
 import UserAvatar from '@/components/UserAvatar';
 import { useAuth } from '@/lib/auth-context';
@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Trash2, Save } from 'lucide-react';
+import { Eye, EyeOff, Save, Trash2 } from 'lucide-react';
 import AvatarCropDialog from '@/components/AvatarCropDialog';
 
 function extractStoragePath(url?: string | null) {
@@ -44,7 +44,7 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 export default function ProfileSettingsPage() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, updatePassword } = useAuth();
   const { toast } = useToast();
 
   const [fullName, setFullName] = useState('');
@@ -53,6 +53,12 @@ export default function ProfileSettingsPage() {
 
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingAvatar, setSavingAvatar] = useState(false);
+
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   const [cropOpen, setCropOpen] = useState(false);
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
@@ -84,6 +90,20 @@ export default function ProfileSettingsPage() {
   const canSaveProfile = Boolean(user) && isProfileDirty && !savingProfile;
   const canRemoveAvatar = Boolean(user) && hasAvatar && !savingAvatar;
 
+  const passwordMismatch =
+    newPassword.length > 0 &&
+    confirmPassword.length > 0 &&
+    newPassword !== confirmPassword;
+
+  const passwordTooShort = newPassword.length > 0 && newPassword.length < 6;
+
+  const canSavePassword =
+    Boolean(user) &&
+    newPassword.length >= 6 &&
+    confirmPassword.length >= 6 &&
+    newPassword === confirmPassword &&
+    !savingPassword;
+
   const closeCropDialog = () => {
     if (selectedImageSrc) {
       URL.revokeObjectURL(selectedImageSrc);
@@ -93,7 +113,7 @@ export default function ProfileSettingsPage() {
     setCropOpen(false);
   };
 
-  const handleAvatarFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -267,6 +287,33 @@ export default function ProfileSettingsPage() {
     }
   };
 
+  const savePassword = async () => {
+    if (!canSavePassword) return;
+
+    setSavingPassword(true);
+
+    try {
+      await updatePassword(newPassword);
+
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
+
+      toast({
+        title: 'Құпия сөз жаңартылды',
+      });
+    } catch (error) {
+      toast({
+        title: t('page.profile.toast.error_title'),
+        description: getErrorMessage(error, 'Құпия сөзді жаңарту мүмкін болмады'),
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="max-w-3xl space-y-6 animate-fade-in">
@@ -280,7 +327,9 @@ export default function ProfileSettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle>{t('page.profile.card_title')}</CardTitle>
-            <CardDescription>{t('page.profile.card_description')}</CardDescription>
+            <CardDescription>
+              {t('page.profile.card_description')}
+            </CardDescription>
           </CardHeader>
 
           <CardContent className="space-y-6">
@@ -330,6 +379,7 @@ export default function ProfileSettingsPage() {
                   id="fullName"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
+                  disabled={savingProfile}
                 />
               </div>
 
@@ -341,6 +391,7 @@ export default function ProfileSettingsPage() {
                   onChange={(e) => setBio(e.target.value)}
                   placeholder={t('page.profile.placeholder.bio')}
                   rows={5}
+                  disabled={savingProfile}
                 />
               </div>
             </div>
@@ -355,6 +406,97 @@ export default function ProfileSettingsPage() {
                 {savingProfile
                   ? t('page.profile.action.saving')
                   : t('page.profile.action.save_changes')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Қауіпсіздік</CardTitle>
+            <CardDescription>Құпия сөзді өзгерту</CardDescription>
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="newPassword">Жаңа құпия сөз</Label>
+
+              <div className="relative">
+                <Input
+                  id="newPassword"
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Кемінде 6 таңба"
+                  className="pr-10"
+                  minLength={6}
+                  disabled={savingPassword}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((prev) => !prev)}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
+                  disabled={savingPassword}
+                  aria-label={
+                    showNewPassword ? 'Құпия сөзді жасыру' : 'Құпия сөзді көрсету'
+                  }
+                >
+                  {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="confirmPassword">Қайталау</Label>
+
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Құпия сөзді қайталаңыз"
+                  className="pr-10"
+                  minLength={6}
+                  disabled={savingPassword}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
+                  disabled={savingPassword}
+                  aria-label={
+                    showConfirmPassword
+                      ? 'Құпия сөзді жасыру'
+                      : 'Құпия сөзді көрсету'
+                  }
+                >
+                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {passwordTooShort ? (
+              <p className="text-sm text-red-600">
+                Құпия сөз кемінде 6 таңбадан тұруы керек.
+              </p>
+            ) : null}
+
+            {passwordMismatch ? (
+              <p className="text-sm text-red-600">
+                Құпия сөздер сәйкес келмейді.
+              </p>
+            ) : null}
+
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                onClick={savePassword}
+                disabled={!canSavePassword}
+              >
+                {savingPassword ? 'Жаңартылуда...' : 'Құпия сөзді жаңарту'}
               </Button>
             </div>
           </CardContent>
