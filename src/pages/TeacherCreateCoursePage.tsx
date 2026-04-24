@@ -24,9 +24,15 @@ import type {
 } from '@/lib/app-data-types';
 import {
   platformKeys,
+  useCourseAssets,
   useCourseInvites,
+  useCreateCourseExternalAssetMutation,
   useCreateCourseInviteMutation,
+  useCreateLessonExternalAttachmentMutation,
   useDeactivateCourseInviteMutation,
+  useDeleteCourseAssetMutation,
+  useDeleteLessonAttachmentMutation,
+  useLessonAttachments,
   useSubjects,
   useTeacherCourseWorkspace,
 } from '@/hooks/use-platform-data';
@@ -47,11 +53,14 @@ import {
   ArrowDown,
   ArrowUp,
   Copy,
+  ExternalLink,
+  FileText,
   KeyRound,
+  Link as LinkIcon,
   Trash2,
 } from 'lucide-react';
 
-const courseStatuses = ['draft', 'under_review', 'published', 'archived'] as const;
+const courseStatuses = ['draft', 'published', 'archived'] as const;
 type CourseStatus = (typeof courseStatuses)[number];
 
 const courseAccessTypes: CourseAccessType[] = [
@@ -68,7 +77,6 @@ function resolveVisibilityFromAccessType(accessType: CourseAccessType): CourseVi
 function shouldShowCoursePricing(accessType: CourseAccessType) {
   return accessType === 'paid';
 }
-
 
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   const next = [...items];
@@ -113,7 +121,6 @@ function getAccessTypeHint(type: CourseAccessType) {
 
   return map[type] || '';
 }
-
 
 function normalizeCurrency(value: string) {
   return (value || 'KZT').trim().toUpperCase();
@@ -183,6 +190,44 @@ function toDateTimeLocalValue(value: string | null | undefined) {
     ':',
     pad(date.getMinutes()),
   ].join('');
+}
+
+function normalizeExternalUrlInput(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    throw new Error('Материал сілтемесін енгізіңіз.');
+  }
+
+  let parsed: URL;
+
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error('Сілтеме форматы дұрыс емес.');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Сілтеме http немесе https болуы керек.');
+  }
+
+  return parsed.toString();
+}
+
+function getFilenameFromUrl(value: string, fallback: string) {
+  try {
+    const parsed = new URL(value);
+    const lastPart = parsed.pathname.split('/').filter(Boolean).at(-1);
+    if (lastPart) return decodeURIComponent(lastPart);
+  } catch {
+    // noop
+  }
+
+  return fallback;
+}
+
+function formatAssetTitle(value: string | null | undefined, filename: string) {
+  return value?.trim() || filename || 'Материал';
 }
 
 export default function TeacherCreateCoursePage() {
@@ -263,6 +308,18 @@ export default function TeacherCreateCoursePage() {
     expiresAt: '',
   });
 
+  const [courseAssetForm, setCourseAssetForm] = useState({
+    title: '',
+    description: '',
+    externalUrl: '',
+  });
+
+  const [lessonAttachmentForm, setLessonAttachmentForm] = useState({
+    title: '',
+    description: '',
+    externalUrl: '',
+  });
+
   const selectedCourse = useMemo(
     () =>
       workspace?.courses.find((course) => course.id === selectedCourseId) ||
@@ -277,13 +334,35 @@ export default function TeacherCreateCoursePage() {
     [selectedCourse]
   );
 
+  const selectedEditingLesson = useMemo(
+    () =>
+      selectedCourse?.modules
+        .flatMap((module) => module.lessons)
+        .find((lesson) => lesson.id === editingLessonId) || null,
+    [editingLessonId, selectedCourse]
+  );
+
   const {
     data: courseInvites,
     isLoading: courseInvitesLoading,
   } = useCourseInvites(selectedCourse?.id || '', !!selectedCourse?.id);
 
+  const {
+    data: courseAssets,
+    isLoading: courseAssetsLoading,
+  } = useCourseAssets(selectedCourse?.id || '', !!selectedCourse?.id);
+
+  const {
+    data: lessonAttachments,
+    isLoading: lessonAttachmentsLoading,
+  } = useLessonAttachments(editingLessonId || '', !!editingLessonId);
+
   const createInviteMutation = useCreateCourseInviteMutation(user?.id);
   const deactivateInviteMutation = useDeactivateCourseInviteMutation(user?.id);
+  const createCourseAssetMutation = useCreateCourseExternalAssetMutation(user?.id);
+  const deleteCourseAssetMutation = useDeleteCourseAssetMutation(user?.id);
+  const createLessonAttachmentMutation = useCreateLessonExternalAttachmentMutation(user?.id);
+  const deleteLessonAttachmentMutation = useDeleteLessonAttachmentMutation(user?.id);
 
   const selectedCourseModuleSignature =
     selectedCourseModules.map((module) => module.id).join('|') || '';
@@ -294,7 +373,6 @@ export default function TeacherCreateCoursePage() {
 
   const courseStatusLabels: Record<CourseStatus, string> = {
     draft: t('course.status.draft'),
-    under_review: t('page.teacher_course_builder.status.under_review'),
     published: t('course.status.published'),
     archived: t('course.status.archived'),
   };
@@ -318,6 +396,7 @@ export default function TeacherCreateCoursePage() {
     setSelectedCourseId(courseId);
     syncCourseParam(courseId);
     setEditingLessonId(null);
+    setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
   };
 
   const getNextLessonSortOrder = useCallback(
@@ -364,6 +443,7 @@ export default function TeacherCreateCoursePage() {
       isPublished: false,
     });
     setEditingLessonId(null);
+    setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
   }, [defaultModuleId, getNextLessonSortOrder]);
 
   const seedEditFromCourse = (courseId: string) => {
@@ -379,7 +459,7 @@ export default function TeacherCreateCoursePage() {
       description: course.description || '',
       subjectId: course.subjectId || '',
       thumbnailUrl: course.thumbnailUrl || '',
-      status: course.status as CourseStatus,
+      status: course.status === 'archived' ? 'archived' : course.status === 'published' ? 'published' : 'draft',
       accessType: course.accessType || 'public_free',
       visibility: course.visibility || 'public',
       price: String(course.price ?? 0),
@@ -435,7 +515,7 @@ export default function TeacherCreateCoursePage() {
       description: selectedCourse.description || '',
       subjectId: selectedCourse.subjectId || '',
       thumbnailUrl: selectedCourse.thumbnailUrl || '',
-      status: selectedCourse.status as CourseStatus,
+      status: selectedCourse.status === 'archived' ? 'archived' : selectedCourse.status === 'published' ? 'published' : 'draft',
       accessType: selectedCourse.accessType || 'public_free',
       visibility: selectedCourse.visibility || 'public',
       price: String(selectedCourse.price ?? 0),
@@ -475,6 +555,7 @@ export default function TeacherCreateCoursePage() {
 
     if (!lessonStillExists) {
       setEditingLessonId(null);
+      setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
     }
   }, [selectedCourse, editingLessonId]);
 
@@ -488,8 +569,11 @@ export default function TeacherCreateCoursePage() {
       }),
       queryClient.invalidateQueries({ queryKey: ['courses'] }),
       queryClient.invalidateQueries({ queryKey: ['course-invites'] }),
+      queryClient.invalidateQueries({ queryKey: ['course-assets'] }),
+      queryClient.invalidateQueries({ queryKey: ['lesson-attachments'] }),
       queryClient.invalidateQueries({ queryKey: ['lessons'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
+      queryClient.invalidateQueries({ queryKey: ['lesson-learning-state'] }),
       queryClient.invalidateQueries({ queryKey: ['student-dashboard'] }),
       queryClient.invalidateQueries({ queryKey: ['parent-dashboard'] }),
       queryClient.invalidateQueries({ queryKey: platformKeys.adminDashboard }),
@@ -985,6 +1069,126 @@ export default function TeacherCreateCoursePage() {
     }
   };
 
+  const handleCreateCourseAsset = async () => {
+    if (!selectedCourse || !user?.id) return;
+
+    try {
+      const externalUrl = normalizeExternalUrlInput(courseAssetForm.externalUrl);
+      const filename = getFilenameFromUrl(externalUrl, courseAssetForm.title || 'Курс материалы');
+
+      await createCourseAssetMutation.mutateAsync({
+        ownerId: user.id,
+        courseId: selectedCourse.id,
+        filename,
+        externalUrl,
+        title: formatAssetTitle(courseAssetForm.title, filename),
+        description: courseAssetForm.description.trim() || null,
+        sortOrder: (courseAssets?.length || 0) + 1,
+        teacherId: user.id,
+      });
+
+      setCourseAssetForm({ title: '', description: '', externalUrl: '' });
+      await refetchWorkspace();
+
+      toast({
+        title: 'Курс материалы қосылды',
+      });
+    } catch (error) {
+      toast({
+        title: 'Курс материалын қосу мүмкін болмады',
+        description:
+          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteCourseAsset = async (assetId: string) => {
+    if (!selectedCourse) return;
+
+    try {
+      await deleteCourseAssetMutation.mutateAsync({
+        assetId,
+        courseId: selectedCourse.id,
+        teacherId: user?.id,
+      });
+
+      await refetchWorkspace();
+
+      toast({
+        title: 'Курс материалы өшірілді',
+      });
+    } catch (error) {
+      toast({
+        title: 'Курс материалын өшіру мүмкін болмады',
+        description:
+          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleCreateLessonAttachment = async () => {
+    if (!selectedCourse || !selectedEditingLesson || !user?.id) return;
+
+    try {
+      const externalUrl = normalizeExternalUrlInput(lessonAttachmentForm.externalUrl);
+      const filename = getFilenameFromUrl(externalUrl, lessonAttachmentForm.title || 'Сабақ материалы');
+
+      await createLessonAttachmentMutation.mutateAsync({
+        ownerId: user.id,
+        lessonId: selectedEditingLesson.id,
+        courseId: selectedCourse.id,
+        filename,
+        externalUrl,
+        title: formatAssetTitle(lessonAttachmentForm.title, filename),
+        description: lessonAttachmentForm.description.trim() || null,
+        sortOrder: (lessonAttachments?.length || 0) + 1,
+        teacherId: user.id,
+      });
+
+      setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
+      await refetchWorkspace();
+
+      toast({
+        title: 'Сабақ файлы қосылды',
+      });
+    } catch (error) {
+      toast({
+        title: 'Сабақ файлын қосу мүмкін болмады',
+        description:
+          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteLessonAttachment = async (attachmentId: string) => {
+    if (!selectedCourse || !selectedEditingLesson) return;
+
+    try {
+      await deleteLessonAttachmentMutation.mutateAsync({
+        attachmentId,
+        lessonId: selectedEditingLesson.id,
+        courseId: selectedCourse.id,
+        teacherId: user?.id,
+      });
+
+      await refetchWorkspace();
+
+      toast({
+        title: 'Сабақ файлы өшірілді',
+      });
+    } catch (error) {
+      toast({
+        title: 'Сабақ файлын өшіру мүмкін болмады',
+        description:
+          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const canCreateCourse =
     !!newCourse.title.trim() &&
     !!newCourse.subjectId &&
@@ -999,6 +1203,17 @@ export default function TeacherCreateCoursePage() {
     !!lessonForm.moduleId &&
     !!lessonForm.title.trim() &&
     !addOrUpdateLessonMutation.isPending;
+
+  const canCreateCourseAsset =
+    !!selectedCourse &&
+    !!courseAssetForm.externalUrl.trim() &&
+    !createCourseAssetMutation.isPending;
+
+  const canCreateLessonAttachment =
+    !!selectedCourse &&
+    !!selectedEditingLesson &&
+    !!lessonAttachmentForm.externalUrl.trim() &&
+    !createLessonAttachmentMutation.isPending;
 
   const courseCount = workspace?.courses?.length || 0;
   const selectedCourseLessonCount =
@@ -1078,90 +1293,91 @@ export default function TeacherCreateCoursePage() {
                   </select>
                 </div>
 
-                <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
-  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-    Access параметрлері
-  </p>
+                <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Access параметрлері
+                  </p>
 
-  <div className="space-y-1.5">
-    <Label>Курс түрі</Label>
-    <select
-      value={newCourse.accessType}
-      onChange={(e) =>
-        setNewCourse((p) => {
-          const nextAccessType = e.target.value as CourseAccessType;
+                  <div className="space-y-1.5">
+                    <Label>Курс түрі</Label>
+                    <select
+                      value={newCourse.accessType}
+                      onChange={(e) =>
+                        setNewCourse((p) => {
+                          const nextAccessType = e.target.value as CourseAccessType;
 
-          return {
-            ...p,
-            accessType: nextAccessType,
-            visibility: resolveVisibilityFromAccessType(nextAccessType),
-            price:
-              nextAccessType === 'paid'
-                ? Number(p.price || 0) > 0
-                  ? p.price
-                  : '5000'
-                : '0',
-            currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
-          };
-        })
-      }
-      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-    >
-      {courseAccessTypes.map((type) => (
-        <option key={type} value={type}>
-          {getAccessTypeLabel(type)}
-        </option>
-      ))}
-    </select>
-    <p className="text-[11px] text-muted-foreground">
-      {getAccessTypeHint(newCourse.accessType)}
-    </p>
-  </div>
+                          return {
+                            ...p,
+                            accessType: nextAccessType,
+                            visibility: resolveVisibilityFromAccessType(nextAccessType),
+                            price:
+                              nextAccessType === 'paid'
+                                ? Number(p.price || 0) > 0
+                                  ? p.price
+                                  : '5000'
+                                : '0',
+                            currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
+                          };
+                        })
+                      }
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      {courseAccessTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {getAccessTypeLabel(type)}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-muted-foreground">
+                      {getAccessTypeHint(newCourse.accessType)}
+                    </p>
+                  </div>
 
-  {shouldShowCoursePricing(newCourse.accessType) ? (
-    <div className="grid gap-3 sm:grid-cols-2">
-      <div className="space-y-1.5">
-        <Label>Баға</Label>
-        <Input
-          type="number"
-          min={0}
-          value={newCourse.price}
-          onChange={(e) =>
-            setNewCourse((p) => ({ ...p, price: e.target.value }))
-          }
-        />
-      </div>
+                  {shouldShowCoursePricing(newCourse.accessType) ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>Баға</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={newCourse.price}
+                          onChange={(e) =>
+                            setNewCourse((p) => ({ ...p, price: e.target.value }))
+                          }
+                        />
+                      </div>
 
-      <div className="space-y-1.5">
-        <Label>Валюта</Label>
-        <Input
-          value={newCourse.currency}
-          onChange={(e) =>
-            setNewCourse((p) => ({
-              ...p,
-              currency: e.target.value.toUpperCase(),
-            }))
-          }
-          maxLength={3}
-        />
-      </div>
-    </div>
-  ) : null}
+                      <div className="space-y-1.5">
+                        <Label>Валюта</Label>
+                        <Input
+                          value={newCourse.currency}
+                          onChange={(e) =>
+                            setNewCourse((p) => ({
+                              ...p,
+                              currency: e.target.value.toUpperCase(),
+                            }))
+                          }
+                          maxLength={3}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
 
-  <div className="space-y-1.5">
-    <Label>Оқушы лимиті</Label>
-    <Input
-      type="number"
-      min={1}
-      value={newCourse.maxStudents}
-      onChange={(e) =>
-        setNewCourse((p) => ({ ...p, maxStudents: e.target.value }))
-      }
-      placeholder="Бос қалса — шектеусіз"
-    />
-  </div>
-</div>
-                <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+                  <div className="space-y-1.5">
+                    <Label>Оқушы лимиті</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={newCourse.maxStudents}
+                      onChange={(e) =>
+                        setNewCourse((p) => ({ ...p, maxStudents: e.target.value }))
+                      }
+                      placeholder="Бос қалса — шектеусіз"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Алғашқы құрылым
                   </p>
@@ -1275,7 +1491,9 @@ export default function TeacherCreateCoursePage() {
                               {[
                                 course.subjectName,
                                 getAccessTypeLabel(course.accessType || 'public_free'),
-                                formatPrice(Number(course.price || 0), course.currency || 'KZT'),
+                                shouldShowCoursePricing(course.accessType || 'public_free')
+                                  ? formatPrice(Number(course.price || 0), course.currency || 'KZT')
+                                  : 'Тегін',
                                 `${course.lessons} ${t('course.lessons_count')}`,
                                 `${course.students} ${t(
                                   'page.teacher_course_builder.students_label'
@@ -1347,6 +1565,7 @@ export default function TeacherCreateCoursePage() {
                         ))}
                       </select>
                     </div>
+
                     <div className="space-y-1.5">
                       <Label>{t('page.teacher_course_builder.field.thumbnail')}</Label>
                       <Input
@@ -1358,7 +1577,7 @@ export default function TeacherCreateCoursePage() {
                       />
                     </div>
 
-                    <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+                    <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
                       <div>
                         <p className="text-sm font-semibold">Access және монетизация</p>
                         <p className="mt-1 text-xs text-muted-foreground">
@@ -1462,6 +1681,7 @@ export default function TeacherCreateCoursePage() {
                         ) : null}
                       </div>
                     </div>
+
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Button
                         onClick={() => updateCourseMutation.mutate()}
@@ -1497,9 +1717,129 @@ export default function TeacherCreateCoursePage() {
                           {getAccessTypeLabel(courseEdit.accessType)}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                        <span className="text-muted-foreground">Баға</span>
-                        <span className="font-medium">{selectedCoursePrice}</span>
+                      {shouldShowCoursePricing(courseEdit.accessType) ? (
+                        <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                          <span className="text-muted-foreground">Баға</span>
+                          <span className="font-medium">{selectedCoursePrice}</span>
+                        </div>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-semibold">
+                        <span className="inline-flex items-center gap-1.5">
+                          <FileText size={14} />
+                          Курс материалдары
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Бұл бөлім міндетті емес. Мұғалім курсқа силлабус, бағалау критерийі,
+                        формулалар жинағы немесе кіріспе PDF сияқты қосымша материал сілтемесін қоса алады.
+                      </p>
+
+                      <div className="space-y-3 rounded-lg border p-3">
+                        <div className="space-y-1.5">
+                          <Label>Материал атауы</Label>
+                          <Input
+                            value={courseAssetForm.title}
+                            onChange={(e) =>
+                              setCourseAssetForm((p) => ({ ...p, title: e.target.value }))
+                            }
+                            placeholder="Мысалы: Курс силлабусы"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label>Сілтеме</Label>
+                          <Input
+                            value={courseAssetForm.externalUrl}
+                            onChange={(e) =>
+                              setCourseAssetForm((p) => ({ ...p, externalUrl: e.target.value }))
+                            }
+                            placeholder="https://..."
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label>Сипаттама</Label>
+                          <Textarea
+                            rows={2}
+                            value={courseAssetForm.description}
+                            onChange={(e) =>
+                              setCourseAssetForm((p) => ({ ...p, description: e.target.value }))
+                            }
+                            placeholder="Қысқаша түсіндірме"
+                          />
+                        </div>
+
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          onClick={handleCreateCourseAsset}
+                          disabled={!canCreateCourseAsset}
+                        >
+                          <LinkIcon size={14} className="mr-1.5" />
+                          Курс материалын қосу
+                        </Button>
+                      </div>
+
+                      {courseAssetsLoading ? (
+                        <p className="text-xs text-muted-foreground">Материалдар жүктелуде...</p>
+                      ) : null}
+
+                      {!courseAssetsLoading && (!courseAssets || courseAssets.length === 0) ? (
+                        <p className="text-xs text-muted-foreground">
+                          Әзірге курс материалы қосылмаған.
+                        </p>
+                      ) : null}
+
+                      <div className="space-y-2">
+                        {(courseAssets || []).map((asset) => (
+                          <div key={asset.id} className="rounded-lg border p-3 text-xs">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">{asset.title}</p>
+                                {asset.description ? (
+                                  <p className="mt-1 text-muted-foreground">{asset.description}</p>
+                                ) : null}
+                                <p className="mt-1 truncate text-muted-foreground">
+                                  {asset.file.externalUrl || asset.file.filename}
+                                </p>
+                              </div>
+
+                              <div className="flex shrink-0 gap-1">
+                                {asset.file.externalUrl ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    asChild
+                                  >
+                                    <a href={asset.file.externalUrl} target="_blank" rel="noreferrer">
+                                      <ExternalLink size={13} />
+                                    </a>
+                                  </Button>
+                                ) : null}
+
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  disabled={deleteCourseAssetMutation.isPending}
+                                  onClick={() => handleDeleteCourseAsset(asset.id)}
+                                >
+                                  <Trash2 size={13} />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </CardContent>
                   </Card>
@@ -1521,8 +1861,7 @@ export default function TeacherCreateCoursePage() {
 
                       {courseEdit.accessType !== 'private_invite' ? (
                         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                          Бұл бөлім толық қолданылуы үшін курс түрін “Invite арқылы
-                          ашылады” етіп қойыңыз.
+                          Бұл бөлім толық қолданылуы үшін курс түрін “Жабық курс” етіп қойыңыз.
                         </div>
                       ) : null}
 
@@ -1735,6 +2074,7 @@ export default function TeacherCreateCoursePage() {
                       )}
                     </CardContent>
                   </Card>
+
                   <Card className="border-destructive/30">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-semibold text-destructive">
@@ -1904,6 +2244,9 @@ export default function TeacherCreateCoursePage() {
                                             ? ` · ${t(
                                                 'page.teacher_course_builder.lesson_has_video'
                                               )}`
+                                            : ''}
+                                          {lesson.attachmentsCount
+                                            ? ` · ${lesson.attachmentsCount} файл`
                                             : ''}
                                         </p>
                                       </button>
@@ -2132,6 +2475,126 @@ export default function TeacherCreateCoursePage() {
                         </Button>
                       ) : null}
                     </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-base font-semibold">Сабақ файлдары</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Сабаққа PDF, Google Drive, презентация немесе басқа external материал сілтемесін қосыңыз.
+                    </p>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    {!editingLessonId || !selectedEditingLesson ? (
+                      <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+                        Файл қосу үшін алдымен бар сабақты таңдаңыз немесе жаңа сабақты сақтаңыз.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-3 rounded-lg border p-3">
+                          <div className="space-y-1.5">
+                            <Label>Материал атауы</Label>
+                            <Input
+                              value={lessonAttachmentForm.title}
+                              onChange={(e) =>
+                                setLessonAttachmentForm((p) => ({ ...p, title: e.target.value }))
+                              }
+                              placeholder="Мысалы: Үй жұмысы PDF"
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <Label>Сілтеме</Label>
+                            <Input
+                              value={lessonAttachmentForm.externalUrl}
+                              onChange={(e) =>
+                                setLessonAttachmentForm((p) => ({ ...p, externalUrl: e.target.value }))
+                              }
+                              placeholder="https://..."
+                            />
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <Label>Сипаттама</Label>
+                            <Textarea
+                              rows={2}
+                              value={lessonAttachmentForm.description}
+                              onChange={(e) =>
+                                setLessonAttachmentForm((p) => ({ ...p, description: e.target.value }))
+                              }
+                              placeholder="Қысқаша түсіндірме"
+                            />
+                          </div>
+
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={handleCreateLessonAttachment}
+                            disabled={!canCreateLessonAttachment}
+                          >
+                            <LinkIcon size={14} className="mr-1.5" />
+                            Сабақ файлын қосу
+                          </Button>
+                        </div>
+
+                        {lessonAttachmentsLoading ? (
+                          <p className="text-xs text-muted-foreground">Сабақ файлдары жүктелуде...</p>
+                        ) : null}
+
+                        {!lessonAttachmentsLoading && (!lessonAttachments || lessonAttachments.length === 0) ? (
+                          <p className="text-xs text-muted-foreground">
+                            Бұл сабаққа әлі файл қосылмаған.
+                          </p>
+                        ) : null}
+
+                        <div className="space-y-2">
+                          {(lessonAttachments || []).map((attachment) => (
+                            <div key={attachment.id} className="rounded-lg border p-3 text-xs">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium">{attachment.title}</p>
+                                  {attachment.description ? (
+                                    <p className="mt-1 text-muted-foreground">{attachment.description}</p>
+                                  ) : null}
+                                  <p className="mt-1 truncate text-muted-foreground">
+                                    {attachment.file.externalUrl || attachment.file.filename}
+                                  </p>
+                                </div>
+
+                                <div className="flex shrink-0 gap-1">
+                                  {attachment.file.externalUrl ? (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      className="h-8 w-8"
+                                      asChild
+                                    >
+                                      <a href={attachment.file.externalUrl} target="_blank" rel="noreferrer">
+                                        <ExternalLink size={13} />
+                                      </a>
+                                    </Button>
+                                  ) : null}
+
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    disabled={deleteLessonAttachmentMutation.isPending}
+                                    onClick={() => handleDeleteLessonAttachment(attachment.id)}
+                                  >
+                                    <Trash2 size={13} />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
               </div>

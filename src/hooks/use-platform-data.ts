@@ -8,23 +8,32 @@ import { getLocale, type Locale } from '@/lib/i18n';
 import {
   acceptParentLinkRequest,
   cancelParentLinkRequest,
+  createCourseExternalAsset,
   createCourseInvite,
+  createLessonExternalAttachment,
   deactivateCourseInvite,
   declineParentLinkRequest,
+  deleteCourseAsset,
+  deleteLessonAttachment,
+  deleteLessonNote,
   getAchievements,
   getAdminDashboard,
   getAnalytics,
+  getCourseAssets,
   getCourseCatalog,
   getCourseInvites,
   getIncomingParentLinkRequests,
   getLeaderboard,
+  getLessonAttachments,
   getLessonDetail,
+  getLessonLearningState,
   getLessonsForStudent,
   getModerationQueue,
   getMyOrders,
   getParentDashboard,
   getParentLinkRequests,
   getPendingOrdersForAdmin,
+  getReviewLaterItems,
   getStudentDashboard,
   getSubjects,
   getTeacherCourseWorkspace,
@@ -38,14 +47,25 @@ import {
   requestPaidCourseAccess,
   requestParentLink,
   setCourseInviteActive,
+  toggleLessonBookmark,
+  toggleReviewLater,
   updateCourseAccessSettings,
+  upsertLessonNote,
 } from '@/lib/app-data';
 import type {
   CourseAccessSettingsPayload,
+  CreateCourseExternalAssetPayload,
   CreateCourseInvitePayload,
+  CreateLessonExternalAttachmentPayload,
+  DeleteCourseAssetPayload,
+  DeleteLessonAttachmentPayload,
+  DeleteLessonNotePayload,
   ManualGrantCourseAccessPayload,
   RedeemCourseInvitePayload,
   RequestPaidCourseAccessPayload,
+  ToggleLessonBookmarkPayload,
+  ToggleReviewLaterPayload,
+  UpsertLessonNotePayload,
 } from '@/lib/app-data-types';
 
 function resolveLocale(locale?: Locale): Locale {
@@ -89,6 +109,22 @@ export const platformKeys = {
   lessonDetailBase: ['lesson-detail'] as const,
   lessonDetail: (lessonId: string, userId?: string, locale?: Locale) =>
     ['lesson-detail', resolveLocale(locale), lessonId, userId ?? 'anon'] as const,
+
+  lessonLearningStateBase: ['lesson-learning-state'] as const,
+  lessonLearningState: (studentId: string, lessonId: string) =>
+    ['lesson-learning-state', studentId, lessonId] as const,
+
+  lessonAttachmentsBase: ['lesson-attachments'] as const,
+  lessonAttachments: (lessonId: string) =>
+    ['lesson-attachments', lessonId] as const,
+
+  courseAssetsBase: ['course-assets'] as const,
+  courseAssets: (courseId: string) =>
+    ['course-assets', courseId] as const,
+
+  reviewLaterItemsBase: ['review-later-items'] as const,
+  reviewLaterItems: (studentId: string) =>
+    ['review-later-items', studentId] as const,
 
   testsBase: ['tests'] as const,
   tests: testsKey,
@@ -175,6 +211,18 @@ async function invalidateCourseAccessCaches(
       queryKey: platformKeys.lessonDetailBase,
     }),
     queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonLearningStateBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonAttachmentsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.courseAssetsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.reviewLaterItemsBase,
+    }),
+    queryClient.invalidateQueries({
       queryKey: platformKeys.myOrdersBase,
     }),
     queryClient.invalidateQueries({
@@ -195,6 +243,9 @@ async function invalidateCourseAccessCaches(
       }),
       queryClient.invalidateQueries({
         queryKey: platformKeys.myOrders(input.userId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.reviewLaterItems(input.userId),
       })
     );
   }
@@ -217,6 +268,103 @@ async function invalidateCourseAccessCaches(
     tasks.push(
       queryClient.invalidateQueries({
         queryKey: platformKeys.courseInvites(input.courseId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.courseAssets(input.courseId),
+      })
+    );
+  }
+
+  await Promise.all(tasks);
+}
+
+async function invalidateLearningSpaceCaches(
+  queryClient: QueryClient,
+  input?: {
+    studentId?: string;
+    teacherId?: string;
+    lessonId?: string;
+    courseId?: string;
+    locale?: Locale;
+  }
+) {
+  const activeLocale = resolveLocale(input?.locale);
+
+  const tasks: Array<Promise<unknown>> = [
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonLearningStateBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonDetailBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonAttachmentsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.courseAssetsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.reviewLaterItemsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.studentDashboardBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.teacherCourseWorkspaceBase,
+    }),
+  ];
+
+  if (input?.studentId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.studentDashboard(input.studentId, activeLocale),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.reviewLaterItems(input.studentId),
+      })
+    );
+  }
+
+  if (input?.studentId && input?.lessonId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.lessonLearningState(input.studentId, input.lessonId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.lessonDetail(input.lessonId, input.studentId, activeLocale),
+      })
+    );
+  }
+
+  if (input?.lessonId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.lessonAttachments(input.lessonId),
+      })
+    );
+  }
+
+  if (input?.courseId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.courseAssets(input.courseId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.coursesBase,
+      })
+    );
+  }
+
+  if (input?.teacherId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.teacherDashboard(input.teacherId, activeLocale),
       })
     );
   }
@@ -289,6 +437,42 @@ export function useLessonDetail(
     queryKey: platformKeys.lessonDetail(lessonId, userId, activeLocale),
     queryFn: () => getLessonDetail(lessonId, userId, activeLocale),
     enabled: enabled && !!lessonId,
+  });
+}
+
+export function useLessonLearningState(
+  studentId: string,
+  lessonId: string,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: platformKeys.lessonLearningState(studentId, lessonId),
+    queryFn: () => getLessonLearningState({ studentId, lessonId }),
+    enabled: enabled && !!studentId && !!lessonId,
+  });
+}
+
+export function useLessonAttachments(lessonId: string, enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.lessonAttachments(lessonId),
+    queryFn: () => getLessonAttachments(lessonId),
+    enabled: enabled && !!lessonId,
+  });
+}
+
+export function useCourseAssets(courseId: string, enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.courseAssets(courseId),
+    queryFn: () => getCourseAssets(courseId),
+    enabled: enabled && !!courseId,
+  });
+}
+
+export function useReviewLaterItems(studentId: string, enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.reviewLaterItems(studentId),
+    queryFn: () => getReviewLaterItems(studentId),
+    enabled: enabled && !!studentId,
   });
 }
 
@@ -663,6 +847,239 @@ export function useManualApproveOrderMutation(adminId?: string, locale?: Locale)
           queryKey: platformKeys.usersByLocale(activeLocale),
         }),
       ]);
+    },
+  });
+}
+
+/* ================= MVP 2 LEARNING SPACE MUTATIONS ================= */
+
+type UpsertLessonNoteMutationInput =
+  UpsertLessonNotePayload & {
+    locale?: Locale;
+  };
+
+export function useUpsertLessonNoteMutation(locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      locale: _locale,
+      ...payload
+    }: UpsertLessonNoteMutationInput) => upsertLessonNote(payload),
+    onSuccess: async (note, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        studentId: note.student_id,
+        lessonId: note.lesson_id,
+        courseId: note.course_id,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type DeleteLessonNoteMutationInput =
+  DeleteLessonNotePayload & {
+    courseId?: string;
+    locale?: Locale;
+  };
+
+export function useDeleteLessonNoteMutation(locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      courseId: _courseId,
+      locale: _locale,
+      ...payload
+    }: DeleteLessonNoteMutationInput) => deleteLessonNote(payload),
+    onSuccess: async (_, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        studentId: variables.studentId,
+        lessonId: variables.lessonId,
+        courseId: variables.courseId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type ToggleLessonBookmarkMutationInput =
+  ToggleLessonBookmarkPayload & {
+    locale?: Locale;
+  };
+
+export function useToggleLessonBookmarkMutation(locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      locale: _locale,
+      ...payload
+    }: ToggleLessonBookmarkMutationInput) => toggleLessonBookmark(payload),
+    onSuccess: async (_result, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        studentId: variables.studentId,
+        lessonId: variables.lessonId,
+        courseId: variables.courseId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type ToggleReviewLaterMutationInput =
+  ToggleReviewLaterPayload & {
+    locale?: Locale;
+  };
+
+export function useToggleReviewLaterMutation(locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      locale: _locale,
+      ...payload
+    }: ToggleReviewLaterMutationInput) => toggleReviewLater(payload),
+    onSuccess: async (_result, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        studentId: variables.studentId,
+        lessonId: variables.lessonId || undefined,
+        courseId: variables.courseId || undefined,
+        locale: variables.locale ?? activeLocale,
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.testsBase,
+      });
+    },
+  });
+}
+
+type CreateLessonExternalAttachmentMutationInput =
+  CreateLessonExternalAttachmentPayload & {
+    teacherId?: string;
+    locale?: Locale;
+  };
+
+export function useCreateLessonExternalAttachmentMutation(
+  teacherId?: string,
+  locale?: Locale
+) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      teacherId: _teacherId,
+      locale: _locale,
+      ...payload
+    }: CreateLessonExternalAttachmentMutationInput) =>
+      createLessonExternalAttachment(payload),
+    onSuccess: async (attachment, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        teacherId: variables.teacherId ?? teacherId ?? variables.ownerId,
+        lessonId: attachment.lessonId,
+        courseId: attachment.courseId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type DeleteLessonAttachmentMutationInput =
+  DeleteLessonAttachmentPayload & {
+    teacherId?: string;
+    lessonId?: string;
+    courseId?: string;
+    locale?: Locale;
+  };
+
+export function useDeleteLessonAttachmentMutation(
+  teacherId?: string,
+  locale?: Locale
+) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      teacherId: _teacherId,
+      lessonId: _lessonId,
+      courseId: _courseId,
+      locale: _locale,
+      ...payload
+    }: DeleteLessonAttachmentMutationInput) => deleteLessonAttachment(payload),
+    onSuccess: async (_, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        teacherId: variables.teacherId ?? teacherId,
+        lessonId: variables.lessonId,
+        courseId: variables.courseId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type CreateCourseExternalAssetMutationInput =
+  CreateCourseExternalAssetPayload & {
+    teacherId?: string;
+    locale?: Locale;
+  };
+
+export function useCreateCourseExternalAssetMutation(
+  teacherId?: string,
+  locale?: Locale
+) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      teacherId: _teacherId,
+      locale: _locale,
+      ...payload
+    }: CreateCourseExternalAssetMutationInput) => createCourseExternalAsset(payload),
+    onSuccess: async (asset, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        teacherId: variables.teacherId ?? teacherId ?? variables.ownerId,
+        courseId: asset.courseId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type DeleteCourseAssetMutationInput =
+  DeleteCourseAssetPayload & {
+    teacherId?: string;
+    courseId?: string;
+    locale?: Locale;
+  };
+
+export function useDeleteCourseAssetMutation(
+  teacherId?: string,
+  locale?: Locale
+) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      teacherId: _teacherId,
+      courseId: _courseId,
+      locale: _locale,
+      ...payload
+    }: DeleteCourseAssetMutationInput) => deleteCourseAsset(payload),
+    onSuccess: async (_, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        teacherId: variables.teacherId ?? teacherId,
+        courseId: variables.courseId,
+        locale: variables.locale ?? activeLocale,
+      });
     },
   });
 }

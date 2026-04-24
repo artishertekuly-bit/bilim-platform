@@ -70,6 +70,19 @@ export type CurrencyCode = 'KZT' | 'USD' | 'EUR' | 'RUB' | string;
 export type JsonRecord = Record<string, unknown>;
 
 /**
+ * MVP 2 learning-space types.
+ */
+export type ReviewLaterItemType =
+  | 'lesson'
+  | 'test_question'
+  | 'custom';
+
+export type FileAssetVisibility =
+  | 'private'
+  | 'course'
+  | 'public';
+
+/**
  * Existing Supabase rows.
  */
 export type SubjectRow = Tables<'subjects'>;
@@ -190,9 +203,6 @@ export interface CourseView {
 
   /**
    * MVP 1 access fields.
-   *
-   * Әзірге optional қойылды.
-   * Себебі келесі файлдарда data mapping-ті біртіндеп жаңартамыз.
    */
   accessType?: CourseAccessType;
   visibility?: CourseVisibility;
@@ -202,6 +212,13 @@ export interface CourseView {
   enrollmentOpen?: boolean;
   maxStudents?: number | null;
   access?: CourseAccessView;
+
+  /**
+   * MVP 2 optional course assets.
+   * Course assets міндетті емес. Мұғалім жүктесе ғана көрсетіледі.
+   */
+  courseAssetsCount?: number;
+  courseAssets?: CourseAssetView[];
 }
 
 export interface LessonView {
@@ -223,6 +240,14 @@ export interface LessonView {
     | 'previous_lesson_required'
     | 'lesson_unpublished'
     | 'none';
+
+  /**
+   * MVP 2 student learning-space indicators.
+   */
+  bookmarked?: boolean;
+  reviewLater?: boolean;
+  hasNotes?: boolean;
+  attachmentsCount?: number;
 }
 
 export interface TestCatalogItem {
@@ -247,6 +272,11 @@ export interface TestAttemptBreakdownItem {
   explanation: string | null;
   isCorrect: boolean;
   questionOrder: number;
+
+  /**
+   * MVP 2: test question-ды кейін қайталауға сақтау.
+   */
+  reviewLater?: boolean;
 }
 
 export interface LeaderboardView {
@@ -304,11 +334,15 @@ export interface LessonDetailView {
 
   /**
    * MVP 2 үшін орын.
-   * Notes/bookmarks/files келесі кезеңде осы detail view-ға байланысады.
+   * Notes/bookmarks/files осы detail view-ға байланысады.
    */
   bookmarked?: boolean;
   hasNotes?: boolean;
+  reviewLater?: boolean;
   attachmentsCount?: number;
+  learningState?: LessonLearningState;
+  attachments?: LessonAttachmentView[];
+  courseAssets?: CourseAssetView[];
 }
 
 export interface TeacherStudentCourseRow {
@@ -357,6 +391,12 @@ export interface CourseBuilderLessonView {
   sortOrder: number;
   isPublished: boolean;
   subjectId: string | null;
+
+  /**
+   * MVP 2: lesson-level optional attachments.
+   */
+  attachmentsCount?: number;
+  attachments?: LessonAttachmentView[];
 }
 
 export interface CourseBuilderModuleView {
@@ -385,6 +425,12 @@ export interface TeacherCourseWorkspace {
       publishedAt: string | null;
       enrollmentOpen: boolean;
       maxStudents: number | null;
+
+      /**
+       * MVP 2: course-level optional assets.
+       */
+      courseAssetsCount?: number;
+      courseAssets?: CourseAssetView[];
     }
   >;
 }
@@ -550,6 +596,168 @@ export interface PaymentView {
 }
 
 /**
+ * MVP 2: Student learning-space rows.
+ *
+ * Бұларды қолмен жазып отырмыз.
+ * Кейін Supabase types.ts қайта generate болса, Tables<'...'> ретінде ауыстыруға болады.
+ */
+
+export interface StudentLessonNoteRow {
+  id: string;
+  student_id: string;
+  lesson_id: string;
+  course_id: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StudentLessonBookmarkRow {
+  id: string;
+  student_id: string;
+  lesson_id: string;
+  course_id: string;
+  created_at: string;
+}
+
+export interface ReviewLaterItemRow {
+  id: string;
+  student_id: string;
+  item_type: ReviewLaterItemType;
+  item_id: string | null;
+  course_id: string | null;
+  lesson_id: string | null;
+  test_question_id: string | null;
+  title: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FileAssetRow {
+  id: string;
+  owner_id: string;
+  visibility: FileAssetVisibility;
+  storage_bucket: string | null;
+  storage_path: string | null;
+  external_url: string | null;
+  filename: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  metadata: JsonRecord;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LessonAttachmentRow {
+  id: string;
+  lesson_id: string;
+  course_id: string;
+  file_asset_id: string;
+  created_by: string;
+  title: string | null;
+  description: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseAssetRow {
+  id: string;
+  course_id: string;
+  file_asset_id: string;
+  created_by: string;
+  title: string | null;
+  description: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * MVP 2: Student-facing views.
+ */
+export interface FileAssetView {
+  id: string;
+  ownerId: string;
+  visibility: FileAssetVisibility;
+  storageBucket: string | null;
+  storagePath: string | null;
+  externalUrl: string | null;
+  filename: string;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  metadata: JsonRecord;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LessonAttachmentView {
+  id: string;
+  lessonId: string;
+  courseId: string;
+  fileAssetId: string;
+  title: string;
+  description: string | null;
+  sortOrder: number;
+  file: FileAssetView;
+  createdAt: string;
+}
+
+export interface CourseAssetView {
+  id: string;
+  courseId: string;
+  fileAssetId: string;
+  title: string;
+  description: string | null;
+  sortOrder: number;
+  file: FileAssetView;
+  createdAt: string;
+}
+
+export interface LessonLearningState {
+  lessonId: string;
+  courseId: string;
+  studentId: string;
+
+  note: StudentLessonNoteRow | null;
+  noteContent: string;
+
+  bookmarked: boolean;
+  bookmarkId: string | null;
+
+  reviewLater: boolean;
+  reviewLaterItemId: string | null;
+
+  attachments: LessonAttachmentView[];
+  courseAssets: CourseAssetView[];
+}
+
+/**
+ * MVP 2: Teacher-facing attachment workspace.
+ */
+export interface TeacherLessonAttachmentView extends LessonAttachmentView {
+  createdBy: string;
+}
+
+export interface TeacherCourseAssetView extends CourseAssetView {
+  createdBy: string;
+}
+
+export interface ReviewLaterItemView {
+  id: string;
+  itemType: ReviewLaterItemType;
+  itemId: string | null;
+  courseId: string | null;
+  lessonId: string | null;
+  testQuestionId: string | null;
+  title: string;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
  * RPC responses.
  */
 export type RpcMutationResponse = {
@@ -609,4 +817,105 @@ export interface ManualGrantCourseAccessPayload {
   userId: string;
   courseId: string;
   reason?: string | null;
+}
+
+/**
+ * MVP 2 payloads.
+ */
+
+export interface UpsertLessonNotePayload {
+  studentId: string;
+  lessonId: string;
+  courseId: string;
+  content: string;
+}
+
+export interface DeleteLessonNotePayload {
+  studentId: string;
+  lessonId: string;
+}
+
+export interface ToggleLessonBookmarkPayload {
+  studentId: string;
+  lessonId: string;
+  courseId: string;
+  bookmarked: boolean;
+}
+
+export interface ToggleReviewLaterPayload {
+  studentId: string;
+  itemType: ReviewLaterItemType;
+  itemId?: string | null;
+  courseId?: string | null;
+  lessonId?: string | null;
+  testQuestionId?: string | null;
+  title?: string | null;
+  note?: string | null;
+  reviewLater: boolean;
+}
+
+export interface CreateExternalFileAssetPayload {
+  ownerId: string;
+  filename: string;
+  externalUrl: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  visibility?: FileAssetVisibility;
+  metadata?: JsonRecord;
+}
+
+export interface CreateLessonAttachmentPayload {
+  lessonId: string;
+  courseId: string;
+  fileAssetId: string;
+  createdBy: string;
+  title?: string | null;
+  description?: string | null;
+  sortOrder?: number;
+}
+
+export interface CreateCourseAssetPayload {
+  courseId: string;
+  fileAssetId: string;
+  createdBy: string;
+  title?: string | null;
+  description?: string | null;
+  sortOrder?: number;
+}
+
+export interface CreateLessonExternalAttachmentPayload {
+  ownerId: string;
+  lessonId: string;
+  courseId: string;
+  filename: string;
+  externalUrl: string;
+  title?: string | null;
+  description?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  sortOrder?: number;
+}
+
+export interface CreateCourseExternalAssetPayload {
+  ownerId: string;
+  courseId: string;
+  filename: string;
+  externalUrl: string;
+  title?: string | null;
+  description?: string | null;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  sortOrder?: number;
+}
+
+export interface DeleteLessonAttachmentPayload {
+  attachmentId: string;
+}
+
+export interface DeleteCourseAssetPayload {
+  assetId: string;
+}
+
+export interface DeleteFileAssetPayload {
+  fileAssetId: string;
 }
