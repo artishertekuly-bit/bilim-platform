@@ -328,16 +328,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithGoogle = useCallback(async (role?: UserRole) => {
   if (role) {
     setPendingOAuthRole(role);
+  } else {
+    clearPendingOAuthRole();
   }
 
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${window.location.origin}/dashboard`,
+      redirectTo: `${window.location.origin}/auth/callback`,
     },
   });
 
   if (error) {
+    if (role) {
+      clearPendingOAuthRole();
+    }
+
     throw new Error(error.message);
   }
 }, []);
