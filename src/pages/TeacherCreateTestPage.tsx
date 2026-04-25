@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, Link } from 'react-router-dom';
 
 import DashboardLayout from '@/components/DashboardLayout';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import {
@@ -34,9 +37,16 @@ import { Switch } from '@/components/ui/switch';
 import {
   ArrowDown,
   ArrowUp,
-  Trash2,
-  Sparkles,
+  CheckCircle2,
   ClipboardList,
+  Clock,
+  FileText,
+  LayoutDashboard,
+  Plus,
+  RotateCcw,
+  Settings,
+  Sparkles,
+  Trash2,
 } from 'lucide-react';
 import {
   clearPendingAiQuestionImport,
@@ -79,6 +89,220 @@ function getNextSortOrder<T extends { sort_order: number }>(
   );
 
   return String(maxSortOrder + extra);
+}
+
+function getTestStatusTone(status: TestStatus) {
+  if (status === 'published') return 'success';
+  if (status === 'under_review') return 'warning';
+  if (status === 'archived') return 'muted';
+  return 'info';
+}
+
+function TestBuilderSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <div className="space-y-2">
+                <SkeletonBlock className="h-3 w-24" />
+                <SkeletonBlock className="h-6 w-14" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-40" />
+            <div className="mt-5 space-y-3">
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-10 w-full" />
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-44" />
+            <div className="mt-5 space-y-2">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <SkeletonBlock key={index} className="h-16 w-full rounded-xl" />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-44" />
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-10 w-full" />
+            </div>
+          </div>
+
+          <div className="grid gap-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+            <div className="rounded-xl border bg-card p-5">
+              <SkeletonBlock className="h-5 w-40" />
+              <div className="mt-5 space-y-3">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <SkeletonBlock key={index} className="h-16 w-full rounded-xl" />
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border bg-card p-5">
+              <SkeletonBlock className="h-5 w-44" />
+              <div className="mt-5 space-y-3">
+                <SkeletonBlock className="h-24 w-full rounded-lg" />
+                <SkeletonBlock className="h-40 w-full rounded-lg" />
+                <SkeletonBlock className="h-10 w-full" />
+                <SkeletonBlock className="h-24 w-full rounded-lg" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuilderStatCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+          {icon}
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-semibold">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function scrollToBuilderSection(id: string) {
+  const element = document.getElementById(id);
+
+  if (!element) return;
+
+  element.scrollIntoView({
+    behavior: 'smooth',
+    block: 'start',
+  });
+}
+
+function TestBuilderStepper({
+  hasSelectedTest,
+  hasPendingAiImport,
+}: {
+  hasSelectedTest: boolean;
+  hasPendingAiImport: boolean;
+}) {
+  const steps = [
+    {
+      id: 'new-test',
+      number: '1',
+      title: 'Жаңа тест',
+      description: 'Тест атауы, тақырыбы, пәні және ұзақтығы.',
+      icon: <Plus size={16} />,
+      disabled: false,
+    },
+    {
+      id: 'test-settings',
+      number: '2',
+      title: 'Параметрлер',
+      description: 'Статус, пән, тақырып және негізгі test settings.',
+      icon: <Settings size={16} />,
+      disabled: !hasSelectedTest,
+    },
+    {
+      id: 'questions',
+      number: '3',
+      title: 'Сұрақтар',
+      description: 'Сұрақтар тізімі, реттеу және өшіру.',
+      icon: <ClipboardList size={16} />,
+      disabled: !hasSelectedTest,
+    },
+    {
+      id: 'question-editor',
+      number: '4',
+      title: 'Редактор',
+      description: 'Single/multiple choice, жауап және түсіндірме.',
+      icon: <FileText size={16} />,
+      disabled: !hasSelectedTest,
+    },
+    {
+      id: 'ai-import',
+      number: '5',
+      title: 'AI импорт',
+      description: 'AI арқылы дайындалған сұрақтарды импорттау.',
+      icon: <Sparkles size={16} />,
+      disabled: !hasPendingAiImport,
+    },
+  ];
+
+  return (
+    <Card>
+      <CardContent className="pt-5">
+        <div className="mb-4 flex flex-col gap-1">
+          <p className="text-sm font-semibold">Test builder қадамдары</p>
+          <p className="text-xs text-muted-foreground">
+            Үлкен форманы бөлімдерге бөліп, керек жерге тез өтіңіз.
+          </p>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-5">
+          {steps.map((step) => (
+            <button
+              key={step.id}
+              type="button"
+              disabled={step.disabled}
+              onClick={() => scrollToBuilderSection(step.id)}
+              className={`rounded-xl border p-3 text-left transition-all ${
+                step.disabled
+                  ? 'cursor-not-allowed bg-muted/40 opacity-60'
+                  : 'hover:-translate-y-0.5 hover:bg-accent hover:shadow-sm'
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-primary/10 text-primary">
+                  {step.icon}
+                </div>
+
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold">
+                    {step.number}. {step.title}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
+                    {step.description}
+                  </p>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function TeacherCreateTestPage() {
@@ -666,26 +890,86 @@ export default function TeacherCreateTestPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold">
-              {t('page.teacher_test_builder.title')}
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              {t('page.teacher_test_builder.subtitle')}
-            </p>
-          </div>
+        <PageHeader
+          eyebrow={
+            <>
+              <LayoutDashboard size={13} />
+              Мұғалім test builder
+            </>
+          }
+          icon={<ClipboardList size={20} />}
+          title={t('page.teacher_test_builder.title')}
+          description={t('page.teacher_test_builder.subtitle')}
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              {selectedTest ? (
+                <StatusBadge tone={getTestStatusTone(testEdit.status)}>
+                  {statusLabels[testEdit.status]}
+                </StatusBadge>
+              ) : null}
 
-          <Link to="/ai-question-builder">
-            <Button variant="outline">
-              <Sparkles size={16} className="mr-2" />
-              AI сұрақ құрастыру
-            </Button>
-          </Link>
-        </div>
+              <Button type="button" variant="outline" asChild>
+                <Link to="/ai-question-builder">
+                  <Sparkles size={16} className="mr-2" />
+                  AI сұрақ құрастыру
+                </Link>
+              </Button>
+            </div>
+          }
+        />
+
+        {workspaceLoading ? <TestBuilderSkeleton /> : null}
+
+        {!workspaceLoading && workspaceError ? (
+          <ErrorState
+            text={t('page.teacher_test_builder.error.tests')}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                <RotateCcw size={15} className="mr-2" />
+                Қайта жүктеу
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!workspaceLoading && !workspaceError ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <BuilderStatCard
+                label="Тесттер"
+                value={testsCount}
+                icon={<ClipboardList size={17} />}
+              />
+              <BuilderStatCard
+                label="Сұрақтар"
+                value={sortedSelectedQuestions.length}
+                icon={<FileText size={17} />}
+              />
+              <BuilderStatCard
+                label="Ұзақтығы"
+                value={selectedTest ? `${selectedTest.durationMinutes || Number(testEdit.duration || 0) || 0} мин` : '—'}
+                icon={<Clock size={17} />}
+              />
+              <BuilderStatCard
+                label="Статус"
+                value={selectedTest ? statusLabels[testEdit.status] : '—'}
+                icon={<CheckCircle2 size={17} />}
+              />
+            </div>
+
+            <TestBuilderStepper
+              hasSelectedTest={!!selectedTest}
+              hasPendingAiImport={hasPendingAiImport}
+            />
+          </>
+        ) : null}
 
         {pendingAiImport ? (
-          <Card className="border-primary/30 bg-primary/5">
+          <Card id="ai-import" className="scroll-mt-24 border-primary/30 bg-primary/5">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
                 <Sparkles size={16} className="text-primary" />
@@ -746,7 +1030,7 @@ export default function TeacherCreateTestPage() {
 
         <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
           <div className="space-y-6">
-            <Card>
+            <Card id="new-test" className="scroll-mt-24">
               <CardHeader className="pb-4">
                 <CardTitle className="text-base font-semibold">
                   {t('page.teacher_test_builder.section.new_test')}
@@ -880,7 +1164,7 @@ export default function TeacherCreateTestPage() {
           ) : selectedTest ? (
             <div className="space-y-6">
               <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
-                <Card>
+                <Card id="test-settings" className="scroll-mt-24">
                   <CardHeader className="pb-4">
                     <CardTitle className="text-base font-semibold">
                       Тест параметрлері
@@ -1029,7 +1313,7 @@ export default function TeacherCreateTestPage() {
               </div>
 
               <div className="grid gap-6 border-t pt-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                <Card>
+                <Card id="questions" className="scroll-mt-24">
                   <CardHeader className="pb-4">
                     <CardTitle className="text-base font-semibold">
                       {t('page.teacher_test_builder.section.questions')}
@@ -1135,7 +1419,7 @@ export default function TeacherCreateTestPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card id="question-editor" className="scroll-mt-24">
                   <CardHeader className="pb-4">
                     <CardTitle className="text-base font-semibold">
                       {editingQuestionId
