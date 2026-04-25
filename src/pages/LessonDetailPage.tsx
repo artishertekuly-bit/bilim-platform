@@ -1,6 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bookmark,
+  BookOpen,
+  CheckCircle2,
+  ExternalLink,
+  FileText,
+  GraduationCap,
+  HelpCircle,
+  Lock,
+  PlayCircle,
+  RotateCcw,
+  Save,
+  Sparkles,
+  StickyNote,
+  Trash2,
+} from 'lucide-react';
+
 import DashboardLayout from '@/components/DashboardLayout';
-import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import { EmptyState, ErrorState } from '@/components/common/DataState';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import {
   useDeleteLessonNoteMutation,
   useLessonDetail,
@@ -15,20 +39,6 @@ import t from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  ArrowLeft,
-  Bookmark,
-  CheckCircle2,
-  ExternalLink,
-  FileText,
-  Lock,
-  RotateCcw,
-  Save,
-  StickyNote,
-  Trash2,
-} from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { isYouTubeUrl, normalizeMediaUrl } from '@/lib/media-url';
 
@@ -51,6 +61,207 @@ function getFileUrl(file: {
    * Supabase Storage public/signed URL логикасын кейін бөлек қосамыз.
    */
   return file.externalUrl || null;
+}
+
+function LessonDetailSkeleton() {
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="space-y-4">
+        <Card>
+          <CardHeader className="space-y-2 pb-3">
+            <SkeletonBlock className="h-5 w-2/3" />
+            <SkeletonBlock className="h-3 w-1/2" />
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            <SkeletonBlock className="h-52 w-full rounded-xl" />
+            <SkeletonBlock className="h-40 w-full rounded-xl" />
+            <SkeletonBlock className="h-28 w-full rounded-xl" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="space-y-2 pb-3">
+            <SkeletonBlock className="h-5 w-40" />
+            <SkeletonBlock className="h-3 w-72" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <SkeletonBlock className="h-16 w-full rounded-lg" />
+            <SkeletonBlock className="h-16 w-full rounded-lg" />
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="space-y-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <SkeletonBlock className="h-5 w-32" />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <SkeletonBlock className="h-4 w-full" />
+            <SkeletonBlock className="h-4 w-5/6" />
+            <SkeletonBlock className="h-10 w-full" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <SkeletonBlock className="h-5 w-36" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <SkeletonBlock className="h-10 w-full" />
+            <SkeletonBlock className="h-10 w-full" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <SkeletonBlock className="h-5 w-28" />
+          </CardHeader>
+          <CardContent>
+            <SkeletonBlock className="h-36 w-full rounded-lg" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ReadingSection({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg border bg-card text-primary">
+          {icon}
+        </div>
+        <h3 className="text-sm font-semibold">{title}</h3>
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
+function ResourceListCard({
+  title,
+  description,
+  items,
+}: {
+  title: string;
+  description: string;
+  items: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    file: {
+      filename: string;
+      sizeBytes: number | null;
+      externalUrl: string | null;
+      storageBucket: string | null;
+      storagePath: string | null;
+    };
+  }>;
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <FileText size={16} />
+          {title}
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </CardHeader>
+
+      <CardContent className="space-y-2">
+        {items.map((item) => {
+          const fileUrl = getFileUrl(item.file);
+          const sizeText = formatBytes(item.file.sizeBytes);
+
+          return (
+            <div
+              key={item.id}
+              className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-start sm:justify-between"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <FileText size={15} className="shrink-0 text-muted-foreground" />
+                  <p className="truncate text-sm font-medium">{item.title}</p>
+                </div>
+
+                {item.description ? (
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {item.description}
+                  </p>
+                ) : null}
+
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {item.file.filename}
+                  {sizeText ? ` · ${sizeText}` : ''}
+                </p>
+              </div>
+
+              {fileUrl ? (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={fileUrl} target="_blank" rel="noreferrer">
+                    Ашу
+                    <ExternalLink size={13} className="ml-1.5" />
+                  </a>
+                </Button>
+              ) : (
+                <StatusBadge tone="muted" icon={<Lock size={12} />}>
+                  URL жоқ
+                </StatusBadge>
+              )}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MiniQuizPlaceholder() {
+  return (
+    <Card className="border-dashed">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <HelpCircle size={16} />
+          Lesson Mini Quiz
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Сабақ соңындағы қысқа тексеріс осы блокта ашылады.
+        </p>
+      </CardHeader>
+
+      <CardContent>
+        <div className="rounded-xl border bg-muted/30 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium">Мини тест әзірге placeholder</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Келесі MVP қадамында осы жерге 3–5 сұрақтан тұратын сабақтық quiz
+                қосамыз: бір дұрыс жауап, түсіндірме, нәтиже және қайталау ұсынысы.
+              </p>
+            </div>
+
+            <Button type="button" variant="outline" disabled>
+              Жақында қосылады
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function LessonDetailPage() {
@@ -99,6 +310,9 @@ export default function LessonDetailPage() {
 
   const hasLessonAttachments = lessonAttachments.length > 0;
   const hasCourseAssets = courseAssets.length > 0;
+  const hasAnyLessonContent = Boolean(
+    data?.contentBody || hasMedia || data?.practiceContent
+  );
 
   const noteChanged = useMemo(
     () => noteDraft !== (learningState?.noteContent || ''),
@@ -125,6 +339,7 @@ export default function LessonDetailPage() {
         queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
         queryClient.invalidateQueries({ queryKey: ['lesson-learning-state'] }),
         queryClient.invalidateQueries({ queryKey: ['courses'] }),
+        queryClient.invalidateQueries({ queryKey: ['course-progress'] }),
         queryClient.invalidateQueries({ queryKey: ['student-dashboard'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics'] }),
         queryClient.invalidateQueries({ queryKey: ['achievements'] }),
@@ -321,73 +536,125 @@ export default function LessonDetailPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <button
-              onClick={() => navigate('/lessons')}
-              className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <ArrowLeft size={13} />
-              {t('page.lesson_detail.back_to_lessons')}
-            </button>
+        <PageHeader
+          backAction={{
+            label: t('page.lesson_detail.back_to_lessons'),
+            onClick: () => navigate('/lessons'),
+          }}
+          eyebrow={
+            <>
+              <BookOpen size={13} />
+              Сабақ оқу режимі
+            </>
+          }
+          icon={<GraduationCap size={20} />}
+          title={data?.title || t('page.lesson_detail.title')}
+          description={
+            data
+              ? [data.subjectName, data.courseTitle, data.moduleTitle]
+                  .filter(Boolean)
+                  .join(' · ')
+              : t('page.lesson_detail.subtitle')
+          }
+          actions={
+            data?.isCompleted ? (
+              <StatusBadge tone="success" icon={<CheckCircle2 size={12} />}>
+                {t('lesson.status.completed')}
+              </StatusBadge>
+            ) : data?.isLocked ? (
+              <StatusBadge tone="muted" icon={<Lock size={12} />}>
+                Құлыпталған
+              </StatusBadge>
+            ) : null
+          }
+        />
 
-            <h2 className="text-xl font-bold">{t('page.lesson_detail.title')}</h2>
-            <p className="text-sm text-muted-foreground">
-              {t('page.lesson_detail.subtitle')}
-            </p>
-          </div>
+        {isLoading ? <LessonDetailSkeleton /> : null}
 
-          {data?.isCompleted ? (
-            <span className="inline-flex items-center gap-1 text-xs text-success">
-              <CheckCircle2 size={14} />
-              {t('lesson.status.completed')}
-            </span>
-          ) : null}
-        </div>
-
-        {isLoading ? <LoadingState text={t('page.lesson_detail.loading')} /> : null}
-
-        {error ? <ErrorState text={t('page.lesson_detail.error')} /> : null}
-
-        {!isLoading && !error && data?.isLocked ? (
-          <EmptyState
-            title={t('page.lesson_detail.locked_title')}
-            text={t('page.lesson_detail.locked_text')}
+        {!isLoading && error ? (
+          <ErrorState
+            text={t('page.lesson_detail.error')}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                Қайта жүктеу
+              </Button>
+            }
+            secondaryAction={
+              <Button type="button" variant="ghost" onClick={() => navigate('/lessons')}>
+                Сабақтарға қайту
+              </Button>
+            }
           />
         ) : null}
 
-        {!isLoading && !error && data ? (
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="space-y-4 lg:col-span-2">
+        {!isLoading && !error && data?.isLocked ? (
+          <EmptyState
+            icon={<Lock size={18} />}
+            title={t('page.lesson_detail.locked_title')}
+            text={t('page.lesson_detail.locked_text')}
+            action={
+              <Button type="button" variant="outline" asChild>
+                <Link to="/courses">
+                  Курстарға өту
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!isLoading && !error && data && !data.isLocked ? (
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="space-y-4">
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base font-semibold">{data.title}</CardTitle>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge tone="info" icon={<BookOpen size={12} />}>
+                      {data.subjectName}
+                    </StatusBadge>
+
+                    {data.isCompleted ? (
+                      <StatusBadge tone="success" icon={<CheckCircle2 size={12} />}>
+                        {t('lesson.status.completed')}
+                      </StatusBadge>
+                    ) : (
+                      <StatusBadge tone="warning" icon={<PlayCircle size={12} />}>
+                        {t('page.lesson_detail.status.in_progress')}
+                      </StatusBadge>
+                    )}
+                  </div>
+
+                  <CardTitle className="pt-2 text-lg font-semibold">
+                    {data.title}
+                  </CardTitle>
+
                   <p className="text-xs text-muted-foreground">
-                    {[data.subjectName, data.courseTitle, data.moduleTitle]
-                      .filter(Boolean)
-                      .join(' · ')}
+                    {[data.courseTitle, data.moduleTitle].filter(Boolean).join(' · ')}
                   </p>
                 </CardHeader>
 
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-6">
                   {data.contentBody ? (
-                    <div className="whitespace-pre-wrap rounded-lg border bg-card p-4 text-sm leading-6">
-                      {data.contentBody}
-                    </div>
-                  ) : (
-                    <EmptyState
-                      title={t('page.lesson_detail.empty_theory_title')}
-                      text={t('page.lesson_detail.empty_theory_text')}
-                    />
-                  )}
+                    <ReadingSection
+                      title="Теория"
+                      icon={<FileText size={15} />}
+                    >
+                      <article className="prose prose-sm max-w-none whitespace-pre-wrap rounded-xl border bg-card p-5 leading-7 dark:prose-invert">
+                        {data.contentBody}
+                      </article>
+                    </ReadingSection>
+                  ) : null}
 
                   {hasMedia ? (
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-semibold">
-                        {t('page.lesson_detail.media_title')}
-                      </h3>
-
-                      <div className="overflow-hidden rounded-lg border bg-black/5">
+                    <ReadingSection
+                      title={t('page.lesson_detail.media_title')}
+                      icon={<PlayCircle size={15} />}
+                    >
+                      <div className="overflow-hidden rounded-xl border bg-black/5">
                         {isYoutubeMedia && normalizedMediaUrl ? (
                           <iframe
                             src={normalizedMediaUrl}
@@ -403,142 +670,101 @@ export default function LessonDetailPage() {
                             href={normalizedMediaUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="block p-4 text-sm underline"
+                            className="flex items-center justify-between gap-3 p-4 text-sm underline"
                           >
                             {t('page.lesson_detail.open_media')}
+                            <ExternalLink size={14} />
                           </a>
                         ) : null}
                       </div>
-                    </div>
+                    </ReadingSection>
                   ) : null}
 
                   {data.practiceContent ? (
-                    <div className="space-y-2">
-                      <h3 className="text-sm font-semibold">
-                        {t('page.lesson_detail.practice_title')}
-                      </h3>
-                      <div className="whitespace-pre-wrap rounded-lg border bg-card p-4 text-sm leading-6">
+                    <ReadingSection
+                      title={t('page.lesson_detail.practice_title')}
+                      icon={<Sparkles size={15} />}
+                    >
+                      <div className="whitespace-pre-wrap rounded-xl border bg-muted/20 p-5 text-sm leading-7">
                         {data.practiceContent}
                       </div>
-                    </div>
+                    </ReadingSection>
+                  ) : null}
+
+                  {!hasAnyLessonContent ? (
+                    <EmptyState
+                      title={t('page.lesson_detail.empty_theory_title')}
+                      text={t('page.lesson_detail.empty_theory_text')}
+                      compact
+                    />
                   ) : null}
                 </CardContent>
               </Card>
 
-              {hasLessonAttachments ? (
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base font-semibold">
-                      Сабақ файлдары
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Мұғалім осы сабаққа қосқан қосымша материалдар.
-                    </p>
-                  </CardHeader>
+              <ResourceListCard
+                title="Сабақ файлдары"
+                description="Мұғалім осы сабаққа қосқан қосымша материалдар."
+                items={lessonAttachments}
+              />
 
-                  <CardContent className="space-y-2">
-                    {lessonAttachments.map((attachment) => {
-                      const fileUrl = getFileUrl(attachment.file);
-                      const sizeText = formatBytes(attachment.file.sizeBytes);
+              <ResourceListCard
+                title="Курс материалдары"
+                description="Бұл курсқа арналған жалпы қосымша материалдар."
+                items={courseAssets}
+              />
 
-                      return (
-                        <div
-                          key={attachment.id}
-                          className="flex items-start justify-between gap-3 rounded-lg border p-3"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <FileText size={15} className="text-muted-foreground" />
-                              <p className="truncate text-sm font-medium">
-                                {attachment.title}
-                              </p>
-                            </div>
-
-                            {attachment.description ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {attachment.description}
-                              </p>
-                            ) : null}
-
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {attachment.file.filename}
-                              {sizeText ? ` · ${sizeText}` : ''}
-                            </p>
-                          </div>
-
-                          {fileUrl ? (
-                            <Button variant="outline" size="sm" asChild>
-                              <a href={fileUrl} target="_blank" rel="noreferrer">
-                                Ашу
-                                <ExternalLink size={13} className="ml-1.5" />
-                              </a>
-                            </Button>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+              {!hasLessonAttachments && !hasCourseAssets ? (
+                <Card className="border-dashed">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <FileText size={14} />
+                      Бұл сабаққа қосымша файлдар тіркелмеген.
+                    </div>
                   </CardContent>
                 </Card>
               ) : null}
 
-              {hasCourseAssets ? (
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base font-semibold">
-                      Курс материалдары
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                      Бұл курсқа арналған жалпы қосымша материалдар.
+              <MiniQuizPlaceholder />
+
+              <Card>
+                <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">Сабақты аяқтау</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Сабақты аяқтағаннан кейін прогресс course timeline ішінде жаңарады.
                     </p>
-                  </CardHeader>
+                  </div>
 
-                  <CardContent className="space-y-2">
-                    {courseAssets.map((asset) => {
-                      const fileUrl = getFileUrl(asset.file);
-                      const sizeText = formatBytes(asset.file.sizeBytes);
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button type="button" variant="outline" asChild>
+                      <Link to={`/courses/${courseId || data.courseId || ''}`}>
+                        Курс roadmap
+                        <ArrowRight size={15} className="ml-2" />
+                      </Link>
+                    </Button>
 
-                      return (
-                        <div
-                          key={asset.id}
-                          className="flex items-start justify-between gap-3 rounded-lg border p-3"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <FileText size={15} className="text-muted-foreground" />
-                              <p className="truncate text-sm font-medium">
-                                {asset.title}
-                              </p>
-                            </div>
-
-                            {asset.description ? (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {asset.description}
-                              </p>
-                            ) : null}
-
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {asset.file.filename}
-                              {sizeText ? ` · ${sizeText}` : ''}
-                            </p>
-                          </div>
-
-                          {fileUrl ? (
-                            <Button variant="outline" size="sm" asChild>
-                              <a href={fileUrl} target="_blank" rel="noreferrer">
-                                Ашу
-                                <ExternalLink size={13} className="ml-1.5" />
-                              </a>
-                            </Button>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
-              ) : null}
+                    {isStudent && !data.isCompleted ? (
+                      <Button
+                        type="button"
+                        onClick={() => completeMutation.mutate()}
+                        disabled={completeMutation.isPending}
+                      >
+                        {completeMutation.isPending
+                          ? t('common.loading')
+                          : t('lesson.action.complete')}
+                      </Button>
+                    ) : (
+                      <Button type="button" variant="outline" disabled>
+                        <CheckCircle2 size={15} className="mr-2" />
+                        {t('lesson.status.completed')}
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
 
-            <div className="space-y-4">
+            <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-semibold">
@@ -597,19 +823,23 @@ export default function LessonDetailPage() {
                 </CardContent>
               </Card>
 
-              {isStudent && !data.isLocked ? (
+              {isStudent ? (
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-semibold">
                       Оқу құралдары
                     </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                      Сабақты сақтау, кейін қайталау және жеке жазба.
+                    </p>
                   </CardHeader>
 
                   <CardContent className="space-y-3">
                     {learningStateLoading ? (
-                      <p className="text-xs text-muted-foreground">
-                        Оқу құралдары жүктелуде...
-                      </p>
+                      <div className="space-y-2">
+                        <SkeletonBlock className="h-9 w-full" />
+                        <SkeletonBlock className="h-9 w-full" />
+                      </div>
                     ) : null}
 
                     {learningStateError ? (
@@ -618,46 +848,50 @@ export default function LessonDetailPage() {
                       </div>
                     ) : null}
 
-                    <Button
-                      variant={learningState?.bookmarked ? 'default' : 'outline'}
-                      className="w-full justify-start"
-                      onClick={handleToggleBookmark}
-                      disabled={
-                        !learningState ||
-                        toggleBookmarkMutation.isPending ||
-                        learningStateLoading
-                      }
-                    >
-                      <Bookmark
-                        size={14}
-                        className="mr-2"
-                        fill={learningState?.bookmarked ? 'currentColor' : 'none'}
-                      />
-                      {learningState?.bookmarked
-                        ? 'Сақталған сабақ'
-                        : 'Сабақты сақтау'}
-                    </Button>
+                    {!learningStateLoading ? (
+                      <>
+                        <Button
+                          variant={learningState?.bookmarked ? 'default' : 'outline'}
+                          className="w-full justify-start"
+                          onClick={handleToggleBookmark}
+                          disabled={
+                            !learningState ||
+                            toggleBookmarkMutation.isPending ||
+                            learningStateLoading
+                          }
+                        >
+                          <Bookmark
+                            size={14}
+                            className="mr-2"
+                            fill={learningState?.bookmarked ? 'currentColor' : 'none'}
+                          />
+                          {learningState?.bookmarked
+                            ? 'Сақталған сабақ'
+                            : 'Сабақты сақтау'}
+                        </Button>
 
-                    <Button
-                      variant={learningState?.reviewLater ? 'default' : 'outline'}
-                      className="w-full justify-start"
-                      onClick={handleToggleReviewLater}
-                      disabled={
-                        !learningState ||
-                        toggleReviewLaterMutation.isPending ||
-                        learningStateLoading
-                      }
-                    >
-                      <RotateCcw size={14} className="mr-2" />
-                      {learningState?.reviewLater
-                        ? 'Қайталау тізімінде'
-                        : 'Кейін қайталау'}
-                    </Button>
+                        <Button
+                          variant={learningState?.reviewLater ? 'default' : 'outline'}
+                          className="w-full justify-start"
+                          onClick={handleToggleReviewLater}
+                          disabled={
+                            !learningState ||
+                            toggleReviewLaterMutation.isPending ||
+                            learningStateLoading
+                          }
+                        >
+                          <RotateCcw size={14} className="mr-2" />
+                          {learningState?.reviewLater
+                            ? 'Қайталау тізімінде'
+                            : 'Кейін қайталау'}
+                        </Button>
+                      </>
+                    ) : null}
                   </CardContent>
                 </Card>
               ) : null}
 
-              {isStudent && !data.isLocked ? (
+              {isStudent ? (
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-sm font-semibold">
@@ -709,7 +943,7 @@ export default function LessonDetailPage() {
                 </Card>
               ) : null}
 
-              {!hasMedia && !data.practiceContent && !data.contentBody ? (
+              {!hasAnyLessonContent ? (
                 <Card>
                   <CardContent className="pt-6">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -719,7 +953,7 @@ export default function LessonDetailPage() {
                   </CardContent>
                 </Card>
               ) : null}
-            </div>
+            </aside>
           </div>
         ) : null}
       </div>
