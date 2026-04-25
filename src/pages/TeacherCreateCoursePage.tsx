@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
 import DashboardLayout from '@/components/DashboardLayout';
@@ -8,50 +8,13 @@ import StatusBadge from '@/components/common/StatusBadge';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import {
-  createCourse,
-  createLesson,
-  createModule,
-  deleteCourse,
-  deleteLesson,
-  deleteModule,
-  reorderLessons,
-  reorderModules,
-  updateCourse,
-  updateLesson,
-  updateModule,
-} from '@/lib/app-data';
-import type {
-  CourseAccessType,
-  CourseAnnouncementPriority,
-  CourseAnnouncementView,
-  CourseVisibility,
-  LessonMiniQuizQuestionType,
-  LessonMiniQuizQuestionView,
-} from '@/lib/app-data-types';
-import {
   platformKeys,
   useCourseAnnouncements,
   useCourseAssets,
-  useCourseInvites,
-  useCreateCourseAnnouncementMutation,
-  useCreateCourseExternalAssetMutation,
-  useCreateCourseInviteMutation,
-  useCreateLessonExternalAttachmentMutation,
-  useDeactivateCourseInviteMutation,
-  useDeleteCourseAnnouncementMutation,
-  useDeleteCourseAssetMutation,
-  useDeleteLessonAttachmentMutation,
-  useDeleteLessonMiniQuizMutation,
-  useDeleteLessonMiniQuizQuestionMutation,
   useLessonAttachments,
   useLessonMiniQuiz,
-  useReorderLessonMiniQuizQuestionsMutation,
   useSubjects,
-  useUpsertLessonMiniQuizMutation,
   useTeacherCourseWorkspace,
-  useUpdateCourseAnnouncementMutation,
-  useCreateLessonMiniQuizQuestionMutation,
-  useUpdateLessonMiniQuizQuestionMutation,
 } from '@/hooks/use-platform-data';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -60,7 +23,6 @@ import {
   ErrorState,
 } from '@/components/common/DataState';
 import { useToast } from '@/hooks/use-toast';
-import { normalizeMediaUrl } from '@/lib/media-url';
 import { BuilderStatCard } from '@/components/course-builder/BuilderStatCard';
 import { CourseAnnouncementsPanel } from '@/components/course-builder/CourseAnnouncementsPanel';
 import { CourseBuilderStepper } from '@/components/course-builder/CourseBuilderStepper';
@@ -77,29 +39,22 @@ import { CourseSettingsCard } from '@/components/course-builder/CourseSettingsCa
 import { CourseSummaryCard } from '@/components/course-builder/CourseSummaryCard';
 import { CoursePublishPanel } from '@/components/course-builder/CoursePublishPanel';
 import { CourseDangerZone } from '@/components/course-builder/CourseDangerZone';
+import { useCourseBuilderForms } from '@/hooks/course-factor/useCourseBuilderForms';
+import { useCourseBuilderCourseMutations } from '@/hooks/course-factor/useCourseBuilderCourseMutations';
+import { useCourseBuilderSidePanels } from '@/hooks/course-factor/useCourseBuilderSidePanels';
+import { useCourseBuilderMiniQuiz } from '@/hooks/course-factor/useCourseBuilderMiniQuiz';
 import {
-  formatAssetTitle,
   formatPrice,
   getAccessTypeLabel,
   getCourseStatusTone,
-  getFilenameFromUrl,
   getNextSortOrder,
   getSortedBySortOrder,
-  moveItem,
   normalizeCurrency,
-  normalizeExternalUrlInput,
-  parseMaxStudents,
   parsePrice,
-  resolveVisibilityFromAccessType,
-  scrollToBuilderSection,
   shouldShowCoursePricing,
-  toDateTimeLocalValue,
   type CourseStatus,
 } from '@/lib/course-creator/course-builder-utils';
-import {
-  getNextMiniQuizQuestionSortOrder,
-  normalizeQuestionOptions,
-} from '@/lib/course-creator/mini-quiz-utils';
+import { getNextMiniQuizQuestionSortOrder } from '@/lib/course-creator/mini-quiz-utils';
 import {
   BookOpen,
   CheckCircle2,
@@ -127,108 +82,37 @@ export default function TeacherCreateCoursePage() {
     error: workspaceError,
   } = useTeacherCourseWorkspace(user?.id || '', !!user?.id);
 
-  const [newCourse, setNewCourse] = useState({
-    title: '',
-    description: '',
-    subjectId: '',
-    accessType: 'public_free' as CourseAccessType,
-    visibility: 'public' as CourseVisibility,
-    price: '0',
-    currency: 'KZT',
-    enrollmentOpen: true,
-    maxStudents: '',
-    moduleTitle: t('page.teacher_course_builder.defaults.module_title'),
-    lessonTitle: t('page.teacher_course_builder.defaults.lesson_title'),
-    lessonBody: t('page.teacher_course_builder.defaults.lesson_body'),
-    lessonPractice: t('page.teacher_course_builder.defaults.lesson_practice'),
-    lessonVideo: '',
-  });
-
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const lastSeededCourseId = useRef('');
 
-  const [courseEdit, setCourseEdit] = useState<{
-    title: string;
-    description: string;
-    subjectId: string;
-    thumbnailUrl: string;
-    status: CourseStatus;
-    accessType: CourseAccessType;
-    visibility: CourseVisibility;
-    price: string;
-    currency: string;
-    enrollmentOpen: boolean;
-    maxStudents: string;
-  }>({
-    title: '',
-    description: '',
-    subjectId: '',
-    thumbnailUrl: '',
-    status: 'draft',
-    accessType: 'public_free',
-    visibility: 'public',
-    price: '0',
-    currency: 'KZT',
-    enrollmentOpen: true,
-    maxStudents: '',
-  });
-
-  const [moduleForm, setModuleForm] = useState({ title: '' });
-  const [lessonForm, setLessonForm] = useState({
-    moduleId: '',
-    title: '',
-    contentBody: '',
-    practiceContent: '',
-    mediaUrl: '',
-    sortOrder: '1',
-    isPublished: false,
-  });
-  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
-
-  const [inviteForm, setInviteForm] = useState({
-    maxUses: '',
-    expiresAt: '',
-  });
-
-  const [courseAssetForm, setCourseAssetForm] = useState({
-    title: '',
-    description: '',
-    externalUrl: '',
-  });
-
-  const [lessonAttachmentForm, setLessonAttachmentForm] = useState({
-    title: '',
-    description: '',
-    externalUrl: '',
-  });
-
-  const [miniQuizForm, setMiniQuizForm] = useState({
-    title: 'Сабақ соңындағы қысқа тест',
-    description: '',
-    passingScore: '60',
-    isPublished: false,
-  });
-
-  const [miniQuizQuestionForm, setMiniQuizQuestionForm] = useState({
-    questionText: '',
-    questionType: 'single_choice' as LessonMiniQuizQuestionType,
-    options: ['', '', '', ''],
-    correctAnswer: [] as number[],
-    explanation: '',
-    sortOrder: '1',
-  });
-
-  const [editingMiniQuizQuestionId, setEditingMiniQuizQuestionId] = useState<string | null>(null);
-
-  const [announcementForm, setAnnouncementForm] = useState({
-    title: '',
-    body: '',
-    priority: 'normal' as CourseAnnouncementPriority,
-    isPinned: false,
-    expiresAt: '',
-  });
-
-  const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | null>(null);
+  const {
+    newCourse,
+    setNewCourse,
+    courseEdit,
+    setCourseEdit,
+    moduleForm,
+    setModuleForm,
+    lessonForm,
+    setLessonForm,
+    editingLessonId,
+    setEditingLessonId,
+    inviteForm,
+    setInviteForm,
+    courseAssetForm,
+    setCourseAssetForm,
+    lessonAttachmentForm,
+    setLessonAttachmentForm,
+    miniQuizForm,
+    setMiniQuizForm,
+    miniQuizQuestionForm,
+    setMiniQuizQuestionForm,
+    editingMiniQuizQuestionId,
+    setEditingMiniQuizQuestionId,
+    announcementForm,
+    setAnnouncementForm,
+    editingAnnouncementId,
+    setEditingAnnouncementId,
+  } = useCourseBuilderForms();
 
   const selectedCourse = useMemo(
     () =>
@@ -253,11 +137,6 @@ export default function TeacherCreateCoursePage() {
   );
 
   const {
-    data: courseInvites,
-    isLoading: courseInvitesLoading,
-  } = useCourseInvites(selectedCourse?.id || '', !!selectedCourse?.id);
-
-  const {
     data: courseAssets,
     isLoading: courseAssetsLoading,
   } = useCourseAssets(selectedCourse?.id || '', !!selectedCourse?.id);
@@ -278,22 +157,6 @@ export default function TeacherCreateCoursePage() {
   } = useLessonMiniQuiz(editingLessonId || '', user?.id, !!editingLessonId, true);
 
   const selectedMiniQuiz = miniQuizData?.quiz || null;
-
-  const createInviteMutation = useCreateCourseInviteMutation(user?.id);
-  const deactivateInviteMutation = useDeactivateCourseInviteMutation(user?.id);
-  const createAnnouncementMutation = useCreateCourseAnnouncementMutation(user?.id);
-  const updateAnnouncementMutation = useUpdateCourseAnnouncementMutation(user?.id);
-  const deleteAnnouncementMutation = useDeleteCourseAnnouncementMutation(user?.id);
-  const createCourseAssetMutation = useCreateCourseExternalAssetMutation(user?.id);
-  const deleteCourseAssetMutation = useDeleteCourseAssetMutation(user?.id);
-  const createLessonAttachmentMutation = useCreateLessonExternalAttachmentMutation(user?.id);
-  const deleteLessonAttachmentMutation = useDeleteLessonAttachmentMutation(user?.id);
-  const upsertMiniQuizMutation = useUpsertLessonMiniQuizMutation(user?.id);
-  const deleteMiniQuizMutation = useDeleteLessonMiniQuizMutation(user?.id);
-  const createMiniQuizQuestionMutation = useCreateLessonMiniQuizQuestionMutation(user?.id);
-  const updateMiniQuizQuestionMutation = useUpdateLessonMiniQuizQuestionMutation(user?.id);
-  const deleteMiniQuizQuestionMutation = useDeleteLessonMiniQuizQuestionMutation(user?.id);
-  const reorderMiniQuizQuestionsMutation = useReorderLessonMiniQuizQuestionsMutation(user?.id);
 
   const selectedCourseModuleSignature =
     selectedCourseModules.map((module) => module.id).join('|') || '';
@@ -578,1048 +441,121 @@ export default function TeacherCreateCoursePage() {
     ]);
   };
 
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      if (!user) throw new Error('User not found');
-
-      const accessType = newCourse.accessType;
-      const isPaidCourse = shouldShowCoursePricing(accessType);
-
-      const price = isPaidCourse ? parsePrice(newCourse.price) : 0;
-      const maxStudents = parseMaxStudents(newCourse.maxStudents);
-      const currency = isPaidCourse ? normalizeCurrency(newCourse.currency) : 'KZT';
-
-      if (isPaidCourse && price <= 0) {
-        throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
-      }
-
-      const course = await createCourse({
-        title: newCourse.title.trim(),
-        description: newCourse.description.trim(),
-        subjectId: newCourse.subjectId,
-        teacherId: user.id,
-        status: 'draft',
-        accessType,
-        visibility: resolveVisibilityFromAccessType(accessType),
-        price,
-        currency,
-        enrollmentOpen: true,
-        maxStudents,
-      });
-
-      if (!course) {
-        throw new Error('Course creation failed');
-      }
-
-      const module = await createModule({
-        courseId: course.id,
-        title:
-          newCourse.moduleTitle.trim() ||
-          t('page.teacher_course_builder.defaults.module_short'),
-        sortOrder: 1,
-      });
-
-      if (!module) {
-        throw new Error('Module creation failed');
-      }
-
-      await createLesson({
-        moduleId: module.id,
-        subjectId: newCourse.subjectId,
-        title:
-          newCourse.lessonTitle.trim() ||
-          t('page.teacher_course_builder.defaults.lesson_short'),
-        contentBody: newCourse.lessonBody,
-        practiceContent: newCourse.lessonPractice,
-        mediaUrl: normalizeMediaUrl(newCourse.lessonVideo),
-        sortOrder: 1,
-        isPublished: false,
-      });
-
-      return course;
-    },
-    onSuccess: async (course) => {
-      resetNewCourse();
-      await refetchWorkspace();
-      selectCourse(course.id);
-
-      toast({
-        title: t('page.teacher_course_builder.toast.create_course_title'),
-        description: t('page.teacher_course_builder.toast.create_course_text'),
-      });
-    },
-    onError: (error) =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
+  const {
+    createMutation,
+    updateCourseMutation,
+    deleteCourseMutation,
+    addModuleMutation,
+    deleteModuleMutation,
+    reorderModulesMutation,
+    addOrUpdateLessonMutation,
+    deleteLessonMutation,
+    reorderLessonsMutation,
+    quickStatusMutation,
+    updateModuleTitleMutation,
+    startEditLesson,
+    canCreateCourse,
+    canAddModule,
+    canSaveLesson,
+  } = useCourseBuilderCourseMutations({
+    user,
+    workspace,
+    selectedCourse,
+    newCourse,
+    courseEdit,
+    moduleForm,
+    lessonForm,
+    editingLessonId,
+    setSelectedCourseId,
+    setModuleForm,
+    setLessonForm,
+    setEditingLessonId,
+    queryClient,
+    syncCourseParam,
+    selectCourse,
+    resetNewCourse,
+    resetLessonForm,
+    refetchWorkspace,
+    toast,
   });
 
-  const updateCourseMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedCourse) throw new Error('Course not selected');
-
-      const accessType = courseEdit.accessType;
-      const isPaidCourse = shouldShowCoursePricing(accessType);
-
-      const price = isPaidCourse ? parsePrice(courseEdit.price) : 0;
-      const maxStudents = parseMaxStudents(courseEdit.maxStudents);
-      const currency = isPaidCourse ? normalizeCurrency(courseEdit.currency) : 'KZT';
-
-      if (isPaidCourse && price <= 0) {
-        throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
-      }
-
-      await updateCourse({
-        courseId: selectedCourse.id,
-        title: courseEdit.title.trim(),
-        description: courseEdit.description.trim(),
-        subjectId: courseEdit.subjectId || null,
-        thumbnailUrl: courseEdit.thumbnailUrl.trim() || null,
-        status: courseEdit.status,
-        accessType,
-        visibility: resolveVisibilityFromAccessType(accessType),
-        price,
-        currency,
-        enrollmentOpen: true,
-        maxStudents,
-      });
-    },
-    onSuccess: async () => {
-      await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.update_course_title') });
-    },
-    onError: (error) =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
+  const {
+    courseInvites,
+    courseInvitesLoading,
+    createInviteMutation,
+    deactivateInviteMutation,
+    createAnnouncementMutation,
+    updateAnnouncementMutation,
+    deleteAnnouncementMutation,
+    createCourseAssetMutation,
+    deleteCourseAssetMutation,
+    createLessonAttachmentMutation,
+    deleteLessonAttachmentMutation,
+    handleCreateInvite,
+    handleDeactivateInvite,
+    copyInviteCode,
+    handleCreateCourseAsset,
+    handleDeleteCourseAsset,
+    resetAnnouncementForm,
+    handleEditAnnouncement,
+    handleSaveAnnouncement,
+    handleDeleteAnnouncement,
+    handleCreateLessonAttachment,
+    handleDeleteLessonAttachment,
+    canCreateCourseAsset,
+    canSaveAnnouncement,
+    canCreateLessonAttachment,
+  } = useCourseBuilderSidePanels({
+    user,
+    selectedCourse,
+    selectedEditingLesson,
+    courseAssets,
+    lessonAttachments,
+    inviteForm,
+    setInviteForm,
+    courseAssetForm,
+    setCourseAssetForm,
+    lessonAttachmentForm,
+    setLessonAttachmentForm,
+    announcementForm,
+    setAnnouncementForm,
+    editingAnnouncementId,
+    setEditingAnnouncementId,
+    refetchWorkspace,
+    toast,
   });
 
-  const deleteCourseMutation = useMutation({
-    mutationFn: async (courseId: string) => {
-      await deleteCourse(courseId);
-    },
-    onSuccess: async (_data, courseId) => {
-      const nextCourseId =
-        workspace?.courses.find((course) => course.id !== courseId)?.id || '';
-
-      setEditingLessonId(null);
-
-      if (nextCourseId) {
-        setSelectedCourseId(nextCourseId);
-        syncCourseParam(nextCourseId);
-      } else {
-        setSelectedCourseId('');
-        syncCourseParam();
-      }
-
-      await refetchWorkspace();
-
-      toast({ title: t('page.teacher_course_builder.toast.delete_course_title') });
-    },
-    onError: (error) => {
-      console.error('[deleteCourseMutation error]', error);
-
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      });
-    },
+  const {
+    upsertMiniQuizMutation,
+    deleteMiniQuizMutation,
+    createMiniQuizQuestionMutation,
+    updateMiniQuizQuestionMutation,
+    deleteMiniQuizQuestionMutation,
+    reorderMiniQuizQuestionsMutation,
+    resetMiniQuizQuestionForm,
+    handleSaveMiniQuiz,
+    handleDeleteMiniQuiz,
+    handleToggleMiniQuizCorrectAnswer,
+    handleEditMiniQuizQuestion,
+    handleSaveMiniQuizQuestion,
+    handleDeleteMiniQuizQuestion,
+    handleMoveMiniQuizQuestion,
+    canSaveMiniQuiz,
+    canSaveMiniQuizQuestion,
+  } = useCourseBuilderMiniQuiz({
+    user,
+    selectedCourse,
+    selectedEditingLesson,
+    selectedMiniQuiz,
+    miniQuizForm,
+    setMiniQuizForm,
+    miniQuizQuestionForm,
+    setMiniQuizQuestionForm,
+    editingMiniQuizQuestionId,
+    setEditingMiniQuizQuestionId,
+    refetchWorkspace,
+    toast,
   });
-
-  const addModuleMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedCourse) throw new Error('Course not selected');
-
-      await createModule({
-        courseId: selectedCourse.id,
-        title: moduleForm.title.trim(),
-        sortOrder: Number(getNextSortOrder(selectedCourse.modules || [])),
-      });
-    },
-    onSuccess: async () => {
-      setModuleForm({ title: '' });
-      await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.add_module_title') });
-    },
-    onError: () =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
-  });
-
-  const deleteModuleMutation = useMutation({
-    mutationFn: async (moduleId: string) => {
-      if (!selectedCourse) throw new Error('Course not selected');
-
-      const remainingIds = getSortedBySortOrder(selectedCourse.modules)
-        .filter((module) => module.id !== moduleId)
-        .map((module) => module.id);
-
-      await deleteModule(moduleId);
-
-      if (remainingIds.length > 0) {
-        await reorderModules(selectedCourse.id, remainingIds);
-      }
-    },
-    onSuccess: async () => {
-      await refetchWorkspace();
-      resetLessonForm();
-      toast({ title: t('page.teacher_course_builder.toast.delete_module_title') });
-    },
-    onError: () =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
-  });
-
-  const reorderModulesMutation = useMutation({
-    mutationFn: async ({
-      moduleId,
-      direction,
-    }: {
-      moduleId: string;
-      direction: 'up' | 'down';
-    }) => {
-      if (!selectedCourse) throw new Error('Course not selected');
-
-      const sortedModules = getSortedBySortOrder(selectedCourse.modules || []);
-      const currentIndex = sortedModules.findIndex((module) => module.id === moduleId);
-      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
-      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sortedModules.length) {
-        return;
-      }
-
-      const nextOrder = moveItem(sortedModules, currentIndex, nextIndex).map(
-        (module) => module.id
-      );
-
-      await reorderModules(selectedCourse.id, nextOrder);
-    },
-    onSuccess: async () => {
-      await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.reorder_modules_title') });
-    },
-    onError: () =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
-  });
-
-  const addOrUpdateLessonMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedCourse) throw new Error('Course not selected');
-      if (!lessonForm.moduleId) throw new Error('Module not selected');
-
-      if (editingLessonId) {
-        await updateLesson({
-          lessonId: editingLessonId,
-          title: lessonForm.title.trim(),
-          contentBody: lessonForm.contentBody,
-          practiceContent: lessonForm.practiceContent,
-          mediaUrl: normalizeMediaUrl(lessonForm.mediaUrl),
-          sortOrder: Number(lessonForm.sortOrder) || 1,
-          isPublished: lessonForm.isPublished,
-        });
-      } else {
-        await createLesson({
-          moduleId: lessonForm.moduleId,
-          subjectId: selectedCourse.subjectId || undefined,
-          title: lessonForm.title.trim(),
-          contentBody: lessonForm.contentBody,
-          practiceContent: lessonForm.practiceContent,
-          mediaUrl: normalizeMediaUrl(lessonForm.mediaUrl),
-          sortOrder: Number(lessonForm.sortOrder) || 1,
-          isPublished: lessonForm.isPublished,
-        });
-      }
-    },
-    onSuccess: async () => {
-      resetLessonForm();
-      await refetchWorkspace();
-      toast({
-        title: editingLessonId
-          ? t('page.teacher_course_builder.toast.update_lesson_title')
-          : t('page.teacher_course_builder.toast.add_lesson_title'),
-      });
-    },
-    onError: () =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
-  });
-
-  const deleteLessonMutation = useMutation({
-    mutationFn: async ({
-      lessonId,
-      moduleId,
-      remainingIds,
-    }: {
-      lessonId: string;
-      moduleId: string;
-      remainingIds: string[];
-    }) => {
-      await deleteLesson(lessonId);
-
-      if (remainingIds.length > 0) {
-        await reorderLessons(moduleId, remainingIds);
-      }
-    },
-    onSuccess: async () => {
-      await refetchWorkspace();
-      resetLessonForm();
-      toast({ title: t('page.teacher_course_builder.toast.delete_lesson_title') });
-    },
-    onError: () =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
-  });
-
-  const reorderLessonsMutation = useMutation({
-    mutationFn: async ({
-      moduleId,
-      lessonId,
-      direction,
-    }: {
-      moduleId: string;
-      lessonId: string;
-      direction: 'up' | 'down';
-    }) => {
-      const module = selectedCourse?.modules.find((item) => item.id === moduleId);
-      if (!module) throw new Error('Module not found');
-
-      const sortedLessons = getSortedBySortOrder(module.lessons || []);
-      const currentIndex = sortedLessons.findIndex((lesson) => lesson.id === lessonId);
-      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
-      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sortedLessons.length) {
-        return;
-      }
-
-      const nextOrder = moveItem(sortedLessons, currentIndex, nextIndex).map(
-        (lesson) => lesson.id
-      );
-
-      await reorderLessons(moduleId, nextOrder);
-    },
-    onSuccess: async () => {
-      await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.reorder_lessons_title') });
-    },
-    onError: () =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
-  });
-
-  const quickStatusMutation = useMutation({
-    mutationFn: async ({ courseId, status }: { courseId: string; status: CourseStatus }) =>
-      updateCourse({ courseId, status }),
-    onSuccess: async () => {
-      await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.update_status_title') });
-    },
-    onError: () =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
-  });
-
-  const updateModuleTitleMutation = useMutation({
-    mutationFn: async ({ moduleId, title }: { moduleId: string; title: string }) =>
-      updateModule({ moduleId, title }),
-    onSuccess: async () => {
-      await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.update_module_title') });
-    },
-    onError: () =>
-      toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      }),
-  });
-
-  const startEditLesson = (lessonId: string) => {
-    const lesson = selectedCourse?.modules
-      .flatMap((module) => module.lessons)
-      .find((item) => item.id === lessonId);
-
-    if (!lesson) return;
-
-    setEditingLessonId(lesson.id);
-    setLessonForm({
-      moduleId: lesson.moduleId,
-      title: lesson.title,
-      contentBody: lesson.contentBody || '',
-      practiceContent: lesson.practiceContent || '',
-      mediaUrl: lesson.mediaUrl || '',
-      sortOrder: String(lesson.sortOrder),
-      isPublished: lesson.isPublished,
-    });
-  };
-
-  const handleCreateInvite = async () => {
-    if (!selectedCourse) return;
-
-    const maxUses = inviteForm.maxUses.trim()
-      ? Number(inviteForm.maxUses)
-      : null;
-
-    if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses <= 0)) {
-      toast({
-        title: 'Invite лимиті қате',
-        description: 'Қолдану лимиті бос немесе 1-ден жоғары бүтін сан болуы керек.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    try {
-      await createInviteMutation.mutateAsync({
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
-        maxUses,
-        expiresAt: inviteForm.expiresAt
-          ? new Date(inviteForm.expiresAt).toISOString()
-          : null,
-      });
-
-      setInviteForm({ maxUses: '', expiresAt: '' });
-      await refetchWorkspace();
-
-      toast({
-        title: 'Invite code жасалды',
-        description: 'Оқушылар осы code арқылы курсқа кіре алады.',
-      });
-    } catch (error) {
-      toast({
-        title: 'Invite code жасау мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDeactivateInvite = async (inviteId: string) => {
-    try {
-      await deactivateInviteMutation.mutateAsync(inviteId);
-      await refetchWorkspace();
-
-      toast({
-        title: 'Invite өшірілді',
-      });
-    } catch (error) {
-      toast({
-        title: 'Invite өшіру мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const copyInviteCode = async (code: string) => {
-    try {
-      await navigator.clipboard.writeText(code);
-
-      toast({
-        title: 'Invite code көшірілді',
-        description: code,
-      });
-    } catch {
-      toast({
-        title: 'Көшіру мүмкін болмады',
-        description: code,
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleCreateCourseAsset = async () => {
-    if (!selectedCourse || !user?.id) return;
-
-    try {
-      const externalUrl = normalizeExternalUrlInput(courseAssetForm.externalUrl);
-      const filename = getFilenameFromUrl(externalUrl, courseAssetForm.title || 'Курс материалы');
-
-      await createCourseAssetMutation.mutateAsync({
-        ownerId: user.id,
-        courseId: selectedCourse.id,
-        filename,
-        externalUrl,
-        title: formatAssetTitle(courseAssetForm.title, filename),
-        description: courseAssetForm.description.trim() || null,
-        sortOrder: (courseAssets?.length || 0) + 1,
-        teacherId: user.id,
-      });
-
-      setCourseAssetForm({ title: '', description: '', externalUrl: '' });
-      await refetchWorkspace();
-
-      toast({
-        title: 'Курс материалы қосылды',
-      });
-    } catch (error) {
-      toast({
-        title: 'Курс материалын қосу мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDeleteCourseAsset = async (assetId: string) => {
-    if (!selectedCourse) return;
-
-    try {
-      await deleteCourseAssetMutation.mutateAsync({
-        assetId,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
-      });
-
-      await refetchWorkspace();
-
-      toast({
-        title: 'Курс материалы өшірілді',
-      });
-    } catch (error) {
-      toast({
-        title: 'Курс материалын өшіру мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const resetAnnouncementForm = () => {
-    setAnnouncementForm({
-      title: '',
-      body: '',
-      priority: 'normal',
-      isPinned: false,
-      expiresAt: '',
-    });
-    setEditingAnnouncementId(null);
-  };
-
-  const handleEditAnnouncement = (announcement: CourseAnnouncementView) => {
-    setEditingAnnouncementId(announcement.id);
-
-    setAnnouncementForm({
-      title: announcement.title,
-      body: announcement.body,
-      priority: announcement.priority,
-      isPinned: announcement.isPinned,
-      expiresAt: toDateTimeLocalValue(announcement.expiresAt),
-    });
-
-    scrollToBuilderSection('announcements');
-  };
-
-  const handleSaveAnnouncement = async () => {
-    if (!selectedCourse || !user?.id) return;
-
-    const title = announcementForm.title.trim();
-    const body = announcementForm.body.trim();
-
-    if (!title || !body) {
-      toast({
-        title: 'Хабарландыру толық емес',
-        description: 'Тақырып пен мәтінді толтырыңыз.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    try {
-      const expiresAt = announcementForm.expiresAt
-        ? new Date(announcementForm.expiresAt).toISOString()
-        : null;
-
-      if (editingAnnouncementId) {
-        await updateAnnouncementMutation.mutateAsync({
-          announcementId: editingAnnouncementId,
-          courseId: selectedCourse.id,
-          teacherId: user.id,
-          title,
-          body,
-          priority: announcementForm.priority,
-          isPinned: announcementForm.isPinned,
-          expiresAt,
-        });
-
-        toast({
-          title: 'Хабарландыру жаңартылды',
-        });
-      } else {
-        await createAnnouncementMutation.mutateAsync({
-          courseId: selectedCourse.id,
-          authorId: user.id,
-          teacherId: user.id,
-          title,
-          body,
-          priority: announcementForm.priority,
-          isPinned: announcementForm.isPinned,
-          expiresAt,
-        });
-
-        toast({
-          title: 'Хабарландыру жарияланды',
-        });
-      }
-
-      resetAnnouncementForm();
-      await refetchWorkspace();
-    } catch (error) {
-      toast({
-        title: 'Хабарландыруды сақтау мүмкін болмады',
-        description:
-          error instanceof Error
-            ? error.message
-            : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDeleteAnnouncement = async (announcement: CourseAnnouncementView) => {
-    if (!selectedCourse) return;
-
-    if (!window.confirm('Бұл хабарландыруды өшіргіңіз келе ме?')) {
-      return;
-    }
-
-    try {
-      await deleteAnnouncementMutation.mutateAsync({
-        announcementId: announcement.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
-      });
-
-      if (editingAnnouncementId === announcement.id) {
-        resetAnnouncementForm();
-      }
-
-      await refetchWorkspace();
-
-      toast({
-        title: 'Хабарландыру өшірілді',
-      });
-    } catch (error) {
-      toast({
-        title: 'Хабарландыруды өшіру мүмкін болмады',
-        description:
-          error instanceof Error
-            ? error.message
-            : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const resetMiniQuizQuestionForm = () => {
-    setMiniQuizQuestionForm({
-      questionText: '',
-      questionType: 'single_choice',
-      options: ['', '', '', ''],
-      correctAnswer: [],
-      explanation: '',
-      sortOrder: selectedMiniQuiz
-        ? getNextMiniQuizQuestionSortOrder(selectedMiniQuiz.questions)
-        : '1',
-    });
-    setEditingMiniQuizQuestionId(null);
-  };
-
-  const parseMiniQuizPassingScore = () => {
-    const passingScore = Number(miniQuizForm.passingScore || 0);
-
-    if (!Number.isInteger(passingScore) || passingScore < 0 || passingScore > 100) {
-      throw new Error('Өту пайызы 0 мен 100 аралығындағы бүтін сан болуы керек.');
-    }
-
-    return passingScore;
-  };
-
-  const saveMiniQuizBase = async () => {
-    if (!selectedCourse || !selectedEditingLesson || !user?.id) {
-      throw new Error('Mini quiz сақтау үшін алдымен сабақты таңдаңыз.');
-    }
-
-    const title = miniQuizForm.title.trim();
-
-    if (!title) {
-      throw new Error('Mini quiz атауын енгізіңіз.');
-    }
-
-    const passingScore = parseMiniQuizPassingScore();
-
-    return upsertMiniQuizMutation.mutateAsync({
-      lessonId: selectedEditingLesson.id,
-      courseId: selectedCourse.id,
-      createdBy: user.id,
-      teacherId: user.id,
-      title,
-      description: miniQuizForm.description.trim() || null,
-      isPublished: miniQuizForm.isPublished,
-      passingScore,
-    });
-  };
-
-  const handleSaveMiniQuiz = async () => {
-    try {
-      await saveMiniQuizBase();
-      await refetchWorkspace();
-
-      toast({
-        title: 'Mini quiz сақталды',
-      });
-    } catch (error) {
-      toast({
-        title: 'Mini quiz сақтау мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDeleteMiniQuiz = async () => {
-    if (!selectedCourse || !selectedEditingLesson || !selectedMiniQuiz) return;
-
-    if (!window.confirm('Бұл mini quiz толық өшіріледі. Жалғастырасыз ба?')) {
-      return;
-    }
-
-    try {
-      await deleteMiniQuizMutation.mutateAsync({
-        quizId: selectedMiniQuiz.id,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
-      });
-
-      resetMiniQuizQuestionForm();
-      await refetchWorkspace();
-
-      toast({
-        title: 'Mini quiz өшірілді',
-      });
-    } catch (error) {
-      toast({
-        title: 'Mini quiz өшіру мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleToggleMiniQuizCorrectAnswer = (optionIndex: number) => {
-    setMiniQuizQuestionForm((prev) => {
-      if (prev.questionType === 'single_choice') {
-        return {
-          ...prev,
-          correctAnswer: [optionIndex],
-        };
-      }
-
-      const exists = prev.correctAnswer.includes(optionIndex);
-
-      return {
-        ...prev,
-        correctAnswer: exists
-          ? prev.correctAnswer.filter((item) => item !== optionIndex)
-          : [...prev.correctAnswer, optionIndex].sort((a, b) => a - b),
-      };
-    });
-  };
-
-  const handleEditMiniQuizQuestion = (question: LessonMiniQuizQuestionView) => {
-    const options = [...question.options];
-
-    while (options.length < 4) {
-      options.push('');
-    }
-
-    setEditingMiniQuizQuestionId(question.id);
-    setMiniQuizQuestionForm({
-      questionText: question.questionText,
-      questionType: question.questionType,
-      options,
-      correctAnswer: question.correctAnswer,
-      explanation: question.explanation || '',
-      sortOrder: String(question.sortOrder),
-    });
-
-    scrollToBuilderSection('lesson-mini-quiz');
-  };
-
-  const handleSaveMiniQuizQuestion = async () => {
-    if (!selectedCourse || !selectedEditingLesson || !user?.id) return;
-
-    try {
-      const options = normalizeQuestionOptions(miniQuizQuestionForm.options);
-      const sortOrder = Number(miniQuizQuestionForm.sortOrder || 1);
-
-      if (!Number.isInteger(sortOrder) || sortOrder <= 0) {
-        throw new Error('Сұрақ реті 1 немесе одан жоғары бүтін сан болуы керек.');
-      }
-
-      const quizRow = selectedMiniQuiz || (await saveMiniQuizBase());
-      const quizId = selectedMiniQuiz?.id || quizRow.id;
-
-      const payload = {
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user.id,
-        questionText: miniQuizQuestionForm.questionText.trim(),
-        questionType: miniQuizQuestionForm.questionType,
-        options,
-        correctAnswer: miniQuizQuestionForm.correctAnswer,
-        explanation: miniQuizQuestionForm.explanation.trim() || null,
-        sortOrder,
-      };
-
-      if (editingMiniQuizQuestionId) {
-        await updateMiniQuizQuestionMutation.mutateAsync({
-          ...payload,
-          questionId: editingMiniQuizQuestionId,
-        });
-
-        toast({ title: 'Mini quiz сұрағы жаңартылды' });
-      } else {
-        await createMiniQuizQuestionMutation.mutateAsync({
-          ...payload,
-          quizId,
-        });
-
-        toast({ title: 'Mini quiz сұрағы қосылды' });
-      }
-
-      resetMiniQuizQuestionForm();
-      await refetchWorkspace();
-    } catch (error) {
-      toast({
-        title: 'Mini quiz сұрағын сақтау мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDeleteMiniQuizQuestion = async (question: LessonMiniQuizQuestionView) => {
-    if (!selectedCourse || !selectedEditingLesson) return;
-
-    if (!window.confirm('Бұл сұрақты өшіргіңіз келе ме?')) {
-      return;
-    }
-
-    try {
-      await deleteMiniQuizQuestionMutation.mutateAsync({
-        questionId: question.id,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
-      });
-
-      if (editingMiniQuizQuestionId === question.id) {
-        resetMiniQuizQuestionForm();
-      }
-
-      await refetchWorkspace();
-
-      toast({ title: 'Mini quiz сұрағы өшірілді' });
-    } catch (error) {
-      toast({
-        title: 'Mini quiz сұрағын өшіру мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleMoveMiniQuizQuestion = async (
-    questionId: string,
-    direction: 'up' | 'down'
-  ) => {
-    if (!selectedCourse || !selectedEditingLesson || !selectedMiniQuiz) return;
-
-    const questions = selectedMiniQuiz.questions;
-    const currentIndex = questions.findIndex((question) => question.id === questionId);
-    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= questions.length) {
-      return;
-    }
-
-    const orderedQuestionIds = moveItem(questions, currentIndex, nextIndex).map(
-      (question) => question.id
-    );
-
-    try {
-      await reorderMiniQuizQuestionsMutation.mutateAsync({
-        quizId: selectedMiniQuiz.id,
-        orderedQuestionIds,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
-      });
-
-      await refetchWorkspace();
-      toast({ title: 'Mini quiz сұрақтарының реті жаңартылды' });
-    } catch (error) {
-      toast({
-        title: 'Mini quiz сұрақтарын реттеу мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleCreateLessonAttachment = async () => {
-    if (!selectedCourse || !selectedEditingLesson || !user?.id) return;
-
-    try {
-      const externalUrl = normalizeExternalUrlInput(lessonAttachmentForm.externalUrl);
-      const filename = getFilenameFromUrl(externalUrl, lessonAttachmentForm.title || 'Сабақ материалы');
-
-      await createLessonAttachmentMutation.mutateAsync({
-        ownerId: user.id,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        filename,
-        externalUrl,
-        title: formatAssetTitle(lessonAttachmentForm.title, filename),
-        description: lessonAttachmentForm.description.trim() || null,
-        sortOrder: (lessonAttachments?.length || 0) + 1,
-        teacherId: user.id,
-      });
-
-      setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
-      await refetchWorkspace();
-
-      toast({
-        title: 'Сабақ файлы қосылды',
-      });
-    } catch (error) {
-      toast({
-        title: 'Сабақ файлын қосу мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleDeleteLessonAttachment = async (attachmentId: string) => {
-    if (!selectedCourse || !selectedEditingLesson) return;
-
-    try {
-      await deleteLessonAttachmentMutation.mutateAsync({
-        attachmentId,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
-      });
-
-      await refetchWorkspace();
-
-      toast({
-        title: 'Сабақ файлы өшірілді',
-      });
-    } catch (error) {
-      toast({
-        title: 'Сабақ файлын өшіру мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const canCreateCourse =
-    !!newCourse.title.trim() &&
-    !!newCourse.subjectId &&
-    !createMutation.isPending;
-
-  const canAddModule =
-    !!selectedCourse &&
-    !!moduleForm.title.trim() &&
-    !addModuleMutation.isPending;
-
-  const canSaveLesson =
-    !!lessonForm.moduleId &&
-    !!lessonForm.title.trim() &&
-    !addOrUpdateLessonMutation.isPending;
-
-  const canCreateCourseAsset =
-    !!selectedCourse &&
-    !!courseAssetForm.externalUrl.trim() &&
-    !createCourseAssetMutation.isPending;
-
-  const canSaveAnnouncement =
-    !!selectedCourse &&
-    !!user?.id &&
-    !!announcementForm.title.trim() &&
-    !!announcementForm.body.trim() &&
-    !createAnnouncementMutation.isPending &&
-    !updateAnnouncementMutation.isPending;
-
-  const canSaveMiniQuiz =
-    !!selectedCourse &&
-    !!selectedEditingLesson &&
-    !!user?.id &&
-    !!miniQuizForm.title.trim() &&
-    !upsertMiniQuizMutation.isPending;
-
-  const canSaveMiniQuizQuestion =
-    !!selectedCourse &&
-    !!selectedEditingLesson &&
-    !!user?.id &&
-    !!miniQuizQuestionForm.questionText.trim() &&
-    normalizeQuestionOptions(miniQuizQuestionForm.options).length >= 2 &&
-    miniQuizQuestionForm.correctAnswer.length > 0 &&
-    !createMiniQuizQuestionMutation.isPending &&
-    !updateMiniQuizQuestionMutation.isPending;
-
-  const canCreateLessonAttachment =
-    !!selectedCourse &&
-    !!selectedEditingLesson &&
-    !!lessonAttachmentForm.externalUrl.trim() &&
-    !createLessonAttachmentMutation.isPending;
 
   const courseCount = workspace?.courses?.length || 0;
   const selectedCourseLessonCount =
