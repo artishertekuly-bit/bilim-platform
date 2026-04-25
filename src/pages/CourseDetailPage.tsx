@@ -3,19 +3,20 @@ import {
   ArrowRight,
   BookOpen,
   CheckCircle2,
+  CircleDot,
   Clock,
   GraduationCap,
   Lock,
+  PlayCircle,
+  RotateCcw,
+  Target,
   type LucideIcon,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
 import PageHeader from '@/components/common/PageHeader';
-import { LessonStatusBadge } from '@/components/common/StatusBadge';
-import {
-  EmptyState,
-  ErrorState,
-} from '@/components/common/DataState';
+import StatusBadge from '@/components/common/StatusBadge';
+import { EmptyState, ErrorState } from '@/components/common/DataState';
 import { CourseTimelineSkeleton } from '@/components/common/SkeletonBlocks';
 import { useCourseProgressTimeline } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
@@ -66,6 +67,24 @@ function formatDate(value: string | null) {
   });
 }
 
+function findNextLesson(
+  modules: CourseProgressModuleView[],
+  nextLessonId: string | null
+) {
+  const lessons = modules.flatMap((module) => module.lessons || []);
+
+  if (nextLessonId) {
+    const byId = lessons.find((lesson) => lesson.id === nextLessonId);
+    if (byId) return byId;
+  }
+
+  return (
+    lessons.find((lesson) => lesson.status === 'current') ||
+    lessons.find((lesson) => !lesson.isLocked && lesson.status !== 'completed') ||
+    null
+  );
+}
+
 function ProgressBar({ value }: { value: number }) {
   const normalizedValue = Math.min(100, Math.max(0, Math.round(value || 0)));
 
@@ -104,6 +123,142 @@ function CourseStatCard({
   );
 }
 
+function LessonTimelineStatusBadge({
+  status,
+}: {
+  status: CourseProgressLessonStatus;
+}) {
+  if (status === 'completed') {
+    return (
+      <StatusBadge tone="success" icon={<CheckCircle2 size={12} />}>
+        Аяқталған
+      </StatusBadge>
+    );
+  }
+
+  if (status === 'current') {
+    return (
+      <StatusBadge tone="primary" icon={<PlayCircle size={12} />}>
+        Келесі сабақ
+      </StatusBadge>
+    );
+  }
+
+  if (status === 'locked') {
+    return (
+      <StatusBadge tone="muted" icon={<Lock size={12} />}>
+        Жабық
+      </StatusBadge>
+    );
+  }
+
+  return (
+    <StatusBadge tone="info" icon={<CircleDot size={12} />}>
+      Ашық
+    </StatusBadge>
+  );
+}
+
+function TimelineLegend() {
+  const items = [
+    {
+      label: 'Аяқталған',
+      className: 'bg-emerald-500',
+    },
+    {
+      label: 'Келесі сабақ',
+      className: 'bg-primary',
+    },
+    {
+      label: 'Ашық',
+      className: 'bg-blue-500',
+    },
+    {
+      label: 'Жабық',
+      className: 'bg-muted-foreground',
+    },
+  ];
+
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap gap-3 pt-5">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-center gap-2 text-xs">
+            <span className={`h-2.5 w-2.5 rounded-full ${item.className}`} />
+            <span className="text-muted-foreground">{item.label}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CurrentLessonCard({
+  lesson,
+}: {
+  lesson: CourseProgressLessonView | null;
+}) {
+  if (!lesson) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold">Келесі сабақ анықталмады</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Барлық ашық сабақ аяқталған немесе курс ішінде сабақ жоқ.
+            </p>
+          </div>
+
+          <Button type="button" variant="outline" asChild>
+            <Link to="/courses">
+              Басқа курстарды қарау
+              <ArrowRight size={15} className="ml-2" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-primary/25 bg-primary/5">
+      <CardContent className="flex flex-col gap-4 pt-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge tone="primary" icon={<PlayCircle size={12} />}>
+              Келесі қадам
+            </StatusBadge>
+
+            <LessonTimelineStatusBadge status={lesson.status} />
+          </div>
+
+          <h2 className="mt-3 line-clamp-2 text-base font-semibold">
+            {lesson.title}
+          </h2>
+
+          <p className="mt-1 text-xs text-muted-foreground">
+            {lesson.subjectName} · Сабақ #{lesson.sortOrder || 1}
+          </p>
+        </div>
+
+        {lesson.isLocked ? (
+          <Button type="button" variant="outline" disabled>
+            <Lock size={14} className="mr-2" />
+            Жабық
+          </Button>
+        ) : (
+          <Button type="button" asChild>
+            <Link to={`/lessons/${lesson.id}`}>
+              Оқуды жалғастыру
+              <ArrowRight size={15} className="ml-2" />
+            </Link>
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function LessonTimelineItem({
   lesson,
   isLast,
@@ -115,6 +270,9 @@ function LessonTimelineItem({
   const lockedReason = lesson.isLocked
     ? getLockedReasonText(lesson.lockedReason)
     : '';
+
+  const isCurrent = lesson.status === 'current';
+  const isCompleted = lesson.status === 'completed';
 
   return (
     <div className="relative flex gap-4">
@@ -131,7 +289,7 @@ function LessonTimelineItem({
       <div className="min-w-0 flex-1 pb-5">
         <div
           className={`rounded-xl border bg-card p-4 transition-colors ${
-            lesson.status === 'current'
+            isCurrent
               ? 'border-primary/30 bg-primary/5'
               : lesson.isLocked
                 ? 'bg-muted/30'
@@ -145,7 +303,7 @@ function LessonTimelineItem({
                   Сабақ #{lesson.sortOrder || 1}
                 </span>
 
-                <LessonStatusBadge status={lesson.status} />
+                <LessonTimelineStatusBadge status={lesson.status} />
               </div>
 
               <h3 className="mt-2 text-sm font-semibold">{lesson.title}</h3>
@@ -176,9 +334,18 @@ function LessonTimelineItem({
                   Жабық
                 </Button>
               ) : (
-                <Button type="button" size="sm" asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={isCompleted ? 'outline' : 'default'}
+                  asChild
+                >
                   <Link to={`/lessons/${lesson.id}`}>
-                    Сабақты ашу
+                    {isCurrent
+                      ? 'Жалғастыру'
+                      : isCompleted
+                        ? 'Қайта қарау'
+                        : 'Сабақты ашу'}
                     <ArrowRight size={14} className="ml-2" />
                   </Link>
                 </Button>
@@ -192,12 +359,24 @@ function LessonTimelineItem({
 }
 
 function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
+  const isCompleted =
+    module.totalLessons > 0 && module.completedLessons >= module.totalLessons;
+
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <CardTitle className="text-base">{module.title}</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-base">{module.title}</CardTitle>
+
+              {isCompleted ? (
+                <StatusBadge tone="success" icon={<CheckCircle2 size={12} />}>
+                  Модуль аяқталған
+                </StatusBadge>
+              ) : null}
+            </div>
+
             <p className="mt-1 text-xs text-muted-foreground">
               {module.completedLessons}/{module.totalLessons} сабақ аяқталған
             </p>
@@ -218,7 +397,6 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
           <EmptyState
             title="Бұл модульде сабақ жоқ"
             text="Мұғалім сабақ қосқаннан кейін timeline ішінде көрінеді."
-            compact
           />
         ) : (
           <div>
@@ -251,7 +429,13 @@ export default function CourseDetailPage() {
     Boolean(user?.id && courseId)
   );
 
-  const nextLessonId = timeline?.nextLessonId || null;
+  const nextLesson = timeline
+    ? findNextLesson(timeline.modules, timeline.nextLessonId || null)
+    : null;
+
+  const remainingLessons = timeline
+    ? Math.max(timeline.totalLessons - timeline.completedLessons, 0)
+    : 0;
 
   return (
     <DashboardLayout>
@@ -275,9 +459,9 @@ export default function CourseDetailPage() {
               : 'Курс roadmap жүктелуде...'
           }
           actions={
-            nextLessonId ? (
+            nextLesson && !nextLesson.isLocked ? (
               <Button type="button" asChild>
-                <Link to={`/lessons/${nextLessonId}`}>
+                <Link to={`/lessons/${nextLesson.id}`}>
                   Оқуды жалғастыру
                   <ArrowRight size={15} className="ml-2" />
                 </Link>
@@ -292,18 +476,24 @@ export default function CourseDetailPage() {
           <ErrorState
             text="Курс прогресін жүктеу мүмкін болмады."
             action={
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => window.location.reload()}
-              >
-                Қайта жүктеу
-              </Button>
-            }
-            secondaryAction={
-              <Button type="button" variant="ghost" onClick={() => navigate('/courses')}>
-                Курстарға қайту
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => window.location.reload()}
+                >
+                  <RotateCcw size={15} className="mr-2" />
+                  Қайта жүктеу
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => navigate('/courses')}
+                >
+                  Курстарға қайту
+                </Button>
+              </div>
             }
           />
         ) : null}
@@ -329,7 +519,7 @@ export default function CourseDetailPage() {
               <CourseStatCard
                 label="Жалпы прогресс"
                 value={`${timeline.progressPct}%`}
-                icon={Clock}
+                icon={Target}
               />
               <CourseStatCard
                 label="Сабақ саны"
@@ -342,11 +532,13 @@ export default function CourseDetailPage() {
                 icon={CheckCircle2}
               />
               <CourseStatCard
-                label="Модуль саны"
-                value={timeline.modules.length}
-                icon={GraduationCap}
+                label="Қалған сабақ"
+                value={remainingLessons}
+                icon={Clock}
               />
             </div>
+
+            <CurrentLessonCard lesson={nextLesson} />
 
             <Card>
               <CardContent className="pt-5">
@@ -365,6 +557,8 @@ export default function CourseDetailPage() {
                 </p>
               </CardContent>
             </Card>
+
+            <TimelineLegend />
 
             {timeline.modules.length === 0 ? (
               <EmptyState

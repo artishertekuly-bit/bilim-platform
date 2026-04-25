@@ -81,6 +81,13 @@ export type FileAssetVisibility =
   | 'private'
   | 'course'
   | 'public';
+  /**
+ * Course announcements.
+ */
+export type CourseAnnouncementPriority =
+  | 'normal'
+  | 'important'
+  | 'urgent';
 
 /**
  * Existing Supabase rows.
@@ -778,6 +785,55 @@ export interface CourseProgressTimelineView {
 }
 
 /**
+ * MVP 2: Course announcements.
+ *
+ * Мұғалім курсқа хабарландыру жариялайды.
+ * Оқушы access бар курстың хабарландыруын ғана көреді.
+ */
+export interface CourseAnnouncementRow {
+  id: string;
+
+  course_id: string;
+  author_id: string;
+
+  title: string;
+  body: string;
+
+  priority: CourseAnnouncementPriority;
+  is_pinned: boolean;
+
+  published_at: string;
+  expires_at: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CourseAnnouncementView {
+  id: string;
+
+  courseId: string;
+  courseTitle: string | null;
+
+  authorId: string;
+  authorName: string | null;
+  authorAvatarUrl: string | null;
+
+  title: string;
+  body: string;
+
+  priority: CourseAnnouncementPriority;
+  isPinned: boolean;
+
+  publishedAt: string;
+  expiresAt: string | null;
+  isExpired: boolean;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
  * MVP 2: Saved lessons / Bookmarks page.
  *
  * Оқушы сақтап қойған сабақтарын бөлек бетте көреді.
@@ -894,6 +950,37 @@ export interface ManualGrantCourseAccessPayload {
 /**
  * MVP 2 payloads.
  */
+
+export interface CreateCourseAnnouncementPayload {
+  courseId: string;
+  authorId: string;
+
+  title: string;
+  body: string;
+
+  priority?: CourseAnnouncementPriority;
+  isPinned?: boolean;
+
+  publishedAt?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface UpdateCourseAnnouncementPayload {
+  announcementId: string;
+
+  title: string;
+  body: string;
+
+  priority: CourseAnnouncementPriority;
+  isPinned: boolean;
+
+  publishedAt?: string | null;
+  expiresAt?: string | null;
+}
+
+export interface DeleteCourseAnnouncementPayload {
+  announcementId: string;
+}
 
 export interface UpsertLessonNotePayload {
   studentId: string;

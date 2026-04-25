@@ -23,21 +23,27 @@ import {
 } from '@/lib/app-data';
 import type {
   CourseAccessType,
+  CourseAnnouncementPriority,
+  CourseAnnouncementView,
   CourseVisibility,
 } from '@/lib/app-data-types';
 import {
   platformKeys,
+  useCourseAnnouncements,
   useCourseAssets,
   useCourseInvites,
+  useCreateCourseAnnouncementMutation,
   useCreateCourseExternalAssetMutation,
   useCreateCourseInviteMutation,
   useCreateLessonExternalAttachmentMutation,
   useDeactivateCourseInviteMutation,
+  useDeleteCourseAnnouncementMutation,
   useDeleteCourseAssetMutation,
   useDeleteLessonAttachmentMutation,
   useLessonAttachments,
   useSubjects,
   useTeacherCourseWorkspace,
+  useUpdateCourseAnnouncementMutation,
 } from '@/hooks/use-platform-data';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,19 +61,23 @@ import { normalizeMediaUrl } from '@/lib/media-url';
 import {
   ArrowDown,
   ArrowUp,
+  BookOpen,
+  CalendarClock,
+  CheckCircle2,
   Copy,
   ExternalLink,
   FileText,
-  KeyRound,
-  Link as LinkIcon,
-  Trash2,
-  BookOpen,
-  CheckCircle2,
   GraduationCap,
+  KeyRound,
   LayoutDashboard,
+  Link as LinkIcon,
+  Megaphone,
+  Pencil,
+  Pin,
   Plus,
   RotateCcw,
   Settings,
+  Trash2,
 } from 'lucide-react';
 
 const courseStatuses = ['draft', 'published', 'archived'] as const;
@@ -427,8 +437,16 @@ function CourseBuilderStepper({
       disabled: !hasSelectedCourse,
     },
     {
-      id: 'materials',
+      id: 'announcements',
       number: '4',
+      title: 'Хабарландырулар',
+      description: 'Маңызды ақпарат, pin және мерзімді ескерту.',
+      icon: <Megaphone size={16} />,
+      disabled: !hasSelectedCourse,
+    },
+    {
+      id: 'materials',
+      number: '5',
       title: 'Материалдар',
       description: 'Силлабус, PDF, формулалар, lesson attachments.',
       icon: <LinkIcon size={16} />,
@@ -436,7 +454,7 @@ function CourseBuilderStepper({
     },
     {
       id: 'publish',
-      number: '5',
+      number: '6',
       title: 'Жариялау',
       description: 'Publish, archive және invite code басқару.',
       icon: <CheckCircle2 size={16} />,
@@ -454,7 +472,7 @@ function CourseBuilderStepper({
           </p>
         </div>
 
-        <div className="grid gap-2 md:grid-cols-5">
+        <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-6">
           {steps.map((step) => (
             <button
               key={step.id}
@@ -486,6 +504,116 @@ function CourseBuilderStepper({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+const announcementPriorities: CourseAnnouncementPriority[] = [
+  'normal',
+  'important',
+  'urgent',
+];
+
+function getAnnouncementPriorityLabel(priority: CourseAnnouncementPriority) {
+  const map: Record<CourseAnnouncementPriority, string> = {
+    normal: 'Қалыпты',
+    important: 'Маңызды',
+    urgent: 'Шұғыл',
+  };
+
+  return map[priority] || priority;
+}
+
+function getAnnouncementPriorityTone(priority: CourseAnnouncementPriority) {
+  if (priority === 'urgent') return 'danger';
+  if (priority === 'important') return 'warning';
+  return 'info';
+}
+
+function isExpiredDate(value: string | null | undefined) {
+  if (!value) return false;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return false;
+
+  return date.getTime() <= Date.now();
+}
+
+function CourseAnnouncementCard({
+  announcement,
+  onEdit,
+  onDelete,
+  deleting,
+}: {
+  announcement: CourseAnnouncementView;
+  onEdit: (announcement: CourseAnnouncementView) => void;
+  onDelete: (announcement: CourseAnnouncementView) => void;
+  deleting: boolean;
+}) {
+  const expired = announcement.isExpired || isExpiredDate(announcement.expiresAt);
+
+  return (
+    <div
+      className={`rounded-lg border p-3 text-sm ${
+        expired ? 'bg-muted/40 opacity-75' : 'bg-card'
+      }`}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <StatusBadge tone={getAnnouncementPriorityTone(announcement.priority)}>
+              {getAnnouncementPriorityLabel(announcement.priority)}
+            </StatusBadge>
+
+            {announcement.isPinned ? (
+              <StatusBadge tone="primary" icon={<Pin size={12} />}>
+                Бекітілген
+              </StatusBadge>
+            ) : null}
+
+            {expired ? (
+              <StatusBadge tone="muted" icon={<CalendarClock size={12} />}>
+                Мерзімі өткен
+              </StatusBadge>
+            ) : null}
+          </div>
+
+          <p className="font-semibold">{announcement.title}</p>
+
+          <p className="mt-1 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+            {announcement.body}
+          </p>
+
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+            <span>Жарияланды: {formatDateTime(announcement.publishedAt)}</span>
+            <span>Мерзімі: {formatDateTime(announcement.expiresAt)}</span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => onEdit(announcement)}
+          >
+            <Pencil size={13} />
+          </Button>
+
+          <Button
+            type="button"
+            variant="destructive"
+            size="icon"
+            className="h-8 w-8"
+            disabled={deleting}
+            onClick={() => onDelete(announcement)}
+          >
+            <Trash2 size={13} />
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -579,6 +707,16 @@ export default function TeacherCreateCoursePage() {
     externalUrl: '',
   });
 
+  const [announcementForm, setAnnouncementForm] = useState({
+    title: '',
+    body: '',
+    priority: 'normal' as CourseAnnouncementPriority,
+    isPinned: false,
+    expiresAt: '',
+  });
+
+  const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | null>(null);
+
   const selectedCourse = useMemo(
     () =>
       workspace?.courses.find((course) => course.id === selectedCourseId) ||
@@ -612,12 +750,20 @@ export default function TeacherCreateCoursePage() {
   } = useCourseAssets(selectedCourse?.id || '', !!selectedCourse?.id);
 
   const {
+    data: courseAnnouncements,
+    isLoading: courseAnnouncementsLoading,
+  } = useCourseAnnouncements(selectedCourse?.id || '', !!selectedCourse?.id, true);
+
+  const {
     data: lessonAttachments,
     isLoading: lessonAttachmentsLoading,
   } = useLessonAttachments(editingLessonId || '', !!editingLessonId);
 
   const createInviteMutation = useCreateCourseInviteMutation(user?.id);
   const deactivateInviteMutation = useDeactivateCourseInviteMutation(user?.id);
+  const createAnnouncementMutation = useCreateCourseAnnouncementMutation(user?.id);
+  const updateAnnouncementMutation = useUpdateCourseAnnouncementMutation(user?.id);
+  const deleteAnnouncementMutation = useDeleteCourseAnnouncementMutation(user?.id);
   const createCourseAssetMutation = useCreateCourseExternalAssetMutation(user?.id);
   const deleteCourseAssetMutation = useDeleteCourseAssetMutation(user?.id);
   const createLessonAttachmentMutation = useCreateLessonExternalAttachmentMutation(user?.id);
@@ -655,7 +801,15 @@ export default function TeacherCreateCoursePage() {
     setSelectedCourseId(courseId);
     syncCourseParam(courseId);
     setEditingLessonId(null);
+    setEditingAnnouncementId(null);
     setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
+    setAnnouncementForm({
+      title: '',
+      body: '',
+      priority: 'normal',
+      isPinned: false,
+      expiresAt: '',
+    });
   };
 
   const getNextLessonSortOrder = useCallback(
@@ -829,6 +983,7 @@ export default function TeacherCreateCoursePage() {
       queryClient.invalidateQueries({ queryKey: ['courses'] }),
       queryClient.invalidateQueries({ queryKey: ['course-invites'] }),
       queryClient.invalidateQueries({ queryKey: ['course-assets'] }),
+      queryClient.invalidateQueries({ queryKey: ['course-announcements'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-attachments'] }),
       queryClient.invalidateQueries({ queryKey: ['lessons'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
@@ -1387,6 +1542,132 @@ export default function TeacherCreateCoursePage() {
     }
   };
 
+  const resetAnnouncementForm = () => {
+    setAnnouncementForm({
+      title: '',
+      body: '',
+      priority: 'normal',
+      isPinned: false,
+      expiresAt: '',
+    });
+    setEditingAnnouncementId(null);
+  };
+
+  const handleEditAnnouncement = (announcement: CourseAnnouncementView) => {
+    setEditingAnnouncementId(announcement.id);
+
+    setAnnouncementForm({
+      title: announcement.title,
+      body: announcement.body,
+      priority: announcement.priority,
+      isPinned: announcement.isPinned,
+      expiresAt: toDateTimeLocalValue(announcement.expiresAt),
+    });
+
+    scrollToBuilderSection('announcements');
+  };
+
+  const handleSaveAnnouncement = async () => {
+    if (!selectedCourse || !user?.id) return;
+
+    const title = announcementForm.title.trim();
+    const body = announcementForm.body.trim();
+
+    if (!title || !body) {
+      toast({
+        title: 'Хабарландыру толық емес',
+        description: 'Тақырып пен мәтінді толтырыңыз.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const expiresAt = announcementForm.expiresAt
+        ? new Date(announcementForm.expiresAt).toISOString()
+        : null;
+
+      if (editingAnnouncementId) {
+        await updateAnnouncementMutation.mutateAsync({
+          announcementId: editingAnnouncementId,
+          courseId: selectedCourse.id,
+          teacherId: user.id,
+          title,
+          body,
+          priority: announcementForm.priority,
+          isPinned: announcementForm.isPinned,
+          expiresAt,
+        });
+
+        toast({
+          title: 'Хабарландыру жаңартылды',
+        });
+      } else {
+        await createAnnouncementMutation.mutateAsync({
+          courseId: selectedCourse.id,
+          authorId: user.id,
+          teacherId: user.id,
+          title,
+          body,
+          priority: announcementForm.priority,
+          isPinned: announcementForm.isPinned,
+          expiresAt,
+        });
+
+        toast({
+          title: 'Хабарландыру жарияланды',
+        });
+      }
+
+      resetAnnouncementForm();
+      await refetchWorkspace();
+    } catch (error) {
+      toast({
+        title: 'Хабарландыруды сақтау мүмкін болмады',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteAnnouncement = async (announcement: CourseAnnouncementView) => {
+    if (!selectedCourse) return;
+
+    if (!window.confirm('Бұл хабарландыруды өшіргіңіз келе ме?')) {
+      return;
+    }
+
+    try {
+      await deleteAnnouncementMutation.mutateAsync({
+        announcementId: announcement.id,
+        courseId: selectedCourse.id,
+        teacherId: user?.id,
+      });
+
+      if (editingAnnouncementId === announcement.id) {
+        resetAnnouncementForm();
+      }
+
+      await refetchWorkspace();
+
+      toast({
+        title: 'Хабарландыру өшірілді',
+      });
+    } catch (error) {
+      toast({
+        title: 'Хабарландыруды өшіру мүмкін болмады',
+        description:
+          error instanceof Error
+            ? error.message
+            : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleCreateLessonAttachment = async () => {
     if (!selectedCourse || !selectedEditingLesson || !user?.id) return;
 
@@ -1467,6 +1748,14 @@ export default function TeacherCreateCoursePage() {
     !!selectedCourse &&
     !!courseAssetForm.externalUrl.trim() &&
     !createCourseAssetMutation.isPending;
+
+  const canSaveAnnouncement =
+    !!selectedCourse &&
+    !!user?.id &&
+    !!announcementForm.title.trim() &&
+    !!announcementForm.body.trim() &&
+    !createAnnouncementMutation.isPending &&
+    !updateAnnouncementMutation.isPending;
 
   const canCreateLessonAttachment =
     !!selectedCourse &&
@@ -2024,6 +2313,159 @@ export default function TeacherCreateCoursePage() {
                         <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
                           <span className="text-muted-foreground">Баға</span>
                           <span className="font-medium">{selectedCoursePrice}</span>
+                        </div>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+
+                  <Card id="announcements" className="scroll-mt-24">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-semibold">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Megaphone size={14} />
+                          Хабарландырулар
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+
+                    <CardContent className="space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Бұл бөлім арқылы курсқа қатысты маңызды ақпаратты оқушыларға жариялайсыз.
+                        Pin қойылған хабарландырулар жоғарыда тұрады.
+                      </p>
+
+                      <div className="space-y-3 rounded-lg border p-3">
+                        <div className="space-y-1.5">
+                          <Label>Тақырып</Label>
+                          <Input
+                            value={announcementForm.title}
+                            onChange={(e) =>
+                              setAnnouncementForm((p) => ({ ...p, title: e.target.value }))
+                            }
+                            placeholder="Мысалы: Ертең бақылау тесті болады"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label>Мәтін</Label>
+                          <Textarea
+                            rows={4}
+                            value={announcementForm.body}
+                            onChange={(e) =>
+                              setAnnouncementForm((p) => ({ ...p, body: e.target.value }))
+                            }
+                            placeholder="Оқушыларға көрсетілетін хабарлама мәтіні..."
+                          />
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label>Маңыздылығы</Label>
+                            <select
+                              value={announcementForm.priority}
+                              onChange={(e) =>
+                                setAnnouncementForm((p) => ({
+                                  ...p,
+                                  priority: e.target.value as CourseAnnouncementPriority,
+                                }))
+                              }
+                              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            >
+                              {announcementPriorities.map((priority) => (
+                                <option key={priority} value={priority}>
+                                  {getAnnouncementPriorityLabel(priority)}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <Label>Мерзімі</Label>
+                            <Input
+                              type="datetime-local"
+                              value={announcementForm.expiresAt}
+                              onChange={(e) =>
+                                setAnnouncementForm((p) => ({
+                                  ...p,
+                                  expiresAt: e.target.value,
+                                }))
+                              }
+                              min={toDateTimeLocalValue(new Date().toISOString())}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                          <div>
+                            <Label htmlFor="announcement-pinned">Жоғарыға бекіту</Label>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">
+                              Pin қойылса, хабарландыру тізімнің басында тұрады.
+                            </p>
+                          </div>
+
+                          <Switch
+                            id="announcement-pinned"
+                            checked={announcementForm.isPinned}
+                            onCheckedChange={(checked) =>
+                              setAnnouncementForm((p) => ({
+                                ...p,
+                                isPinned: checked,
+                              }))
+                            }
+                          />
+                        </div>
+
+                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                          {editingAnnouncementId ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={resetAnnouncementForm}
+                            >
+                              Болдырмау
+                            </Button>
+                          ) : null}
+
+                          <Button
+                            type="button"
+                            onClick={handleSaveAnnouncement}
+                            disabled={!canSaveAnnouncement}
+                          >
+                            <Megaphone size={14} className="mr-1.5" />
+                            {editingAnnouncementId
+                              ? updateAnnouncementMutation.isPending
+                                ? 'Жаңартылуда...'
+                                : 'Хабарландыруды жаңарту'
+                              : createAnnouncementMutation.isPending
+                                ? 'Жариялануда...'
+                                : 'Хабарландыру жариялау'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {courseAnnouncementsLoading ? (
+                        <LoadingState text="Хабарландырулар жүктелуде..." />
+                      ) : null}
+
+                      {!courseAnnouncementsLoading &&
+                      (!courseAnnouncements || courseAnnouncements.length === 0) ? (
+                        <EmptyState
+                          title="Хабарландыру жоқ"
+                          text="Курсқа хабарландыру жарияланғаннан кейін осы жерде көрінеді."
+                        />
+                      ) : null}
+
+                      {!courseAnnouncementsLoading && courseAnnouncements?.length ? (
+                        <div className="space-y-2">
+                          {courseAnnouncements.map((announcement) => (
+                            <CourseAnnouncementCard
+                              key={announcement.id}
+                              announcement={announcement}
+                              onEdit={handleEditAnnouncement}
+                              onDelete={handleDeleteAnnouncement}
+                              deleting={deleteAnnouncementMutation.isPending}
+                            />
+                          ))}
                         </div>
                       ) : null}
                     </CardContent>

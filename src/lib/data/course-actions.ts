@@ -3,9 +3,13 @@ import type { Tables } from '@/integrations/supabase/types';
 import type {
   CourseAccessSettingsPayload,
   CourseAccessType,
+  CourseAnnouncementRow,
+  CourseAnnouncementView,
   CourseInviteRow,
   CourseVisibility,
+  CreateCourseAnnouncementPayload,
   CreateCourseInvitePayload,
+  DeleteCourseAnnouncementPayload,
   EntitlementRow,
   ManualApproveOrderResponse,
   ManualGrantCourseAccessPayload,
@@ -13,6 +17,7 @@ import type {
   RedeemCourseInvitePayload,
   RedeemCourseInviteResponse,
   RequestPaidCourseAccessPayload,
+  UpdateCourseAnnouncementPayload,
 } from '@/lib/app-data-types';
 import { execOrThrow, localizedText, queryOrThrow } from './common';
 
