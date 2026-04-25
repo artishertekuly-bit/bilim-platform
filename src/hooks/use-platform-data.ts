@@ -38,6 +38,7 @@ import {
   getStudentDashboard,
   getSubjects,
   getTeacherCourseWorkspace,
+  getCourseProgressTimeline,
   getTeacherDashboard,
   getTeacherTestsWorkspace,
   getTestsCatalog,
@@ -104,6 +105,10 @@ export const platformKeys = {
   courseInvitesBase: ['course-invites'] as const,
   courseInvites: (courseId: string) =>
     ['course-invites', courseId] as const,
+
+  courseProgressBase: ['course-progress'] as const,
+  courseProgress: (studentId: string, courseId: string, locale?: Locale) =>
+    ['course-progress', resolveLocale(locale), studentId, courseId] as const,
 
   lessonsBase: ['lessons'] as const,
   lessons: (userId?: string, locale?: Locale) =>
@@ -204,6 +209,9 @@ async function invalidateCourseAccessCaches(
   const tasks: Array<Promise<unknown>> = [
     queryClient.invalidateQueries({
       queryKey: platformKeys.coursesBase,
+    }),
+    queryClient.invalidateQueries({
+    queryKey: platformKeys.courseProgressBase,
     }),
     queryClient.invalidateQueries({
       queryKey: platformKeys.teacherCourseWorkspaceBase,
@@ -311,6 +319,9 @@ async function invalidateLearningSpaceCaches(
       queryKey: platformKeys.lessonDetailBase,
     }),
     queryClient.invalidateQueries({
+    queryKey: platformKeys.courseProgressBase,
+      }),
+    queryClient.invalidateQueries({
       queryKey: platformKeys.lessonsBase,
     }),
     queryClient.invalidateQueries({
@@ -357,6 +368,18 @@ async function invalidateLearningSpaceCaches(
       })
     );
   }
+
+  if (input?.studentId && input?.courseId) {
+  tasks.push(
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.courseProgress(
+        input.studentId,
+        input.courseId,
+        activeLocale
+      ),
+    })
+  );
+}
 
   if (input?.lessonId) {
     tasks.push(
@@ -431,6 +454,21 @@ export function useCourseInvites(courseId: string, enabled = true) {
     queryKey: platformKeys.courseInvites(courseId),
     queryFn: () => getCourseInvites(courseId),
     enabled: enabled && !!courseId,
+  });
+}
+
+export function useCourseProgressTimeline(
+  studentId: string,
+  courseId: string,
+  enabled = true,
+  locale?: Locale
+) {
+  const activeLocale = resolveLocale(locale);
+
+  return useQuery({
+    queryKey: platformKeys.courseProgress(studentId, courseId, activeLocale),
+    queryFn: () => getCourseProgressTimeline(studentId, courseId, activeLocale),
+    enabled: enabled && !!studentId && !!courseId,
   });
 }
 

@@ -733,6 +733,50 @@ export interface LessonLearningState {
   courseAssets: CourseAssetView[];
 }
 
+export type CourseProgressLessonStatus =
+  | 'completed'
+  | 'current'
+  | 'locked'
+  | 'available';
+
+export interface CourseProgressLessonView {
+  id: string;
+  title: string;
+  subjectName: string;
+  sortOrder: number;
+  status: CourseProgressLessonStatus;
+  isCompleted: boolean;
+  isLocked: boolean;
+  lockedReason:
+    | 'course_access_required'
+    | 'previous_lesson_required'
+    | 'lesson_unpublished'
+    | 'none';
+  completedAt: string | null;
+}
+
+export interface CourseProgressModuleView {
+  id: string;
+  title: string;
+  sortOrder: number;
+  totalLessons: number;
+  completedLessons: number;
+  progressPct: number;
+  lessons: CourseProgressLessonView[];
+}
+
+export interface CourseProgressTimelineView {
+  courseId: string;
+  courseTitle: string;
+  subjectName: string;
+  teacherName: string;
+  progressPct: number;
+  totalLessons: number;
+  completedLessons: number;
+  nextLessonId: string | null;
+  modules: CourseProgressModuleView[];
+}
+
 /**
  * MVP 2: Saved lessons / Bookmarks page.
  *

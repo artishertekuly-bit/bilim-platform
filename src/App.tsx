@@ -26,6 +26,7 @@ const AboutPage = lazy(() => import('./pages/AboutPage'));
 const DashboardRouter = lazy(() => import('./pages/DashboardRouter'));
 
 const CourseCatalogPage = lazy(() => import('./pages/CourseCatalogPage'));
+const CourseDetailPage = lazy(() => import('./pages/CourseDetailPage'));
 const LessonsPage = lazy(() => import('./pages/LessonsPage'));
 const LessonDetailPage = lazy(() => import('./pages/LessonDetailPage'));
 const SavedLessonsPage = lazy(() => import('./pages/SavedLessonsPage'));
@@ -106,11 +107,10 @@ function hasPasswordIdentity(session: Session | null) {
   const providers = authUser.app_metadata?.providers;
   const identities = authUser.identities || [];
 
-  const hasEmailProvider =
+  return (
     (Array.isArray(providers) && providers.includes('email')) ||
-    identities.some((identity) => identity.provider === 'email');
-
-  return hasEmailProvider;
+    identities.some((identity) => identity.provider === 'email')
+  );
 }
 
 function needsPasswordSetup(session: Session | null) {
@@ -122,20 +122,12 @@ function needsPasswordSetup(session: Session | null) {
   const providers = authUser.app_metadata?.providers;
   const identities = authUser.identities || [];
 
-  const hasGoogleProvider =
+  return (
     (Array.isArray(providers) && providers.includes('google')) ||
-    identities.some((identity) => identity.provider === 'google');
-
-  return hasGoogleProvider;
+    identities.some((identity) => identity.provider === 'google')
+  );
 }
 
-/**
- * Root route:
- * - https://bilim-frontend.onrender.com
- * - session бар + password керек → /setup-password
- * - session бар + password дайын → /dashboard
- * - session жоқ → landing page
- */
 function RootEntryPage() {
   const { user, session, isLoading } = useAuth();
 
@@ -154,12 +146,6 @@ function RootEntryPage() {
   return <LandingPage />;
 }
 
-/**
- * Login/Register:
- * - already logged in user login/register көрмеуі керек
- * - password керек болса setup бетіне өтеді
- * - password дайын болса dashboard-қа өтеді
- */
 function PublicAuthPage({ children }: { children: ReactNode }) {
   const { user, session, isLoading } = useAuth();
 
@@ -178,11 +164,6 @@ function PublicAuthPage({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-/**
- * Protected pages:
- * Google арқылы кірген, бірақ password қоймаған user dashboard/course/etc.
- * беттеріне кірмей тұрып /setup-password бетіне жіберіледі.
- */
 function PasswordSetupGate({ children }: { children: ReactNode }) {
   const { session, isLoading } = useAuth();
   const location = useLocation();
@@ -249,6 +230,11 @@ const sharedContentRoutes: AppRouteConfig[] = [
   {
     path: '/courses',
     element: <CourseCatalogPage />,
+    allowedRoles: ['student', 'teacher', 'admin'],
+  },
+  {
+    path: '/courses/:courseId',
+    element: <CourseDetailPage />,
     allowedRoles: ['student', 'teacher', 'admin'],
   },
   {

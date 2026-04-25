@@ -44,6 +44,7 @@ function getCourseStatusLabel(status: string) {
     under_review: t('course.status.review'),
     published: t('course.status.published'),
     archived: t('course.status.archived'),
+    unknown: 'Белгісіз',
   };
 
   return map[status] || status;
@@ -53,8 +54,21 @@ function buildCourseEditPath(courseId: string) {
   return `/create-course?courseId=${encodeURIComponent(courseId)}`;
 }
 
+function buildCourseDetailPath(courseId: string) {
+  return `/courses/${encodeURIComponent(courseId)}`;
+}
+
 function normalizeText(value: string | null | undefined) {
   return (value || '').toLowerCase().trim();
+}
+
+function getNormalizedCatalogAccessType(course: CourseView) {
+  const accessType = course.accessType ?? course.access?.accessType ?? 'public_free';
+
+  if (accessType === 'subscription_only') return 'paid';
+  if (accessType === 'school_only') return 'private_invite';
+
+  return accessType;
 }
 
 function formatCoursePrice(course: CourseView) {
@@ -66,15 +80,6 @@ function formatCoursePrice(course: CourseView) {
   if (!price) return 'Ақылы';
 
   return `${price.toLocaleString('kk-KZ')} ${currency}`;
-}
-
-function getNormalizedCatalogAccessType(course: CourseView) {
-  const accessType = course.accessType ?? course.access?.accessType ?? 'public_free';
-
-  if (accessType === 'subscription_only') return 'paid';
-  if (accessType === 'school_only') return 'private_invite';
-
-  return accessType;
 }
 
 function getCourseAccessBadge(course: CourseView) {
@@ -112,16 +117,17 @@ function getStudentActionLabel(course: CourseView) {
 
   switch (access.unlockAction) {
     case 'open_course':
+      return 'Курсты ашу';
     case 'enroll':
       return 'Курсты бастау';
     case 'redeem_invite':
       return 'Invite code енгізу';
     case 'request_paid_access':
       return 'Access сұрау';
-      case 'subscribe':
-  return 'Ақылы access қажет';
-case 'request_school_access':
-  return 'Жабық курс';
+    case 'subscribe':
+      return 'Ақылы access қажет';
+    case 'request_school_access':
+      return 'Жабық курс';
     case 'manage_course':
       return t('common.edit');
     default:
@@ -145,6 +151,13 @@ function getStudentActionDisabled(course: CourseView, pendingCourseId: string | 
     access.unlockAction === 'subscribe' ||
     access.unlockAction === 'request_school_access'
   );
+}
+
+function canOpenCourseDetail(course: CourseView) {
+  if (course.enrolled) return true;
+  if (!course.access) return false;
+
+  return course.access.canAccess || course.access.unlockAction === 'open_course';
 }
 
 export default function CourseCatalogPage() {
@@ -180,8 +193,10 @@ export default function CourseCatalogPage() {
   const invalidateCatalogData = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['courses'] }),
+      queryClient.invalidateQueries({ queryKey: ['course-progress'] }),
       queryClient.invalidateQueries({ queryKey: ['lessons'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
+      queryClient.invalidateQueries({ queryKey: ['lesson-learning-state'] }),
       queryClient.invalidateQueries({ queryKey: ['student-dashboard'] }),
       queryClient.invalidateQueries({ queryKey: ['analytics'] }),
       queryClient.invalidateQueries({ queryKey: ['parent-dashboard'] }),
@@ -197,12 +212,16 @@ export default function CourseCatalogPage() {
       }
 
       setPendingCourseId(courseId);
-      return enrollInCourse(user.id, courseId);
+      await enrollInCourse(user.id, courseId);
+
+      return courseId;
     },
-    onSuccess: async () => {
+    onSuccess: async (courseId) => {
       await invalidateCatalogData();
 
       toast({ title: t('page.course_catalog.toast.enroll_success') });
+
+      navigate(buildCourseDetailPath(courseId));
     },
     onError: (mutationError) =>
       toast({
@@ -289,12 +308,17 @@ export default function CourseCatalogPage() {
     const access = course.access;
 
     if (course.enrolled) {
-      navigate('/lessons');
+      navigate(buildCourseDetailPath(course.id));
       return;
     }
 
-    if (!access || access.unlockAction === 'enroll' || access.unlockAction === 'open_course') {
+    if (!access || access.unlockAction === 'enroll') {
       enrollMutation.mutate(course.id);
+      return;
+    }
+
+    if (access.unlockAction === 'open_course') {
+      navigate(buildCourseDetailPath(course.id));
       return;
     }
 
@@ -336,13 +360,13 @@ export default function CourseCatalogPage() {
     }
 
     toast({
-  title: 'Курс қолжетімсіз',
-  description:
-    course.access?.accessState === 'requires_invite'
-      ? 'Бұл жабық курс. Мұғалім берген invite code қажет.'
-      : getStudentActionLabel(course),
-  variant: 'destructive',
-});
+      title: 'Курс қолжетімсіз',
+      description:
+        course.access?.accessState === 'requires_invite'
+          ? 'Бұл жабық курс. Мұғалім берген invite code қажет.'
+          : getStudentActionLabel(course),
+      variant: 'destructive',
+    });
   };
 
   const handleRedeemInvite = async (course: CourseView) => {
@@ -371,6 +395,8 @@ export default function CourseCatalogPage() {
         title: 'Invite қабылданды',
         description: 'Курс сізге ашылды.',
       });
+
+      navigate(buildCourseDetailPath(course.id));
     } catch (inviteError) {
       toast({
         title: 'Invite code қате',
@@ -388,26 +414,26 @@ export default function CourseCatalogPage() {
   const pageTitle = isTeacherView
     ? t('nav.my_courses')
     : isAdminView
-    ? t('nav.manage_courses')
-    : t('course.catalog');
+      ? t('nav.manage_courses')
+      : t('course.catalog');
 
   const pageDescription = isTeacherView
     ? t('page.course_catalog.description.teacher')
     : isAdminView
-    ? t('page.course_catalog.description.admin')
-    : t('page.course_catalog.description.student');
+      ? t('page.course_catalog.description.admin')
+      : t('page.course_catalog.description.student');
 
   const emptyTitle = isTeacherView
     ? t('page.course_catalog.empty.teacher_title')
     : isAdminView
-    ? t('page.course_catalog.empty.admin_title')
-    : t('page.course_catalog.empty.student_title');
+      ? t('page.course_catalog.empty.admin_title')
+      : t('page.course_catalog.empty.student_title');
 
   const emptyText = isTeacherView
     ? t('page.course_catalog.empty.teacher_text')
     : isAdminView
-    ? t('page.course_catalog.empty.admin_text')
-    : t('page.course_catalog.empty.student_text');
+      ? t('page.course_catalog.empty.admin_text')
+      : t('page.course_catalog.empty.student_text');
 
   return (
     <DashboardLayout>
@@ -568,8 +594,8 @@ export default function CourseCatalogPage() {
                   className="group overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg"
                 >
                   <div className="relative">
-                    {isStudentView && course.enrolled ? (
-                      <Link to="/lessons" className="block">
+                    {isStudentView && canOpenCourseDetail(course) ? (
+                      <Link to={buildCourseDetailPath(course.id)} className="block">
                         {cardBody}
                       </Link>
                     ) : isTeacherView ? (
@@ -615,7 +641,7 @@ export default function CourseCatalogPage() {
                         <div className="space-y-2">
                           <ProgressBar value={course.progress} size="sm" />
                           <button
-                            onClick={() => navigate('/lessons')}
+                            onClick={() => navigate(buildCourseDetailPath(course.id))}
                             className="flex w-full items-center justify-center gap-1 rounded-md bg-primary py-2 text-xs text-primary-foreground transition-opacity hover:opacity-90"
                           >
                             {t('course.continue')} <ArrowRight size={12} />

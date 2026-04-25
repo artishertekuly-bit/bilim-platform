@@ -9,6 +9,7 @@ import type {
   CourseAccessType,
   CourseAccessView,
   CourseUnlockAction,
+  CourseProgressTimelineView,
   CourseView,
   CourseVisibility,
   CurrencyCode,
@@ -97,6 +98,23 @@ function groupLessonsByModuleId(rows: Tables<'lessons'>[]) {
 
   return map;
 }
+
+function getLessonCompletedAt(
+  progressRow: Tables<'lesson_progress'> | null | undefined
+) {
+  if (!progressRow) return null;
+
+  const maybeCompletedAt = (progressRow as { completed_at?: string | null })
+    .completed_at;
+
+  return maybeCompletedAt || null;
+}
+
+function calculateProgressPct(completed: number, total: number) {
+  if (total <= 0) return 0;
+  return Math.round((completed / total) * 100);
+}
+
 
 /* ================= COURSE ACCESS HELPERS ================= */
 
@@ -944,6 +962,205 @@ export async function unbookmarkCourse(studentId: string, courseId: string) {
 
   if (error) throw new Error(error.message);
 }
+
+/* ================= COURSE PROGRESS TIMELINE ================= */
+
+export async function getCourseProgressTimeline(
+  studentId: string,
+  courseId: string,
+  locale: Locale = 'kk'
+): Promise<CourseProgressTimelineView> {
+  if (!studentId) {
+    throw new Error(
+      localizedText(
+        locale,
+        'Оқушы идентификаторы берілмеген.',
+        'Не передан идентификатор ученика.'
+      )
+    );
+  }
+
+  if (!courseId) {
+    throw new Error(
+      localizedText(
+        locale,
+        'Курс идентификаторы берілмеген.',
+        'Не передан идентификатор курса.'
+      )
+    );
+  }
+
+  const [subjects, course, modules, lessons, progressRows, enrollments] =
+    await Promise.all([
+      getSubjects(),
+      queryOrThrow(
+        supabase
+          .from('courses')
+          .select('*')
+          .eq('id', courseId)
+          .single()
+      ) as Promise<CourseRowWithAccess>,
+      queryOrThrow(
+        supabase
+          .from('modules')
+          .select('*')
+          .eq('course_id', courseId)
+          .order('sort_order', { ascending: true })
+      ),
+      queryOrThrow(
+        supabase
+          .from('lessons')
+          .select('*')
+          .eq('is_published', true)
+          .order('sort_order', { ascending: true })
+      ),
+      queryOrThrow(
+        supabase
+          .from('lesson_progress')
+          .select('*')
+          .eq('student_id', studentId)
+      ),
+      queryOrThrow(
+        supabase
+          .from('course_enrollments')
+          .select('*')
+          .eq('student_id', studentId)
+          .eq('course_id', courseId)
+      ),
+    ]);
+
+  const subjectMap = buildSubjectMap(subjects);
+  const profiles = await getProfilesMap([course.teacher_id]);
+
+  const isEnrolled = enrollments.length > 0;
+  const rpcAccess = await canAccessCourseByRpc(courseId, studentId);
+  const hasEntitlement = await userHasCourseEntitlementSafe(studentId, courseId);
+
+  const canAccess =
+    rpcAccess ??
+    (isEnrolled ||
+      getCourseAccessType(course) === 'public_free' ||
+      hasEntitlement);
+
+  const moduleIds = new Set(modules.map((module) => module.id));
+  const courseLessons = (lessons as Tables<'lessons'>[])
+    .filter((lesson) => moduleIds.has(lesson.module_id))
+    .sort((a, b) => a.sort_order - b.sort_order);
+
+  const lessonsByModuleId = groupLessonsByModuleId(courseLessons);
+  const progressMap = new Map(
+    (progressRows as Tables<'lesson_progress'>[]).map((row) => [
+      row.lesson_id,
+      row,
+    ])
+  );
+
+  const completedLessonIds = new Set(
+    (progressRows as Tables<'lesson_progress'>[])
+      .filter((row) => row.is_completed)
+      .map((row) => row.lesson_id)
+  );
+
+  let nextLessonId: string | null = null;
+
+  const timelineModules = modules.map((module) => {
+    const moduleLessons = (lessonsByModuleId.get(module.id) || [])
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    const mappedLessons = moduleLessons.map((lesson, index) => {
+      const progressRow = progressMap.get(lesson.id);
+      const isCompleted = completedLessonIds.has(lesson.id);
+
+      const previousLesson = index > 0 ? moduleLessons[index - 1] : null;
+      const previousLessonLocked = Boolean(
+        previousLesson && !completedLessonIds.has(previousLesson.id)
+      );
+
+      const courseAccessLocked = !canAccess;
+      const lessonUnpublishedLocked = !lesson.is_published;
+
+      const isLocked =
+        courseAccessLocked || previousLessonLocked || lessonUnpublishedLocked;
+
+      const lockedReason = courseAccessLocked
+        ? 'course_access_required'
+        : lessonUnpublishedLocked
+          ? 'lesson_unpublished'
+          : previousLessonLocked
+            ? 'previous_lesson_required'
+            : 'none';
+
+      const status = isCompleted
+        ? 'completed'
+        : isLocked
+          ? 'locked'
+          : !nextLessonId
+            ? 'current'
+            : 'available';
+
+      if (status === 'current') {
+        nextLessonId = lesson.id;
+      }
+
+      return {
+        id: lesson.id,
+        title: lesson.title,
+        subjectName: subjectLabel(
+          lesson.subject_id ? subjectMap[lesson.subject_id] : null,
+          locale
+        ),
+        sortOrder: lesson.sort_order,
+        status,
+        isCompleted,
+        isLocked,
+        lockedReason,
+        completedAt: getLessonCompletedAt(progressRow),
+      };
+    });
+
+    const completedLessons = mappedLessons.filter(
+      (lesson) => lesson.isCompleted
+    ).length;
+
+    return {
+      id: module.id,
+      title: module.title,
+      sortOrder: module.sort_order,
+      totalLessons: mappedLessons.length,
+      completedLessons,
+      progressPct: calculateProgressPct(completedLessons, mappedLessons.length),
+      lessons: mappedLessons,
+    };
+  });
+
+  const totalLessons = timelineModules.reduce(
+    (sum, module) => sum + module.totalLessons,
+    0
+  );
+
+  const completedLessons = timelineModules.reduce(
+    (sum, module) => sum + module.completedLessons,
+    0
+  );
+
+  return {
+    courseId: course.id,
+    courseTitle: course.title,
+    subjectName: subjectLabel(
+      course.subject_id ? subjectMap[course.subject_id] : null,
+      locale
+    ),
+    teacherName:
+      profiles[course.teacher_id]?.full_name || unknownTeacherLabel(locale),
+    progressPct: calculateProgressPct(completedLessons, totalLessons),
+    totalLessons,
+    completedLessons,
+    nextLessonId,
+    modules: timelineModules,
+  };
+}
+
 
 /* ================= LESSONS ================= */
 
