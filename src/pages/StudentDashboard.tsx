@@ -1,7 +1,12 @@
+import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import DashboardLayout from '@/components/DashboardLayout';
 import StatCard from '@/components/StatCard';
 import ProgressBar from '@/components/ProgressBar';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import {
@@ -11,17 +16,25 @@ import {
   useStudentDashboard,
 } from '@/hooks/use-platform-data';
 import {
+  ArrowRight,
   BookOpen,
-  Trophy,
+  CheckCircle,
+  CheckCircle2,
+  ClipboardList,
   Flame,
+  GraduationCap,
+  LayoutDashboard,
+  Lock,
+  MessageCircle,
+  PlayCircle,
+  RotateCcw,
   Star,
   Target,
-  ArrowRight,
-  Lock,
-  CheckCircle,
+  Trophy,
+  Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Link } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
 
 function getStudyStatus(avgScore: number, completedLessons: number) {
   if (avgScore >= 80 && completedLessons >= 5) {
@@ -33,6 +46,14 @@ function getStudyStatus(avgScore: number, completedLessons: number) {
   }
 
   return t('page.student_dashboard.status.attention');
+}
+
+function getScoreTone(score: number | null | undefined) {
+  const normalized = Number(score || 0);
+
+  if (normalized >= 80) return 'success';
+  if (normalized >= 50) return 'warning';
+  return 'danger';
 }
 
 type IncomingParentLinkRequestStatus =
@@ -67,6 +88,142 @@ function formatDateTime(value: string | null | undefined) {
   }).format(date);
 }
 
+function StudentDashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <div className="space-y-2">
+                <SkeletonBlock className="h-3 w-24" />
+                <SkeletonBlock className="h-6 w-14" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-40" />
+
+            <div className="mt-5 rounded-xl border p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <SkeletonBlock className="h-3 w-24" />
+                  <SkeletonBlock className="h-5 w-72 max-w-full" />
+                  <SkeletonBlock className="h-3 w-56 max-w-full" />
+                  <SkeletonBlock className="h-3 w-80 max-w-full" />
+                </div>
+
+                <SkeletonBlock className="h-9 w-28" />
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonBlock key={index} className="h-14 w-full rounded-lg" />
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-32" />
+            <div className="mt-5 space-y-3">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="space-y-2 rounded-lg border p-3">
+                  <div className="flex justify-between gap-3">
+                    <div className="space-y-2">
+                      <SkeletonBlock className="h-4 w-48" />
+                      <SkeletonBlock className="h-3 w-64" />
+                    </div>
+                    <SkeletonBlock className="h-4 w-10" />
+                  </div>
+                  <SkeletonBlock className="h-2 w-full rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="rounded-xl border bg-card p-5">
+              <SkeletonBlock className="h-5 w-36" />
+              <div className="mt-4 space-y-3">
+                <SkeletonBlock className="h-4 w-full" />
+                <SkeletonBlock className="h-4 w-5/6" />
+                <SkeletonBlock className="h-4 w-2/3" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuickActionCard({
+  title,
+  text,
+  to,
+  icon,
+}: {
+  title: string;
+  text: string;
+  to: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Link
+      to={to}
+      className="group rounded-xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+          {icon}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
+        </div>
+
+        <ArrowRight
+          size={15}
+          className="mt-1 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+        />
+      </div>
+    </Link>
+  );
+}
+
+function PanelCard({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+          {action}
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-3">{children}</CardContent>
+    </Card>
+  );
+}
+
 export default function StudentDashboard() {
   const { user } = useAuth();
 
@@ -81,13 +238,17 @@ export default function StudentDashboard() {
   const acceptParentLinkRequestMutation = useAcceptParentLinkRequestMutation(user?.id || '');
   const declineParentLinkRequestMutation = useDeclineParentLinkRequestMutation(user?.id || '');
 
-  const pendingParentRequests =
-    ((incomingParentRequestsData as IncomingParentLinkRequestItem[] | undefined) || [])
-      .filter((request) => request.status === 'pending')
-      .sort(
-        (a, b) =>
-          new Date(b.requestedAt || 0).getTime() - new Date(a.requestedAt || 0).getTime()
-      );
+  const pendingParentRequests = useMemo(
+    () =>
+      ((incomingParentRequestsData as IncomingParentLinkRequestItem[] | undefined) || [])
+        .filter((request) => request.status === 'pending')
+        .sort(
+          (a, b) =>
+            new Date(b.requestedAt || 0).getTime() -
+            new Date(a.requestedAt || 0).getTime()
+        ),
+    [incomingParentRequestsData]
+  );
 
   const firstName = user?.fullName?.trim().split(/\s+/)[0] || 'оқушы';
 
@@ -103,26 +264,64 @@ export default function StudentDashboard() {
     ? getStudyStatus(Number(data.stats.avgScore || 0), Number(data.stats.completedLessons || 0))
     : '';
 
+  const parentRequestPending =
+    acceptParentLinkRequestMutation.isPending ||
+    declineParentLinkRequestMutation.isPending;
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div className="space-y-1">
-          <h2 className="text-xl font-bold">Қош келдіңіз, {firstName}!</h2>
-          <p className="text-sm text-muted-foreground">
-            {t('page.student_dashboard.greeting_subtitle')}
-          </p>
-        </div>
+        <PageHeader
+          eyebrow={
+            <>
+              <LayoutDashboard size={13} />
+              Оқушы dashboard
+            </>
+          }
+          icon={<GraduationCap size={20} />}
+          title={`Қош келдіңіз, ${firstName}!`}
+          description={t('page.student_dashboard.greeting_subtitle')}
+          actions={
+            <Button type="button" asChild>
+              <Link to={nextLesson && !nextLesson.isLocked ? `/lessons/${nextLesson.id}` : '/courses'}>
+                Оқуды жалғастыру
+                <ArrowRight size={15} className="ml-2" />
+              </Link>
+            </Button>
+          }
+        />
 
-        {isLoading ? <LoadingState text="Оқу деректері жүктеліп жатыр..." /> : null}
+        {isLoading ? <StudentDashboardSkeleton /> : null}
 
-        {error ? (
-          <ErrorState text="Оқушы панеліндегі мәліметтерді жүктеу мүмкін болмады." />
+        {!isLoading && error ? (
+          <ErrorState
+            text="Оқушы панеліндегі мәліметтерді жүктеу мүмкін болмады."
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                <RotateCcw size={15} className="mr-2" />
+                Қайта жүктеу
+              </Button>
+            }
+          />
         ) : null}
 
         {!isLoading && !error && !data ? (
           <EmptyState
+            icon={<BookOpen size={18} />}
             title="Оқу деректері әзірге қолжетімді емес"
             text="Мәліметтер жаңартылғаннан кейін бұл бөлімде сіздің оқу барысыңыз көрсетіледі."
+            action={
+              <Button type="button" asChild>
+                <Link to="/courses">
+                  Курстарды қарау
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            }
           />
         ) : null}
 
@@ -152,322 +351,350 @@ export default function StudentDashboard() {
               />
             </div>
 
+            <div className="grid gap-3 md:grid-cols-3">
+              <QuickActionCard
+                title="Курстар"
+                text="Жаңа курстарды қарап, оқуды жалғастырыңыз."
+                to="/courses"
+                icon={<BookOpen size={18} />}
+              />
+              <QuickActionCard
+                title="Сақталған сабақтар"
+                text="Кейін оқуға белгілеген сабақтарыңыз."
+                to="/saved-lessons"
+                icon={<Star size={18} />}
+              />
+              <QuickActionCard
+                title="AI tutor"
+                text="Түсінбеген тақырып бойынша көмек алыңыз."
+                to="/ai-tutor"
+                icon={<MessageCircle size={18} />}
+              />
+            </div>
+
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="space-y-4 lg:col-span-2">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      {t('dashboard.continue_learning')}
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-3">
-                    {!nextLesson ? (
-                      <EmptyState
-                        title={t('page.student_dashboard.empty.next_lesson_title')}
-                        text={t('page.student_dashboard.empty.next_lesson_text')}
-                      />
-                    ) : (
-                      <>
-                        <div className="rounded-xl border bg-card p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                <PanelCard title={t('dashboard.continue_learning')}>
+                  {!nextLesson ? (
+                    <EmptyState
+                      title={t('page.student_dashboard.empty.next_lesson_title')}
+                      text={t('page.student_dashboard.empty.next_lesson_text')}
+                      action={
+                        <Button type="button" asChild>
+                          <Link to="/courses">
+                            Курстарды қарау
+                            <ArrowRight size={15} className="ml-2" />
+                          </Link>
+                        </Button>
+                      }
+                      compact
+                    />
+                  ) : (
+                    <>
+                      <div className="rounded-xl border bg-primary/5 p-4">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <StatusBadge tone="primary" icon={<PlayCircle size={12} />}>
                                 {t('page.student_dashboard.next_step')}
-                              </p>
-                              <h3 className="mt-1 text-sm font-semibold truncate">
-                                {nextLesson.title}
-                              </h3>
-                              <p className="mt-1 text-xs text-muted-foreground truncate">
-                                {nextLesson.subjectName} · {nextLesson.courseTitle}
-                              </p>
-                              <p className="mt-3 text-xs text-muted-foreground">
-                                {nextLesson.isLocked
-                                  ? t('page.student_dashboard.lesson_locked_hint')
-                                  : t('page.student_dashboard.lesson_continue_hint')}
-                              </p>
+                              </StatusBadge>
+
+                              {nextLesson.isLocked ? (
+                                <StatusBadge tone="muted" icon={<Lock size={12} />}>
+                                  {t('common.locked')}
+                                </StatusBadge>
+                              ) : (
+                                <StatusBadge tone="success" icon={<CheckCircle2 size={12} />}>
+                                  Ашық
+                                </StatusBadge>
+                              )}
                             </div>
 
-                            {nextLesson.isLocked ? (
-                              <div className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-                                <Lock size={12} />
-                                {t('common.locked')}
+                            <h3 className="mt-3 line-clamp-2 text-base font-semibold">
+                              {nextLesson.title}
+                            </h3>
+
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {nextLesson.subjectName} · {nextLesson.courseTitle}
+                            </p>
+
+                            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                              {nextLesson.isLocked
+                                ? t('page.student_dashboard.lesson_locked_hint')
+                                : t('page.student_dashboard.lesson_continue_hint')}
+                            </p>
+                          </div>
+
+                          {nextLesson.isLocked ? (
+                            <Button type="button" variant="outline" disabled>
+                              <Lock size={14} className="mr-2" />
+                              {t('common.locked')}
+                            </Button>
+                          ) : (
+                            <Button type="button" asChild>
+                              <Link to={`/lessons/${nextLesson.id}`}>
+                                {t('course.continue')}
+                                <ArrowRight size={14} className="ml-2" />
+                              </Link>
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {upcomingLessons.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium">
+                            {t('page.student_dashboard.next_lessons')}
+                          </p>
+
+                          {upcomingLessons.map((lesson) =>
+                            lesson.isLocked ? (
+                              <div
+                                key={lesson.id}
+                                className="flex items-center gap-3 rounded-lg border bg-muted/30 p-3 opacity-75"
+                              >
+                                <div className="flex h-9 w-9 items-center justify-center rounded-lg border bg-card">
+                                  <Lock size={14} className="text-muted-foreground" />
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium">{lesson.title}</p>
+                                  <p className="truncate text-[11px] text-muted-foreground">
+                                    {lesson.subjectName} · {lesson.courseTitle}
+                                  </p>
+                                </div>
+
+                                <StatusBadge tone="muted">{t('common.locked')}</StatusBadge>
                               </div>
                             ) : (
                               <Link
-                                to={`/lessons/${nextLesson.id}`}
-                                className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-3 py-2 text-xs text-primary-foreground hover:opacity-90"
+                                key={lesson.id}
+                                to={`/lessons/${lesson.id}`}
+                                className="flex items-center gap-3 rounded-lg border p-3 transition-all hover:-translate-y-0.5 hover:shadow-sm"
                               >
-                                {t('course.continue')}
-                                <ArrowRight size={12} />
-                              </Link>
-                            )}
-                          </div>
-                        </div>
-
-                        {upcomingLessons.length > 0 ? (
-                          <div className="space-y-2">
-                            <p className="text-xs font-medium">
-                              {t('page.student_dashboard.next_lessons')}
-                            </p>
-
-                            {upcomingLessons.map((lesson) =>
-                              lesson.isLocked ? (
-                                <div
-                                  key={lesson.id}
-                                  className="flex items-center gap-3 rounded-lg border border-border p-3 opacity-60"
-                                >
-                                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent">
-                                    <Lock size={13} className="text-muted-foreground" />
-                                  </div>
-
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium">{lesson.title}</p>
-                                    <p className="truncate text-[11px] text-muted-foreground">
-                                      {lesson.subjectName} · {lesson.courseTitle}
-                                    </p>
-                                  </div>
-
-                                  <span className="ml-auto text-[10px] text-muted-foreground">
-                                    {t('common.locked')}
-                                  </span>
+                                <div className="flex h-9 w-9 items-center justify-center rounded-lg border bg-primary text-primary-foreground">
+                                  <ArrowRight size={14} />
                                 </div>
-                              ) : (
-                                <Link
-                                  key={lesson.id}
-                                  to={`/lessons/${lesson.id}`}
-                                  className="flex items-center gap-3 rounded-lg border border-border p-3 transition-shadow hover:shadow-sm"
-                                >
-                                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                                    <ArrowRight size={13} className="text-primary-foreground" />
-                                  </div>
 
-                                  <div className="min-w-0">
-                                    <p className="truncate text-sm font-medium">{lesson.title}</p>
-                                    <p className="truncate text-[11px] text-muted-foreground">
-                                      {lesson.subjectName} · {lesson.courseTitle}
-                                    </p>
-                                  </div>
-                                </Link>
-                              )
-                            )}
-                          </div>
-                        ) : null}
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm font-semibold">
-                        {t('page.student_dashboard.my_courses')}
-                      </CardTitle>
-                      <Link
-                        to="/courses"
-                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        {t('common.view')} <ArrowRight size={12} />
-                      </Link>
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
-                    {data.enrolledCourses.length === 0 ? (
-                      <EmptyState
-                        title={t('page.student_dashboard.empty.courses_title')}
-                        text={t('page.student_dashboard.empty.courses_text')}
-                      />
-                    ) : (
-                      data.enrolledCourses.map((course) => (
-                        <div
-                          key={course.id}
-                          className="rounded-lg border border-border p-3 transition-shadow hover:shadow-sm"
-                        >
-                          <div className="mb-2 flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium">{course.title}</p>
-                              <p className="text-[11px] text-muted-foreground">
-                                {[
-                                  course.subjectName,
-                                  `${course.lessons} ${t('course.lessons_count')}`,
-                                  course.teacherName,
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ')}
-                              </p>
-                            </div>
-                            <span className="text-[11px] text-muted-foreground">
-                              {course.progress}%
-                            </span>
-                          </div>
-
-                          <ProgressBar value={course.progress} size="sm" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium">{lesson.title}</p>
+                                  <p className="truncate text-[11px] text-muted-foreground">
+                                    {lesson.subjectName} · {lesson.courseTitle}
+                                  </p>
+                                </div>
+                              </Link>
+                            )
+                          )}
                         </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
+                      ) : null}
+                    </>
+                  )}
+                </PanelCard>
+
+                <PanelCard
+                  title={t('page.student_dashboard.my_courses')}
+                  action={
+                    <Button type="button" variant="ghost" size="sm" asChild>
+                      <Link to="/courses">
+                        {t('common.view')}
+                        <ArrowRight size={14} className="ml-1.5" />
+                      </Link>
+                    </Button>
+                  }
+                >
+                  {data.enrolledCourses.length === 0 ? (
+                    <EmptyState
+                      title={t('page.student_dashboard.empty.courses_title')}
+                      text={t('page.student_dashboard.empty.courses_text')}
+                      action={
+                        <Button type="button" asChild>
+                          <Link to="/courses">
+                            Курстарды қарау
+                            <ArrowRight size={15} className="ml-2" />
+                          </Link>
+                        </Button>
+                      }
+                      compact
+                    />
+                  ) : (
+                    data.enrolledCourses.map((course) => (
+                      <Link
+                        key={course.id}
+                        to={`/courses/${course.id}`}
+                        className="block rounded-lg border p-3 transition-all hover:-translate-y-0.5 hover:shadow-sm"
+                      >
+                        <div className="mb-2 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="line-clamp-1 text-sm font-medium">{course.title}</p>
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">
+                              {[
+                                course.subjectName,
+                                `${course.lessons} ${t('course.lessons_count')}`,
+                                course.teacherName,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </p>
+                          </div>
+
+                          <StatusBadge tone={getScoreTone(course.progress)}>
+                            {course.progress}%
+                          </StatusBadge>
+                        </div>
+
+                        <ProgressBar value={course.progress} size="sm" />
+                      </Link>
+                    ))
+                  )}
+                </PanelCard>
               </div>
 
               <div className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">Ата-ана сұраныстары</CardTitle>
-                  </CardHeader>
+                <PanelCard title="Ата-ана сұраныстары">
+                  {isIncomingParentRequestsLoading ? (
+                    <LoadingState text="Сұраныстар жүктеліп жатыр..." compact />
+                  ) : null}
 
-                  <CardContent className="space-y-3">
-                    {isIncomingParentRequestsLoading ? (
-                      <LoadingState text="Сұраныстар жүктеліп жатыр..." />
-                    ) : null}
+                  {incomingParentRequestsError ? (
+                    <ErrorState text="Ата-ана сұраныстарын жүктеу мүмкін болмады." compact />
+                  ) : null}
 
-                    {incomingParentRequestsError ? (
-                      <ErrorState text="Ата-ана сұраныстарын жүктеу мүмкін болмады." />
-                    ) : null}
+                  {!isIncomingParentRequestsLoading &&
+                  !incomingParentRequestsError &&
+                  pendingParentRequests.length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
+                      Әзірге ата-ана тарапынан жаңа сұраныстар жоқ.
+                    </div>
+                  ) : null}
 
-                    {!isIncomingParentRequestsLoading &&
-                    !incomingParentRequestsError &&
-                    pendingParentRequests.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-4 text-xs text-muted-foreground">
-                        Әзірге ата-ана тарапынан жаңа сұраныстар жоқ.
-                      </div>
-                    ) : null}
-
-                    {!isIncomingParentRequestsLoading &&
-                    !incomingParentRequestsError &&
-                    pendingParentRequests.length > 0
-                      ? pendingParentRequests.map((request) => (
-                          <div key={request.id} className="rounded-lg border p-3">
-                            <div className="space-y-1">
+                  {!isIncomingParentRequestsLoading &&
+                  !incomingParentRequestsError &&
+                  pendingParentRequests.length > 0
+                    ? pendingParentRequests.map((request) => (
+                        <div key={request.id} className="rounded-lg border p-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-3">
                               <p className="text-sm font-medium">
                                 {request.parentName?.trim() || 'Ата-ана профилі'}
                               </p>
-                              <p className="text-[11px] text-muted-foreground">
-                                Сұраныс жіберілген уақыт: {formatDateTime(request.requestedAt)}
-                              </p>
-                              <p className="text-[11px] text-muted-foreground">
-                                Жарамдылық мерзімі: {formatDateTime(request.expiresAt)}
-                              </p>
+                              <StatusBadge tone="warning" icon={<Users size={12} />}>
+                                Pending
+                              </StatusBadge>
                             </div>
 
-                            <div className="mt-3 flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  acceptParentLinkRequestMutation.mutate({
-                                    requestId: request.id,
-                                  })
-                                }
-                                disabled={
-                                  acceptParentLinkRequestMutation.isPending ||
-                                  declineParentLinkRequestMutation.isPending
-                                }
-                                className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
-                              >
-                                {acceptParentLinkRequestMutation.isPending
-                                  ? 'Қабылданып жатыр...'
-                                  : 'Қабылдау'}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  declineParentLinkRequestMutation.mutate({
-                                    requestId: request.id,
-                                  })
-                                }
-                                disabled={
-                                  acceptParentLinkRequestMutation.isPending ||
-                                  declineParentLinkRequestMutation.isPending
-                                }
-                                className="inline-flex h-9 items-center justify-center rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
-                              >
-                                {declineParentLinkRequestMutation.isPending
-                                  ? 'Бас тартылып жатыр...'
-                                  : 'Бас тарту'}
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      : null}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm font-semibold">
-                        {t('page.student_dashboard.recent_tests')}
-                      </CardTitle>
-                      <Link
-                        to="/tests"
-                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        {t('common.view')} <ArrowRight size={12} />
-                      </Link>
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="space-y-3">
-                    {data.recentAttempts.length === 0 ? (
-                      <EmptyState
-                        title={t('page.student_dashboard.empty.tests_title')}
-                        text={t('page.student_dashboard.empty.tests_text')}
-                      />
-                    ) : (
-                      data.recentAttempts.slice(0, 4).map((test) => (
-                        <div
-                          key={test.id}
-                          className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-medium">{test.title}</p>
-                            <p className="truncate text-[11px] text-muted-foreground">
-                              {test.subjectName}
+                            <p className="text-[11px] text-muted-foreground">
+                              Сұраныс жіберілген уақыт: {formatDateTime(request.requestedAt)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Жарамдылық мерзімі: {formatDateTime(request.expiresAt)}
                             </p>
                           </div>
 
-                          <span
-                            className={`shrink-0 text-sm font-semibold ${
-                              (test.score || 0) >= 80 ? 'text-success' : 'text-warning'
-                            }`}
-                          >
-                            {test.score ?? '—'}
-                            {test.score !== null ? '%' : ''}
-                          </span>
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() =>
+                                acceptParentLinkRequestMutation.mutate({
+                                  requestId: request.id,
+                                })
+                              }
+                              disabled={parentRequestPending}
+                            >
+                              {acceptParentLinkRequestMutation.isPending
+                                ? 'Қабылданып жатыр...'
+                                : 'Қабылдау'}
+                            </Button>
+
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                declineParentLinkRequestMutation.mutate({
+                                  requestId: request.id,
+                                })
+                              }
+                              disabled={parentRequestPending}
+                            >
+                              {declineParentLinkRequestMutation.isPending
+                                ? 'Бас тартылып жатыр...'
+                                : 'Бас тарту'}
+                            </Button>
+                          </div>
                         </div>
                       ))
-                    )}
-                  </CardContent>
-                </Card>
+                    : null}
+                </PanelCard>
 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      {t('page.student_dashboard.progress_overview')}
-                    </CardTitle>
-                  </CardHeader>
+                <PanelCard
+                  title={t('page.student_dashboard.recent_tests')}
+                  action={
+                    <Button type="button" variant="ghost" size="sm" asChild>
+                      <Link to="/tests">
+                        {t('common.view')}
+                        <ArrowRight size={14} className="ml-1.5" />
+                      </Link>
+                    </Button>
+                  }
+                >
+                  {data.recentAttempts.length === 0 ? (
+                    <EmptyState
+                      title={t('page.student_dashboard.empty.tests_title')}
+                      text={t('page.student_dashboard.empty.tests_text')}
+                      action={
+                        <Button type="button" variant="outline" asChild>
+                          <Link to="/tests">
+                            Тесттерге өту
+                            <ArrowRight size={15} className="ml-2" />
+                          </Link>
+                        </Button>
+                      }
+                      compact
+                    />
+                  ) : (
+                    data.recentAttempts.slice(0, 4).map((test) => (
+                      <Link
+                        key={test.id}
+                        to="/tests"
+                        className="flex items-center justify-between gap-3 rounded-lg border p-3 transition-colors hover:bg-accent"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-medium">{test.title}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {test.subjectName}
+                          </p>
+                        </div>
 
-                  <CardContent className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
+                        <StatusBadge tone={getScoreTone(test.score)}>
+                          {test.score ?? '—'}
+                          {test.score !== null ? '%' : ''}
+                        </StatusBadge>
+                      </Link>
+                    ))
+                  )}
+                </PanelCard>
+
+                <PanelCard title={t('page.student_dashboard.progress_overview')}>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
                       <span className="text-xs text-muted-foreground">
                         {t('page.student_dashboard.learning_pace')}
                       </span>
                       <span className="text-xs font-medium">{studyStatus}</span>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
                       <span className="text-xs text-muted-foreground">
                         {t('dashboard.best_subject')}
                       </span>
                       <span className="flex items-center gap-1 text-xs font-medium">
-                        <CheckCircle size={12} className="text-success" />
+                        <CheckCircle size={12} className="text-emerald-600" />
                         {data.stats.bestSubject || t('common.not_defined_yet')}
                       </span>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
                       <span className="text-xs text-muted-foreground">
                         {t('page.student_dashboard.attention_subject')}
                       </span>
@@ -476,14 +703,14 @@ export default function StudentDashboard() {
                       </span>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
                       <span className="text-xs text-muted-foreground">
                         {t('dashboard.total_tests')}
                       </span>
                       <span className="text-xs font-medium">{data.stats.totalTests}</span>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
                       <span className="text-xs text-muted-foreground">
                         {t('page.student_dashboard.completed_lessons')}
                       </span>
@@ -491,38 +718,37 @@ export default function StudentDashboard() {
                         {data.stats.completedLessons} {t('course.lessons_count')}
                       </span>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </PanelCard>
 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm font-semibold">
-                        {t('nav.leaderboard')}
-                      </CardTitle>
-                      <Link
-                        to="/leaderboard"
-                        className="text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        <ArrowRight size={12} />
+                <PanelCard
+                  title={t('nav.leaderboard')}
+                  action={
+                    <Button type="button" variant="ghost" size="sm" asChild>
+                      <Link to="/leaderboard">
+                        <ArrowRight size={14} />
                       </Link>
+                    </Button>
+                  }
+                >
+                  <Link
+                    to="/leaderboard"
+                    className="flex items-center gap-3 rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-accent"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-card text-amber-600">
+                      <Trophy size={18} />
                     </div>
-                  </CardHeader>
 
-                  <CardContent>
-                    <div className="flex items-center gap-3">
-                      <Trophy size={18} className="text-warning" />
-                      <div>
-                        <p className="text-sm font-semibold">
-                          {data.stats.rank ? `#${data.stats.rank}` : '—'}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">
-                          {t('page.student_dashboard.rank_label')}
-                        </p>
-                      </div>
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {data.stats.rank ? `#${data.stats.rank}` : '—'}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('page.student_dashboard.rank_label')}
+                      </p>
                     </div>
-                  </CardContent>
-                </Card>
+                  </Link>
+                </PanelCard>
               </div>
             </div>
           </>

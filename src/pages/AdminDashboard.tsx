@@ -1,7 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import DashboardLayout from '@/components/DashboardLayout';
 import StatCard from '@/components/StatCard';
+import ProgressBar from '@/components/ProgressBar';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import {
   useAdminDashboard,
   useManualApproveOrderMutation,
@@ -11,6 +16,8 @@ import {
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import {
+  ArrowRight,
+  BarChart3,
   BookOpen,
   CheckCircle2,
   ClipboardList,
@@ -18,6 +25,9 @@ import {
   Eye,
   FileText,
   KeyRound,
+  LayoutDashboard,
+  Plus,
+  RotateCcw,
   ShieldCheck,
   Users,
 } from 'lucide-react';
@@ -88,6 +98,12 @@ function getReviewStatusLabel(value: string) {
   return map[value] || value;
 }
 
+function getReviewStatusTone(value: string) {
+  if (value === 'published') return 'success';
+  if (value === 'under_review') return 'warning';
+  return 'muted';
+}
+
 function StatRow({
   label,
   value,
@@ -98,9 +114,148 @@ function StatRow({
   valueClassName?: string;
 }) {
   return (
-    <div className="flex justify-between text-xs">
-      <span className="text-muted-foreground">{label}</span>
-      <span className={valueClassName}>{value}</span>
+    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={`text-xs ${valueClassName}`}>{value}</span>
+    </div>
+  );
+}
+
+function PanelCard({
+  title,
+  icon,
+  action,
+  children,
+}: {
+  title: string;
+  icon?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+            {icon}
+            {title}
+          </CardTitle>
+          {action}
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-3">{children}</CardContent>
+    </Card>
+  );
+}
+
+function QuickActionCard({
+  title,
+  text,
+  to,
+  icon,
+}: {
+  title: string;
+  text: string;
+  to: string;
+  icon: ReactNode;
+}) {
+  return (
+    <Link
+      to={to}
+      className="group rounded-xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+          {icon}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
+        </div>
+
+        <ArrowRight
+          size={15}
+          className="mt-1 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+        />
+      </div>
+    </Link>
+  );
+}
+
+function AdminDashboardSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <div className="space-y-2">
+                <SkeletonBlock className="h-3 w-24" />
+                <SkeletonBlock className="h-6 w-14" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-4">
+            <div className="flex items-start gap-3">
+              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <div className="flex-1 space-y-2">
+                <SkeletonBlock className="h-4 w-28" />
+                <SkeletonBlock className="h-3 w-full" />
+                <SkeletonBlock className="h-3 w-4/5" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          {Array.from({ length: 3 }).map((_, cardIndex) => (
+            <div key={cardIndex} className="rounded-xl border bg-card p-5">
+              <SkeletonBlock className="h-5 w-44" />
+
+              <div className="mt-5 space-y-3">
+                {Array.from({ length: 3 }).map((_, rowIndex) => (
+                  <div key={rowIndex} className="rounded-lg border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-2">
+                        <SkeletonBlock className="h-4 w-44" />
+                        <SkeletonBlock className="h-3 w-72 max-w-full" />
+                        <SkeletonBlock className="h-3 w-48 max-w-full" />
+                      </div>
+
+                      <SkeletonBlock className="h-9 w-24" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <div key={index} className="rounded-xl border bg-card p-5">
+              <SkeletonBlock className="h-5 w-36" />
+
+              <div className="mt-4 space-y-3">
+                <SkeletonBlock className="h-10 w-full rounded-lg" />
+                <SkeletonBlock className="h-10 w-full rounded-lg" />
+                <SkeletonBlock className="h-10 w-full rounded-lg" />
+                <SkeletonBlock className="h-10 w-full rounded-lg" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -219,26 +374,69 @@ export default function AdminDashboard() {
     }
   };
 
+  const pendingOrdersCount = sortedPendingOrders.length;
+  const pendingReviewsCount = pendingReviews.length;
+  const publishedCount = data?.contentStatus.published || 0;
+  const underReviewCount = data?.contentStatus.underReview || 0;
+  const draftCount = data?.contentStatus.draft || 0;
+  const archivedCount = data?.contentStatus.archived || 0;
+  const totalContentStatus =
+    publishedCount + underReviewCount + draftCount + archivedCount;
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h2 className="text-xl font-bold">
-            {t('dashboard.welcome', { name: firstName })}!
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {t('page.admin_dashboard.subtitle')}
-          </p>
-        </div>
+        <PageHeader
+          eyebrow={
+            <>
+              <LayoutDashboard size={13} />
+              Admin dashboard
+            </>
+          }
+          icon={<ShieldCheck size={20} />}
+          title={`${t('dashboard.welcome', { name: firstName })}!`}
+          description={t('page.admin_dashboard.subtitle')}
+          actions={
+            <Button type="button" asChild>
+              <Link to="/manage-users">
+                Қолданушылар
+                <ArrowRight size={15} className="ml-2" />
+              </Link>
+            </Button>
+          }
+        />
 
-        {isLoading ? <LoadingState text={t('page.admin_dashboard.loading')} /> : null}
+        {isLoading ? <AdminDashboardSkeleton /> : null}
 
-        {error ? <ErrorState text={t('page.admin_dashboard.error')} /> : null}
+        {!isLoading && error ? (
+          <ErrorState
+            text={t('page.admin_dashboard.error')}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                <RotateCcw size={15} className="mr-2" />
+                Қайта жүктеу
+              </Button>
+            }
+          />
+        ) : null}
 
         {!isLoading && !error && !data ? (
           <EmptyState
+            icon={<ShieldCheck size={18} />}
             title={t('page.admin_dashboard.empty.title')}
             text={t('page.admin_dashboard.empty.text')}
+            action={
+              <Button type="button" asChild>
+                <Link to="/manage-users">
+                  Қолданушыларға өту
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            }
           />
         ) : null}
 
@@ -267,284 +465,325 @@ export default function AdminDashboard() {
               />
             </div>
 
+            <div className="grid gap-3 md:grid-cols-4">
+              <QuickActionCard
+                title="Курстар"
+                text="Курстарды қарау, тексеру және басқару."
+                to="/manage-courses"
+                icon={<BookOpen size={18} />}
+              />
+
+              <QuickActionCard
+                title="Сабақтар"
+                text="Сабақ контентін басқару және модерациялау."
+                to="/manage-lessons"
+                icon={<FileText size={18} />}
+              />
+
+              <QuickActionCard
+                title="Тесттер"
+                text="Тесттерді қарап, жалпы контент сапасын бақылау."
+                to="/manage-tests"
+                icon={<ClipboardList size={18} />}
+              />
+
+              <QuickActionCard
+                title="Модерация"
+                text={`${pendingReviewsCount} review элементі бақылауда.`}
+                to="/moderation"
+                icon={<Eye size={18} />}
+              />
+            </div>
+
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="space-y-4 lg:col-span-2">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                      <CreditCard size={14} />
-                      Ақылы курс сұраныстары
-                    </CardTitle>
-                  </CardHeader>
+                <PanelCard
+                  title="Ақылы курс сұраныстары"
+                  icon={<CreditCard size={14} />}
+                  action={
+                    pendingOrdersCount > 0 ? (
+                      <StatusBadge tone="warning">
+                        {pendingOrdersCount} pending
+                      </StatusBadge>
+                    ) : (
+                      <StatusBadge tone="success">Таза</StatusBadge>
+                    )
+                  }
+                >
+                  {pendingOrdersLoading ? (
+                    <LoadingState text="Pending order-лар жүктелуде..." compact />
+                  ) : null}
 
-                  <CardContent className="space-y-3">
-                    {pendingOrdersLoading ? (
-                      <LoadingState text="Pending order-лар жүктелуде..." />
-                    ) : null}
+                  {pendingOrdersError ? (
+                    <ErrorState text="Pending order-ларды жүктеу мүмкін болмады." compact />
+                  ) : null}
 
-                    {pendingOrdersError ? (
-                      <ErrorState text="Pending order-ларды жүктеу мүмкін болмады." />
-                    ) : null}
+                  {!pendingOrdersLoading &&
+                  !pendingOrdersError &&
+                  sortedPendingOrders.length === 0 ? (
+                    <EmptyState
+                      title="Pending order жоқ"
+                      text="Оқушылардан ақылы курсқа access сұранысы түскен жоқ."
+                      compact
+                    />
+                  ) : null}
 
-                    {!pendingOrdersLoading &&
-                    !pendingOrdersError &&
-                    sortedPendingOrders.length === 0 ? (
-                      <EmptyState
-                        title="Pending order жоқ"
-                        text="Оқушылардан ақылы курсқа access сұранысы түскен жоқ."
-                      />
-                    ) : null}
+                  {!pendingOrdersLoading &&
+                  !pendingOrdersError &&
+                  sortedPendingOrders.length > 0 ? (
+                    <div className="space-y-3">
+                      {sortedPendingOrders.map((order) => (
+                        <div
+                          key={order.id}
+                          className="rounded-xl border bg-card p-4 transition-colors hover:bg-accent/20"
+                        >
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="min-w-0 space-y-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <StatusBadge tone="warning">
+                                  {order.status}
+                                </StatusBadge>
 
-                    {!pendingOrdersLoading &&
-                    !pendingOrdersError &&
-                    sortedPendingOrders.length > 0 ? (
-                      <div className="space-y-3">
-                        {sortedPendingOrders.map((order) => (
-                          <div
-                            key={order.id}
-                            className="rounded-xl border border-border p-4"
-                          >
-                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700">
-                                    {order.status}
-                                  </span>
-                                  <span className="rounded-full border px-2 py-1 text-[10px] text-muted-foreground">
-                                    {order.product_type}
-                                  </span>
-                                </div>
-
-                                <p className="text-sm font-semibold">
-                                  {formatMoney(order.amount, order.currency)}
-                                </p>
-
-                                <p className="text-[11px] text-muted-foreground">
-                                  Order: #{truncateId(order.id)}
-                                </p>
-
-                                <p className="text-[11px] text-muted-foreground">
-                                  Buyer: #{truncateId(order.buyer_id)}
-                                </p>
-
-                                <p className="text-[11px] text-muted-foreground">
-                                  Course/Product: #{truncateId(order.product_id)}
-                                </p>
-
-                                <p className="text-[11px] text-muted-foreground">
-                                  Жіберілген уақыты: {formatDateTime(order.created_at)}
-                                </p>
+                                <StatusBadge tone="muted">
+                                  {order.product_type}
+                                </StatusBadge>
                               </div>
 
-                              <Button
-                                size="sm"
-                                onClick={() => approveOrder(order.id)}
-                                disabled={approveOrderMutation.isPending}
-                              >
-                                <CheckCircle2 size={14} className="mr-1.5" />
-                                Approve
-                              </Button>
+                              <p className="text-base font-semibold">
+                                {formatMoney(order.amount, order.currency)}
+                              </p>
+
+                              <div className="grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-2">
+                                <p>Order: #{truncateId(order.id)}</p>
+                                <p>Buyer: #{truncateId(order.buyer_id)}</p>
+                                <p>Course/Product: #{truncateId(order.product_id)}</p>
+                                <p>Жіберілген уақыты: {formatDateTime(order.created_at)}</p>
+                              </div>
                             </div>
+
+                            <Button
+                              size="sm"
+                              onClick={() => approveOrder(order.id)}
+                              disabled={approveOrderMutation.isPending}
+                            >
+                              <CheckCircle2 size={14} className="mr-1.5" />
+                              {approveOrderMutation.isPending ? 'Расталуда...' : 'Approve'}
+                            </Button>
                           </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                      <ShieldCheck size={14} />
-                      Manual course access
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
-                    <p className="text-xs text-muted-foreground">
-                      Бұл бөлім payment қоспай тұрып, admin арқылы оқушыға ақылы
-                      немесе жабық курсқа қолмен access беру үшін керек.
-                    </p>
-
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label>User ID</Label>
-                        <Input
-                          value={manualGrantForm.userId}
-                          onChange={(e) =>
-                            setManualGrantForm((prev) => ({
-                              ...prev,
-                              userId: e.target.value,
-                            }))
-                          }
-                          placeholder="student user_id"
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>Course ID</Label>
-                        <Input
-                          value={manualGrantForm.courseId}
-                          onChange={(e) =>
-                            setManualGrantForm((prev) => ({
-                              ...prev,
-                              courseId: e.target.value,
-                            }))
-                          }
-                          placeholder="course id"
-                        />
-                      </div>
+                        </div>
+                      ))}
                     </div>
+                  ) : null}
+                </PanelCard>
 
+                <PanelCard
+                  title="Manual course access"
+                  icon={<ShieldCheck size={14} />}
+                >
+                  <div className="rounded-lg border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                    Payment толық қосылмай тұрып, admin оқушыға ақылы немесе жабық
+                    курсқа access бере алады. Бұл MVP кезеңіндегі қолмен басқару құралы.
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label>Себебі</Label>
+                      <Label>User ID</Label>
                       <Input
-                        value={manualGrantForm.reason}
+                        value={manualGrantForm.userId}
                         onChange={(e) =>
                           setManualGrantForm((prev) => ({
                             ...prev,
-                            reason: e.target.value,
+                            userId: e.target.value,
                           }))
                         }
-                        placeholder="Мысалы: қолма-қол төледі / тест үшін ашылды"
+                        placeholder="student user_id"
                       />
                     </div>
 
+                    <div className="space-y-1.5">
+                      <Label>Course ID</Label>
+                      <Input
+                        value={manualGrantForm.courseId}
+                        onChange={(e) =>
+                          setManualGrantForm((prev) => ({
+                            ...prev,
+                            courseId: e.target.value,
+                          }))
+                        }
+                        placeholder="course id"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Себебі</Label>
+                    <Input
+                      value={manualGrantForm.reason}
+                      onChange={(e) =>
+                        setManualGrantForm((prev) => ({
+                          ...prev,
+                          reason: e.target.value,
+                        }))
+                      }
+                      placeholder="Мысалы: қолма-қол төледі / тест үшін ашылды"
+                    />
+                  </div>
+
+                  <div className="flex justify-end">
                     <Button
                       onClick={grantManualAccess}
                       disabled={manualGrantMutation.isPending}
                     >
                       <KeyRound size={14} className="mr-1.5" />
-                      Access беру
+                      {manualGrantMutation.isPending ? 'Беріліп жатыр...' : 'Access беру'}
                     </Button>
-                  </CardContent>
-                </Card>
+                  </div>
+                </PanelCard>
 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-                      <Eye size={14} />
-                      {t('nav.moderation')}
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-3">
-                    {pendingReviews.length === 0 ? (
-                      <EmptyState
-                        title={t('page.admin_dashboard.moderation_empty.title')}
-                        text={t('page.admin_dashboard.moderation_empty.text')}
-                      />
-                    ) : (
-                      pendingReviews.map((review) => (
-                        <div
-                          key={review.id}
-                          className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
-                        >
-                          <div className="min-w-0 flex-1">
+                <PanelCard
+                  title={t('nav.moderation')}
+                  icon={<Eye size={14} />}
+                  action={
+                    <Button type="button" variant="ghost" size="sm" asChild>
+                      <Link to="/moderation">
+                        {t('common.view')}
+                        <ArrowRight size={14} className="ml-1.5" />
+                      </Link>
+                    </Button>
+                  }
+                >
+                  {pendingReviews.length === 0 ? (
+                    <EmptyState
+                      title={t('page.admin_dashboard.moderation_empty.title')}
+                      text={t('page.admin_dashboard.moderation_empty.text')}
+                      compact
+                    />
+                  ) : (
+                    pendingReviews.map((review) => (
+                      <div
+                        key={review.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border p-3 transition-colors hover:bg-accent"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-medium">
                               {getContentTypeLabel(review.content_type)}
                             </p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {t('page.admin_dashboard.review_label')} #{review.content_id} ·{' '}
-                              {formatReviewDate(review.reviewed_at)}
-                            </p>
+
+                            <StatusBadge tone={getReviewStatusTone(review.status)}>
+                              {getReviewStatusLabel(review.status)}
+                            </StatusBadge>
                           </div>
 
-                          <span className="text-[11px] text-warning">
-                            {getReviewStatusLabel(review.status)}
-                          </span>
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            {t('page.admin_dashboard.review_label')} #{review.content_id} ·{' '}
+                            {formatReviewDate(review.reviewed_at)}
+                          </p>
                         </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      {t('page.admin_dashboard.subject_stats_title')}
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent>
-                    {subjectStats.length === 0 ? (
-                      <EmptyState
-                        title={t('page.admin_dashboard.subject_stats_empty.title')}
-                        text={t('page.admin_dashboard.subject_stats_empty.text')}
-                      />
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="border-b border-border">
-                              <th className="py-2 text-left font-medium text-muted-foreground">
-                                {t('page.admin_dashboard.table.subject')}
-                              </th>
-                              <th className="py-2 text-center font-medium text-muted-foreground">
-                                {t('dashboard.total_courses')}
-                              </th>
-                              <th className="py-2 text-center font-medium text-muted-foreground">
-                                {t('dashboard.total_lessons')}
-                              </th>
-                              <th className="py-2 text-center font-medium text-muted-foreground">
-                                {t('page.admin_dashboard.table.avg_score')}
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {subjectStats.map((s) => (
-                              <tr key={s.name} className="border-b border-border last:border-0">
-                                <td className="py-2.5 font-medium">{s.name}</td>
-                                <td className="py-2.5 text-center">{s.courses}</td>
-                                <td className="py-2.5 text-center">{s.lessons}</td>
-                                <td className="py-2.5 text-center">{s.avgScore}%</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                        <ArrowRight size={14} className="text-muted-foreground" />
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
+                    ))
+                  )}
+                </PanelCard>
+
+                <PanelCard
+                  title={t('page.admin_dashboard.subject_stats_title')}
+                  icon={<BarChart3 size={14} />}
+                >
+                  {subjectStats.length === 0 ? (
+                    <EmptyState
+                      title={t('page.admin_dashboard.subject_stats_empty.title')}
+                      text={t('page.admin_dashboard.subject_stats_empty.text')}
+                      compact
+                    />
+                  ) : (
+                    <div className="space-y-3">
+                      {subjectStats.map((subject) => (
+                        <div key={subject.name} className="rounded-lg border bg-muted/20 p-3">
+                          <div className="mb-2 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="line-clamp-1 text-sm font-medium">
+                                {subject.name}
+                              </p>
+                              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                {subject.courses} {t('dashboard.total_courses')} ·{' '}
+                                {subject.lessons} {t('dashboard.total_lessons')}
+                              </p>
+                            </div>
+
+                            <StatusBadge tone={subject.avgScore >= 70 ? 'success' : 'warning'}>
+                              {subject.avgScore}%
+                            </StatusBadge>
+                          </div>
+
+                          <ProgressBar value={subject.avgScore} size="sm" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </PanelCard>
               </div>
 
               <div className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      {t('page.admin_dashboard.content_status_title')}
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-2.5">
+                <PanelCard title={t('page.admin_dashboard.content_status_title')}>
+                  <div className="space-y-3">
                     <StatRow
                       label={t('course.status.published')}
-                      value={data.contentStatus.published}
+                      value={publishedCount}
+                      valueClassName="font-medium text-emerald-700"
                     />
                     <StatRow
                       label={t('page.admin_dashboard.review_status.under_review')}
-                      value={data.contentStatus.underReview}
-                      valueClassName="font-medium text-warning"
+                      value={underReviewCount}
+                      valueClassName="font-medium text-amber-700"
                     />
                     <StatRow
                       label={t('course.status.draft')}
-                      value={data.contentStatus.draft}
+                      value={draftCount}
                     />
                     <StatRow
                       label={t('course.status.archived')}
-                      value={data.contentStatus.archived}
+                      value={archivedCount}
                     />
-                  </CardContent>
-                </Card>
 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      {t('nav.users')}
-                    </CardTitle>
-                  </CardHeader>
+                    <div className="rounded-lg border bg-muted/20 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <span className="text-xs text-muted-foreground">
+                          Published ratio
+                        </span>
+                        <span className="text-xs font-medium">
+                          {totalContentStatus > 0
+                            ? Math.round((publishedCount / totalContentStatus) * 100)
+                            : 0}
+                          %
+                        </span>
+                      </div>
 
-                  <CardContent className="space-y-2.5">
+                      <ProgressBar
+                        value={
+                          totalContentStatus > 0
+                            ? Math.round((publishedCount / totalContentStatus) * 100)
+                            : 0
+                        }
+                        size="sm"
+                      />
+                    </div>
+                  </div>
+                </PanelCard>
+
+                <PanelCard
+                  title={t('nav.users')}
+                  action={
+                    <Button type="button" variant="ghost" size="sm" asChild>
+                      <Link to="/manage-users">
+                        {t('common.view')}
+                        <ArrowRight size={14} className="ml-1.5" />
+                      </Link>
+                    </Button>
+                  }
+                >
+                  <div className="space-y-3">
                     <StatRow
                       label={t('role.student')}
                       value={data.roleCounts.students}
@@ -561,8 +800,35 @@ export default function AdminDashboard() {
                       label={t('role.admin')}
                       value={data.roleCounts.admins}
                     />
-                  </CardContent>
-                </Card>
+                  </div>
+                </PanelCard>
+
+                <PanelCard title="Admin қысқаша бақылау">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                      <span className="text-xs text-muted-foreground">
+                        Pending order
+                      </span>
+                      <StatusBadge tone={pendingOrdersCount > 0 ? 'warning' : 'success'}>
+                        {pendingOrdersCount}
+                      </StatusBadge>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                      <span className="text-xs text-muted-foreground">
+                        Review queue
+                      </span>
+                      <StatusBadge tone={pendingReviewsCount > 0 ? 'warning' : 'success'}>
+                        {pendingReviewsCount}
+                      </StatusBadge>
+                    </div>
+
+                    <div className="rounded-lg border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                      Бұл dashboard MVP admin бақылауын көрсетеді: user саны,
+                      контент статусы, ақылы course access және moderation queue.
+                    </div>
+                  </div>
+                </PanelCard>
               </div>
             </div>
           </>
