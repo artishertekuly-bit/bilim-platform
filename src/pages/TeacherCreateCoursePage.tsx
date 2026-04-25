@@ -336,6 +336,55 @@ function getCourseStatusTone(status: CourseStatus) {
   return 'warning';
 }
 
+function CourseAccessTypeCards({
+  value,
+  onChange,
+}: {
+  value: CourseAccessType;
+  onChange: (nextAccessType: CourseAccessType) => void;
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      {courseAccessTypes.map((type) => {
+        const active = value === type;
+
+        return (
+          <button
+            key={type}
+            type="button"
+            onClick={() => onChange(type)}
+            className={`rounded-xl border p-4 text-left transition-all ${
+              active
+                ? 'border-primary bg-primary/5 shadow-sm'
+                : 'border-border hover:bg-accent'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">{getAccessTypeLabel(type)}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {getAccessTypeHint(type)}
+                </p>
+              </div>
+
+              <span
+                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                  active ? 'border-primary bg-primary' : 'border-muted-foreground/40'
+                }`}
+              >
+                {active ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
+                ) : null}
+              </span>
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
 export default function TeacherCreateCoursePage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -1472,40 +1521,27 @@ export default function TeacherCreateCoursePage() {
                     Access параметрлері
                   </p>
 
-                  <div className="space-y-1.5">
-                    <Label>Курс түрі</Label>
-                    <select
-                      value={newCourse.accessType}
-                      onChange={(e) =>
-                        setNewCourse((p) => {
-                          const nextAccessType = e.target.value as CourseAccessType;
+                  <div className="space-y-2">
+  <Label>Курс түрі</Label>
 
-                          return {
-                            ...p,
-                            accessType: nextAccessType,
-                            visibility: resolveVisibilityFromAccessType(nextAccessType),
-                            price:
-                              nextAccessType === 'paid'
-                                ? Number(p.price || 0) > 0
-                                  ? p.price
-                                  : '5000'
-                                : '0',
-                            currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
-                          };
-                        })
-                      }
-                      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    >
-                      {courseAccessTypes.map((type) => (
-                        <option key={type} value={type}>
-                          {getAccessTypeLabel(type)}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-[11px] text-muted-foreground">
-                      {getAccessTypeHint(newCourse.accessType)}
-                    </p>
-                  </div>
+  <CourseAccessTypeCards
+    value={newCourse.accessType}
+    onChange={(nextAccessType) =>
+      setNewCourse((p) => ({
+        ...p,
+        accessType: nextAccessType,
+        visibility: resolveVisibilityFromAccessType(nextAccessType),
+        price:
+          nextAccessType === 'paid'
+            ? Number(p.price || 0) > 0
+              ? p.price
+              : '5000'
+            : '0',
+        currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
+      }))
+    }
+  />
+</div>
 
                   {shouldShowCoursePricing(newCourse.accessType) ? (
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -1759,40 +1795,27 @@ export default function TeacherCreateCoursePage() {
                         </p>
                       </div>
 
-                      <div className="space-y-1.5">
-                        <Label>Курс түрі</Label>
-                        <select
-                          value={courseEdit.accessType}
-                          onChange={(e) =>
-                            setCourseEdit((p) => {
-                              const nextAccessType = e.target.value as CourseAccessType;
+                      <div className="space-y-2">
+  <Label>Курс түрі</Label>
 
-                              return {
-                                ...p,
-                                accessType: nextAccessType,
-                                visibility: resolveVisibilityFromAccessType(nextAccessType),
-                                price:
-                                  nextAccessType === 'paid'
-                                    ? Number(p.price || 0) > 0
-                                      ? p.price
-                                      : '5000'
-                                    : '0',
-                                currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
-                              };
-                            })
-                          }
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        >
-                          {courseAccessTypes.map((type) => (
-                            <option key={type} value={type}>
-                              {getAccessTypeLabel(type)}
-                            </option>
-                          ))}
-                        </select>
-                        <p className="text-[11px] text-muted-foreground">
-                          {getAccessTypeHint(courseEdit.accessType)}
-                        </p>
-                      </div>
+  <CourseAccessTypeCards
+    value={courseEdit.accessType}
+    onChange={(nextAccessType) =>
+      setCourseEdit((p) => ({
+        ...p,
+        accessType: nextAccessType,
+        visibility: resolveVisibilityFromAccessType(nextAccessType),
+        price:
+          nextAccessType === 'paid'
+            ? Number(p.price || 0) > 0
+              ? p.price
+              : '5000'
+            : '0',
+        currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
+      }))
+    }
+  />
+</div>
 
                       {shouldShowCoursePricing(courseEdit.accessType) ? (
                         <div className="grid gap-4 md:grid-cols-2">
