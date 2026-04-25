@@ -72,10 +72,11 @@ import { CourseAnnouncementCard } from '@/components/course-builder/CourseAnnoun
 import { CourseBuilderStepper } from '@/components/course-builder/CourseBuilderStepper';
 import { TeacherCourseBuilderSkeleton } from '@/components/course-builder/TeacherCourseBuilderSkeleton';
 import { LessonMiniQuizEditor } from '@/components/course-builder/LessonMiniQuizEditor';
+import { CourseMaterialsPanel } from '@/components/course-builder/CourseMaterialsPanel';
+import { CourseInviteCodesPanel } from '@/components/course-builder/CourseInviteCodesPanel';
 import {
   announcementPriorities,
   formatAssetTitle,
-  formatDateTime,
   formatPrice,
   getAccessTypeLabel,
   getAnnouncementPriorityLabel,
@@ -104,7 +105,6 @@ import {
   BookOpen,
   CalendarClock,
   CheckCircle2,
-  Copy,
   ExternalLink,
   FileText,
   GraduationCap,
@@ -2336,265 +2336,29 @@ export default function TeacherCreateCoursePage() {
                     </CardContent>
                   </Card>
 
-                  <Card id="materials" className="scroll-mt-24">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">
-                        <span className="inline-flex items-center gap-1.5">
-                          <FileText size={14} />
-                          Курс материалдары
-                        </span>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        Бұл бөлім міндетті емес. Мұғалім курсқа силлабус, бағалау критерийі,
-                        формулалар жинағы немесе кіріспе PDF сияқты қосымша материал сілтемесін қоса алады.
-                      </p>
+                  <CourseMaterialsPanel
+                    courseAssetForm={courseAssetForm}
+                    setCourseAssetForm={setCourseAssetForm}
+                    onCreateCourseAsset={handleCreateCourseAsset}
+                    canCreateCourseAsset={canCreateCourseAsset}
+                    courseAssets={courseAssets || []}
+                    courseAssetsLoading={courseAssetsLoading}
+                    deleteCourseAssetPending={deleteCourseAssetMutation.isPending}
+                    onDeleteCourseAsset={handleDeleteCourseAsset}
+                  />
 
-                      <div className="space-y-3 rounded-lg border p-3">
-                        <div className="space-y-1.5">
-                          <Label>Материал атауы</Label>
-                          <Input
-                            value={courseAssetForm.title}
-                            onChange={(e) =>
-                              setCourseAssetForm((p) => ({ ...p, title: e.target.value }))
-                            }
-                            placeholder="Мысалы: Курс силлабусы"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <Label>Сілтеме</Label>
-                          <Input
-                            value={courseAssetForm.externalUrl}
-                            onChange={(e) =>
-                              setCourseAssetForm((p) => ({ ...p, externalUrl: e.target.value }))
-                            }
-                            placeholder="https://..."
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <Label>Сипаттама</Label>
-                          <Textarea
-                            rows={2}
-                            value={courseAssetForm.description}
-                            onChange={(e) =>
-                              setCourseAssetForm((p) => ({ ...p, description: e.target.value }))
-                            }
-                            placeholder="Қысқаша түсіндірме"
-                          />
-                        </div>
-
-                        <Button
-                          size="sm"
-                          className="w-full"
-                          onClick={handleCreateCourseAsset}
-                          disabled={!canCreateCourseAsset}
-                        >
-                          <LinkIcon size={14} className="mr-1.5" />
-                          Курс материалын қосу
-                        </Button>
-                      </div>
-
-                      {courseAssetsLoading ? (
-                        <p className="text-xs text-muted-foreground">Материалдар жүктелуде...</p>
-                      ) : null}
-
-                      {!courseAssetsLoading && (!courseAssets || courseAssets.length === 0) ? (
-                        <p className="text-xs text-muted-foreground">
-                          Әзірге курс материалы қосылмаған.
-                        </p>
-                      ) : null}
-
-                      <div className="space-y-2">
-                        {(courseAssets || []).map((asset) => (
-                          <div key={asset.id} className="rounded-lg border p-3 text-xs">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium">{asset.title}</p>
-                                {asset.description ? (
-                                  <p className="mt-1 text-muted-foreground">{asset.description}</p>
-                                ) : null}
-                                <p className="mt-1 truncate text-muted-foreground">
-                                  {asset.file.externalUrl || asset.file.filename}
-                                </p>
-                              </div>
-
-                              <div className="flex shrink-0 gap-1">
-                                {asset.file.externalUrl ? (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    asChild
-                                  >
-                                    <a href={asset.file.externalUrl} target="_blank" rel="noreferrer">
-                                      <ExternalLink size={13} />
-                                    </a>
-                                  </Button>
-                                ) : null}
-
-                                <Button
-                                  type="button"
-                                  variant="destructive"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  disabled={deleteCourseAssetMutation.isPending}
-                                  onClick={() => handleDeleteCourseAsset(asset.id)}
-                                >
-                                  <Trash2 size={13} />
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">
-                        <span className="inline-flex items-center gap-1.5">
-                          <KeyRound size={14} />
-                          Invite codes
-                        </span>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        Invite code оқушыға course access береді және автоматты түрде
-                        course enrollment жасайды.
-                      </p>
-
-                      {courseEdit.accessType !== 'private_invite' ? (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                          Бұл бөлім толық қолданылуы үшін курс түрін “Жабық курс” етіп қойыңыз.
-                        </div>
-                      ) : null}
-
-                      <div className="space-y-2 rounded-lg border p-3">
-                        <div className="space-y-1.5">
-                          <Label>Қолдану лимиті</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={inviteForm.maxUses}
-                            onChange={(e) =>
-                              setInviteForm((p) => ({
-                                ...p,
-                                maxUses: e.target.value,
-                              }))
-                            }
-                            placeholder="Бос болса — шектеусіз"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <Label>Мерзімі</Label>
-                          <Input
-                            type="datetime-local"
-                            value={inviteForm.expiresAt}
-                            onChange={(e) =>
-                              setInviteForm((p) => ({
-                                ...p,
-                                expiresAt: e.target.value,
-                              }))
-                            }
-                            min={toDateTimeLocalValue(new Date().toISOString())}
-                          />
-                        </div>
-
-                        <Button
-                          size="sm"
-                          className="w-full"
-                          onClick={handleCreateInvite}
-                          disabled={createInviteMutation.isPending}
-                        >
-                          Invite code жасау
-                        </Button>
-                      </div>
-
-                      <div className="space-y-2">
-                        {courseInvitesLoading ? (
-                          <p className="text-xs text-muted-foreground">Invite codes жүктелуде...</p>
-                        ) : null}
-
-                        {!courseInvitesLoading && (!courseInvites || courseInvites.length === 0) ? (
-                          <p className="text-xs text-muted-foreground">
-                            Әлі invite code жоқ.
-                          </p>
-                        ) : null}
-
-                        {(courseInvites || []).map((invite) => {
-                          const remaining =
-                            invite.max_uses === null
-                              ? null
-                              : Math.max(invite.max_uses - invite.used_count, 0);
-
-                          return (
-                            <div
-                              key={invite.id}
-                              className={`rounded-lg border p-3 text-xs ${
-                                invite.is_active ? 'bg-background' : 'bg-muted/50 opacity-70'
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="font-mono text-sm font-semibold">
-                                    {invite.code}
-                                  </p>
-                                  <p className="mt-1 text-muted-foreground">
-                                    Қолданылды: {invite.used_count}
-                                    {invite.max_uses === null
-                                      ? ' / шектеусіз'
-                                      : ` / ${invite.max_uses}`}
-                                  </p>
-                                  <p className="text-muted-foreground">
-                                    Қалғаны:{' '}
-                                    {remaining === null ? 'шектеусіз' : remaining}
-                                  </p>
-                                  <p className="text-muted-foreground">
-                                    Мерзімі: {formatDateTime(invite.expires_at)}
-                                  </p>
-                                  <p className="text-muted-foreground">
-                                    Статус: {invite.is_active ? 'Белсенді' : 'Өшірілген'}
-                                  </p>
-                                </div>
-
-                                <div className="flex shrink-0 gap-1">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    onClick={() => copyInviteCode(invite.code)}
-                                  >
-                                    <Copy size={13} />
-                                  </Button>
-
-                                  {invite.is_active ? (
-                                    <Button
-                                      type="button"
-                                      variant="destructive"
-                                      size="icon"
-                                      className="h-8 w-8"
-                                      disabled={deactivateInviteMutation.isPending}
-                                      onClick={() => handleDeactivateInvite(invite.id)}
-                                    >
-                                      <Trash2 size={13} />
-                                    </Button>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <CourseInviteCodesPanel
+                    accessType={courseEdit.accessType}
+                    inviteForm={inviteForm}
+                    setInviteForm={setInviteForm}
+                    courseInvites={courseInvites || []}
+                    courseInvitesLoading={courseInvitesLoading}
+                    createInvitePending={createInviteMutation.isPending}
+                    deactivateInvitePending={deactivateInviteMutation.isPending}
+                    onCreateInvite={handleCreateInvite}
+                    onDeactivateInvite={handleDeactivateInvite}
+                    onCopyInviteCode={copyInviteCode}
+                  />
 
                   <Card id="publish" className="scroll-mt-24">
                     <CardHeader className="pb-3">
