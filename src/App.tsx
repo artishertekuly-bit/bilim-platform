@@ -1,14 +1,15 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { Toaster as Sonner } from '@/components/ui/sonner';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { AuthProvider, type UserRole } from '@/lib/auth-context';
+import { AuthProvider, useAuth, type UserRole } from '@/lib/auth-context';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { LoadingState } from '@/components/common/DataState';
 import t from '@/lib/i18n';
+
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 
 const LandingPage = lazy(() => import('./pages/LandingPage'));
@@ -76,10 +77,71 @@ type AppRouteConfig = {
   allowedRoles?: UserRole[];
 };
 
+function AppLoadingScreen() {
+  return (
+    <div className="p-6">
+      <LoadingState text={t('page.app.loading')} />
+    </div>
+  );
+}
+
+/**
+ * Root route:
+ * - https://bilim-frontend.onrender.com
+ * - session бар болса → dashboard
+ * - session жоқ болса → landing page
+ */
+function RootEntryPage() {
+  const { user, session, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <AppLoadingScreen />;
+  }
+
+  if (session && user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <LandingPage />;
+}
+
+/**
+ * Login/Register:
+ * - already logged in user login/register көрмеуі керек
+ * - бірден dashboard-қа өтеді
+ */
+function PublicAuthPage({ children }: { children: ReactNode }) {
+  const { user, session, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <AppLoadingScreen />;
+  }
+
+  if (session && user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 const publicRoutes: AppRouteConfig[] = [
-  { path: '/', element: <LandingPage /> },
-  { path: '/login', element: <LoginPage /> },
-  { path: '/register', element: <RegisterPage /> },
+  { path: '/', element: <RootEntryPage /> },
+  {
+    path: '/login',
+    element: (
+      <PublicAuthPage>
+        <LoginPage />
+      </PublicAuthPage>
+    ),
+  },
+  {
+    path: '/register',
+    element: (
+      <PublicAuthPage>
+        <RegisterPage />
+      </PublicAuthPage>
+    ),
+  },
   { path: '/verify-email', element: <VerifyEmailPage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/update-password', element: <UpdatePasswordPage /> },
@@ -204,13 +266,7 @@ export default function App() {
           <Sonner />
 
           <BrowserRouter>
-            <Suspense
-              fallback={
-                <div className="p-6">
-                  <LoadingState text={t('page.app.loading')} />
-                </div>
-              }
-            >
+            <Suspense fallback={<AppLoadingScreen />}>
               <Routes>
                 {renderRoutes(publicRoutes)}
                 {renderRoutes(protectedRoutes, true)}

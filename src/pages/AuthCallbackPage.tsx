@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth, type UserRole } from '@/lib/auth-context';
@@ -10,6 +10,8 @@ function isUserRole(value: unknown): value is Exclude<UserRole, 'admin'> {
 }
 
 function getPendingOAuthRole(): Exclude<UserRole, 'admin'> | null {
+  if (typeof window === 'undefined') return null;
+
   const value = window.localStorage.getItem(PENDING_OAUTH_ROLE_KEY);
   return isUserRole(value) ? value : null;
 }
@@ -28,6 +30,7 @@ function getRoleFromUrl(): Exclude<UserRole, 'admin'> | null {
 }
 
 function clearPendingOAuthRole() {
+  if (typeof window === 'undefined') return;
   window.localStorage.removeItem(PENDING_OAUTH_ROLE_KEY);
 }
 
@@ -48,12 +51,42 @@ function getOAuthErrorFromUrl() {
   );
 }
 
+function isMissingRoleRpcError(message: string) {
+  return (
+    /could not find the function/i.test(message) ||
+    /schema cache/i.test(message) ||
+    (/not found/i.test(message) && /claim_requested_role/i.test(message))
+  );
+}
+
+async function claimRequestedRoleSafe(requestedRole: Exclude<UserRole, 'admin'> | null) {
+  const { error } = await supabase.rpc('claim_requested_role' as never, {
+    p_requested_role: requestedRole ?? null,
+  } as never);
+
+  if (!error) return;
+
+  const message = error.message || '';
+
+  if (isMissingRoleRpcError(message)) {
+    console.warn('claim_requested_role RPC is missing, continuing without role sync');
+    return;
+  }
+
+  throw new Error(message);
+}
+
 export default function AuthCallbackPage() {
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
+  const processedRef = useRef(false);
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('Google арқылы кіру аяқталуда...');
 
   useEffect(() => {
+    if (processedRef.current) return;
+    processedRef.current = true;
+
     let cancelled = false;
 
     const finishOAuth = async () => {
@@ -64,16 +97,14 @@ export default function AuthCallbackPage() {
           throw new Error(oauthError);
         }
 
-        /*
-          Role-ды exchangeCodeForSession алдында оқимыз.
-          Себебі төменде URL-ды /auth/callback деп тазалаймыз.
-        */
         const requestedRole = getRoleFromUrl() || getPendingOAuthRole();
 
-        const params = new URLSearchParams(window.location.search);
-        const code = params.get('code');
+        const searchParams = new URLSearchParams(window.location.search);
+        const code = searchParams.get('code');
 
         if (code) {
+          setMessage('Google сессиясы сақталуда...');
+
           const { error: exchangeError } =
             await supabase.auth.exchangeCodeForSession(code);
 
@@ -81,14 +112,16 @@ export default function AuthCallbackPage() {
             throw new Error(exchangeError.message);
           }
 
-          window.history.replaceState(null, '', '/auth/callback');
+          window.history.replaceState(null, document.title, '/auth/callback');
         }
 
-        let session = null;
+        setMessage('Сессия тексерілуде...');
 
-        for (let attempt = 0; attempt < 15; attempt += 1) {
+        let hasSession = false;
+
+        for (let attempt = 0; attempt < 20; attempt += 1) {
           const {
-            data: { session: currentSession },
+            data: { session },
             error: sessionError,
           } = await supabase.auth.getSession();
 
@@ -96,32 +129,28 @@ export default function AuthCallbackPage() {
             throw new Error(sessionError.message);
           }
 
-          if (currentSession) {
-            session = currentSession;
+          if (session?.user) {
+            hasSession = true;
             break;
           }
 
           await sleep(200);
         }
 
-        if (!session) {
+        if (!hasSession) {
           throw new Error('Google сессиясы табылмады. Қайта кіріп көріңіз.');
         }
 
-        const { error: roleError } = await supabase.rpc(
-          'claim_requested_role' as never,
-          {
-            p_requested_role: requestedRole ?? null,
-          } as never
-        );
+        setMessage('Профиль дайындалуда...');
 
-        if (roleError) {
-          throw new Error(roleError.message);
-        }
-
+        await claimRequestedRoleSafe(requestedRole);
         clearPendingOAuthRole();
 
-        await refreshUser();
+        const appUser = await refreshUser();
+
+        if (!appUser) {
+          throw new Error('Профильді жүктеу мүмкін болмады.');
+        }
 
         if (!cancelled) {
           navigate('/dashboard', { replace: true });
@@ -148,8 +177,8 @@ export default function AuthCallbackPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-6">
-        <div className="max-w-md rounded-xl border bg-card p-6 shadow-sm">
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        <div className="w-full max-w-md rounded-xl border bg-card p-6 shadow-sm">
           <h1 className="text-lg font-semibold">Google арқылы кіру қатесі</h1>
 
           <p className="mt-2 text-sm text-red-600">{error}</p>
@@ -167,13 +196,14 @@ export default function AuthCallbackPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-3">
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-3 rounded-xl border bg-card p-6 shadow-sm">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-b-foreground" />
 
-        <p className="text-sm text-muted-foreground">
-          Google арқылы кіру аяқталуда...
-        </p>
+        <div className="text-center">
+          <p className="text-sm font-medium">Авторизация</p>
+          <p className="mt-1 text-sm text-muted-foreground">{message}</p>
+        </div>
       </div>
     </div>
   );
