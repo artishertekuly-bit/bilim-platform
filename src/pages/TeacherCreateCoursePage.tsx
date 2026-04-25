@@ -54,32 +54,33 @@ import {
   useUpdateLessonMiniQuizQuestionMutation,
 } from '@/hooks/use-platform-data';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   EmptyState,
   ErrorState,
-  LoadingState,
 } from '@/components/common/DataState';
 import { useToast } from '@/hooks/use-toast';
-import { Switch } from '@/components/ui/switch';
 import { normalizeMediaUrl } from '@/lib/media-url';
 import { BuilderStatCard } from '@/components/course-builder/BuilderStatCard';
-import { CourseAccessTypeCards } from '@/components/course-builder/CourseAccessTypeCards';
-import { CourseAnnouncementCard } from '@/components/course-builder/CourseAnnouncementCard';
+import { CourseAnnouncementsPanel } from '@/components/course-builder/CourseAnnouncementsPanel';
 import { CourseBuilderStepper } from '@/components/course-builder/CourseBuilderStepper';
 import { TeacherCourseBuilderSkeleton } from '@/components/course-builder/TeacherCourseBuilderSkeleton';
 import { LessonMiniQuizEditor } from '@/components/course-builder/LessonMiniQuizEditor';
 import { CourseMaterialsPanel } from '@/components/course-builder/CourseMaterialsPanel';
 import { CourseInviteCodesPanel } from '@/components/course-builder/CourseInviteCodesPanel';
+import { LessonAttachmentPanel } from '@/components/course-builder/LessonAttachmentPanel';
+import { ModuleListPanel } from '@/components/course-builder/ModuleListPanel';
+import { LessonEditorPanel } from '@/components/course-builder/LessonEditorPanel';
+import { CourseBasicCreateCard } from '@/components/course-builder/CourseBasicCreateCard';
+import { CourseManageList } from '@/components/course-builder/CourseManageList';
+import { CourseSettingsCard } from '@/components/course-builder/CourseSettingsCard';
+import { CourseSummaryCard } from '@/components/course-builder/CourseSummaryCard';
+import { CoursePublishPanel } from '@/components/course-builder/CoursePublishPanel';
+import { CourseDangerZone } from '@/components/course-builder/CourseDangerZone';
 import {
-  announcementPriorities,
   formatAssetTitle,
   formatPrice,
   getAccessTypeLabel,
-  getAnnouncementPriorityLabel,
   getCourseStatusTone,
   getFilenameFromUrl,
   getNextSortOrder,
@@ -100,23 +101,15 @@ import {
   normalizeQuestionOptions,
 } from '@/lib/course-creator/mini-quiz-utils';
 import {
-  ArrowDown,
-  ArrowUp,
   BookOpen,
-  CalendarClock,
   CheckCircle2,
-  ExternalLink,
   FileText,
   GraduationCap,
   KeyRound,
   LayoutDashboard,
-  Link as LinkIcon,
-  Megaphone,
-  Pin,
   Plus,
   RotateCcw,
   Settings,
-  Trash2,
 } from 'lucide-react';
 
 export default function TeacherCreateCoursePage() {
@@ -1729,612 +1722,59 @@ export default function TeacherCreateCoursePage() {
 
         <div className="space-y-6">
           <div className="space-y-6">
-            <Card id="new-course" className="scroll-mt-24">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-base font-semibold">
-                  {t('page.teacher_course_builder.section.new_course')}
-                </CardTitle>
-              </CardHeader>
+            <CourseBasicCreateCard
+              newCourse={newCourse}
+              setNewCourse={setNewCourse}
+              subjectOptions={subjectOptions}
+              canCreateCourse={canCreateCourse}
+              creating={createMutation.isPending}
+              onCreateCourse={() => createMutation.mutate()}
+            />
 
-              <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label>{t('page.teacher_course_builder.field.course_title')}</Label>
-                  <Input
-                    value={newCourse.title}
-                    onChange={(e) => setNewCourse((p) => ({ ...p, title: e.target.value }))}
-                    placeholder={t('page.teacher_course_builder.placeholder.course_title')}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>{t('page.teacher_course_builder.field.description')}</Label>
-                  <Textarea
-                    rows={4}
-                    value={newCourse.description}
-                    onChange={(e) =>
-                      setNewCourse((p) => ({ ...p, description: e.target.value }))
-                    }
-                    placeholder={t('page.teacher_course_builder.placeholder.description')}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>{t('page.teacher_course_builder.field.subject')}</Label>
-                  <select
-                    value={newCourse.subjectId}
-                    onChange={(e) => setNewCourse((p) => ({ ...p, subjectId: e.target.value }))}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="">
-                      {t('page.teacher_course_builder.placeholder.select_subject')}
-                    </option>
-                    {subjectOptions.map((subject) => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.name_kk}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Access параметрлері
-                  </p>
-
-                  <div className="space-y-2">
-  <Label>Курс түрі</Label>
-
-  <CourseAccessTypeCards
-    value={newCourse.accessType}
-    onChange={(nextAccessType) =>
-      setNewCourse((p) => ({
-        ...p,
-        accessType: nextAccessType,
-        visibility: resolveVisibilityFromAccessType(nextAccessType),
-        price:
-          nextAccessType === 'paid'
-            ? Number(p.price || 0) > 0
-              ? p.price
-              : '5000'
-            : '0',
-        currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
-      }))
-    }
-  />
-</div>
-
-                  {shouldShowCoursePricing(newCourse.accessType) ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label>Баға</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={newCourse.price}
-                          onChange={(e) =>
-                            setNewCourse((p) => ({ ...p, price: e.target.value }))
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>Валюта</Label>
-                        <Input
-                          value={newCourse.currency}
-                          onChange={(e) =>
-                            setNewCourse((p) => ({
-                              ...p,
-                              currency: e.target.value.toUpperCase(),
-                            }))
-                          }
-                          maxLength={3}
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="space-y-1.5">
-                    <Label>Оқушы лимиті</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={newCourse.maxStudents}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({ ...p, maxStudents: e.target.value }))
-                      }
-                      placeholder="Бос қалса — шектеусіз"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Алғашқы құрылым
-                  </p>
-
-                  <div className="space-y-1.5">
-                    <Label>{t('page.teacher_course_builder.field.initial_module')}</Label>
-                    <Input
-                      value={newCourse.moduleTitle}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({ ...p, moduleTitle: e.target.value }))
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>{t('page.teacher_course_builder.field.intro_lesson')}</Label>
-                    <Input
-                      value={newCourse.lessonTitle}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({ ...p, lessonTitle: e.target.value }))
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>{t('page.teacher_course_builder.field.theory')}</Label>
-                    <Textarea
-                      rows={4}
-                      value={newCourse.lessonBody}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({ ...p, lessonBody: e.target.value }))
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>{t('page.teacher_course_builder.field.practice')}</Label>
-                    <Textarea
-                      rows={3}
-                      value={newCourse.lessonPractice}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({ ...p, lessonPractice: e.target.value }))
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>{t('page.teacher_course_builder.field.video_url')}</Label>
-                    <Input
-                      value={newCourse.lessonVideo}
-                      onChange={(e) =>
-                        setNewCourse((p) => ({ ...p, lessonVideo: e.target.value }))
-                      }
-                      onBlur={(e) =>
-                        setNewCourse((p) => ({
-                          ...p,
-                          lessonVideo: normalizeMediaUrl(e.target.value),
-                        }))
-                      }
-                      placeholder="https://youtube.com/..."
-                    />
-                  </div>
-                </div>
-
-                <Button
-                  className="w-full"
-                  onClick={() => createMutation.mutate()}
-                  disabled={!canCreateCourse}
-                >
-                  {createMutation.isPending
-                    ? t('page.teacher_course_builder.action.saving')
-                    : t('page.teacher_course_builder.action.create_course')}
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base font-semibold">
-                    {t('page.teacher_course_builder.section.manage_courses')}
-                  </CardTitle>
-                  <span className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground">
-                    {courseCount}
-                  </span>
-                </div>
-              </CardHeader>
-
-              <CardContent>
-                <div className="max-h-[620px] space-y-2 overflow-auto pr-1">
-                  {(workspace?.courses || []).length === 0 ? (
-                    <EmptyState
-                      title={t('page.teacher_course_builder.empty.courses_title')}
-                      text={t('page.teacher_course_builder.empty.courses_text')}
-                    />
-                  ) : (
-                    workspace?.courses.map((course) => (
-                      <button
-                        key={course.id}
-                        onClick={() => seedEditFromCourse(course.id)}
-                        className={`w-full rounded-xl border p-4 text-left transition-colors ${
-                          selectedCourse?.id === course.id
-                            ? 'border-primary bg-primary/5'
-                            : 'border-border hover:bg-accent'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium">{course.title}</p>
-                            <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                              {[
-                                course.subjectName,
-                                getAccessTypeLabel(course.accessType || 'public_free'),
-                                shouldShowCoursePricing(course.accessType || 'public_free')
-                                  ? formatPrice(Number(course.price || 0), course.currency || 'KZT')
-                                  : 'Тегін',
-                                `${course.lessons} ${t('course.lessons_count')}`,
-                                `${course.students} ${t(
-                                  'page.teacher_course_builder.students_label'
-                                )}`,
-                              ]
-                                .filter(Boolean)
-                                .join(' · ')}
-                            </p>
-                          </div>
-
-                          <span className="rounded-full border px-2 py-1 text-[10px] whitespace-nowrap">
-                            {courseStatusLabels[course.status as CourseStatus] || course.status}
-                          </span>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+            <CourseManageList
+              courses={workspace?.courses || []}
+              selectedCourseId={selectedCourse?.id || null}
+              courseStatusLabels={courseStatusLabels}
+              onSelectCourse={seedEditFromCourse}
+            />
           </div>
 
           {selectedCourse ? (
             <div className="space-y-6">
               <div className="space-y-6">
-                <Card id="course-settings" className="scroll-mt-24">
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-base font-semibold">
-                      Курс параметрлері
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
-                    <div className="space-y-1.5">
-                      <Label>{t('page.teacher_course_builder.field.course_title')}</Label>
-                      <Input
-                        value={courseEdit.title}
-                        onChange={(e) => setCourseEdit((p) => ({ ...p, title: e.target.value }))}
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label>{t('page.teacher_course_builder.field.description')}</Label>
-                      <Textarea
-                        rows={4}
-                        value={courseEdit.description}
-                        onChange={(e) =>
-                          setCourseEdit((p) => ({ ...p, description: e.target.value }))
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label>{t('page.teacher_course_builder.field.subject')}</Label>
-                      <select
-                        value={courseEdit.subjectId}
-                        onChange={(e) =>
-                          setCourseEdit((p) => ({ ...p, subjectId: e.target.value }))
-                        }
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">
-                          {t('page.teacher_course_builder.placeholder.select_subject')}
-                        </option>
-                        {subjectOptions.map((subject) => (
-                          <option key={subject.id} value={subject.id}>
-                            {subject.name_kk}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label>{t('page.teacher_course_builder.field.thumbnail')}</Label>
-                      <Input
-                        value={courseEdit.thumbnailUrl}
-                        onChange={(e) =>
-                          setCourseEdit((p) => ({ ...p, thumbnailUrl: e.target.value }))
-                        }
-                        placeholder="https://..."
-                      />
-                    </div>
-
-                    <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
-                      <div>
-                        <p className="text-sm font-semibold">Access және монетизация</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Курс ашық, жабық немесе ақылы режимде жұмыс істейді.
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-  <Label>Курс түрі</Label>
-
-  <CourseAccessTypeCards
-    value={courseEdit.accessType}
-    onChange={(nextAccessType) =>
-      setCourseEdit((p) => ({
-        ...p,
-        accessType: nextAccessType,
-        visibility: resolveVisibilityFromAccessType(nextAccessType),
-        price:
-          nextAccessType === 'paid'
-            ? Number(p.price || 0) > 0
-              ? p.price
-              : '5000'
-            : '0',
-        currency: nextAccessType === 'paid' ? p.currency || 'KZT' : 'KZT',
-      }))
-    }
-  />
-</div>
-
-                      {shouldShowCoursePricing(courseEdit.accessType) ? (
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="space-y-1.5">
-                            <Label>Баға</Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              value={courseEdit.price}
-                              onChange={(e) =>
-                                setCourseEdit((p) => ({ ...p, price: e.target.value }))
-                              }
-                            />
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <Label>Валюта</Label>
-                            <Input
-                              value={courseEdit.currency}
-                              onChange={(e) =>
-                                setCourseEdit((p) => ({
-                                  ...p,
-                                  currency: e.target.value.toUpperCase(),
-                                }))
-                              }
-                              maxLength={3}
-                            />
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="space-y-1.5">
-                        <Label>Оқушы лимиті</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={courseEdit.maxStudents}
-                          onChange={(e) =>
-                            setCourseEdit((p) => ({
-                              ...p,
-                              maxStudents: e.target.value,
-                            }))
-                          }
-                          placeholder="Шектеусіз"
-                        />
-                      </div>
-
-                      <div className="rounded-lg border bg-background px-3 py-2 text-xs text-muted-foreground">
-                        Қазіргі режим:{' '}
-                        <span className="font-medium text-foreground">
-                          {getAccessTypeLabel(courseEdit.accessType)}
-                        </span>
-                        {shouldShowCoursePricing(courseEdit.accessType) ? (
-                          <>
-                            {' '}· Баға:{' '}
-                            <span className="font-medium text-foreground">
-                              {selectedCoursePrice}
-                            </span>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Button
-                        onClick={() => updateCourseMutation.mutate()}
-                        disabled={updateCourseMutation.isPending}
-                      >
-                        {t('page.teacher_course_builder.action.save_course')}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                <CourseSettingsCard
+                  courseEdit={courseEdit}
+                  setCourseEdit={setCourseEdit}
+                  subjectOptions={subjectOptions}
+                  selectedCoursePrice={selectedCoursePrice}
+                  updating={updateCourseMutation.isPending}
+                  onSaveCourse={() => updateCourseMutation.mutate()}
+                />
 
                 <div className="space-y-4">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">Қысқаша мәлімет</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                        <span className="text-muted-foreground">Модульдер</span>
-                        <span className="font-medium">{selectedCourseModules.length}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                        <span className="text-muted-foreground">Сабақтар</span>
-                        <span className="font-medium">{selectedCourseLessonCount}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                        <span className="text-muted-foreground">Студенттер</span>
-                        <span className="font-medium">{selectedCourse.students}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                        <span className="text-muted-foreground">Access</span>
-                        <span className="text-right text-xs font-medium">
-                          {getAccessTypeLabel(courseEdit.accessType)}
-                        </span>
-                      </div>
-                      {shouldShowCoursePricing(courseEdit.accessType) ? (
-                        <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                          <span className="text-muted-foreground">Баға</span>
-                          <span className="font-medium">{selectedCoursePrice}</span>
-                        </div>
-                      ) : null}
-                    </CardContent>
-                  </Card>
+                  <CourseSummaryCard
+                    selectedCourse={selectedCourse}
+                    moduleCount={selectedCourseModules.length}
+                    lessonCount={selectedCourseLessonCount}
+                    accessType={courseEdit.accessType}
+                    selectedCoursePrice={selectedCoursePrice}
+                  />
 
-                  <Card id="announcements" className="scroll-mt-24">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">
-                        <span className="inline-flex items-center gap-1.5">
-                          <Megaphone size={14} />
-                          Хабарландырулар
-                        </span>
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        Бұл бөлім арқылы курсқа қатысты маңызды ақпаратты оқушыларға жариялайсыз.
-                        Pin қойылған хабарландырулар жоғарыда тұрады.
-                      </p>
-
-                      <div className="space-y-3 rounded-lg border p-3">
-                        <div className="space-y-1.5">
-                          <Label>Тақырып</Label>
-                          <Input
-                            value={announcementForm.title}
-                            onChange={(e) =>
-                              setAnnouncementForm((p) => ({ ...p, title: e.target.value }))
-                            }
-                            placeholder="Мысалы: Ертең бақылау тесті болады"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <Label>Мәтін</Label>
-                          <Textarea
-                            rows={4}
-                            value={announcementForm.body}
-                            onChange={(e) =>
-                              setAnnouncementForm((p) => ({ ...p, body: e.target.value }))
-                            }
-                            placeholder="Оқушыларға көрсетілетін хабарлама мәтіні..."
-                          />
-                        </div>
-
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div className="space-y-1.5">
-                            <Label>Маңыздылығы</Label>
-                            <select
-                              value={announcementForm.priority}
-                              onChange={(e) =>
-                                setAnnouncementForm((p) => ({
-                                  ...p,
-                                  priority: e.target.value as CourseAnnouncementPriority,
-                                }))
-                              }
-                              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                            >
-                              {announcementPriorities.map((priority) => (
-                                <option key={priority} value={priority}>
-                                  {getAnnouncementPriorityLabel(priority)}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <Label>Мерзімі</Label>
-                            <Input
-                              type="datetime-local"
-                              value={announcementForm.expiresAt}
-                              onChange={(e) =>
-                                setAnnouncementForm((p) => ({
-                                  ...p,
-                                  expiresAt: e.target.value,
-                                }))
-                              }
-                              min={toDateTimeLocalValue(new Date().toISOString())}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                          <div>
-                            <Label htmlFor="announcement-pinned">Жоғарыға бекіту</Label>
-                            <p className="mt-0.5 text-[11px] text-muted-foreground">
-                              Pin қойылса, хабарландыру тізімнің басында тұрады.
-                            </p>
-                          </div>
-
-                          <Switch
-                            id="announcement-pinned"
-                            checked={announcementForm.isPinned}
-                            onCheckedChange={(checked) =>
-                              setAnnouncementForm((p) => ({
-                                ...p,
-                                isPinned: checked,
-                              }))
-                            }
-                          />
-                        </div>
-
-                        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                          {editingAnnouncementId ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={resetAnnouncementForm}
-                            >
-                              Болдырмау
-                            </Button>
-                          ) : null}
-
-                          <Button
-                            type="button"
-                            onClick={handleSaveAnnouncement}
-                            disabled={!canSaveAnnouncement}
-                          >
-                            <Megaphone size={14} className="mr-1.5" />
-                            {editingAnnouncementId
-                              ? updateAnnouncementMutation.isPending
-                                ? 'Жаңартылуда...'
-                                : 'Хабарландыруды жаңарту'
-                              : createAnnouncementMutation.isPending
-                                ? 'Жариялануда...'
-                                : 'Хабарландыру жариялау'}
-                          </Button>
-                        </div>
-                      </div>
-
-                      {courseAnnouncementsLoading ? (
-                        <LoadingState text="Хабарландырулар жүктелуде..." />
-                      ) : null}
-
-                      {!courseAnnouncementsLoading &&
-                      (!courseAnnouncements || courseAnnouncements.length === 0) ? (
-                        <EmptyState
-                          title="Хабарландыру жоқ"
-                          text="Курсқа хабарландыру жарияланғаннан кейін осы жерде көрінеді."
-                        />
-                      ) : null}
-
-                      {!courseAnnouncementsLoading && courseAnnouncements?.length ? (
-                        <div className="space-y-2">
-                          {courseAnnouncements.map((announcement) => (
-                            <CourseAnnouncementCard
-                              key={announcement.id}
-                              announcement={announcement}
-                              onEdit={handleEditAnnouncement}
-                              onDelete={handleDeleteAnnouncement}
-                              deleting={deleteAnnouncementMutation.isPending}
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                    </CardContent>
-                  </Card>
+                  <CourseAnnouncementsPanel
+                    announcementForm={announcementForm}
+                    setAnnouncementForm={setAnnouncementForm}
+                    editingAnnouncementId={editingAnnouncementId}
+                    courseAnnouncements={courseAnnouncements || []}
+                    courseAnnouncementsLoading={courseAnnouncementsLoading}
+                    onResetAnnouncementForm={resetAnnouncementForm}
+                    onSaveAnnouncement={handleSaveAnnouncement}
+                    onEditAnnouncement={handleEditAnnouncement}
+                    onDeleteAnnouncement={handleDeleteAnnouncement}
+                    canSaveAnnouncement={canSaveAnnouncement}
+                    creatingAnnouncement={createAnnouncementMutation.isPending}
+                    updatingAnnouncement={updateAnnouncementMutation.isPending}
+                    deletingAnnouncement={deleteAnnouncementMutation.isPending}
+                  />
 
                   <CourseMaterialsPanel
                     courseAssetForm={courseAssetForm}
@@ -2360,497 +1800,59 @@ export default function TeacherCreateCoursePage() {
                     onCopyInviteCode={copyInviteCode}
                   />
 
-                  <Card id="publish" className="scroll-mt-24">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">Жариялау</CardTitle>
-                    </CardHeader>
+                  <CoursePublishPanel
+                    courseId={selectedCourse.id}
+                    status={courseEdit.status}
+                    pending={quickStatusMutation.isPending}
+                    onChangeStatus={(input) => quickStatusMutation.mutate(input)}
+                  />
 
-                    <CardContent className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        Жарияланған курс каталогта көрінеді. Жабық курс жарияланса да,
-                        тек invite арқылы ашылады.
-                      </p>
-
-                      {courseEdit.status === 'archived' ? (
-                        <div className="rounded-lg border bg-muted px-3 py-2 text-xs text-muted-foreground">
-                          Курс архивте тұр. Алдымен архивтен қайтарыңыз.
-                        </div>
-                      ) : courseEdit.status === 'published' ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            quickStatusMutation.mutate({
-                              courseId: selectedCourse.id,
-                              status: 'draft',
-                            })
-                          }
-                          disabled={quickStatusMutation.isPending}
-                        >
-                          Жариялаудан алу
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            quickStatusMutation.mutate({
-                              courseId: selectedCourse.id,
-                              status: 'published',
-                            })
-                          }
-                          disabled={quickStatusMutation.isPending}
-                        >
-                          Жариялау
-                        </Button>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">Архив</CardTitle>
-                    </CardHeader>
-
-                    <CardContent className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        Архивке түскен курс оқушыларға белсенді курс ретінде көрсетілмейді.
-                        Кейін оны қайта draft күйіне қайтаруға болады.
-                      </p>
-
-                      {courseEdit.status === 'archived' ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            quickStatusMutation.mutate({
-                              courseId: selectedCourse.id,
-                              status: 'draft',
-                            })
-                          }
-                          disabled={quickStatusMutation.isPending}
-                        >
-                          Архивтен қайтару
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() =>
-                            quickStatusMutation.mutate({
-                              courseId: selectedCourse.id,
-                              status: 'archived',
-                            })
-                          }
-                          disabled={quickStatusMutation.isPending}
-                        >
-                          Архивке жіберу
-                        </Button>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-destructive/30">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold text-destructive">
-                        Danger zone
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <p className="text-xs text-muted-foreground">
-                        Бұл әрекет курсты толық өшіреді. Қайтару мүмкін болмауы мүмкін.
-                      </p>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              t('page.teacher_course_builder.confirm.delete_course')
-                            )
-                          ) {
-                            deleteCourseMutation.mutate(selectedCourse.id);
-                          }
-                        }}
-                        disabled={deleteCourseMutation.isPending}
-                      >
-                        <Trash2 size={14} className="mr-1.5" />
-                        {t('page.teacher_course_builder.action.delete_course')}
-                      </Button>
-                    </CardContent>
-                  </Card>
+                  <CourseDangerZone
+                    deleting={deleteCourseMutation.isPending}
+                    onDeleteCourse={() => {
+                      if (window.confirm(t('page.teacher_course_builder.confirm.delete_course'))) {
+                        deleteCourseMutation.mutate(selectedCourse.id);
+                      }
+                    }}
+                  />
                 </div>
               </div>
 
               <div className="space-y-6">
-                <Card id="modules-lessons" className="scroll-mt-24">
-                  <CardHeader className="pb-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <CardTitle className="text-base font-semibold">
-                          {t('page.teacher_course_builder.section.modules_lessons')}
-                        </CardTitle>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Модульдер мен сабақтарды осы жерден басқарыңыз.
-                        </p>
-                      </div>
-                    </div>
-                  </CardHeader>
+                <ModuleListPanel
+                  selectedCourseModules={selectedCourseModules}
+                  moduleForm={moduleForm}
+                  setModuleForm={setModuleForm}
+                  canAddModule={canAddModule}
+                  reorderModulesPending={reorderModulesMutation.isPending}
+                  deleteModulePending={deleteModuleMutation.isPending}
+                  reorderLessonsPending={reorderLessonsMutation.isPending}
+                  deleteLessonPending={deleteLessonMutation.isPending}
+                  onAddModule={() => addModuleMutation.mutate()}
+                  onUpdateModuleTitle={(moduleId, title) =>
+                    updateModuleTitleMutation.mutate({ moduleId, title })
+                  }
+                  onReorderModule={(moduleId, direction) =>
+                    reorderModulesMutation.mutate({ moduleId, direction })
+                  }
+                  onDeleteModule={(moduleId) => deleteModuleMutation.mutate(moduleId)}
+                  onStartEditLesson={startEditLesson}
+                  onReorderLesson={(moduleId, lessonId, direction) =>
+                    reorderLessonsMutation.mutate({ moduleId, lessonId, direction })
+                  }
+                  onDeleteLesson={(input) => deleteLessonMutation.mutate(input)}
+                />
 
-                  <CardContent className="space-y-4">
-                    {selectedCourseModules.length === 0 ? (
-                      <EmptyState
-                        title={t('page.teacher_course_builder.empty.modules_title')}
-                        text={t('page.teacher_course_builder.empty.modules_text')}
-                      />
-                    ) : (
-                      selectedCourseModules.map((module, moduleIndex) => {
-                        const sortedLessons = getSortedBySortOrder(module.lessons || []);
-
-                        return (
-                          <div key={module.id} className="space-y-3 rounded-xl border p-4">
-                            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-                              <div className="min-w-0 flex-1">
-                                <Input
-                                  key={`${module.id}:${module.title}`}
-                                  defaultValue={module.title}
-                                  onBlur={(e) => {
-                                    const value = e.target.value.trim();
-                                    if (value && value !== module.title) {
-                                      updateModuleTitleMutation.mutate({
-                                        moduleId: module.id,
-                                        title: value,
-                                      });
-                                    }
-                                  }}
-                                />
-                              </div>
-
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-full border px-2 py-1 text-[10px] text-muted-foreground">
-                                  #{module.sortOrder}
-                                </span>
-
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  disabled={moduleIndex === 0 || reorderModulesMutation.isPending}
-                                  onClick={() =>
-                                    reorderModulesMutation.mutate({
-                                      moduleId: module.id,
-                                      direction: 'up',
-                                    })
-                                  }
-                                >
-                                  <ArrowUp size={14} />
-                                </Button>
-
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  disabled={
-                                    moduleIndex === selectedCourseModules.length - 1 ||
-                                    reorderModulesMutation.isPending
-                                  }
-                                  onClick={() =>
-                                    reorderModulesMutation.mutate({
-                                      moduleId: module.id,
-                                      direction: 'down',
-                                    })
-                                  }
-                                >
-                                  <ArrowDown size={14} />
-                                </Button>
-
-                                <Button
-                                  type="button"
-                                  variant="destructive"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  disabled={deleteModuleMutation.isPending}
-                                  onClick={() => {
-                                    if (
-                                      window.confirm(
-                                        t('page.teacher_course_builder.confirm.delete_module')
-                                      )
-                                    ) {
-                                      deleteModuleMutation.mutate(module.id);
-                                    }
-                                  }}
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              {sortedLessons.length === 0 ? (
-                                <p className="text-xs text-muted-foreground">
-                                  {t('page.teacher_course_builder.empty.lessons_inline')}
-                                </p>
-                              ) : (
-                                sortedLessons.map((lesson, lessonIndex) => (
-                                  <div
-                                    key={lesson.id}
-                                    className="rounded-lg border bg-muted/10 px-3 py-3"
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <button
-                                        type="button"
-                                        onClick={() => startEditLesson(lesson.id)}
-                                        className="min-w-0 flex-1 text-left"
-                                      >
-                                        <p className="text-sm font-medium">{lesson.title}</p>
-                                        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                                          #{lesson.sortOrder} ·{' '}
-                                          {lesson.isPublished
-                                            ? t(
-                                                'page.teacher_course_builder.lesson_status.published'
-                                              )
-                                            : t(
-                                                'page.teacher_course_builder.lesson_status.draft'
-                                              )}
-                                          {lesson.mediaUrl
-                                            ? ` · ${t(
-                                                'page.teacher_course_builder.lesson_has_video'
-                                              )}`
-                                            : ''}
-                                          {lesson.attachmentsCount
-                                            ? ` · ${lesson.attachmentsCount} файл`
-                                            : ''}
-                                        </p>
-                                      </button>
-
-                                      <div className="flex items-center gap-1">
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="icon"
-                                          className="h-8 w-8"
-                                          disabled={
-                                            lessonIndex === 0 ||
-                                            reorderLessonsMutation.isPending
-                                          }
-                                          onClick={() =>
-                                            reorderLessonsMutation.mutate({
-                                              moduleId: module.id,
-                                              lessonId: lesson.id,
-                                              direction: 'up',
-                                            })
-                                          }
-                                        >
-                                          <ArrowUp size={14} />
-                                        </Button>
-
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="icon"
-                                          className="h-8 w-8"
-                                          disabled={
-                                            lessonIndex === sortedLessons.length - 1 ||
-                                            reorderLessonsMutation.isPending
-                                          }
-                                          onClick={() =>
-                                            reorderLessonsMutation.mutate({
-                                              moduleId: module.id,
-                                              lessonId: lesson.id,
-                                              direction: 'down',
-                                            })
-                                          }
-                                        >
-                                          <ArrowDown size={14} />
-                                        </Button>
-
-                                        <Button
-                                          type="button"
-                                          variant="destructive"
-                                          size="icon"
-                                          className="h-8 w-8"
-                                          disabled={deleteLessonMutation.isPending}
-                                          onClick={() => {
-                                            if (
-                                              window.confirm(
-                                                t(
-                                                  'page.teacher_course_builder.confirm.delete_lesson'
-                                                )
-                                              )
-                                            ) {
-                                              deleteLessonMutation.mutate({
-                                                lessonId: lesson.id,
-                                                moduleId: module.id,
-                                                remainingIds: sortedLessons
-                                                  .filter((item) => item.id !== lesson.id)
-                                                  .map((item) => item.id),
-                                              });
-                                            }
-                                          }}
-                                        >
-                                          <Trash2 size={14} />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-
-                    <div className="space-y-3 rounded-xl border border-dashed p-4">
-                      <div className="space-y-1.5">
-                        <Label>{t('page.teacher_course_builder.field.new_module_title')}</Label>
-                        <Input
-                          value={moduleForm.title}
-                          onChange={(e) => setModuleForm({ title: e.target.value })}
-                          placeholder={t('page.teacher_course_builder.placeholder.module_title')}
-                        />
-                      </div>
-
-                      <Button
-                        size="sm"
-                        onClick={() => addModuleMutation.mutate()}
-                        disabled={!canAddModule}
-                      >
-                        {t('page.teacher_course_builder.action.add_module')}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-base font-semibold">
-                      {editingLessonId
-                        ? t('page.teacher_course_builder.section.edit_lesson')
-                        : t('page.teacher_course_builder.section.new_lesson')}
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
-                    <div className="space-y-1.5">
-                      <Label>{t('page.teacher_course_builder.field.module')}</Label>
-                      <select
-                        value={lessonForm.moduleId}
-                        onChange={(e) =>
-                          setLessonForm((p) => ({
-                            ...p,
-                            moduleId: e.target.value,
-                            sortOrder: getNextLessonSortOrder(e.target.value),
-                          }))
-                        }
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">
-                          {t('page.teacher_course_builder.placeholder.select_module')}
-                        </option>
-                        {selectedCourseModules.map((module) => (
-                          <option key={module.id} value={module.id}>
-                            {module.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label>{t('page.teacher_course_builder.field.lesson_title')}</Label>
-                        <Input
-                          value={lessonForm.title}
-                          onChange={(e) =>
-                            setLessonForm((p) => ({ ...p, title: e.target.value }))
-                          }
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label>{t('page.teacher_course_builder.field.sort_order')}</Label>
-                        <Input
-                          type="number"
-                          value={lessonForm.sortOrder}
-                          onChange={(e) =>
-                            setLessonForm((p) => ({ ...p, sortOrder: e.target.value }))
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label>{t('page.teacher_course_builder.field.theory')}</Label>
-                      <Textarea
-                        rows={5}
-                        value={lessonForm.contentBody}
-                        onChange={(e) =>
-                          setLessonForm((p) => ({ ...p, contentBody: e.target.value }))
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label>{t('page.teacher_course_builder.field.practice')}</Label>
-                      <Textarea
-                        rows={4}
-                        value={lessonForm.practiceContent}
-                        onChange={(e) =>
-                          setLessonForm((p) => ({ ...p, practiceContent: e.target.value }))
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label>{t('page.teacher_course_builder.field.video_url')}</Label>
-                      <Input
-                        value={lessonForm.mediaUrl}
-                        onChange={(e) =>
-                          setLessonForm((p) => ({ ...p, mediaUrl: e.target.value }))
-                        }
-                        onBlur={(e) =>
-                          setLessonForm((p) => ({
-                            ...p,
-                            mediaUrl: normalizeMediaUrl(e.target.value),
-                          }))
-                        }
-                        placeholder="https://youtube.com/..."
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                      <Label htmlFor="lesson-published">
-                        {t('page.teacher_course_builder.field.lesson_published')}
-                      </Label>
-                      <Switch
-                        id="lesson-published"
-                        checked={lessonForm.isPublished}
-                        onCheckedChange={(checked) =>
-                          setLessonForm((p) => ({ ...p, isPublished: checked }))
-                        }
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Button
-                        onClick={() => addOrUpdateLessonMutation.mutate()}
-                        disabled={!canSaveLesson}
-                      >
-                        {editingLessonId
-                          ? t('page.teacher_course_builder.action.update_lesson')
-                          : t('page.teacher_course_builder.action.add_lesson')}
-                      </Button>
-
-                      {editingLessonId ? (
-                        <Button variant="outline" onClick={resetLessonForm}>
-                          {t('page.teacher_course_builder.action.clear_form')}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </CardContent>
-                </Card>
+                <LessonEditorPanel
+                  editingLessonId={editingLessonId}
+                  lessonForm={lessonForm}
+                  setLessonForm={setLessonForm}
+                  selectedCourseModules={selectedCourseModules}
+                  getNextLessonSortOrder={getNextLessonSortOrder}
+                  canSaveLesson={canSaveLesson}
+                  onSaveLesson={() => addOrUpdateLessonMutation.mutate()}
+                  onResetLessonForm={resetLessonForm}
+                />
 
                 <LessonMiniQuizEditor
                   editingLessonId={editingLessonId}
@@ -2880,125 +1882,19 @@ export default function TeacherCreateCoursePage() {
                   reorderMiniQuizQuestionsPending={reorderMiniQuizQuestionsMutation.isPending}
                 />
 
-                <Card>
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-base font-semibold">Сабақ файлдары</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Сабаққа PDF, Google Drive, презентация немесе басқа external материал сілтемесін қосыңыз.
-                    </p>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
-                    {!editingLessonId || !selectedEditingLesson ? (
-                      <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-                        Файл қосу үшін алдымен бар сабақты таңдаңыз немесе жаңа сабақты сақтаңыз.
-                      </div>
-                    ) : (
-                      <>
-                        <div className="space-y-3 rounded-lg border p-3">
-                          <div className="space-y-1.5">
-                            <Label>Материал атауы</Label>
-                            <Input
-                              value={lessonAttachmentForm.title}
-                              onChange={(e) =>
-                                setLessonAttachmentForm((p) => ({ ...p, title: e.target.value }))
-                              }
-                              placeholder="Мысалы: Үй жұмысы PDF"
-                            />
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <Label>Сілтеме</Label>
-                            <Input
-                              value={lessonAttachmentForm.externalUrl}
-                              onChange={(e) =>
-                                setLessonAttachmentForm((p) => ({ ...p, externalUrl: e.target.value }))
-                              }
-                              placeholder="https://..."
-                            />
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <Label>Сипаттама</Label>
-                            <Textarea
-                              rows={2}
-                              value={lessonAttachmentForm.description}
-                              onChange={(e) =>
-                                setLessonAttachmentForm((p) => ({ ...p, description: e.target.value }))
-                              }
-                              placeholder="Қысқаша түсіндірме"
-                            />
-                          </div>
-
-                          <Button
-                            size="sm"
-                            className="w-full"
-                            onClick={handleCreateLessonAttachment}
-                            disabled={!canCreateLessonAttachment}
-                          >
-                            <LinkIcon size={14} className="mr-1.5" />
-                            Сабақ файлын қосу
-                          </Button>
-                        </div>
-
-                        {lessonAttachmentsLoading ? (
-                          <p className="text-xs text-muted-foreground">Сабақ файлдары жүктелуде...</p>
-                        ) : null}
-
-                        {!lessonAttachmentsLoading && (!lessonAttachments || lessonAttachments.length === 0) ? (
-                          <p className="text-xs text-muted-foreground">
-                            Бұл сабаққа әлі файл қосылмаған.
-                          </p>
-                        ) : null}
-
-                        <div className="space-y-2">
-                          {(lessonAttachments || []).map((attachment) => (
-                            <div key={attachment.id} className="rounded-lg border p-3 text-xs">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-medium">{attachment.title}</p>
-                                  {attachment.description ? (
-                                    <p className="mt-1 text-muted-foreground">{attachment.description}</p>
-                                  ) : null}
-                                  <p className="mt-1 truncate text-muted-foreground">
-                                    {attachment.file.externalUrl || attachment.file.filename}
-                                  </p>
-                                </div>
-
-                                <div className="flex shrink-0 gap-1">
-                                  {attachment.file.externalUrl ? (
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="icon"
-                                      className="h-8 w-8"
-                                      asChild
-                                    >
-                                      <a href={attachment.file.externalUrl} target="_blank" rel="noreferrer">
-                                        <ExternalLink size={13} />
-                                      </a>
-                                    </Button>
-                                  ) : null}
-
-                                  <Button
-                                    type="button"
-                                    variant="destructive"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    disabled={deleteLessonAttachmentMutation.isPending}
-                                    onClick={() => handleDeleteLessonAttachment(attachment.id)}
-                                  >
-                                    <Trash2 size={13} />
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
+                <LessonAttachmentPanel
+                  editingLessonId={editingLessonId}
+                  selectedEditingLesson={selectedEditingLesson}
+                  lessonAttachmentForm={lessonAttachmentForm}
+                  setLessonAttachmentForm={setLessonAttachmentForm}
+                  handleCreateLessonAttachment={handleCreateLessonAttachment}
+                  canCreateLessonAttachment={canCreateLessonAttachment}
+                  createLessonAttachmentPending={createLessonAttachmentMutation.isPending}
+                  lessonAttachmentsLoading={lessonAttachmentsLoading}
+                  lessonAttachments={lessonAttachments || []}
+                  handleDeleteLessonAttachment={handleDeleteLessonAttachment}
+                  deleteLessonAttachmentPending={deleteLessonAttachmentMutation.isPending}
+                />
               </div>
             </div>
           ) : (
