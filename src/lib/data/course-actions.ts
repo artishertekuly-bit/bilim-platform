@@ -134,6 +134,71 @@ function normalizeInviteCode(code: string) {
   return normalized;
 }
 
+function assertAnnouncementText(title: string, body: string) {
+  if (!title.trim()) {
+    throw new Error(
+      localizedText(
+        'kk',
+        'Хабарландыру тақырыбы міндетті.',
+        'Заголовок объявления обязателен.'
+      )
+    );
+  }
+
+  if (!body.trim()) {
+    throw new Error(
+      localizedText(
+        'kk',
+        'Хабарландыру мәтіні міндетті.',
+        'Текст объявления обязателен.'
+      )
+    );
+  }
+}
+
+function isExpiredAnnouncement(expiresAt: string | null) {
+  if (!expiresAt) return false;
+
+  const date = new Date(expiresAt);
+
+  if (Number.isNaN(date.getTime())) return false;
+
+  return date.getTime() <= Date.now();
+}
+
+function mapCourseAnnouncementView(
+  row: CourseAnnouncementRow,
+  courseTitle: string | null,
+  authorProfile?: {
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null
+): CourseAnnouncementView {
+  return {
+    id: row.id,
+
+    courseId: row.course_id,
+    courseTitle,
+
+    authorId: row.author_id,
+    authorName: authorProfile?.full_name || null,
+    authorAvatarUrl: authorProfile?.avatar_url || null,
+
+    title: row.title,
+    body: row.body,
+
+    priority: row.priority,
+    isPinned: row.is_pinned,
+
+    publishedAt: row.published_at,
+    expiresAt: row.expires_at,
+    isExpired: isExpiredAnnouncement(row.expires_at),
+
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 /* ================= UPDATE ================= */
 
 export async function updateCourse(input: {
@@ -438,6 +503,141 @@ export async function userHasActiveEntitlement(input: {
       p_resource_id: input.resourceId,
     } as never)
   ) as Promise<boolean>;
+}
+
+/* ================= COURSE ANNOUNCEMENTS ================= */
+
+export async function getCourseAnnouncements(input: {
+  courseId: string;
+  includeExpired?: boolean;
+}) {
+  const courseId = input.courseId.trim();
+
+  if (!courseId) {
+    return [];
+  }
+
+  let query = supabase
+    .from('course_announcements' as never)
+    .select('*')
+    .eq('course_id', courseId)
+    .order('is_pinned', { ascending: false })
+    .order('published_at', { ascending: false });
+
+  if (!input.includeExpired) {
+    query = query.or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
+  }
+
+  const rows = (await queryOrThrow(query)) as unknown as CourseAnnouncementRow[];
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  const authorIds = Array.from(new Set(rows.map((row) => row.author_id).filter(Boolean)));
+
+  const [courseRows, profileRows] = await Promise.all([
+    queryOrThrow(
+      supabase
+        .from('courses')
+        .select('id, title')
+        .eq('id', courseId)
+    ) as Promise<Array<{ id: string; title: string }>>,
+
+    authorIds.length > 0
+      ? (queryOrThrow(
+          supabase
+            .from('profiles')
+            .select('user_id, full_name, avatar_url')
+            .in('user_id', authorIds)
+        ) as Promise<
+          Array<{
+            user_id: string;
+            full_name: string | null;
+            avatar_url: string | null;
+          }>
+        >)
+      : Promise.resolve([]),
+  ]);
+
+  const courseTitle = courseRows[0]?.title || null;
+
+  const profilesByUserId = new Map(
+    profileRows.map((profile) => [profile.user_id, profile])
+  );
+
+  return rows.map((row) =>
+    mapCourseAnnouncementView(
+      row,
+      courseTitle,
+      profilesByUserId.get(row.author_id) || null
+    )
+  );
+}
+
+export async function createCourseAnnouncement(
+  input: CreateCourseAnnouncementPayload
+) {
+  const title = input.title.trim();
+  const body = input.body.trim();
+
+  assertAnnouncementText(title, body);
+
+  return queryOrThrow(
+    supabase
+      .from('course_announcements' as never)
+      .insert({
+        course_id: input.courseId,
+        author_id: input.authorId,
+        title,
+        body,
+        priority: input.priority || 'normal',
+        is_pinned: input.isPinned ?? false,
+        published_at: input.publishedAt || new Date().toISOString(),
+        expires_at: input.expiresAt || null,
+      } as never)
+      .select('*')
+      .single()
+  ) as unknown as Promise<CourseAnnouncementRow>;
+}
+
+export async function updateCourseAnnouncement(
+  input: UpdateCourseAnnouncementPayload
+) {
+  const title = input.title.trim();
+  const body = input.body.trim();
+
+  assertAnnouncementText(title, body);
+
+  return queryOrThrow(
+    supabase
+      .from('course_announcements' as never)
+      .update({
+        title,
+        body,
+        priority: input.priority,
+        is_pinned: input.isPinned,
+        published_at: input.publishedAt || new Date().toISOString(),
+        expires_at: input.expiresAt || null,
+      } as never)
+      .eq('id', input.announcementId)
+      .select('*')
+      .single()
+  ) as unknown as Promise<CourseAnnouncementRow>;
+}
+
+export async function deleteCourseAnnouncement(
+  input: DeleteCourseAnnouncementPayload | string
+) {
+  const announcementId =
+    typeof input === 'string' ? input : input.announcementId;
+
+  await execOrThrow(
+    supabase
+      .from('course_announcements' as never)
+      .delete()
+      .eq('id', announcementId)
+  );
 }
 
 /* ================= COURSE INVITES ================= */

@@ -10,6 +10,10 @@ import {
   cancelParentLinkRequest,
   createCourseExternalAsset,
   createCourseInvite,
+  createCourseAnnouncement,
+  deleteCourseAnnouncement,
+  getCourseAnnouncements,
+  updateCourseAnnouncement,
   createLessonExternalAttachment,
   deactivateCourseInvite,
   declineParentLinkRequest,
@@ -59,6 +63,9 @@ import type {
   CourseAccessSettingsPayload,
   CreateCourseExternalAssetPayload,
   CreateCourseInvitePayload,
+  CreateCourseAnnouncementPayload,
+  DeleteCourseAnnouncementPayload,
+  UpdateCourseAnnouncementPayload,
   CreateLessonExternalAttachmentPayload,
   DeleteCourseAssetPayload,
   DeleteLessonAttachmentPayload,
@@ -105,6 +112,10 @@ export const platformKeys = {
   courseInvitesBase: ['course-invites'] as const,
   courseInvites: (courseId: string) =>
     ['course-invites', courseId] as const,
+  
+  courseAnnouncementsBase: ['course-announcements'] as const,
+  courseAnnouncements: (courseId: string, includeExpired = false) =>
+    ['course-announcements', courseId, includeExpired ? 'with-expired' : 'active'] as const,
 
   courseProgressBase: ['course-progress'] as const,
   courseProgress: (studentId: string, courseId: string, locale?: Locale) =>
@@ -457,6 +468,22 @@ export function useCourseInvites(courseId: string, enabled = true) {
   });
 }
 
+export function useCourseAnnouncements(
+  courseId: string,
+  enabled = true,
+  includeExpired = false
+) {
+  return useQuery({
+    queryKey: platformKeys.courseAnnouncements(courseId, includeExpired),
+    queryFn: () =>
+      getCourseAnnouncements({
+        courseId,
+        includeExpired,
+      }),
+    enabled: enabled && !!courseId,
+  });
+}
+
 export function useCourseProgressTimeline(
   studentId: string,
   courseId: string,
@@ -688,6 +715,102 @@ export function useUsers(enabled = true, locale?: Locale) {
     queryKey: platformKeys.usersByLocale(activeLocale),
     queryFn: () => getUsersWithRoles(activeLocale),
     enabled,
+  });
+}
+
+/* ================= COURSE ANNOUNCEMENT MUTATIONS ================= */
+
+type CreateCourseAnnouncementMutationInput =
+  CreateCourseAnnouncementPayload & {
+    teacherId?: string;
+    locale?: Locale;
+  };
+
+export function useCreateCourseAnnouncementMutation(
+  teacherId?: string,
+  locale?: Locale
+) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      teacherId: _teacherId,
+      locale: _locale,
+      ...payload
+    }: CreateCourseAnnouncementMutationInput) =>
+      createCourseAnnouncement(payload),
+    onSuccess: async (announcement, variables) => {
+      await invalidateCourseAnnouncementCaches(queryClient, {
+        courseId: announcement.course_id || variables.courseId,
+        teacherId: variables.teacherId ?? teacherId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type UpdateCourseAnnouncementMutationInput =
+  UpdateCourseAnnouncementPayload & {
+    courseId?: string;
+    teacherId?: string;
+    locale?: Locale;
+  };
+
+export function useUpdateCourseAnnouncementMutation(
+  teacherId?: string,
+  locale?: Locale
+) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      courseId: _courseId,
+      teacherId: _teacherId,
+      locale: _locale,
+      ...payload
+    }: UpdateCourseAnnouncementMutationInput) =>
+      updateCourseAnnouncement(payload),
+    onSuccess: async (announcement, variables) => {
+      await invalidateCourseAnnouncementCaches(queryClient, {
+        courseId: announcement.course_id || variables.courseId,
+        teacherId: variables.teacherId ?? teacherId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type DeleteCourseAnnouncementMutationInput =
+  DeleteCourseAnnouncementPayload & {
+    courseId?: string;
+    teacherId?: string;
+    locale?: Locale;
+  };
+
+export function useDeleteCourseAnnouncementMutation(
+  teacherId?: string,
+  locale?: Locale
+) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      courseId: _courseId,
+      teacherId: _teacherId,
+      locale: _locale,
+      ...payload
+    }: DeleteCourseAnnouncementMutationInput) =>
+      deleteCourseAnnouncement(payload),
+    onSuccess: async (_, variables) => {
+      await invalidateCourseAnnouncementCaches(queryClient, {
+        courseId: variables.courseId,
+        teacherId: variables.teacherId ?? teacherId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
   });
 }
 
