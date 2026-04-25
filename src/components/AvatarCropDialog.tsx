@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Cropper from 'react-easy-crop';
 import type { Area } from 'react-easy-crop';
-
 import {
   Dialog,
   DialogContent,
@@ -20,9 +19,9 @@ type Props = {
   onCropped: (file: File) => Promise<void> | void;
 };
 
-const AVATAR_OUTPUT_SIZE = 512;
-const AVATAR_OUTPUT_TYPE = 'image/jpeg';
-const AVATAR_OUTPUT_QUALITY = 0.92;
+const MIN_ZOOM = 0.35;
+const DEFAULT_ZOOM = 0.75;
+const MAX_ZOOM = 4;
 
 export default function AvatarCropDialog({
   open,
@@ -31,128 +30,126 @@ export default function AvatarCropDialog({
   onCropped,
 }: Props) {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [saving, setSaving] = useState(false);
-  const [errorText, setErrorText] = useState('');
 
+  /**
+   * Жаңа сурет таңдалғанда crop/zoom қайта бастапқы күйге келеді.
+   * Бұрынғы суреттің zoom/crop позициясы жаңа суретке әсер етпеуі керек.
+   */
   useEffect(() => {
     if (!open) return;
 
     setCrop({ x: 0, y: 0 });
-    setZoom(1);
+    setZoom(DEFAULT_ZOOM);
     setCroppedAreaPixels(null);
-    setSaving(false);
-    setErrorText('');
-  }, [open, imageSrc]);
+  }, [imageSrc, open]);
 
   const canSave = useMemo(
-    () => Boolean(imageSrc && croppedAreaPixels && !saving),
+    () => !!imageSrc && !!croppedAreaPixels && !saving,
     [imageSrc, croppedAreaPixels, saving]
   );
 
-  const onCropComplete = useCallback((_croppedArea: Area, croppedPixels: Area) => {
-    setCroppedAreaPixels(croppedPixels);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    if (saving) return;
-    onClose();
-  }, [onClose, saving]);
+  const onCropComplete = useCallback(
+    (_croppedArea: Area, croppedPixels: Area) => {
+      setCroppedAreaPixels(croppedPixels);
+    },
+    []
+  );
 
   const handleSave = useCallback(async () => {
-    if (!imageSrc || !croppedAreaPixels || saving) return;
-
-    setSaving(true);
-    setErrorText('');
+    if (!imageSrc || !croppedAreaPixels) return;
 
     try {
+      setSaving(true);
+
       const blob = await getCroppedImageBlob(
         imageSrc,
         croppedAreaPixels,
-        AVATAR_OUTPUT_SIZE,
-        AVATAR_OUTPUT_TYPE,
-        AVATAR_OUTPUT_QUALITY
+        320,
+        'image/jpeg',
+        0.9
       );
 
-      const file = new File([blob], `avatar-${Date.now()}.jpg`, {
-        type: AVATAR_OUTPUT_TYPE,
-        lastModified: Date.now(),
+      const file = new File([blob], 'avatar.jpg', {
+        type: 'image/jpeg',
       });
 
       await onCropped(file);
 
       setCrop({ x: 0, y: 0 });
-      setZoom(1);
-      setCroppedAreaPixels(null);
+      setZoom(DEFAULT_ZOOM);
+      onClose();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Суретті өңдеу сәтсіз аяқталды';
-
-      console.error('[AvatarCropDialog] Crop failed', error);
-      setErrorText(message);
+      console.error(error);
+      alert(error instanceof Error ? error.message : 'Суретті өңдеу сәтсіз аяқталды');
     } finally {
       setSaving(false);
     }
-  }, [croppedAreaPixels, imageSrc, onCropped, saving]);
+  }, [croppedAreaPixels, imageSrc, onCropped, onClose]);
+
+  const handleClose = useCallback(() => {
+    if (saving) return;
+
+    setCrop({ x: 0, y: 0 });
+    setZoom(DEFAULT_ZOOM);
+    setCroppedAreaPixels(null);
+    onClose();
+  }, [onClose, saving]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && handleClose()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Аватарды өңдеу</DialogTitle>
           <DialogDescription>
-            Суретті жылжытып, үлкейтіп, өзіңізге ыңғайлы етіп қиып сақтаңыз.
+            Суретті жылжытып, кішірейтіп немесе үлкейтіп, өзіңізге ыңғайлы етіп қиып сақтаңыз.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="relative h-80 w-full overflow-hidden rounded-xl bg-black">
+          <div className="relative h-[360px] w-full overflow-hidden rounded-xl border bg-black">
             {imageSrc ? (
               <Cropper
                 image={imageSrc}
                 crop={crop}
                 zoom={zoom}
+                minZoom={MIN_ZOOM}
+                maxZoom={MAX_ZOOM}
                 aspect={1}
                 cropShape="round"
                 showGrid={false}
-                objectFit="cover"
-                minZoom={1}
-                maxZoom={3}
+                objectFit="contain"
+                restrictPosition={false}
                 onCropChange={setCrop}
                 onZoomChange={setZoom}
                 onCropComplete={onCropComplete}
               />
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-white/70">
-                Сурет таңдалмаған
-              </div>
-            )}
+            ) : null}
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">Үлкейту</span>
-              <span className="text-muted-foreground">{zoom.toFixed(2)}x</span>
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-medium">Масштаб</div>
+              <div className="text-xs text-muted-foreground">{zoom.toFixed(2)}x</div>
             </div>
 
             <Slider
               value={[zoom]}
-              min={1}
-              max={3}
+              min={MIN_ZOOM}
+              max={MAX_ZOOM}
               step={0.05}
-              disabled={saving}
-              onValueChange={(value) => setZoom(value[0] ?? 1)}
+              onValueChange={(value) => setZoom(value[0] ?? DEFAULT_ZOOM)}
             />
+
+            <div className="flex justify-between text-[11px] text-muted-foreground">
+              <span>Кішірейту</span>
+              <span>Үлкейту</span>
+            </div>
           </div>
 
-          {errorText ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              {errorText}
-            </div>
-          ) : null}
-
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="outline"
