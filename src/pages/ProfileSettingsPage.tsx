@@ -19,15 +19,19 @@ import { useToast } from '@/hooks/use-toast';
 import { Eye, EyeOff, Save, Trash2 } from 'lucide-react';
 import AvatarCropDialog from '@/components/AvatarCropDialog';
 
+const AVATAR_BUCKET = 'avatars';
+const MAX_AVATAR_SIZE_MB = 25;
+
 function extractStoragePath(url?: string | null) {
   if (!url) return null;
 
-  const marker = '/object/public/avatars/';
-  const idx = url.indexOf(marker);
+  const cleanUrl = url.split('?')[0];
+  const marker = `/object/public/${AVATAR_BUCKET}/`;
+  const idx = cleanUrl.indexOf(marker);
 
   if (idx === -1) return null;
 
-  return decodeURIComponent(url.slice(idx + marker.length));
+  return decodeURIComponent(cleanUrl.slice(idx + marker.length));
 }
 
 function getDefaultFullName(
@@ -41,6 +45,19 @@ function getDefaultFullName(
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function getCacheBustedUrl(url: string) {
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}v=${Date.now()}`;
+}
+
+function normalizePassword(value: string) {
+  return value.trim();
+}
+
+function isValidPassword(value: string) {
+  return value.length >= 8 && /[A-Za-zА-Яа-я]/.test(value) && /\d/.test(value);
 }
 
 export default function ProfileSettingsPage() {
@@ -90,19 +107,63 @@ export default function ProfileSettingsPage() {
   const canSaveProfile = Boolean(user) && isProfileDirty && !savingProfile;
   const canRemoveAvatar = Boolean(user) && hasAvatar && !savingAvatar;
 
-  const passwordMismatch =
-    newPassword.length > 0 &&
-    confirmPassword.length > 0 &&
-    newPassword !== confirmPassword;
+  const normalizedNewPassword = normalizePassword(newPassword);
+  const normalizedConfirmPassword = normalizePassword(confirmPassword);
 
-  const passwordTooShort = newPassword.length > 0 && newPassword.length < 6;
+  const passwordMismatch =
+    normalizedNewPassword.length > 0 &&
+    normalizedConfirmPassword.length > 0 &&
+    normalizedNewPassword !== normalizedConfirmPassword;
+
+  const passwordTooShort =
+    normalizedNewPassword.length > 0 && normalizedNewPassword.length < 8;
+
+  const passwordMissingNumber =
+    normalizedNewPassword.length > 0 && !/\d/.test(normalizedNewPassword);
+
+  const passwordMissingLetter =
+    normalizedNewPassword.length > 0 &&
+    !/[A-Za-zА-Яа-я]/.test(normalizedNewPassword);
 
   const canSavePassword =
     Boolean(user) &&
-    newPassword.length >= 6 &&
-    confirmPassword.length >= 6 &&
-    newPassword === confirmPassword &&
+    isValidPassword(normalizedNewPassword) &&
+    normalizedConfirmPassword.length >= 8 &&
+    normalizedNewPassword === normalizedConfirmPassword &&
     !savingPassword;
+
+  const upsertProfile = async (patch: {
+    full_name?: string | null;
+    bio?: string | null;
+    avatar_url?: string | null;
+  }) => {
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const db = supabase as any;
+
+    const { error } = await db
+      .from('profiles')
+      .upsert(
+        {
+          user_id: user.id,
+          full_name: patch.full_name ?? (normalizedFullName || defaultFullName),
+          bio: patch.bio ?? (normalizedBio || null),
+          avatar_url:
+            Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
+              ? patch.avatar_url
+              : avatarUrl,
+        },
+        {
+          onConflict: 'user_id',
+        }
+      );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  };
 
   const closeCropDialog = () => {
     if (selectedImageSrc) {
@@ -115,6 +176,7 @@ export default function ProfileSettingsPage() {
 
   const handleAvatarFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
@@ -127,8 +189,7 @@ export default function ProfileSettingsPage() {
       return;
     }
 
-    const maxSizeMb = 25;
-    if (file.size > maxSizeMb * 1024 * 1024) {
+    if (file.size > MAX_AVATAR_SIZE_MB * 1024 * 1024) {
       toast({
         title: t('page.profile.toast.error_title'),
         description: t('page.profile.toast.file_too_large'),
@@ -151,6 +212,15 @@ export default function ProfileSettingsPage() {
   const handleAvatarCropped = async (croppedFile: File) => {
     if (!user) return;
 
+    if (!croppedFile.type.startsWith('image/')) {
+      toast({
+        title: t('page.profile.toast.error_title'),
+        description: t('page.profile.toast.invalid_file_type'),
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setSavingAvatar(true);
 
     try {
@@ -158,33 +228,35 @@ export default function ProfileSettingsPage() {
       const filePath = `${user.id}/avatar-${Date.now()}.jpg`;
 
       const { error: uploadError } = await supabase.storage
-        .from('avatars')
+        .from(AVATAR_BUCKET)
         .upload(filePath, croppedFile, {
-          upsert: true,
+          upsert: false,
           contentType: 'image/jpeg',
+          cacheControl: '3600',
         });
 
       if (uploadError) {
         throw new Error(uploadError.message);
       }
 
-      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(filePath);
       const nextAvatarUrl = data.publicUrl;
 
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ avatar_url: nextAvatarUrl })
-        .eq('user_id', user.id);
-
-      if (profileError) {
-        throw new Error(profileError.message);
-      }
+      await upsertProfile({
+        avatar_url: nextAvatarUrl,
+      });
 
       if (oldStoragePath && oldStoragePath !== filePath) {
-        await supabase.storage.from('avatars').remove([oldStoragePath]);
+        const { error: removeError } = await supabase.storage
+          .from(AVATAR_BUCKET)
+          .remove([oldStoragePath]);
+
+        if (removeError) {
+          console.warn('[ProfileSettingsPage] Old avatar remove failed', removeError);
+        }
       }
 
-      setAvatarUrl(nextAvatarUrl);
+      setAvatarUrl(getCacheBustedUrl(nextAvatarUrl));
       await refreshUser();
       closeCropDialog();
 
@@ -192,18 +264,14 @@ export default function ProfileSettingsPage() {
         title: t('page.profile.toast.avatar_updated'),
       });
     } catch (error) {
-      const message = getErrorMessage(
-        error,
-        t('page.profile.toast.avatar_save_error')
-      );
-
       toast({
         title: t('page.profile.toast.error_title'),
-        description: message,
+        description: getErrorMessage(
+          error,
+          t('page.profile.toast.avatar_save_error')
+        ),
         variant: 'destructive',
       });
-
-      throw error instanceof Error ? error : new Error(message);
     } finally {
       setSavingAvatar(false);
     }
@@ -215,17 +283,10 @@ export default function ProfileSettingsPage() {
     setSavingProfile(true);
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({
-          full_name: normalizedFullName || defaultFullName,
-          bio: normalizedBio || null,
-        })
-        .eq('user_id', user.id);
-
-      if (error) {
-        throw new Error(error.message);
-      }
+      await upsertProfile({
+        full_name: normalizedFullName || defaultFullName,
+        bio: normalizedBio || null,
+      });
 
       await refreshUser();
 
@@ -255,17 +316,18 @@ export default function ProfileSettingsPage() {
       const storagePath = extractStoragePath(avatarUrl);
 
       if (storagePath) {
-        await supabase.storage.from('avatars').remove([storagePath]);
+        const { error: removeError } = await supabase.storage
+          .from(AVATAR_BUCKET)
+          .remove([storagePath]);
+
+        if (removeError) {
+          console.warn('[ProfileSettingsPage] Avatar remove failed', removeError);
+        }
       }
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({ avatar_url: null })
-        .eq('user_id', user.id);
-
-      if (error) {
-        throw new Error(error.message);
-      }
+      await upsertProfile({
+        avatar_url: null,
+      });
 
       setAvatarUrl(null);
       await refreshUser();
@@ -293,7 +355,16 @@ export default function ProfileSettingsPage() {
     setSavingPassword(true);
 
     try {
-      await updatePassword(newPassword);
+      await updatePassword(normalizedNewPassword);
+
+      await supabase.auth.updateUser({
+        data: {
+          password_setup_completed: true,
+          password_setup_completed_at: new Date().toISOString(),
+        },
+      });
+
+      await refreshUser();
 
       setNewPassword('');
       setConfirmPassword('');
@@ -427,9 +498,9 @@ export default function ProfileSettingsPage() {
                   type={showNewPassword ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Кемінде 6 таңба"
+                  placeholder="Кемінде 8 таңба, әріп және сан"
                   className="pr-10"
-                  minLength={6}
+                  minLength={8}
                   disabled={savingPassword}
                 />
 
@@ -458,7 +529,7 @@ export default function ProfileSettingsPage() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Құпия сөзді қайталаңыз"
                   className="pr-10"
-                  minLength={6}
+                  minLength={8}
                   disabled={savingPassword}
                 />
 
@@ -480,7 +551,19 @@ export default function ProfileSettingsPage() {
 
             {passwordTooShort ? (
               <p className="text-sm text-red-600">
-                Құпия сөз кемінде 6 таңбадан тұруы керек.
+                Құпия сөз кемінде 8 таңбадан тұруы керек.
+              </p>
+            ) : null}
+
+            {passwordMissingLetter ? (
+              <p className="text-sm text-red-600">
+                Құпия сөзде кемінде бір әріп болуы керек.
+              </p>
+            ) : null}
+
+            {passwordMissingNumber ? (
+              <p className="text-sm text-red-600">
+                Құпия сөзде кемінде бір сан болуы керек.
               </p>
             ) : null}
 

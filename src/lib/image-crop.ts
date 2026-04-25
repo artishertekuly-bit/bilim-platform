@@ -5,30 +5,107 @@ export type AreaPixels = {
   y: number;
 };
 
+function isRemoteUrl(url: string) {
+  return /^https?:\/\//i.test(url);
+}
+
 function createImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.addEventListener('load', () => resolve(image));
-    image.addEventListener('error', (error) => reject(error));
-    image.setAttribute('crossOrigin', 'anonymous');
+
+    image.addEventListener(
+      'load',
+      async () => {
+        try {
+          if ('decode' in image) {
+            await image.decode();
+          }
+        } catch {
+          // Кей browser-лер decode() кезінде warning беруі мүмкін.
+          // load болған болса, image бәрібір қолдануға жарайды.
+        }
+
+        resolve(image);
+      },
+      { once: true }
+    );
+
+    image.addEventListener(
+      'error',
+      () => {
+        reject(new Error('Суретті жүктеу мүмкін болмады.'));
+      },
+      { once: true }
+    );
+
+    /**
+     * Remote image crop керек болса canvas tainted болмауы үшін.
+     * Local blob/object URL үшін бұл міндетті емес.
+     */
+    if (isRemoteUrl(url)) {
+      image.crossOrigin = 'anonymous';
+    }
+
     image.src = url;
   });
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function normalizeCrop(image: HTMLImageElement, crop: AreaPixels) {
+  const naturalWidth = image.naturalWidth || image.width;
+  const naturalHeight = image.naturalHeight || image.height;
+
+  if (!naturalWidth || !naturalHeight) {
+    throw new Error('Сурет өлшемін анықтау мүмкін болмады.');
+  }
+
+  const x = clamp(Math.round(crop.x), 0, naturalWidth - 1);
+  const y = clamp(Math.round(crop.y), 0, naturalHeight - 1);
+
+  const maxWidth = naturalWidth - x;
+  const maxHeight = naturalHeight - y;
+
+  const width = clamp(Math.round(crop.width), 1, maxWidth);
+  const height = clamp(Math.round(crop.height), 1, maxHeight);
+
+  return {
+    x,
+    y,
+    width,
+    height,
+  };
 }
 
 export async function getCroppedImageBlob(
   imageSrc: string,
   pixelCrop: AreaPixels,
-  outputSize = 320,
+  outputSize = 512,
   mimeType: 'image/jpeg' | 'image/png' = 'image/jpeg',
   quality = 0.92
 ): Promise<Blob> {
+  if (!imageSrc) {
+    throw new Error('Сурет көзі табылмады.');
+  }
+
+  if (!pixelCrop || pixelCrop.width <= 0 || pixelCrop.height <= 0) {
+    throw new Error('Crop аймағы дұрыс емес.');
+  }
+
+  if (!Number.isFinite(outputSize) || outputSize <= 0) {
+    throw new Error('Output size дұрыс емес.');
+  }
+
   const image = await createImage(imageSrc);
+  const crop = normalizeCrop(image, pixelCrop);
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
 
   if (!ctx) {
-    throw new Error('Canvas контекстін алу мүмкін болмады');
+    throw new Error('Canvas контекстін алу мүмкін болмады.');
   }
 
   canvas.width = outputSize;
@@ -37,29 +114,53 @@ export async function getCroppedImageBlob(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  ctx.drawImage(
-    image,
-    pixelCrop.x,
-    pixelCrop.y,
-    pixelCrop.width,
-    pixelCrop.height,
-    0,
-    0,
-    outputSize,
-    outputSize
-  );
+  /**
+   * JPEG transparent background сақтамайды.
+   * PNG/WebP transparent болса, JPEG-ке айналғанда қара болып кетпеуі үшін ақ фон береміз.
+   */
+  if (mimeType === 'image/jpeg') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, outputSize, outputSize);
+  } else {
+    ctx.clearRect(0, 0, outputSize, outputSize);
+  }
+
+  try {
+    ctx.drawImage(
+      image,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      outputSize,
+      outputSize
+    );
+  } catch {
+    throw new Error('Суретті canvas арқылы қию мүмкін болмады.');
+  }
 
   return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          reject(new Error('Cropped image blob жасалмады'));
-          return;
-        }
-        resolve(blob);
-      },
-      mimeType,
-      quality
-    );
+    try {
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error('Cropped image blob жасалмады.'));
+            return;
+          }
+
+          resolve(blob);
+        },
+        mimeType,
+        quality
+      );
+    } catch {
+      reject(
+        new Error(
+          'Суретті сақтау мүмкін болмады. Егер remote URL қолданылса, CORS рұқсаты керек.'
+        )
+      );
+    }
   });
 }
