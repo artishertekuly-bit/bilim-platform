@@ -26,6 +26,8 @@ import type {
   CourseAnnouncementPriority,
   CourseAnnouncementView,
   CourseVisibility,
+  LessonMiniQuizQuestionType,
+  LessonMiniQuizQuestionView,
 } from '@/lib/app-data-types';
 import {
   platformKeys,
@@ -40,10 +42,17 @@ import {
   useDeleteCourseAnnouncementMutation,
   useDeleteCourseAssetMutation,
   useDeleteLessonAttachmentMutation,
+  useDeleteLessonMiniQuizMutation,
+  useDeleteLessonMiniQuizQuestionMutation,
   useLessonAttachments,
+  useLessonMiniQuiz,
+  useReorderLessonMiniQuizQuestionsMutation,
   useSubjects,
+  useUpsertLessonMiniQuizMutation,
   useTeacherCourseWorkspace,
   useUpdateCourseAnnouncementMutation,
+  useCreateLessonMiniQuizQuestionMutation,
+  useUpdateLessonMiniQuizQuestionMutation,
 } from '@/hooks/use-platform-data';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -68,16 +77,20 @@ import {
   ExternalLink,
   FileText,
   GraduationCap,
+  HelpCircle,
   KeyRound,
   LayoutDashboard,
   Link as LinkIcon,
+  ListChecks,
   Megaphone,
   Pencil,
   Pin,
   Plus,
   RotateCcw,
+  Save,
   Settings,
   Trash2,
+  X,
 } from 'lucide-react';
 
 const courseStatuses = ['draft', 'published', 'archived'] as const;
@@ -617,6 +630,140 @@ function CourseAnnouncementCard({
   );
 }
 
+
+const miniQuizQuestionTypes: LessonMiniQuizQuestionType[] = [
+  'single_choice',
+  'multiple_choice',
+];
+
+function getMiniQuizQuestionTypeLabel(type: LessonMiniQuizQuestionType) {
+  const map: Record<LessonMiniQuizQuestionType, string> = {
+    single_choice: 'Бір дұрыс жауап',
+    multiple_choice: 'Бірнеше дұрыс жауап',
+  };
+
+  return map[type] || type;
+}
+
+function normalizeQuestionOptions(options: string[]) {
+  return options.map((option) => option.trim()).filter(Boolean);
+}
+
+function getNextMiniQuizQuestionSortOrder(questions: LessonMiniQuizQuestionView[] = []) {
+  const maxSortOrder = questions.reduce(
+    (max, question) => Math.max(max, Number(question.sortOrder) || 0),
+    0
+  );
+
+  return String(maxSortOrder + 1);
+}
+
+function MiniQuizQuestionCard({
+  question,
+  index,
+  total,
+  onEdit,
+  onDelete,
+  onMove,
+  disabled,
+}: {
+  question: LessonMiniQuizQuestionView;
+  index: number;
+  total: number;
+  onEdit: (question: LessonMiniQuizQuestionView) => void;
+  onDelete: (question: LessonMiniQuizQuestionView) => void;
+  onMove: (questionId: string, direction: 'up' | 'down') => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="rounded-lg border bg-card p-3 text-sm">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <StatusBadge tone="info">#{question.sortOrder}</StatusBadge>
+            <StatusBadge tone={question.questionType === 'multiple_choice' ? 'warning' : 'primary'}>
+              {getMiniQuizQuestionTypeLabel(question.questionType)}
+            </StatusBadge>
+          </div>
+
+          <p className="font-semibold">{question.questionText}</p>
+
+          <div className="mt-3 space-y-1.5">
+            {question.options.map((option, optionIndex) => {
+              const isCorrect = question.correctAnswer.includes(optionIndex);
+
+              return (
+                <div
+                  key={`${question.id}-${optionIndex}`}
+                  className={`rounded-md border px-2.5 py-1.5 text-xs ${
+                    isCorrect ? 'border-emerald-500/30 bg-emerald-500/10' : 'bg-muted/20'
+                  }`}
+                >
+                  <span className="font-medium">{optionIndex + 1}.</span>{' '}
+                  <span>{option}</span>
+                  {isCorrect ? <span className="ml-2 text-emerald-700">дұрыс</span> : null}
+                </div>
+              );
+            })}
+          </div>
+
+          {question.explanation ? (
+            <p className="mt-2 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+              Түсіндірме: {question.explanation}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            disabled={index === 0 || disabled}
+            onClick={() => onMove(question.id, 'up')}
+          >
+            <ArrowUp size={13} />
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            disabled={index === total - 1 || disabled}
+            onClick={() => onMove(question.id, 'down')}
+          >
+            <ArrowDown size={13} />
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            disabled={disabled}
+            onClick={() => onEdit(question)}
+          >
+            <Pencil size={13} />
+          </Button>
+
+          <Button
+            type="button"
+            variant="destructive"
+            size="icon"
+            className="h-8 w-8"
+            disabled={disabled}
+            onClick={() => onDelete(question)}
+          >
+            <Trash2 size={13} />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TeacherCreateCoursePage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -707,6 +854,24 @@ export default function TeacherCreateCoursePage() {
     externalUrl: '',
   });
 
+  const [miniQuizForm, setMiniQuizForm] = useState({
+    title: 'Сабақ соңындағы қысқа тест',
+    description: '',
+    passingScore: '60',
+    isPublished: false,
+  });
+
+  const [miniQuizQuestionForm, setMiniQuizQuestionForm] = useState({
+    questionText: '',
+    questionType: 'single_choice' as LessonMiniQuizQuestionType,
+    options: ['', '', '', ''],
+    correctAnswer: [] as number[],
+    explanation: '',
+    sortOrder: '1',
+  });
+
+  const [editingMiniQuizQuestionId, setEditingMiniQuizQuestionId] = useState<string | null>(null);
+
   const [announcementForm, setAnnouncementForm] = useState({
     title: '',
     body: '',
@@ -759,6 +924,13 @@ export default function TeacherCreateCoursePage() {
     isLoading: lessonAttachmentsLoading,
   } = useLessonAttachments(editingLessonId || '', !!editingLessonId);
 
+  const {
+    data: miniQuizData,
+    isLoading: miniQuizLoading,
+  } = useLessonMiniQuiz(editingLessonId || '', user?.id, !!editingLessonId, true);
+
+  const selectedMiniQuiz = miniQuizData?.quiz || null;
+
   const createInviteMutation = useCreateCourseInviteMutation(user?.id);
   const deactivateInviteMutation = useDeactivateCourseInviteMutation(user?.id);
   const createAnnouncementMutation = useCreateCourseAnnouncementMutation(user?.id);
@@ -768,6 +940,12 @@ export default function TeacherCreateCoursePage() {
   const deleteCourseAssetMutation = useDeleteCourseAssetMutation(user?.id);
   const createLessonAttachmentMutation = useCreateLessonExternalAttachmentMutation(user?.id);
   const deleteLessonAttachmentMutation = useDeleteLessonAttachmentMutation(user?.id);
+  const upsertMiniQuizMutation = useUpsertLessonMiniQuizMutation(user?.id);
+  const deleteMiniQuizMutation = useDeleteLessonMiniQuizMutation(user?.id);
+  const createMiniQuizQuestionMutation = useCreateLessonMiniQuizQuestionMutation(user?.id);
+  const updateMiniQuizQuestionMutation = useUpdateLessonMiniQuizQuestionMutation(user?.id);
+  const deleteMiniQuizQuestionMutation = useDeleteLessonMiniQuizQuestionMutation(user?.id);
+  const reorderMiniQuizQuestionsMutation = useReorderLessonMiniQuizQuestionsMutation(user?.id);
 
   const selectedCourseModuleSignature =
     selectedCourseModules.map((module) => module.id).join('|') || '';
@@ -801,8 +979,17 @@ export default function TeacherCreateCoursePage() {
     setSelectedCourseId(courseId);
     syncCourseParam(courseId);
     setEditingLessonId(null);
+    setEditingMiniQuizQuestionId(null);
     setEditingAnnouncementId(null);
     setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
+    setMiniQuizQuestionForm({
+      questionText: '',
+      questionType: 'single_choice',
+      options: ['', '', '', ''],
+      correctAnswer: [],
+      explanation: '',
+      sortOrder: '1',
+    });
     setAnnouncementForm({
       title: '',
       body: '',
@@ -856,7 +1043,16 @@ export default function TeacherCreateCoursePage() {
       isPublished: false,
     });
     setEditingLessonId(null);
+    setEditingMiniQuizQuestionId(null);
     setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
+    setMiniQuizQuestionForm({
+      questionText: '',
+      questionType: 'single_choice',
+      options: ['', '', '', ''],
+      correctAnswer: [],
+      explanation: '',
+      sortOrder: '1',
+    });
   }, [defaultModuleId, getNextLessonSortOrder]);
 
   const seedEditFromCourse = (courseId: string) => {
@@ -968,9 +1164,47 @@ export default function TeacherCreateCoursePage() {
 
     if (!lessonStillExists) {
       setEditingLessonId(null);
+      setEditingMiniQuizQuestionId(null);
       setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
+      setMiniQuizQuestionForm({
+        questionText: '',
+        questionType: 'single_choice',
+        options: ['', '', '', ''],
+        correctAnswer: [],
+        explanation: '',
+        sortOrder: '1',
+      });
     }
   }, [selectedCourse, editingLessonId]);
+
+  useEffect(() => {
+    if (!selectedMiniQuiz) {
+      setMiniQuizForm((prev) => ({
+        ...prev,
+        title: 'Сабақ соңындағы қысқа тест',
+        description: '',
+        passingScore: '60',
+        isPublished: false,
+      }));
+      setMiniQuizQuestionForm((prev) => ({
+        ...prev,
+        sortOrder: '1',
+      }));
+      return;
+    }
+
+    setMiniQuizForm({
+      title: selectedMiniQuiz.title,
+      description: selectedMiniQuiz.description || '',
+      passingScore: String(selectedMiniQuiz.passingScore),
+      isPublished: selectedMiniQuiz.isPublished,
+    });
+
+    setMiniQuizQuestionForm((prev) => ({
+      ...prev,
+      sortOrder: getNextMiniQuizQuestionSortOrder(selectedMiniQuiz.questions),
+    }));
+  }, [selectedMiniQuiz?.id, selectedMiniQuiz?.updatedAt, selectedMiniQuiz?.questionsCount]);
 
   const refetchWorkspace = async () => {
     await Promise.all([
@@ -985,6 +1219,7 @@ export default function TeacherCreateCoursePage() {
       queryClient.invalidateQueries({ queryKey: ['course-assets'] }),
       queryClient.invalidateQueries({ queryKey: ['course-announcements'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-attachments'] }),
+      queryClient.invalidateQueries({ queryKey: ['lesson-mini-quiz'] }),
       queryClient.invalidateQueries({ queryKey: ['lessons'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-learning-state'] }),
@@ -1668,6 +1903,264 @@ export default function TeacherCreateCoursePage() {
     }
   };
 
+  const resetMiniQuizQuestionForm = () => {
+    setMiniQuizQuestionForm({
+      questionText: '',
+      questionType: 'single_choice',
+      options: ['', '', '', ''],
+      correctAnswer: [],
+      explanation: '',
+      sortOrder: selectedMiniQuiz
+        ? getNextMiniQuizQuestionSortOrder(selectedMiniQuiz.questions)
+        : '1',
+    });
+    setEditingMiniQuizQuestionId(null);
+  };
+
+  const parseMiniQuizPassingScore = () => {
+    const passingScore = Number(miniQuizForm.passingScore || 0);
+
+    if (!Number.isInteger(passingScore) || passingScore < 0 || passingScore > 100) {
+      throw new Error('Өту пайызы 0 мен 100 аралығындағы бүтін сан болуы керек.');
+    }
+
+    return passingScore;
+  };
+
+  const saveMiniQuizBase = async () => {
+    if (!selectedCourse || !selectedEditingLesson || !user?.id) {
+      throw new Error('Mini quiz сақтау үшін алдымен сабақты таңдаңыз.');
+    }
+
+    const title = miniQuizForm.title.trim();
+
+    if (!title) {
+      throw new Error('Mini quiz атауын енгізіңіз.');
+    }
+
+    const passingScore = parseMiniQuizPassingScore();
+
+    return upsertMiniQuizMutation.mutateAsync({
+      lessonId: selectedEditingLesson.id,
+      courseId: selectedCourse.id,
+      createdBy: user.id,
+      teacherId: user.id,
+      title,
+      description: miniQuizForm.description.trim() || null,
+      isPublished: miniQuizForm.isPublished,
+      passingScore,
+    });
+  };
+
+  const handleSaveMiniQuiz = async () => {
+    try {
+      await saveMiniQuizBase();
+      await refetchWorkspace();
+
+      toast({
+        title: 'Mini quiz сақталды',
+      });
+    } catch (error) {
+      toast({
+        title: 'Mini quiz сақтау мүмкін болмады',
+        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteMiniQuiz = async () => {
+    if (!selectedCourse || !selectedEditingLesson || !selectedMiniQuiz) return;
+
+    if (!window.confirm('Бұл mini quiz толық өшіріледі. Жалғастырасыз ба?')) {
+      return;
+    }
+
+    try {
+      await deleteMiniQuizMutation.mutateAsync({
+        quizId: selectedMiniQuiz.id,
+        lessonId: selectedEditingLesson.id,
+        courseId: selectedCourse.id,
+        teacherId: user?.id,
+      });
+
+      resetMiniQuizQuestionForm();
+      await refetchWorkspace();
+
+      toast({
+        title: 'Mini quiz өшірілді',
+      });
+    } catch (error) {
+      toast({
+        title: 'Mini quiz өшіру мүмкін болмады',
+        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleToggleMiniQuizCorrectAnswer = (optionIndex: number) => {
+    setMiniQuizQuestionForm((prev) => {
+      if (prev.questionType === 'single_choice') {
+        return {
+          ...prev,
+          correctAnswer: [optionIndex],
+        };
+      }
+
+      const exists = prev.correctAnswer.includes(optionIndex);
+
+      return {
+        ...prev,
+        correctAnswer: exists
+          ? prev.correctAnswer.filter((item) => item !== optionIndex)
+          : [...prev.correctAnswer, optionIndex].sort((a, b) => a - b),
+      };
+    });
+  };
+
+  const handleEditMiniQuizQuestion = (question: LessonMiniQuizQuestionView) => {
+    const options = [...question.options];
+
+    while (options.length < 4) {
+      options.push('');
+    }
+
+    setEditingMiniQuizQuestionId(question.id);
+    setMiniQuizQuestionForm({
+      questionText: question.questionText,
+      questionType: question.questionType,
+      options,
+      correctAnswer: question.correctAnswer,
+      explanation: question.explanation || '',
+      sortOrder: String(question.sortOrder),
+    });
+
+    scrollToBuilderSection('lesson-mini-quiz');
+  };
+
+  const handleSaveMiniQuizQuestion = async () => {
+    if (!selectedCourse || !selectedEditingLesson || !user?.id) return;
+
+    try {
+      const options = normalizeQuestionOptions(miniQuizQuestionForm.options);
+      const sortOrder = Number(miniQuizQuestionForm.sortOrder || 1);
+
+      if (!Number.isInteger(sortOrder) || sortOrder <= 0) {
+        throw new Error('Сұрақ реті 1 немесе одан жоғары бүтін сан болуы керек.');
+      }
+
+      const quizRow = selectedMiniQuiz || (await saveMiniQuizBase());
+      const quizId = selectedMiniQuiz?.id || quizRow.id;
+
+      const payload = {
+        lessonId: selectedEditingLesson.id,
+        courseId: selectedCourse.id,
+        teacherId: user.id,
+        questionText: miniQuizQuestionForm.questionText.trim(),
+        questionType: miniQuizQuestionForm.questionType,
+        options,
+        correctAnswer: miniQuizQuestionForm.correctAnswer,
+        explanation: miniQuizQuestionForm.explanation.trim() || null,
+        sortOrder,
+      };
+
+      if (editingMiniQuizQuestionId) {
+        await updateMiniQuizQuestionMutation.mutateAsync({
+          ...payload,
+          questionId: editingMiniQuizQuestionId,
+        });
+
+        toast({ title: 'Mini quiz сұрағы жаңартылды' });
+      } else {
+        await createMiniQuizQuestionMutation.mutateAsync({
+          ...payload,
+          quizId,
+        });
+
+        toast({ title: 'Mini quiz сұрағы қосылды' });
+      }
+
+      resetMiniQuizQuestionForm();
+      await refetchWorkspace();
+    } catch (error) {
+      toast({
+        title: 'Mini quiz сұрағын сақтау мүмкін болмады',
+        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteMiniQuizQuestion = async (question: LessonMiniQuizQuestionView) => {
+    if (!selectedCourse || !selectedEditingLesson) return;
+
+    if (!window.confirm('Бұл сұрақты өшіргіңіз келе ме?')) {
+      return;
+    }
+
+    try {
+      await deleteMiniQuizQuestionMutation.mutateAsync({
+        questionId: question.id,
+        lessonId: selectedEditingLesson.id,
+        courseId: selectedCourse.id,
+        teacherId: user?.id,
+      });
+
+      if (editingMiniQuizQuestionId === question.id) {
+        resetMiniQuizQuestionForm();
+      }
+
+      await refetchWorkspace();
+
+      toast({ title: 'Mini quiz сұрағы өшірілді' });
+    } catch (error) {
+      toast({
+        title: 'Mini quiz сұрағын өшіру мүмкін болмады',
+        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleMoveMiniQuizQuestion = async (
+    questionId: string,
+    direction: 'up' | 'down'
+  ) => {
+    if (!selectedCourse || !selectedEditingLesson || !selectedMiniQuiz) return;
+
+    const questions = selectedMiniQuiz.questions;
+    const currentIndex = questions.findIndex((question) => question.id === questionId);
+    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= questions.length) {
+      return;
+    }
+
+    const orderedQuestionIds = moveItem(questions, currentIndex, nextIndex).map(
+      (question) => question.id
+    );
+
+    try {
+      await reorderMiniQuizQuestionsMutation.mutateAsync({
+        quizId: selectedMiniQuiz.id,
+        orderedQuestionIds,
+        lessonId: selectedEditingLesson.id,
+        courseId: selectedCourse.id,
+        teacherId: user?.id,
+      });
+
+      await refetchWorkspace();
+      toast({ title: 'Mini quiz сұрақтарының реті жаңартылды' });
+    } catch (error) {
+      toast({
+        title: 'Mini quiz сұрақтарын реттеу мүмкін болмады',
+        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   const handleCreateLessonAttachment = async () => {
     if (!selectedCourse || !selectedEditingLesson || !user?.id) return;
 
@@ -1756,6 +2249,23 @@ export default function TeacherCreateCoursePage() {
     !!announcementForm.body.trim() &&
     !createAnnouncementMutation.isPending &&
     !updateAnnouncementMutation.isPending;
+
+  const canSaveMiniQuiz =
+    !!selectedCourse &&
+    !!selectedEditingLesson &&
+    !!user?.id &&
+    !!miniQuizForm.title.trim() &&
+    !upsertMiniQuizMutation.isPending;
+
+  const canSaveMiniQuizQuestion =
+    !!selectedCourse &&
+    !!selectedEditingLesson &&
+    !!user?.id &&
+    !!miniQuizQuestionForm.questionText.trim() &&
+    normalizeQuestionOptions(miniQuizQuestionForm.options).length >= 2 &&
+    miniQuizQuestionForm.correctAnswer.length > 0 &&
+    !createMiniQuizQuestionMutation.isPending &&
+    !updateMiniQuizQuestionMutation.isPending;
 
   const canCreateLessonAttachment =
     !!selectedCourse &&
@@ -3220,6 +3730,309 @@ export default function TeacherCreateCoursePage() {
                         </Button>
                       ) : null}
                     </div>
+                  </CardContent>
+                </Card>
+
+                <Card id="lesson-mini-quiz" className="scroll-mt-24">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                      <ListChecks size={16} />
+                      Lesson Mini Quiz
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Сабақ соңында оқушыға қысқа тексеру тестін көрсетіңіз. Бір сабаққа бір mini quiz беріледі.
+                    </p>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4">
+                    {!editingLessonId || !selectedEditingLesson ? (
+                      <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
+                        Mini quiz қосу үшін алдымен бар сабақты таңдаңыз немесе жаңа сабақты сақтаңыз.
+                      </div>
+                    ) : (
+                      <>
+                        {miniQuizLoading ? (
+                          <LoadingState text="Mini quiz жүктелуде..." />
+                        ) : null}
+
+                        <div className="space-y-3 rounded-lg border p-3">
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
+                            <div className="space-y-1.5">
+                              <Label>Mini quiz атауы</Label>
+                              <Input
+                                value={miniQuizForm.title}
+                                onChange={(e) =>
+                                  setMiniQuizForm((p) => ({ ...p, title: e.target.value }))
+                                }
+                                placeholder="Мысалы: Сабақ бойынша қысқа тексеру"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>Өту пайызы</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={miniQuizForm.passingScore}
+                                onChange={(e) =>
+                                  setMiniQuizForm((p) => ({
+                                    ...p,
+                                    passingScore: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <Label>Сипаттама</Label>
+                            <Textarea
+                              rows={2}
+                              value={miniQuizForm.description}
+                              onChange={(e) =>
+                                setMiniQuizForm((p) => ({ ...p, description: e.target.value }))
+                              }
+                              placeholder="Қысқаша нұсқаулық немесе түсіндірме"
+                            />
+                          </div>
+
+                          <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+                            <div>
+                              <Label htmlFor="mini-quiz-published">Оқушыға көрсету</Label>
+                              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                Publish қосылса, quiz сабақ detail бетінде көрінеді.
+                              </p>
+                            </div>
+
+                            <Switch
+                              id="mini-quiz-published"
+                              checked={miniQuizForm.isPublished}
+                              onCheckedChange={(checked) =>
+                                setMiniQuizForm((p) => ({ ...p, isPublished: checked }))
+                              }
+                            />
+                          </div>
+
+                          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                            {selectedMiniQuiz ? (
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                onClick={handleDeleteMiniQuiz}
+                                disabled={deleteMiniQuizMutation.isPending}
+                              >
+                                <Trash2 size={14} className="mr-1.5" />
+                                Mini quiz өшіру
+                              </Button>
+                            ) : null}
+
+                            <Button
+                              type="button"
+                              onClick={handleSaveMiniQuiz}
+                              disabled={!canSaveMiniQuiz}
+                            >
+                              <Save size={14} className="mr-1.5" />
+                              {upsertMiniQuizMutation.isPending ? 'Сақталуда...' : 'Mini quiz сақтау'}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 rounded-lg border p-3">
+                          <div className="flex flex-col gap-1">
+                            <p className="text-sm font-semibold">
+                              {editingMiniQuizQuestionId ? 'Сұрақты өңдеу' : 'Жаңа сұрақ'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Дұрыс жауап индекс арқылы емес, checkbox/radio арқылы таңдалады.
+                            </p>
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_120px]">
+                            <div className="space-y-1.5">
+                              <Label>Сұрақ мәтіні</Label>
+                              <Input
+                                value={miniQuizQuestionForm.questionText}
+                                onChange={(e) =>
+                                  setMiniQuizQuestionForm((p) => ({
+                                    ...p,
+                                    questionText: e.target.value,
+                                  }))
+                                }
+                                placeholder="Мысалы: Бұл тақырыптың негізгі ұғымы қандай?"
+                              />
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>Сұрақ түрі</Label>
+                              <select
+                                value={miniQuizQuestionForm.questionType}
+                                onChange={(e) =>
+                                  setMiniQuizQuestionForm((p) => ({
+                                    ...p,
+                                    questionType: e.target.value as LessonMiniQuizQuestionType,
+                                    correctAnswer: [],
+                                  }))
+                                }
+                                className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              >
+                                {miniQuizQuestionTypes.map((type) => (
+                                  <option key={type} value={type}>
+                                    {getMiniQuizQuestionTypeLabel(type)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label>Реті</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={miniQuizQuestionForm.sortOrder}
+                                onChange={(e) =>
+                                  setMiniQuizQuestionForm((p) => ({
+                                    ...p,
+                                    sortOrder: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label>Жауап нұсқалары</Label>
+                            {miniQuizQuestionForm.options.map((option, optionIndex) => {
+                              const checked = miniQuizQuestionForm.correctAnswer.includes(optionIndex);
+                              const inputType =
+                                miniQuizQuestionForm.questionType === 'single_choice'
+                                  ? 'radio'
+                                  : 'checkbox';
+
+                              return (
+                                <div key={optionIndex} className="flex items-center gap-2">
+                                  <input
+                                    type={inputType}
+                                    name="mini-quiz-correct-answer"
+                                    checked={checked}
+                                    onChange={() => handleToggleMiniQuizCorrectAnswer(optionIndex)}
+                                    className="h-4 w-4"
+                                  />
+                                  <Input
+                                    value={option}
+                                    onChange={(e) =>
+                                      setMiniQuizQuestionForm((p) => {
+                                        const nextOptions = [...p.options];
+                                        nextOptions[optionIndex] = e.target.value;
+
+                                        return {
+                                          ...p,
+                                          options: nextOptions,
+                                        };
+                                      })
+                                    }
+                                    placeholder={`Жауап ${optionIndex + 1}`}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <Label>Түсіндірме</Label>
+                            <Textarea
+                              rows={2}
+                              value={miniQuizQuestionForm.explanation}
+                              onChange={(e) =>
+                                setMiniQuizQuestionForm((p) => ({
+                                  ...p,
+                                  explanation: e.target.value,
+                                }))
+                              }
+                              placeholder="Оқушы жауап бергеннен кейін көретін қысқаша түсіндірме"
+                            />
+                          </div>
+
+                          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                            {editingMiniQuizQuestionId ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={resetMiniQuizQuestionForm}
+                              >
+                                <X size={14} className="mr-1.5" />
+                                Болдырмау
+                              </Button>
+                            ) : null}
+
+                            <Button
+                              type="button"
+                              onClick={handleSaveMiniQuizQuestion}
+                              disabled={!canSaveMiniQuizQuestion}
+                            >
+                              <HelpCircle size={14} className="mr-1.5" />
+                              {editingMiniQuizQuestionId
+                                ? updateMiniQuizQuestionMutation.isPending
+                                  ? 'Жаңартылуда...'
+                                  : 'Сұрақты жаңарту'
+                                : createMiniQuizQuestionMutation.isPending
+                                  ? 'Қосылуда...'
+                                  : 'Сұрақ қосу'}
+                            </Button>
+                          </div>
+                        </div>
+
+                        {!miniQuizLoading && !selectedMiniQuiz ? (
+                          <EmptyState
+                            title="Mini quiz әлі сақталмаған"
+                            text="Алдымен quiz баптауларын сақтаңыз немесе бірден сұрақ қосыңыз."
+                          />
+                        ) : null}
+
+                        {selectedMiniQuiz ? (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-xs">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <StatusBadge tone={selectedMiniQuiz.isPublished ? 'success' : 'warning'}>
+                                  {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Draft'}
+                                </StatusBadge>
+                                <StatusBadge tone="info">
+                                  {selectedMiniQuiz.questionsCount} сұрақ
+                                </StatusBadge>
+                                <StatusBadge tone="muted">
+                                  Өту: {selectedMiniQuiz.passingScore}%
+                                </StatusBadge>
+                              </div>
+                            </div>
+
+                            {selectedMiniQuiz.questions.length === 0 ? (
+                              <EmptyState
+                                title="Сұрақ жоқ"
+                                text="Mini quiz оқушыға пайдалы болуы үшін кемінде бір сұрақ қосыңыз."
+                              />
+                            ) : (
+                              <div className="space-y-2">
+                                {selectedMiniQuiz.questions.map((question, index) => (
+                                  <MiniQuizQuestionCard
+                                    key={question.id}
+                                    question={question}
+                                    index={index}
+                                    total={selectedMiniQuiz.questions.length}
+                                    onEdit={handleEditMiniQuizQuestion}
+                                    onDelete={handleDeleteMiniQuizQuestion}
+                                    onMove={handleMoveMiniQuizQuestion}
+                                    disabled={
+                                      deleteMiniQuizQuestionMutation.isPending ||
+                                      reorderMiniQuizQuestionsMutation.isPending
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </CardContent>
                 </Card>
 

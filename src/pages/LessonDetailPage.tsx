@@ -29,6 +29,8 @@ import {
   useDeleteLessonNoteMutation,
   useLessonDetail,
   useLessonLearningState,
+  useLessonMiniQuiz,
+  useSubmitLessonMiniQuizMutation,
   useToggleLessonBookmarkMutation,
   useToggleReviewLaterMutation,
   useUpsertLessonNoteMutation,
@@ -41,6 +43,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { isYouTubeUrl, normalizeMediaUrl } from '@/lib/media-url';
+import type {
+  LessonMiniQuizQuestionView,
+  LessonMiniQuizSubmitResult,
+} from '@/lib/app-data-types';
 
 function formatBytes(value: number | null | undefined) {
   if (!value || value <= 0) return null;
@@ -230,35 +236,276 @@ function ResourceListCard({
   );
 }
 
-function MiniQuizPlaceholder() {
-  return (
-    <Card className="border-dashed">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <HelpCircle size={16} />
-          Lesson Mini Quiz
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">
-          Сабақ соңындағы қысқа тексеріс осы блокта ашылады.
-        </p>
-      </CardHeader>
+function getQuestionTypeLabel(questionType: LessonMiniQuizQuestionView['questionType']) {
+  if (questionType === 'multiple_choice') return 'Бірнеше дұрыс жауап';
+  return 'Бір дұрыс жауап';
+}
 
-      <CardContent>
-        <div className="rounded-xl border bg-muted/30 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-medium">Мини тест әзірге placeholder</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Келесі MVP қадамында осы жерге 3–5 сұрақтан тұратын сабақтық quiz
-                қосамыз: бір дұрыс жауап, түсіндірме, нәтиже және қайталау ұсынысы.
-              </p>
+function getSelectedAnswerLabel(indexes: number[], options: string[]) {
+  if (indexes.length === 0) return 'Жауап таңдалмаған';
+
+  return indexes
+    .map((index) => options[index])
+    .filter(Boolean)
+    .join(', ');
+}
+
+function MiniQuizCard({
+  quiz,
+  latestAttempt,
+  latestResult,
+  answers,
+  isLoading,
+  hasError,
+  isStudent,
+  submitting,
+  disabled,
+  onToggleAnswer,
+  onSubmit,
+}: {
+  quiz: {
+    id: string;
+    title: string;
+    description: string | null;
+    passingScore: number;
+    questions: LessonMiniQuizQuestionView[];
+  } | null;
+  latestAttempt: {
+    score: number;
+    correctCount: number;
+    totalQuestions: number;
+    passed: boolean;
+    completedAt: string;
+  } | null;
+  latestResult: LessonMiniQuizSubmitResult | null;
+  answers: Record<string, number[]>;
+  isLoading: boolean;
+  hasError: boolean;
+  isStudent: boolean;
+  submitting: boolean;
+  disabled: boolean;
+  onToggleAnswer: (question: LessonMiniQuizQuestionView, optionIndex: number) => void;
+  onSubmit: () => void;
+}) {
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="space-y-2 pb-3">
+          <SkeletonBlock className="h-5 w-40" />
+          <SkeletonBlock className="h-3 w-72" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <SkeletonBlock className="h-20 w-full rounded-xl" />
+          <SkeletonBlock className="h-20 w-full rounded-xl" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <Card className="border-destructive/30 bg-destructive/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <HelpCircle size={16} />
+            Lesson Mini Quiz
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-destructive">
+            Mini quiz дерегін жүктеу мүмкін болмады.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!quiz) return null;
+
+  const allQuestionsAnswered =
+    quiz.questions.length > 0 &&
+    quiz.questions.every((question) => (answers[question.id] || []).length > 0);
+
+  return (
+    <Card id="mini-quiz" className="border-primary/20 bg-primary/5">
+      <CardHeader className="pb-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <HelpCircle size={16} />
+                {quiz.title || 'Lesson Mini Quiz'}
+              </CardTitle>
+              <StatusBadge tone="info">{quiz.questions.length} сұрақ</StatusBadge>
+              <StatusBadge tone="muted">Өту: {quiz.passingScore}%</StatusBadge>
             </div>
 
-            <Button type="button" variant="outline" disabled>
-              Жақында қосылады
-            </Button>
+            {quiz.description ? (
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                {quiz.description}
+              </p>
+            ) : (
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Сабақ соңындағы қысқа тексеріс. Нәтиже бірден көрсетіледі.
+              </p>
+            )}
           </div>
+
+          {latestAttempt ? (
+            <StatusBadge
+              tone={latestAttempt.passed ? 'success' : 'warning'}
+              icon={latestAttempt.passed ? <CheckCircle2 size={12} /> : <RotateCcw size={12} />}
+            >
+              Соңғы нәтиже: {latestAttempt.score}%
+            </StatusBadge>
+          ) : null}
         </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {quiz.questions.length === 0 ? (
+          <EmptyState
+            title="Mini quiz ішінде сұрақ жоқ"
+            text="Мұғалім сұрақ қосқаннан кейін quiz осы жерде ашылады."
+            compact
+          />
+        ) : (
+          quiz.questions.map((question, questionIndex) => {
+            const selected = answers[question.id] || [];
+            const resultItem = latestResult?.breakdown.find(
+              (item) => item.questionId === question.id
+            );
+
+            return (
+              <div key={question.id} className="rounded-xl border bg-card p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      {questionIndex + 1}-сұрақ · {getQuestionTypeLabel(question.questionType)}
+                    </p>
+                    <h3 className="mt-1 text-sm font-semibold">
+                      {question.questionText}
+                    </h3>
+                  </div>
+
+                  {resultItem ? (
+                    <StatusBadge
+                      tone={resultItem.isCorrect ? 'success' : 'danger'}
+                      icon={
+                        resultItem.isCorrect ? (
+                          <CheckCircle2 size={12} />
+                        ) : (
+                          <RotateCcw size={12} />
+                        )
+                      }
+                    >
+                      {resultItem.isCorrect ? 'Дұрыс' : 'Қате'}
+                    </StatusBadge>
+                  ) : null}
+                </div>
+
+                <div className="mt-3 grid gap-2">
+                  {question.options.map((option, optionIndex) => {
+                    const active = selected.includes(optionIndex);
+                    const correct = resultItem?.correctAnswer.includes(optionIndex);
+                    const wrongSelected = Boolean(resultItem && active && !correct);
+
+                    return (
+                      <button
+                        key={`${question.id}-${optionIndex}`}
+                        type="button"
+                        disabled={disabled || Boolean(latestResult)}
+                        onClick={() => onToggleAnswer(question, optionIndex)}
+                        className={`rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                          correct
+                            ? 'border-emerald-500/40 bg-emerald-500/10'
+                            : wrongSelected
+                              ? 'border-destructive/40 bg-destructive/10'
+                              : active
+                                ? 'border-primary bg-primary/10'
+                                : 'bg-background hover:bg-accent'
+                        } ${disabled || latestResult ? 'cursor-default' : ''}`}
+                      >
+                        <span className="mr-2 text-xs text-muted-foreground">
+                          {String.fromCharCode(65 + optionIndex)}.
+                        </span>
+                        {option}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {resultItem ? (
+                  <div className="mt-3 rounded-lg border bg-muted/20 p-3 text-xs leading-5">
+                    <p>
+                      <span className="font-medium">Сіздің жауабыңыз:</span>{' '}
+                      {getSelectedAnswerLabel(resultItem.selectedAnswer, question.options)}
+                    </p>
+                    <p className="mt-1">
+                      <span className="font-medium">Дұрыс жауап:</span>{' '}
+                      {getSelectedAnswerLabel(resultItem.correctAnswer, question.options)}
+                    </p>
+                    {resultItem.explanation ? (
+                      <p className="mt-2 text-muted-foreground">
+                        {resultItem.explanation}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        )}
+
+        {latestResult ? (
+          <div className="rounded-xl border bg-background p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold">
+                  Нәтиже: {latestResult.attempt.score}%
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {latestResult.attempt.correctCount}/{latestResult.attempt.totalQuestions} сұрақ дұрыс.
+                </p>
+              </div>
+
+              <StatusBadge
+                tone={latestResult.attempt.passed ? 'success' : 'warning'}
+                icon={latestResult.attempt.passed ? <CheckCircle2 size={12} /> : <RotateCcw size={12} />}
+              >
+                {latestResult.attempt.passed ? 'Өтті' : 'Қайталау керек'}
+              </StatusBadge>
+            </div>
+          </div>
+        ) : latestAttempt ? (
+          <div className="rounded-xl border bg-background p-4">
+            <p className="text-sm font-semibold">Соңғы тапсыру нәтижесі</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {latestAttempt.correctCount}/{latestAttempt.totalQuestions} дұрыс · {latestAttempt.score}% ·{' '}
+              {latestAttempt.passed ? 'өтті' : 'қайталау керек'}
+            </p>
+          </div>
+        ) : null}
+
+        {isStudent ? (
+          <Button
+            type="button"
+            onClick={onSubmit}
+            disabled={
+              disabled ||
+              submitting ||
+              quiz.questions.length === 0 ||
+              !allQuestionsAnswered ||
+              Boolean(latestResult)
+            }
+          >
+            {submitting ? 'Тексерілуде...' : 'Mini quiz тапсыру'}
+          </Button>
+        ) : (
+          <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+            Мұғалім preview режимінде quiz-ді көре алады, бірақ нәтиже жібермейді.
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -276,6 +523,8 @@ export default function LessonDetailPage() {
 
   const [noteDraft, setNoteDraft] = useState('');
   const [noteSeededForLessonId, setNoteSeededForLessonId] = useState('');
+  const [miniQuizAnswers, setMiniQuizAnswers] = useState<Record<string, number[]>>({});
+  const [miniQuizResult, setMiniQuizResult] = useState<LessonMiniQuizSubmitResult | null>(null);
 
   const { data, isLoading, error } = useLessonDetail(
     lessonId,
@@ -293,10 +542,22 @@ export default function LessonDetailPage() {
     Boolean(isStudent && user?.id && lessonId && data && !data.isLocked)
   );
 
+  const {
+    data: miniQuizData,
+    isLoading: miniQuizLoading,
+    error: miniQuizError,
+  } = useLessonMiniQuiz(
+    lessonId,
+    isStudent ? user?.id : undefined,
+    Boolean(lessonId && user?.id && data && !data.isLocked),
+    !isStudent
+  );
+
   const upsertNoteMutation = useUpsertLessonNoteMutation();
   const deleteNoteMutation = useDeleteLessonNoteMutation();
   const toggleBookmarkMutation = useToggleLessonBookmarkMutation();
   const toggleReviewLaterMutation = useToggleReviewLaterMutation();
+  const submitMiniQuizMutation = useSubmitLessonMiniQuizMutation();
 
   const normalizedMediaUrl = normalizeMediaUrl(data?.mediaUrl);
   const hasMedia = Boolean(normalizedMediaUrl);
@@ -304,7 +565,11 @@ export default function LessonDetailPage() {
     normalizedMediaUrl && isYouTubeUrl(normalizedMediaUrl)
   );
 
-  const courseId = learningState?.courseId || '';
+  const miniQuiz = miniQuizData?.quiz || data?.miniQuiz || null;
+  const latestMiniQuizAttempt =
+    miniQuizData?.latestAttempt || data?.latestMiniQuizAttempt || null;
+
+  const courseId = learningState?.courseId || data?.courseId || miniQuiz?.courseId || '';
   const lessonAttachments = learningState?.attachments || data?.attachments || [];
   const courseAssets = learningState?.courseAssets || data?.courseAssets || [];
 
@@ -363,6 +628,11 @@ export default function LessonDetailPage() {
   useEffect(() => {
     autoCompletedRef.current = false;
   }, [lessonId]);
+
+  useEffect(() => {
+    setMiniQuizAnswers({});
+    setMiniQuizResult(null);
+  }, [lessonId, miniQuiz?.id]);
 
   useEffect(() => {
     if (!learningState) return;
@@ -527,6 +797,81 @@ export default function LessonDetailPage() {
         description:
           reviewError instanceof Error
             ? reviewError.message
+            : 'Белгісіз қате пайда болды.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleToggleMiniQuizAnswer = (
+    question: LessonMiniQuizQuestionView,
+    optionIndex: number
+  ) => {
+    setMiniQuizAnswers((previous) => {
+      const current = previous[question.id] || [];
+
+      if (question.questionType === 'single_choice') {
+        return {
+          ...previous,
+          [question.id]: [optionIndex],
+        };
+      }
+
+      const next = current.includes(optionIndex)
+        ? current.filter((item) => item !== optionIndex)
+        : [...current, optionIndex];
+
+      return {
+        ...previous,
+        [question.id]: next,
+      };
+    });
+  };
+
+  const handleSubmitMiniQuiz = async () => {
+    if (!user?.id || !lessonId || !courseId || !miniQuiz) {
+      toast({
+        title: 'Mini quiz тапсыру мүмкін болмады',
+        description: 'Сабақ, курс немесе quiz дерегі толық емес.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const unanswered = miniQuiz.questions.some(
+      (question) => (miniQuizAnswers[question.id] || []).length === 0
+    );
+
+    if (unanswered) {
+      toast({
+        title: 'Барлық сұраққа жауап беріңіз',
+        description: 'Mini quiz тапсыру үшін әр сұрақта кемінде бір жауап таңдаңыз.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const result = await submitMiniQuizMutation.mutateAsync({
+        quizId: miniQuiz.id,
+        lessonId,
+        courseId,
+        studentId: user.id,
+        answers: miniQuizAnswers,
+      });
+
+      setMiniQuizResult(result);
+
+      toast({
+        title: result.attempt.passed ? 'Mini quiz өтті' : 'Mini quiz қайталауды қажет етеді',
+        description: `${result.attempt.correctCount}/${result.attempt.totalQuestions} дұрыс · ${result.attempt.score}%`,
+      });
+    } catch (quizError) {
+      toast({
+        title: 'Mini quiz тапсыру мүмкін болмады',
+        description:
+          quizError instanceof Error
+            ? quizError.message
             : 'Белгісіз қате пайда болды.',
         variant: 'destructive',
       });
@@ -724,7 +1069,19 @@ export default function LessonDetailPage() {
                 </Card>
               ) : null}
 
-              <MiniQuizPlaceholder />
+              <MiniQuizCard
+                quiz={miniQuiz}
+                latestAttempt={latestMiniQuizAttempt}
+                latestResult={miniQuizResult}
+                answers={miniQuizAnswers}
+                isLoading={miniQuizLoading}
+                hasError={Boolean(miniQuizError)}
+                isStudent={isStudent}
+                submitting={submitMiniQuizMutation.isPending}
+                disabled={!isStudent || !user?.id || !courseId || Boolean(data.isLocked)}
+                onToggleAnswer={handleToggleMiniQuizAnswer}
+                onSubmit={handleSubmitMiniQuiz}
+              />
 
               <Card>
                 <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">

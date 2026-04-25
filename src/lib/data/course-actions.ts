@@ -9,15 +9,30 @@ import type {
   CourseVisibility,
   CreateCourseAnnouncementPayload,
   CreateCourseInvitePayload,
+  CreateLessonMiniQuizQuestionPayload,
   DeleteCourseAnnouncementPayload,
+  DeleteLessonMiniQuizPayload,
+  DeleteLessonMiniQuizQuestionPayload,
   EntitlementRow,
+  LessonMiniQuizAttemptRow,
+  LessonMiniQuizAttemptView,
+  LessonMiniQuizQuestionRow,
+  LessonMiniQuizQuestionType,
+  LessonMiniQuizQuestionView,
+  LessonMiniQuizRow,
+  LessonMiniQuizSubmitResult,
+  LessonMiniQuizView,
   ManualApproveOrderResponse,
   ManualGrantCourseAccessPayload,
   OrderRow,
   RedeemCourseInvitePayload,
   RedeemCourseInviteResponse,
+  ReorderLessonMiniQuizQuestionsPayload,
   RequestPaidCourseAccessPayload,
+  SubmitLessonMiniQuizPayload,
   UpdateCourseAnnouncementPayload,
+  UpdateLessonMiniQuizQuestionPayload,
+  UpsertLessonMiniQuizPayload,
 } from '@/lib/app-data-types';
 import { execOrThrow, localizedText, queryOrThrow } from './common';
 
@@ -196,6 +211,167 @@ function mapCourseAnnouncementView(
 
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean);
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item >= 0);
+}
+
+function normalizeMiniQuizAnswers(value: unknown): Record<string, number[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([questionId, answer]) => [
+      questionId,
+      normalizeNumberArray(answer),
+    ])
+  );
+}
+
+function arraysEqualAsSet(a: number[], b: number[]) {
+  const left = [...a].sort((x, y) => x - y);
+  const right = [...b].sort((x, y) => x - y);
+
+  if (left.length !== right.length) return false;
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function assertMiniQuizBase(input: {
+  title: string;
+  passingScore: number;
+}) {
+  if (!input.title.trim()) {
+    throw new Error('Mini quiz атауы міндетті.');
+  }
+
+  if (
+    !Number.isInteger(input.passingScore) ||
+    input.passingScore < 0 ||
+    input.passingScore > 100
+  ) {
+    throw new Error('Passing score 0 мен 100 аралығында болуы керек.');
+  }
+}
+
+function assertMiniQuizQuestion(input: {
+  questionText: string;
+  questionType: LessonMiniQuizQuestionType;
+  options: string[];
+  correctAnswer: number[];
+}) {
+  if (!input.questionText.trim()) {
+    throw new Error('Сұрақ мәтіні міндетті.');
+  }
+
+  const options = input.options.map((item) => item.trim()).filter(Boolean);
+
+  if (options.length < 2) {
+    throw new Error('Кемінде 2 жауап нұсқасы болуы керек.');
+  }
+
+  if (input.questionType === 'single_choice' && input.correctAnswer.length !== 1) {
+    throw new Error('Single choice сұрақта бір ғана дұрыс жауап болуы керек.');
+  }
+
+  if (input.correctAnswer.length === 0) {
+    throw new Error('Дұрыс жауап таңдалуы керек.');
+  }
+
+  const invalidIndex = input.correctAnswer.some(
+    (index) => !Number.isInteger(index) || index < 0 || index >= options.length
+  );
+
+  if (invalidIndex) {
+    throw new Error('Дұрыс жауап индексі жауап нұсқаларына сәйкес емес.');
+  }
+}
+
+function mapLessonMiniQuizQuestionView(
+  row: LessonMiniQuizQuestionRow
+): LessonMiniQuizQuestionView {
+  return {
+    id: row.id,
+    quizId: row.quiz_id,
+
+    questionText: row.question_text,
+    questionType: row.question_type,
+
+    options: normalizeStringArray(row.options),
+    correctAnswer: normalizeNumberArray(row.correct_answer),
+
+    explanation: row.explanation,
+    sortOrder: row.sort_order,
+
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapLessonMiniQuizAttemptView(
+  row: LessonMiniQuizAttemptRow
+): LessonMiniQuizAttemptView {
+  return {
+    id: row.id,
+
+    quizId: row.quiz_id,
+    lessonId: row.lesson_id,
+    courseId: row.course_id,
+    studentId: row.student_id,
+
+    score: row.score,
+    correctCount: row.correct_count,
+    totalQuestions: row.total_questions,
+
+    passed: row.passed,
+    answers: normalizeMiniQuizAnswers(row.answers),
+
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+  };
+}
+
+function mapLessonMiniQuizView(
+  quiz: LessonMiniQuizRow,
+  questions: LessonMiniQuizQuestionRow[]
+): LessonMiniQuizView {
+  const mappedQuestions = questions
+    .map(mapLessonMiniQuizQuestionView)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  return {
+    id: quiz.id,
+
+    lessonId: quiz.lesson_id,
+    courseId: quiz.course_id,
+    createdBy: quiz.created_by,
+
+    title: quiz.title,
+    description: quiz.description,
+
+    isPublished: quiz.is_published,
+    passingScore: quiz.passing_score,
+
+    questions: mappedQuestions,
+    questionsCount: mappedQuestions.length,
+
+    createdAt: quiz.created_at,
+    updatedAt: quiz.updated_at,
   };
 }
 
@@ -638,6 +814,300 @@ export async function deleteCourseAnnouncement(
       .delete()
       .eq('id', announcementId)
   );
+}
+
+/* ================= LESSON MINI QUIZ ================= */
+
+export async function getLessonMiniQuiz(input: {
+  lessonId: string;
+  studentId?: string;
+  includeUnpublished?: boolean;
+}) {
+  const lessonId = input.lessonId.trim();
+
+  if (!lessonId) {
+    return {
+      quiz: null,
+      latestAttempt: null,
+    };
+  }
+
+  let quizQuery = supabase
+    .from('lesson_mini_quizzes' as never)
+    .select('*')
+    .eq('lesson_id', lessonId);
+
+  if (!input.includeUnpublished) {
+    quizQuery = quizQuery.eq('is_published', true);
+  }
+
+  const { data: quizRow, error: quizError } = await quizQuery.maybeSingle();
+
+  if (quizError) {
+    throw new Error(quizError.message);
+  }
+
+  if (!quizRow) {
+    return {
+      quiz: null,
+      latestAttempt: null,
+    };
+  }
+
+  const quiz = quizRow as unknown as LessonMiniQuizRow;
+
+  const questions = (await queryOrThrow(
+    supabase
+      .from('lesson_mini_quiz_questions' as never)
+      .select('*')
+      .eq('quiz_id', quiz.id)
+      .order('sort_order', { ascending: true })
+  )) as unknown as LessonMiniQuizQuestionRow[];
+
+  let latestAttempt: LessonMiniQuizAttemptView | null = null;
+
+  if (input.studentId) {
+    const { data: attemptRow, error: attemptError } = await supabase
+      .from('lesson_mini_quiz_attempts' as never)
+      .select('*')
+      .eq('quiz_id', quiz.id)
+      .eq('student_id', input.studentId)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (attemptError) {
+      throw new Error(attemptError.message);
+    }
+
+    latestAttempt = attemptRow
+      ? mapLessonMiniQuizAttemptView(attemptRow as unknown as LessonMiniQuizAttemptRow)
+      : null;
+  }
+
+  return {
+    quiz: mapLessonMiniQuizView(quiz, questions),
+    latestAttempt,
+  };
+}
+
+export async function upsertLessonMiniQuiz(input: UpsertLessonMiniQuizPayload) {
+  const title = input.title.trim();
+
+  assertMiniQuizBase({
+    title,
+    passingScore: input.passingScore,
+  });
+
+  return queryOrThrow(
+    supabase
+      .from('lesson_mini_quizzes' as never)
+      .upsert(
+        {
+          lesson_id: input.lessonId,
+          course_id: input.courseId,
+          created_by: input.createdBy,
+          title,
+          description: input.description?.trim() || null,
+          is_published: input.isPublished,
+          passing_score: input.passingScore,
+        } as never,
+        {
+          onConflict: 'lesson_id',
+        }
+      )
+      .select('*')
+      .single()
+  ) as unknown as Promise<LessonMiniQuizRow>;
+}
+
+export async function deleteLessonMiniQuiz(input: DeleteLessonMiniQuizPayload | string) {
+  const quizId = typeof input === 'string' ? input : input.quizId;
+
+  await execOrThrow(
+    supabase
+      .from('lesson_mini_quizzes' as never)
+      .delete()
+      .eq('id', quizId)
+  );
+}
+
+export async function createLessonMiniQuizQuestion(
+  input: CreateLessonMiniQuizQuestionPayload
+) {
+  const options = input.options.map((item) => item.trim()).filter(Boolean);
+  const correctAnswer = normalizeNumberArray(input.correctAnswer);
+
+  assertMiniQuizQuestion({
+    questionText: input.questionText,
+    questionType: input.questionType,
+    options,
+    correctAnswer,
+  });
+
+  return queryOrThrow(
+    supabase
+      .from('lesson_mini_quiz_questions' as never)
+      .insert({
+        quiz_id: input.quizId,
+        question_text: input.questionText.trim(),
+        question_type: input.questionType,
+        options,
+        correct_answer: correctAnswer,
+        explanation: input.explanation?.trim() || null,
+        sort_order: input.sortOrder || 1,
+      } as never)
+      .select('*')
+      .single()
+  ) as unknown as Promise<LessonMiniQuizQuestionRow>;
+}
+
+export async function updateLessonMiniQuizQuestion(
+  input: UpdateLessonMiniQuizQuestionPayload
+) {
+  const options = input.options.map((item) => item.trim()).filter(Boolean);
+  const correctAnswer = normalizeNumberArray(input.correctAnswer);
+
+  assertMiniQuizQuestion({
+    questionText: input.questionText,
+    questionType: input.questionType,
+    options,
+    correctAnswer,
+  });
+
+  return queryOrThrow(
+    supabase
+      .from('lesson_mini_quiz_questions' as never)
+      .update({
+        question_text: input.questionText.trim(),
+        question_type: input.questionType,
+        options,
+        correct_answer: correctAnswer,
+        explanation: input.explanation?.trim() || null,
+        sort_order: input.sortOrder,
+      } as never)
+      .eq('id', input.questionId)
+      .select('*')
+      .single()
+  ) as unknown as Promise<LessonMiniQuizQuestionRow>;
+}
+
+export async function deleteLessonMiniQuizQuestion(
+  input: DeleteLessonMiniQuizQuestionPayload | string
+) {
+  const questionId = typeof input === 'string' ? input : input.questionId;
+
+  await execOrThrow(
+    supabase
+      .from('lesson_mini_quiz_questions' as never)
+      .delete()
+      .eq('id', questionId)
+  );
+}
+
+export async function reorderLessonMiniQuizQuestions(
+  input: ReorderLessonMiniQuizQuestionsPayload
+) {
+  const rows = (await queryOrThrow(
+    supabase
+      .from('lesson_mini_quiz_questions' as never)
+      .select('id, quiz_id')
+      .in('id', input.orderedQuestionIds)
+  )) as unknown as Array<{
+    id: string;
+    quiz_id: string;
+  }>;
+
+  const validIds = new Set(
+    rows.filter((row) => row.quiz_id === input.quizId).map((row) => row.id)
+  );
+
+  if (validIds.size !== input.orderedQuestionIds.length) {
+    throw new Error('Mini quiz сұрақтары қате.');
+  }
+
+  await Promise.all(
+    input.orderedQuestionIds.map((questionId, index) =>
+      queryOrThrow(
+        supabase
+          .from('lesson_mini_quiz_questions' as never)
+          .update({
+            sort_order: index + 1,
+          } as never)
+          .eq('id', questionId)
+          .select('id')
+          .single()
+      )
+    )
+  );
+}
+
+export async function submitLessonMiniQuiz(
+  input: SubmitLessonMiniQuizPayload
+): Promise<LessonMiniQuizSubmitResult> {
+  const { quiz } = await getLessonMiniQuiz({
+    lessonId: input.lessonId,
+    studentId: input.studentId,
+    includeUnpublished: false,
+  });
+
+  if (!quiz) {
+    throw new Error('Mini quiz табылмады немесе жарияланбаған.');
+  }
+
+  if (quiz.id !== input.quizId) {
+    throw new Error('Mini quiz lesson-ға сәйкес емес.');
+  }
+
+  if (quiz.questions.length === 0) {
+    throw new Error('Mini quiz ішінде сұрақ жоқ.');
+  }
+
+  const normalizedAnswers = normalizeMiniQuizAnswers(input.answers);
+
+  const breakdown = quiz.questions.map((question) => {
+    const selectedAnswer = normalizeNumberArray(normalizedAnswers[question.id]);
+    const correctAnswer = normalizeNumberArray(question.correctAnswer);
+    const isCorrect = arraysEqualAsSet(selectedAnswer, correctAnswer);
+
+    return {
+      questionId: question.id,
+      questionText: question.questionText,
+      selectedAnswer,
+      correctAnswer,
+      isCorrect,
+      explanation: question.explanation,
+    };
+  });
+
+  const correctCount = breakdown.filter((item) => item.isCorrect).length;
+  const totalQuestions = quiz.questions.length;
+  const score =
+    totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+  const passed = score >= quiz.passingScore;
+
+  const attemptRow = (await queryOrThrow(
+    supabase
+      .from('lesson_mini_quiz_attempts' as never)
+      .insert({
+        quiz_id: quiz.id,
+        lesson_id: input.lessonId,
+        course_id: input.courseId,
+        student_id: input.studentId,
+        score,
+        correct_count: correctCount,
+        total_questions: totalQuestions,
+        passed,
+        answers: normalizedAnswers,
+      } as never)
+      .select('*')
+      .single()
+  )) as unknown as LessonMiniQuizAttemptRow;
+
+  return {
+    attempt: mapLessonMiniQuizAttemptView(attemptRow),
+    breakdown,
+  };
 }
 
 /* ================= COURSE INVITES ================= */

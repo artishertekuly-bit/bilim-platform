@@ -81,13 +81,21 @@ export type FileAssetVisibility =
   | 'private'
   | 'course'
   | 'public';
-  /**
+
+/**
  * Course announcements.
  */
 export type CourseAnnouncementPriority =
   | 'normal'
   | 'important'
   | 'urgent';
+
+/**
+ * Lesson mini quiz.
+ */
+export type LessonMiniQuizQuestionType =
+  | 'single_choice'
+  | 'multiple_choice';
 
 /**
  * Existing Supabase rows.
@@ -350,6 +358,9 @@ export interface LessonDetailView {
   learningState?: LessonLearningState;
   attachments?: LessonAttachmentView[];
   courseAssets?: CourseAssetView[];
+
+  miniQuiz?: LessonMiniQuizView | null;
+  latestMiniQuizAttempt?: LessonMiniQuizAttemptView | null;
 }
 
 export interface TeacherStudentCourseRow {
@@ -404,6 +415,10 @@ export interface CourseBuilderLessonView {
    */
   attachmentsCount?: number;
   attachments?: LessonAttachmentView[];
+
+  hasMiniQuiz?: boolean;
+  miniQuizQuestionsCount?: number;
+  miniQuiz?: LessonMiniQuizView | null;
 }
 
 export interface CourseBuilderModuleView {
@@ -834,6 +849,134 @@ export interface CourseAnnouncementView {
 }
 
 /**
+ * MVP 2: Lesson Mini Quiz.
+ *
+ * Сабақ соңындағы қысқа тест.
+ * Бір lesson-ға бір mini quiz беріледі.
+ */
+export interface LessonMiniQuizRow {
+  id: string;
+
+  lesson_id: string;
+  course_id: string;
+  created_by: string;
+
+  title: string;
+  description: string | null;
+
+  is_published: boolean;
+  passing_score: number;
+
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LessonMiniQuizQuestionRow {
+  id: string;
+
+  quiz_id: string;
+
+  question_text: string;
+  question_type: LessonMiniQuizQuestionType;
+
+  options: unknown;
+  correct_answer: unknown;
+
+  explanation: string | null;
+  sort_order: number;
+
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LessonMiniQuizAttemptRow {
+  id: string;
+
+  quiz_id: string;
+  lesson_id: string;
+  course_id: string;
+  student_id: string;
+
+  score: number;
+  correct_count: number;
+  total_questions: number;
+
+  passed: boolean;
+  answers: unknown;
+
+  completed_at: string;
+  created_at: string;
+}
+
+export interface LessonMiniQuizQuestionView {
+  id: string;
+  quizId: string;
+
+  questionText: string;
+  questionType: LessonMiniQuizQuestionType;
+
+  options: string[];
+  correctAnswer: number[];
+
+  explanation: string | null;
+  sortOrder: number;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LessonMiniQuizView {
+  id: string;
+
+  lessonId: string;
+  courseId: string;
+  createdBy: string;
+
+  title: string;
+  description: string | null;
+
+  isPublished: boolean;
+  passingScore: number;
+
+  questions: LessonMiniQuizQuestionView[];
+  questionsCount: number;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LessonMiniQuizAttemptView {
+  id: string;
+
+  quizId: string;
+  lessonId: string;
+  courseId: string;
+  studentId: string;
+
+  score: number;
+  correctCount: number;
+  totalQuestions: number;
+
+  passed: boolean;
+  answers: Record<string, number[]>;
+
+  completedAt: string;
+  createdAt: string;
+}
+
+export interface LessonMiniQuizSubmitResult {
+  attempt: LessonMiniQuizAttemptView;
+  breakdown: Array<{
+    questionId: string;
+    questionText: string;
+    selectedAnswer: number[];
+    correctAnswer: number[];
+    isCorrect: boolean;
+    explanation: string | null;
+  }>;
+}
+
+/**
  * MVP 2: Saved lessons / Bookmarks page.
  *
  * Оқушы сақтап қойған сабақтарын бөлек бетте көреді.
@@ -981,6 +1124,71 @@ export interface UpdateCourseAnnouncementPayload {
 export interface DeleteCourseAnnouncementPayload {
   announcementId: string;
 }
+
+export interface UpsertLessonMiniQuizPayload {
+  lessonId: string;
+  courseId: string;
+  createdBy: string;
+
+  title: string;
+  description?: string | null;
+
+  isPublished: boolean;
+  passingScore: number;
+}
+
+export interface DeleteLessonMiniQuizPayload {
+  quizId: string;
+}
+
+export interface CreateLessonMiniQuizQuestionPayload {
+  quizId: string;
+
+  questionText: string;
+  questionType: LessonMiniQuizQuestionType;
+
+  options: string[];
+  correctAnswer: number[];
+
+  explanation?: string | null;
+  sortOrder?: number;
+}
+
+export interface UpdateLessonMiniQuizQuestionPayload {
+  questionId: string;
+
+  questionText: string;
+  questionType: LessonMiniQuizQuestionType;
+
+  options: string[];
+  correctAnswer: number[];
+
+  explanation?: string | null;
+  sortOrder: number;
+}
+
+export interface DeleteLessonMiniQuizQuestionPayload {
+  questionId: string;
+}
+
+export interface ReorderLessonMiniQuizQuestionsPayload {
+  quizId: string;
+  orderedQuestionIds: string[];
+}
+
+export interface SubmitLessonMiniQuizPayload {
+  quizId: string;
+  lessonId: string;
+  courseId: string;
+  studentId: string;
+
+  /**
+   * key = questionId
+   * value = selected option indexes
+   */
+  answers: Record<string, number[]>;
+}
+
 
 export interface UpsertLessonNotePayload {
   studentId: string;
