@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+import { useEffect, type Dispatch, type SetStateAction } from 'react';
 
 import type { LessonMiniQuizQuestionView } from '@/lib/app-data-types';
 import {
@@ -53,6 +53,7 @@ export function useCourseBuilderMiniQuiz({
   selectedEditingLesson,
   selectedMiniQuiz,
   miniQuizForm,
+  setMiniQuizForm,
   miniQuizQuestionForm,
   setMiniQuizQuestionForm,
   editingMiniQuizQuestionId,
@@ -66,6 +67,48 @@ export function useCourseBuilderMiniQuiz({
   const updateMiniQuizQuestionMutation = useUpdateLessonMiniQuizQuestionMutation(user?.id);
   const deleteMiniQuizQuestionMutation = useDeleteLessonMiniQuizQuestionMutation(user?.id);
   const reorderMiniQuizQuestionsMutation = useReorderLessonMiniQuizQuestionsMutation(user?.id);
+
+
+  useEffect(() => {
+    if (!selectedEditingLesson) {
+      return;
+    }
+
+    if (!selectedMiniQuiz) {
+      setMiniQuizForm((prev: any) => ({
+        ...prev,
+        title: 'Сабақ соңындағы қысқа тест',
+        description: '',
+        passingScore: '60',
+        isPublished: false,
+      }));
+
+      setMiniQuizQuestionForm((prev: any) => ({
+        ...prev,
+        sortOrder: '1',
+      }));
+      return;
+    }
+
+    setMiniQuizForm({
+      title: selectedMiniQuiz.title,
+      description: selectedMiniQuiz.description || '',
+      passingScore: String(selectedMiniQuiz.passingScore),
+      isPublished: selectedMiniQuiz.isPublished,
+    });
+
+    setMiniQuizQuestionForm((prev: any) => ({
+      ...prev,
+      sortOrder: getNextMiniQuizQuestionSortOrder(selectedMiniQuiz.questions),
+    }));
+  }, [
+    selectedEditingLesson?.id,
+    selectedMiniQuiz?.id,
+    selectedMiniQuiz?.updatedAt,
+    selectedMiniQuiz?.questionsCount,
+    setMiniQuizForm,
+    setMiniQuizQuestionForm,
+  ]);
 
   const resetMiniQuizQuestionForm = () => {
     setMiniQuizQuestionForm({
