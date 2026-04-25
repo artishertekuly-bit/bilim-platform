@@ -1,22 +1,22 @@
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft,
   ArrowRight,
   BookOpen,
   CheckCircle2,
-  Circle,
   Clock,
   GraduationCap,
   Lock,
-  PlayCircle,
+  type LucideIcon,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
+import PageHeader from '@/components/common/PageHeader';
+import { LessonStatusBadge } from '@/components/common/StatusBadge';
 import {
   EmptyState,
   ErrorState,
-  LoadingState,
 } from '@/components/common/DataState';
+import { CourseTimelineSkeleton } from '@/components/common/SkeletonBlocks';
 import { useCourseProgressTimeline } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -27,40 +27,11 @@ import type {
   CourseProgressModuleView,
 } from '@/lib/app-data-types';
 
-function getStatusMeta(status: CourseProgressLessonStatus) {
-  if (status === 'completed') {
-    return {
-      label: 'Аяқталған',
-      icon: CheckCircle2,
-      className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      dotClassName: 'bg-emerald-500',
-    };
-  }
-
-  if (status === 'current') {
-    return {
-      label: 'Қазір оқу',
-      icon: PlayCircle,
-      className: 'bg-primary/10 text-primary border-primary/20',
-      dotClassName: 'bg-primary',
-    };
-  }
-
-  if (status === 'locked') {
-    return {
-      label: 'Құлыпталған',
-      icon: Lock,
-      className: 'bg-muted text-muted-foreground border-border',
-      dotClassName: 'bg-muted-foreground',
-    };
-  }
-
-  return {
-    label: 'Ашық',
-    icon: Circle,
-    className: 'bg-blue-50 text-blue-700 border-blue-200',
-    dotClassName: 'bg-blue-500',
-  };
+function getStatusDotClass(status: CourseProgressLessonStatus) {
+  if (status === 'completed') return 'bg-emerald-500';
+  if (status === 'current') return 'bg-primary';
+  if (status === 'locked') return 'bg-muted-foreground';
+  return 'bg-blue-500';
 }
 
 function getLockedReasonText(reason: CourseProgressLessonView['lockedReason']) {
@@ -115,18 +86,18 @@ function CourseStatCard({
 }: {
   label: string;
   value: string | number;
-  icon: typeof BookOpen;
+  icon: LucideIcon;
 }) {
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardContent className="flex items-center gap-3 pt-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-primary/10 text-primary">
           <Icon size={18} />
         </div>
 
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="text-xl font-semibold">{value}</p>
+          <p className="mt-0.5 text-xl font-semibold">{value}</p>
         </div>
       </CardContent>
     </Card>
@@ -140,8 +111,6 @@ function LessonTimelineItem({
   lesson: CourseProgressLessonView;
   isLast: boolean;
 }) {
-  const meta = getStatusMeta(lesson.status);
-  const Icon = meta.icon;
   const completedDate = formatDate(lesson.completedAt);
   const lockedReason = lesson.isLocked
     ? getLockedReasonText(lesson.lockedReason)
@@ -153,12 +122,22 @@ function LessonTimelineItem({
         <div className="absolute left-[18px] top-9 h-full w-px bg-border" />
       ) : null}
 
-      <div className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-background">
-        <span className={`h-2.5 w-2.5 rounded-full ${meta.dotClassName}`} />
+      <div className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-background shadow-sm">
+        <span
+          className={`h-2.5 w-2.5 rounded-full ${getStatusDotClass(lesson.status)}`}
+        />
       </div>
 
       <div className="min-w-0 flex-1 pb-5">
-        <div className="rounded-xl border bg-card p-4">
+        <div
+          className={`rounded-xl border bg-card p-4 transition-colors ${
+            lesson.status === 'current'
+              ? 'border-primary/30 bg-primary/5'
+              : lesson.isLocked
+                ? 'bg-muted/30'
+                : ''
+          }`}
+        >
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -166,12 +145,7 @@ function LessonTimelineItem({
                   Сабақ #{lesson.sortOrder || 1}
                 </span>
 
-                <span
-                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${meta.className}`}
-                >
-                  <Icon size={12} />
-                  {meta.label}
-                </span>
+                <LessonStatusBadge status={lesson.status} />
               </div>
 
               <h3 className="mt-2 text-sm font-semibold">{lesson.title}</h3>
@@ -229,7 +203,7 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
             </p>
           </div>
 
-          <div className="min-w-[140px]">
+          <div className="min-w-[160px]">
             <div className="mb-1 flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Прогресс</span>
               <span className="font-medium">{module.progressPct}%</span>
@@ -244,6 +218,7 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
           <EmptyState
             title="Бұл модульде сабақ жоқ"
             text="Мұғалім сабақ қосқаннан кейін timeline ішінде көрінеді."
+            compact
           />
         ) : (
           <div>
@@ -281,61 +256,74 @@ export default function CourseDetailPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
-          <div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="-ml-2 mb-2"
-              onClick={() => navigate('/courses')}
-            >
-              <ArrowLeft size={15} className="mr-2" />
-              Курстарға қайту
-            </Button>
-
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
+        <PageHeader
+          backAction={{
+            label: 'Курстарға қайту',
+            onClick: () => navigate('/courses'),
+          }}
+          eyebrow={
+            <>
               <GraduationCap size={13} />
               Курс прогресі
-            </div>
+            </>
+          }
+          icon={<GraduationCap size={20} />}
+          title={timeline?.courseTitle || 'Курс'}
+          description={
+            timeline
+              ? `${timeline.subjectName} · ${timeline.teacherName}`
+              : 'Курс roadmap жүктелуде...'
+          }
+          actions={
+            nextLessonId ? (
+              <Button type="button" asChild>
+                <Link to={`/lessons/${nextLessonId}`}>
+                  Оқуды жалғастыру
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            ) : null
+          }
+        />
 
-            <h2 className="text-xl font-bold">
-              {timeline?.courseTitle || 'Курс'}
-            </h2>
+        {isLoading ? <CourseTimelineSkeleton /> : null}
 
-            <p className="text-sm text-muted-foreground">
-              {timeline
-                ? `${timeline.subjectName} · ${timeline.teacherName}`
-                : 'Курс roadmap жүктелуде...'}
-            </p>
-          </div>
-
-          {nextLessonId ? (
-            <Button type="button" asChild>
-              <Link to={`/lessons/${nextLessonId}`}>
-                Оқуды жалғастыру
-                <ArrowRight size={15} className="ml-2" />
-              </Link>
-            </Button>
-          ) : null}
-        </div>
-
-        {isLoading ? (
-          <LoadingState text="Курс прогресі жүктелуде..." />
-        ) : null}
-
-        {error ? (
-          <ErrorState text="Курс прогресін жүктеу мүмкін болмады." />
+        {!isLoading && error ? (
+          <ErrorState
+            text="Курс прогресін жүктеу мүмкін болмады."
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                Қайта жүктеу
+              </Button>
+            }
+            secondaryAction={
+              <Button type="button" variant="ghost" onClick={() => navigate('/courses')}>
+                Курстарға қайту
+              </Button>
+            }
+          />
         ) : null}
 
         {!isLoading && !error && !timeline ? (
           <EmptyState
             title="Курс табылмады"
             text="Курс өшірілген немесе сізде оған кіру рұқсаты жоқ болуы мүмкін."
+            action={
+              <Button type="button" asChild>
+                <Link to="/courses">
+                  Курстарға өту
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            }
           />
         ) : null}
 
-        {timeline ? (
+        {!isLoading && !error && timeline ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <CourseStatCard
@@ -382,6 +370,14 @@ export default function CourseDetailPage() {
               <EmptyState
                 title="Курста модуль жоқ"
                 text="Мұғалім модуль және сабақ қосқаннан кейін roadmap осы жерде көрінеді."
+                action={
+                  <Button type="button" variant="outline" asChild>
+                    <Link to="/courses">
+                      Курстарға қайту
+                      <ArrowRight size={15} className="ml-2" />
+                    </Link>
+                  </Button>
+                }
               />
             ) : (
               <div className="space-y-4">

@@ -1,21 +1,31 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   Bookmark,
   BookOpen,
   CheckCircle2,
+  Clock,
+  GraduationCap,
+  Lock,
   RotateCcw,
   Search,
   Trash2,
+  type LucideIcon,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
 import {
   EmptyState,
   ErrorState,
-  LoadingState,
 } from '@/components/common/DataState';
+import {
+  FilterPanelSkeleton,
+  SavedLessonsListSkeleton,
+  StatsGridSkeleton,
+} from '@/components/common/SkeletonBlocks';
 import {
   useRemoveSavedLessonMutation,
   useSavedLessons,
@@ -62,32 +72,55 @@ function getFilterLabel(filter: SavedLessonFilter) {
 function SavedLessonStatus({ lesson }: { lesson: SavedLessonView }) {
   if (lesson.isLocked) {
     return (
-      <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+      <StatusBadge tone="muted" icon={<Lock size={12} />}>
         Құлыпталған
-      </span>
+      </StatusBadge>
     );
   }
 
   if (lesson.isCompleted) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
-        <CheckCircle2 size={12} />
+      <StatusBadge tone="success" icon={<CheckCircle2 size={12} />}>
         Аяқталған
-      </span>
+      </StatusBadge>
     );
   }
 
   return (
-    <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+    <StatusBadge tone="warning" icon={<Clock size={12} />}>
       Оқылуда
-    </span>
+    </StatusBadge>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: LucideIcon;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="flex items-center gap-3 pt-5">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+          <Icon size={18} />
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-2xl font-semibold">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
 export default function SavedLessonsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<SavedLessonFilter>('all');
@@ -182,202 +215,239 @@ export default function SavedLessonsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
-          <div>
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
+        <PageHeader
+          eyebrow={
+            <>
               <Bookmark size={13} />
               Жеке оқу кеңістігі
+            </>
+          }
+          icon={<Bookmark size={20} />}
+          title="Сақталған сабақтар"
+          description="Өзіңізге маңызды сабақтарды осы жерден тез ашып, оқуды жалғастырасыз."
+          actions={
+            <Button type="button" variant="outline" asChild>
+              <Link to="/lessons">
+                <BookOpen size={15} className="mr-2" />
+                Сабақтарға өту
+              </Link>
+            </Button>
+          }
+        />
+
+        {isLoading ? (
+          <>
+            <StatsGridSkeleton count={4} />
+            <FilterPanelSkeleton />
+            <SavedLessonsListSkeleton count={4} />
+          </>
+        ) : null}
+
+        {!isLoading && error ? (
+          <ErrorState
+            text="Сақталған сабақтарды жүктеу мүмкін болмады."
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                Қайта жүктеу
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!isLoading && !error ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="Барлығы" value={stats.total} icon={Bookmark} />
+              <StatCard label="Оқылуда" value={stats.active} icon={Clock} />
+              <StatCard label="Аяқталған" value={stats.completed} icon={CheckCircle2} />
+              <StatCard label="Пән саны" value={stats.subjects} icon={GraduationCap} />
             </div>
 
-            <h2 className="text-xl font-bold">Сақталған сабақтар</h2>
-            <p className="text-sm text-muted-foreground">
-              Өзіңізге маңызды сабақтарды осы жерден тез ашып, оқуды жалғастырасыз.
-            </p>
-          </div>
+            <Card>
+              <CardContent className="space-y-4 pt-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="relative w-full lg:max-w-md">
+                    <Search
+                      size={16}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Сабақ, курс, модуль немесе пән бойынша іздеу..."
+                      className="pl-9"
+                    />
+                  </div>
 
-          <Button type="button" variant="outline" onClick={() => navigate('/lessons')}>
-            <BookOpen size={15} className="mr-2" />
-            Сабақтарға өту
-          </Button>
-        </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(['all', 'active', 'completed'] as SavedLessonFilter[]).map((item) => (
+                      <Button
+                        key={item}
+                        type="button"
+                        size="sm"
+                        variant={filter === item ? 'default' : 'outline'}
+                        onClick={() => setFilter(item)}
+                      >
+                        {getFilterLabel(item)}
+                      </Button>
+                    ))}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground">Барлығы</p>
-              <p className="mt-1 text-2xl font-semibold">{stats.total}</p>
-            </CardContent>
-          </Card>
+                    {search || filter !== 'all' ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={resetFilters}
+                      >
+                        <RotateCcw size={14} className="mr-1.5" />
+                        Тазалау
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
 
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground">Оқылуда</p>
-              <p className="mt-1 text-2xl font-semibold">{stats.active}</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground">Аяқталған</p>
-              <p className="mt-1 text-2xl font-semibold">{stats.completed}</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground">Пән саны</p>
-              <p className="mt-1 text-2xl font-semibold">{stats.subjects}</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardContent className="space-y-4 pt-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="relative w-full lg:max-w-md">
-                <Search
-                  size={16}
-                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Сабақ, курс, модуль немесе пән бойынша іздеу..."
-                  className="pl-9"
-                />
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {(['all', 'active', 'completed'] as SavedLessonFilter[]).map((item) => (
-                  <Button
-                    key={item}
-                    type="button"
-                    size="sm"
-                    variant={filter === item ? 'default' : 'outline'}
-                    onClick={() => setFilter(item)}
-                  >
-                    {getFilterLabel(item)}
-                  </Button>
-                ))}
-
-                {(search || filter !== 'all') ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={resetFilters}
-                  >
-                    <RotateCcw size={14} className="mr-1.5" />
-                    Тазалау
-                  </Button>
+                {savedLessons.length === 0 ? (
+                  <EmptyState
+                    icon={<Bookmark size={18} />}
+                    title="Сақталған сабақ жоқ"
+                    text="Сабақ бетінде “Сабақты сақтау” батырмасын бассаңыз, ол осы жерде пайда болады."
+                    action={
+                      <Button type="button" asChild>
+                        <Link to="/lessons">
+                          <BookOpen size={15} className="mr-2" />
+                          Сабақтарға өту
+                        </Link>
+                      </Button>
+                    }
+                    secondaryAction={
+                      <Button type="button" variant="outline" asChild>
+                        <Link to="/courses">
+                          Курстарды қарау
+                          <ArrowRight size={15} className="ml-2" />
+                        </Link>
+                      </Button>
+                    }
+                  />
                 ) : null}
-              </div>
-            </div>
 
-            {isLoading ? (
-              <LoadingState text="Сақталған сабақтар жүктелуде..." />
-            ) : null}
+                {savedLessons.length > 0 && filteredLessons.length === 0 ? (
+                  <EmptyState
+                    icon={<Search size={18} />}
+                    title="Сүзгі бойынша сабақ табылмады"
+                    text="Іздеу сөзін өзгертіңіз немесе сүзгіні тазалаңыз."
+                    action={
+                      <Button type="button" onClick={resetFilters}>
+                        <RotateCcw size={15} className="mr-2" />
+                        Сүзгіні тазалау
+                      </Button>
+                    }
+                    secondaryAction={
+                      <Button type="button" variant="outline" asChild>
+                        <Link to="/lessons">
+                          Сабақтарға өту
+                          <ArrowRight size={15} className="ml-2" />
+                        </Link>
+                      </Button>
+                    }
+                  />
+                ) : null}
 
-            {error ? (
-              <ErrorState text="Сақталған сабақтарды жүктеу мүмкін болмады." />
-            ) : null}
+                {filteredLessons.length > 0 ? (
+                  <div className="grid gap-3">
+                    {filteredLessons.map((lesson) => {
+                      const removing = pendingLessonId === lesson.lessonId;
 
-            {!isLoading && !error && savedLessons.length === 0 ? (
-              <EmptyState
-                title="Сақталған сабақ жоқ"
-                text="Сабақ бетінде “Сабақты сақтау” батырмасын бассаңыз, ол осы жерде пайда болады."
-              />
-            ) : null}
+                      return (
+                        <Card
+                          key={lesson.bookmarkId}
+                          className={`overflow-hidden transition-colors ${
+                            lesson.isLocked ? 'bg-muted/30' : ''
+                          }`}
+                        >
+                          <CardHeader className="pb-3">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div className="min-w-0">
+                                <div className="mb-2 flex flex-wrap items-center gap-2">
+                                  <StatusBadge tone="info" icon={<BookOpen size={12} />}>
+                                    {lesson.subjectName}
+                                  </StatusBadge>
 
-            {!isLoading &&
-            !error &&
-            savedLessons.length > 0 &&
-            filteredLessons.length === 0 ? (
-              <EmptyState
-                title="Сүзгі бойынша сабақ табылмады"
-                text="Іздеу сөзін өзгертіңіз немесе сүзгіні тазалаңыз."
-              />
-            ) : null}
+                                  <SavedLessonStatus lesson={lesson} />
+                                </div>
 
-            {!isLoading && !error && filteredLessons.length > 0 ? (
-              <div className="grid gap-3">
-                {filteredLessons.map((lesson) => {
-                  const removing = pendingLessonId === lesson.lessonId;
+                                <CardTitle className="truncate text-base">
+                                  {lesson.lessonTitle}
+                                </CardTitle>
 
-                  return (
-                    <Card key={lesson.bookmarkId} className="overflow-hidden">
-                      <CardHeader className="pb-3">
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                          <div className="min-w-0">
-                            <CardTitle className="truncate text-base">
-                              {lesson.lessonTitle}
-                            </CardTitle>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {lesson.courseTitle} · {lesson.moduleTitle}
+                                </p>
+                              </div>
+                            </div>
+                          </CardHeader>
 
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {lesson.courseTitle} · {lesson.moduleTitle}
-                            </p>
-                          </div>
+                          <CardContent className="space-y-4">
+                            <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
+                              <div>
+                                <span className="block text-[11px] uppercase tracking-wide">
+                                  Пән
+                                </span>
+                                <span className="mt-0.5 block text-foreground">
+                                  {lesson.subjectName}
+                                </span>
+                              </div>
 
-                          <SavedLessonStatus lesson={lesson} />
-                        </div>
-                      </CardHeader>
+                              <div>
+                                <span className="block text-[11px] uppercase tracking-wide">
+                                  Сабақ реті
+                                </span>
+                                <span className="mt-0.5 block text-foreground">
+                                  №{lesson.sortOrder || 1}
+                                </span>
+                              </div>
 
-                      <CardContent className="space-y-4">
-                        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                          <div>
-                            <span className="block text-[11px] uppercase tracking-wide">
-                              Пән
-                            </span>
-                            <span className="mt-0.5 block text-foreground">
-                              {lesson.subjectName}
-                            </span>
-                          </div>
+                              <div>
+                                <span className="block text-[11px] uppercase tracking-wide">
+                                  Сақталған күні
+                                </span>
+                                <span className="mt-0.5 block text-foreground">
+                                  {formatDate(lesson.createdAt)}
+                                </span>
+                              </div>
+                            </div>
 
-                          <div>
-                            <span className="block text-[11px] uppercase tracking-wide">
-                              Сабақ реті
-                            </span>
-                            <span className="mt-0.5 block text-foreground">
-                              №{lesson.sortOrder || 1}
-                            </span>
-                          </div>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void handleRemove(lesson)}
+                                disabled={removing}
+                              >
+                                <Trash2 size={15} className="mr-2" />
+                                {removing ? 'Алынып жатыр...' : 'Сақтаудан алу'}
+                              </Button>
 
-                          <div>
-                            <span className="block text-[11px] uppercase tracking-wide">
-                              Сақталған күні
-                            </span>
-                            <span className="mt-0.5 block text-foreground">
-                              {formatDate(lesson.createdAt)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => void handleRemove(lesson)}
-                            disabled={removing}
-                          >
-                            <Trash2 size={15} className="mr-2" />
-                            {removing ? 'Алынып жатыр...' : 'Сақтаудан алу'}
-                          </Button>
-
-                          <Button type="button" asChild disabled={lesson.isLocked}>
-                            <Link to={`/lessons/${lesson.lessonId}`}>
-                              Сабақты ашу
-                              <ArrowRight size={15} className="ml-2" />
-                            </Link>
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+                              <Button type="button" asChild disabled={lesson.isLocked}>
+                                <Link to={`/lessons/${lesson.lessonId}`}>
+                                  Сабақты ашу
+                                  <ArrowRight size={15} className="ml-2" />
+                                </Link>
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
       </div>
     </DashboardLayout>
   );
