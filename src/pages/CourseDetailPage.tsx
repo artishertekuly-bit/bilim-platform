@@ -2,11 +2,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowRight,
   BookOpen,
+  CalendarClock,
   CheckCircle2,
   CircleDot,
   Clock,
   GraduationCap,
   Lock,
+  Megaphone,
+  Pin,
   PlayCircle,
   RotateCcw,
   Target,
@@ -18,11 +21,16 @@ import PageHeader from '@/components/common/PageHeader';
 import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, ErrorState } from '@/components/common/DataState';
 import { CourseTimelineSkeleton } from '@/components/common/SkeletonBlocks';
-import { useCourseProgressTimeline } from '@/hooks/use-platform-data';
+import {
+  useCourseAnnouncements,
+  useCourseProgressTimeline,
+} from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type {
+  CourseAnnouncementPriority,
+  CourseAnnouncementView,
   CourseProgressLessonStatus,
   CourseProgressLessonView,
   CourseProgressModuleView,
@@ -65,6 +73,40 @@ function formatDate(value: string | null) {
     month: 'short',
     day: 'numeric',
   });
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return 'Шектеусіз';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString('kk-KZ', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function getAnnouncementPriorityLabel(priority: CourseAnnouncementPriority) {
+  const map: Record<CourseAnnouncementPriority, string> = {
+    normal: 'Қалыпты',
+    important: 'Маңызды',
+    urgent: 'Шұғыл',
+  };
+
+  return map[priority] || priority;
+}
+
+function getAnnouncementPriorityTone(priority: CourseAnnouncementPriority) {
+  if (priority === 'urgent') return 'danger';
+  if (priority === 'important') return 'warning';
+  return 'info';
 }
 
 function findNextLesson(
@@ -259,6 +301,130 @@ function CurrentLessonCard({
   );
 }
 
+function AnnouncementCard({
+  announcement,
+}: {
+  announcement: CourseAnnouncementView;
+}) {
+  return (
+    <div
+      className={`rounded-xl border p-4 ${
+        announcement.priority === 'urgent'
+          ? 'border-destructive/30 bg-destructive/5'
+          : announcement.priority === 'important'
+            ? 'border-amber-500/30 bg-amber-500/5'
+            : 'bg-card'
+      }`}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <StatusBadge tone={getAnnouncementPriorityTone(announcement.priority)}>
+              {getAnnouncementPriorityLabel(announcement.priority)}
+            </StatusBadge>
+
+            {announcement.isPinned ? (
+              <StatusBadge tone="primary" icon={<Pin size={12} />}>
+                Бекітілген
+              </StatusBadge>
+            ) : null}
+          </div>
+
+          <h3 className="text-sm font-semibold">{announcement.title}</h3>
+
+          <p className="mt-2 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+            {announcement.body}
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+            <span>Жарияланды: {formatDateTime(announcement.publishedAt)}</span>
+            {announcement.expiresAt ? (
+              <span>Мерзімі: {formatDateTime(announcement.expiresAt)}</span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CourseAnnouncementsPanel({
+  announcements,
+  isLoading,
+  hasError,
+}: {
+  announcements: CourseAnnouncementView[];
+  isLoading: boolean;
+  hasError: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Megaphone size={16} />
+            Хабарландырулар
+          </CardTitle>
+        </CardHeader>
+
+        <CardContent className="space-y-3">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <div key={index} className="rounded-xl border p-4">
+              <div className="h-4 w-32 rounded bg-muted" />
+              <div className="mt-3 h-3 w-4/5 rounded bg-muted" />
+              <div className="mt-2 h-3 w-2/3 rounded bg-muted" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Megaphone size={16} />
+            Хабарландырулар
+          </CardTitle>
+        </CardHeader>
+
+        <CardContent>
+          <div className="rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
+            Хабарландыруларды жүктеу мүмкін болмады.
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (announcements.length === 0) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Megaphone size={16} />
+            Хабарландырулар
+          </CardTitle>
+
+          <StatusBadge tone="info">{announcements.length}</StatusBadge>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-3">
+        {announcements.map((announcement) => (
+          <AnnouncementCard key={announcement.id} announcement={announcement} />
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function LessonTimelineItem({
   lesson,
   isLast,
@@ -429,6 +595,12 @@ export default function CourseDetailPage() {
     Boolean(user?.id && courseId)
   );
 
+  const {
+    data: announcements = [],
+    isLoading: announcementsLoading,
+    error: announcementsError,
+  } = useCourseAnnouncements(courseId, Boolean(courseId && !error));
+
   const nextLesson = timeline
     ? findNextLesson(timeline.modules, timeline.nextLessonId || null)
     : null;
@@ -537,6 +709,12 @@ export default function CourseDetailPage() {
                 icon={Clock}
               />
             </div>
+
+            <CourseAnnouncementsPanel
+              announcements={announcements}
+              isLoading={announcementsLoading}
+              hasError={Boolean(announcementsError)}
+            />
 
             <CurrentLessonCard lesson={nextLesson} />
 
