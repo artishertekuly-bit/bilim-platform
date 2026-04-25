@@ -34,6 +34,7 @@ import {
   getParentLinkRequests,
   getPendingOrdersForAdmin,
   getReviewLaterItems,
+  getSavedLessons,
   getStudentDashboard,
   getSubjects,
   getTeacherCourseWorkspace,
@@ -44,6 +45,7 @@ import {
   manualApproveOrder,
   manualGrantCourseAccess,
   redeemCourseInvite,
+  removeSavedLesson,
   requestPaidCourseAccess,
   requestParentLink,
   setCourseInviteActive,
@@ -62,6 +64,7 @@ import type {
   DeleteLessonNotePayload,
   ManualGrantCourseAccessPayload,
   RedeemCourseInvitePayload,
+  RemoveSavedLessonPayload,
   RequestPaidCourseAccessPayload,
   ToggleLessonBookmarkPayload,
   ToggleReviewLaterPayload,
@@ -125,6 +128,10 @@ export const platformKeys = {
   reviewLaterItemsBase: ['review-later-items'] as const,
   reviewLaterItems: (studentId: string) =>
     ['review-later-items', studentId] as const,
+
+  savedLessonsBase: ['saved-lessons'] as const,
+  savedLessons: (studentId: string) =>
+    ['saved-lessons', studentId] as const,
 
   testsBase: ['tests'] as const,
   tests: testsKey,
@@ -223,6 +230,9 @@ async function invalidateCourseAccessCaches(
       queryKey: platformKeys.reviewLaterItemsBase,
     }),
     queryClient.invalidateQueries({
+      queryKey: platformKeys.savedLessonsBase,
+    }),
+    queryClient.invalidateQueries({
       queryKey: platformKeys.myOrdersBase,
     }),
     queryClient.invalidateQueries({
@@ -246,6 +256,9 @@ async function invalidateCourseAccessCaches(
       }),
       queryClient.invalidateQueries({
         queryKey: platformKeys.reviewLaterItems(input.userId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.savedLessons(input.userId),
       })
     );
   }
@@ -310,6 +323,9 @@ async function invalidateLearningSpaceCaches(
       queryKey: platformKeys.reviewLaterItemsBase,
     }),
     queryClient.invalidateQueries({
+      queryKey: platformKeys.savedLessonsBase,
+    }),
+    queryClient.invalidateQueries({
       queryKey: platformKeys.studentDashboardBase,
     }),
     queryClient.invalidateQueries({
@@ -324,6 +340,9 @@ async function invalidateLearningSpaceCaches(
       }),
       queryClient.invalidateQueries({
         queryKey: platformKeys.reviewLaterItems(input.studentId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.savedLessons(input.studentId),
       })
     );
   }
@@ -472,6 +491,14 @@ export function useReviewLaterItems(studentId: string, enabled = true) {
   return useQuery({
     queryKey: platformKeys.reviewLaterItems(studentId),
     queryFn: () => getReviewLaterItems(studentId),
+    enabled: enabled && !!studentId,
+  });
+}
+
+export function useSavedLessons(studentId: string, enabled = true) {
+  return useQuery({
+    queryKey: platformKeys.savedLessons(studentId),
+    queryFn: () => getSavedLessons(studentId),
     enabled: enabled && !!studentId,
   });
 }
@@ -920,6 +947,33 @@ export function useToggleLessonBookmarkMutation(locale?: Locale) {
       ...payload
     }: ToggleLessonBookmarkMutationInput) => toggleLessonBookmark(payload),
     onSuccess: async (_result, variables) => {
+      await invalidateLearningSpaceCaches(queryClient, {
+        studentId: variables.studentId,
+        lessonId: variables.lessonId,
+        courseId: variables.courseId,
+        locale: variables.locale ?? activeLocale,
+      });
+    },
+  });
+}
+
+type RemoveSavedLessonMutationInput =
+  RemoveSavedLessonPayload & {
+    courseId?: string;
+    locale?: Locale;
+  };
+
+export function useRemoveSavedLessonMutation(locale?: Locale) {
+  const queryClient = useQueryClient();
+  const activeLocale = resolveLocale(locale);
+
+  return useMutation({
+    mutationFn: async ({
+      courseId: _courseId,
+      locale: _locale,
+      ...payload
+    }: RemoveSavedLessonMutationInput) => removeSavedLesson(payload),
+    onSuccess: async (_, variables) => {
       await invalidateLearningSpaceCaches(queryClient, {
         studentId: variables.studentId,
         lessonId: variables.lessonId,

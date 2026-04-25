@@ -16,8 +16,10 @@ import type {
   LessonAttachmentRow,
   LessonAttachmentView,
   LessonLearningState,
+  RemoveSavedLessonPayload,
   ReviewLaterItemRow,
   ReviewLaterItemView,
+  SavedLessonView,
   StudentLessonBookmarkRow,
   StudentLessonNoteRow,
   ToggleLessonBookmarkPayload,
@@ -33,6 +35,37 @@ type SupabaseResponse<T> = {
     details?: string;
     hint?: string;
   } | null;
+};
+
+type LessonLiteRow = {
+  id: string;
+  title: string;
+  module_id: string;
+  sort_order: number | null;
+  is_published?: boolean | null;
+};
+
+type ModuleLiteRow = {
+  id: string;
+  title: string;
+  course_id: string;
+  sort_order: number | null;
+};
+
+type CourseLiteRow = {
+  id: string;
+  title: string;
+  subject_id: string | null;
+  status?: string | null;
+};
+
+type SubjectLiteRow = {
+  id: string;
+  name?: string | null;
+  title?: string | null;
+  name_kk?: string | null;
+  name_ru?: string | null;
+  name_en?: string | null;
 };
 
 async function unwrap<T>(request: PromiseLike<SupabaseResponse<T>>): Promise<T> {
@@ -114,6 +147,19 @@ function normalizeSizeBytes(value: number | null | undefined) {
   }
 
   return Math.round(value);
+}
+
+function getSubjectName(subject?: SubjectLiteRow | null) {
+  if (!subject) return 'Пән көрсетілмеген';
+
+  return (
+    subject.name_kk ||
+    subject.name ||
+    subject.title ||
+    subject.name_ru ||
+    subject.name_en ||
+    'Пән көрсетілмеген'
+  );
 }
 
 function mapFileAsset(row: FileAssetRow): FileAssetView {
@@ -215,6 +261,42 @@ async function getFileAssetsByIds(fileAssetIds: string[]) {
   );
 
   return new Map((rows || []).map((row) => [row.id, row]));
+}
+
+async function getCompletedLessonIdsSafe(studentId: string, lessonIds: string[]) {
+  const uniqueLessonIds = [...new Set(lessonIds)].filter(Boolean);
+
+  if (!studentId || uniqueLessonIds.length === 0) {
+    return new Set<string>();
+  }
+
+  const db = supabase as any;
+
+  try {
+    const { data, error } = await db
+      .from('lesson_progress')
+      .select('lesson_id, is_completed, completed_at')
+      .eq('student_id', studentId)
+      .in('lesson_id', uniqueLessonIds);
+
+    if (error) {
+      console.warn('[learning-space-actions] lesson_progress lookup failed', error);
+      return new Set<string>();
+    }
+
+    return new Set(
+      ((data || []) as Array<{
+        lesson_id: string;
+        is_completed?: boolean | null;
+        completed_at?: string | null;
+      }>)
+        .filter((row) => row.is_completed === true || Boolean(row.completed_at))
+        .map((row) => row.lesson_id)
+    );
+  } catch (error) {
+    console.warn('[learning-space-actions] lesson_progress lookup failed', error);
+    return new Set<string>();
+  }
 }
 
 async function getExistingReviewLaterItem(input: {
@@ -378,6 +460,119 @@ export async function toggleLessonBookmark(
   );
 
   return null;
+}
+
+export async function getSavedLessons(studentId: string): Promise<SavedLessonView[]> {
+  if (!studentId) return [];
+
+  const db = supabase as any;
+
+  const bookmarks = await unwrap<StudentLessonBookmarkRow[]>(
+    db
+      .from('student_lesson_bookmarks')
+      .select('*')
+      .eq('student_id', studentId)
+      .order('created_at', { ascending: false })
+  );
+
+  if (!bookmarks?.length) return [];
+
+  const lessonIds = [...new Set(bookmarks.map((bookmark) => bookmark.lesson_id))];
+
+  const lessons = await unwrap<LessonLiteRow[]>(
+    db
+      .from('lessons')
+      .select('id,title,module_id,sort_order,is_published')
+      .in('id', lessonIds)
+  );
+
+  const lessonsById = new Map((lessons || []).map((lesson) => [lesson.id, lesson]));
+  const moduleIds = [...new Set((lessons || []).map((lesson) => lesson.module_id).filter(Boolean))];
+
+  const modules = moduleIds.length
+    ? await unwrap<ModuleLiteRow[]>(
+        db
+          .from('modules')
+          .select('id,title,course_id,sort_order')
+          .in('id', moduleIds)
+      )
+    : [];
+
+  const modulesById = new Map((modules || []).map((module) => [module.id, module]));
+  const courseIds = [
+    ...new Set([
+      ...bookmarks.map((bookmark) => bookmark.course_id).filter(Boolean),
+      ...(modules || []).map((module) => module.course_id).filter(Boolean),
+    ]),
+  ];
+
+  const courses = courseIds.length
+    ? await unwrap<CourseLiteRow[]>(
+        db
+          .from('courses')
+          .select('id,title,subject_id,status')
+          .in('id', courseIds)
+      )
+    : [];
+
+  const coursesById = new Map((courses || []).map((course) => [course.id, course]));
+  const subjectIds = [...new Set((courses || []).map((course) => course.subject_id).filter(Boolean))];
+
+  const subjects = subjectIds.length
+    ? await unwrap<SubjectLiteRow[]>(
+        db
+          .from('subjects')
+          .select('*')
+          .in('id', subjectIds)
+      )
+    : [];
+
+  const subjectsById = new Map((subjects || []).map((subject) => [subject.id, subject]));
+  const completedLessonIds = await getCompletedLessonIdsSafe(studentId, lessonIds);
+
+  return bookmarks
+    .map((bookmark) => {
+      const lesson = lessonsById.get(bookmark.lesson_id);
+      if (!lesson) return null;
+
+      const module = modulesById.get(lesson.module_id);
+      const course = coursesById.get(bookmark.course_id || module?.course_id || '');
+
+      if (!module || !course) return null;
+
+      const subject = course.subject_id ? subjectsById.get(course.subject_id) : null;
+
+      return {
+        bookmarkId: bookmark.id,
+        lessonId: lesson.id,
+        courseId: course.id,
+        moduleId: module.id,
+
+        lessonTitle: lesson.title || 'Сабақ',
+        moduleTitle: module.title || 'Модуль',
+        courseTitle: course.title || 'Курс',
+        subjectName: getSubjectName(subject),
+
+        sortOrder: Number(lesson.sort_order || 0),
+        isCompleted: completedLessonIds.has(lesson.id),
+        isLocked: false,
+
+        createdAt: bookmark.created_at,
+      };
+    })
+    .filter((item): item is SavedLessonView => item !== null);
+}
+
+export async function removeSavedLesson(input: RemoveSavedLessonPayload) {
+  const db = supabase as any;
+
+  await unwrap<unknown>(
+    db
+      .from('student_lesson_bookmarks')
+      .delete()
+      .eq('student_id', input.studentId)
+      .eq('lesson_id', input.lessonId)
+  );
 }
 
 /* ================= REVIEW LATER ================= */

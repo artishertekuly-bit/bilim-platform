@@ -28,6 +28,7 @@ const DashboardRouter = lazy(() => import('./pages/DashboardRouter'));
 const CourseCatalogPage = lazy(() => import('./pages/CourseCatalogPage'));
 const LessonsPage = lazy(() => import('./pages/LessonsPage'));
 const LessonDetailPage = lazy(() => import('./pages/LessonDetailPage'));
+const SavedLessonsPage = lazy(() => import('./pages/SavedLessonsPage'));
 const TestsPage = lazy(() => import('./pages/TestsPage'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
 const GamificationPage = lazy(() => import('./pages/GamificationPage'));
@@ -268,6 +269,11 @@ const sharedContentRoutes: AppRouteConfig[] = [
 ];
 
 const studentRoutes: AppRouteConfig[] = [
+  {
+    path: '/saved-lessons',
+    element: <SavedLessonsPage />,
+    allowedRoles: ['student'],
+  },
   { path: '/tests', element: <TestsPage />, allowedRoles: ['student'] },
   { path: '/leaderboard', element: <LeaderboardPage />, allowedRoles: ['student'] },
   ...studentGamificationPaths.map((path) => ({

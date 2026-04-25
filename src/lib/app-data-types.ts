@@ -734,6 +734,34 @@ export interface LessonLearningState {
 }
 
 /**
+ * MVP 2: Saved lessons / Bookmarks page.
+ *
+ * Оқушы сақтап қойған сабақтарын бөлек бетте көреді.
+ */
+export interface SavedLessonView {
+  bookmarkId: string;
+  lessonId: string;
+  courseId: string;
+  moduleId: string;
+
+  lessonTitle: string;
+  moduleTitle: string;
+  courseTitle: string;
+  subjectName: string;
+
+  sortOrder: number;
+  isCompleted: boolean;
+  isLocked: boolean;
+
+  createdAt: string;
+}
+
+export interface RemoveSavedLessonPayload {
+  studentId: string;
+  lessonId: string;
+}
+
+/**
  * MVP 2: Teacher-facing attachment workspace.
  */
 export interface TeacherLessonAttachmentView extends LessonAttachmentView {

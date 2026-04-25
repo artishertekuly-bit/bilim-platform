@@ -22,6 +22,7 @@ import {
   Bot,
   Sparkles,
   MessageCircle,
+  Bookmark,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -60,6 +61,12 @@ const roleNavItems: Record<UserRole, NavItemConfig[]> = {
     chatNavItem,
     { labelKey: 'nav.courses', path: '/courses', icon: BookOpen, matchMode: 'section' },
     { labelKey: 'nav.lessons', path: '/lessons', icon: FileText, matchMode: 'section' },
+    {
+      label: 'Сақталған сабақтар',
+      path: '/saved-lessons',
+      icon: Bookmark,
+      matchMode: 'section',
+    },
     { labelKey: 'nav.tests', path: '/tests', icon: ClipboardList, matchMode: 'section' },
     { labelKey: 'nav.ai_practice', path: '/ai-practice', icon: Sparkles, matchMode: 'section' },
     { labelKey: 'nav.ai_tutor', path: '/ai-tutor', icon: Bot, matchMode: 'section' },
