@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import DashboardLayout from '@/components/DashboardLayout';
 import UserAvatar from '@/components/UserAvatar';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import { supabase } from '@/integrations/supabase/client';
@@ -16,7 +18,21 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Save, Trash2 } from 'lucide-react';
+import {
+  BadgeCheck,
+  Camera,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  ImageIcon,
+  KeyRound,
+  Mail,
+  Save,
+  ShieldCheck,
+  Trash2,
+  User,
+  XCircle,
+} from 'lucide-react';
 import AvatarCropDialog from '@/components/AvatarCropDialog';
 
 const AVATAR_BUCKET = 'avatars';
@@ -60,6 +76,75 @@ function isValidPassword(value: string) {
   return value.length >= 8 && /[A-Za-zА-Яа-я]/.test(value) && /\d/.test(value);
 }
 
+function getProviderLabel(provider: string) {
+  if (provider === 'google') return 'Google';
+  if (provider === 'email') return 'Email';
+  return provider;
+}
+
+function SectionCard({
+  title,
+  description,
+  icon,
+  children,
+}: {
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2 text-base">
+          {icon}
+          {title}
+        </CardTitle>
+
+        {description ? (
+          <CardDescription>{description}</CardDescription>
+        ) : null}
+      </CardHeader>
+
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
+function PasswordRule({
+  ok,
+  children,
+}: {
+  ok: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 text-xs ${
+        ok ? 'text-emerald-700' : 'text-muted-foreground'
+      }`}
+    >
+      {ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+      <span>{children}</span>
+    </div>
+  );
+}
+
 export default function ProfileSettingsPage() {
   const { user, refreshUser, updatePassword } = useAuth();
   const { toast } = useToast();
@@ -80,11 +165,52 @@ export default function ProfileSettingsPage() {
   const [cropOpen, setCropOpen] = useState(false);
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
 
+  const [authProviders, setAuthProviders] = useState<string[]>([]);
+  const [passwordSetupCompleted, setPasswordSetupCompleted] = useState(false);
+
   useEffect(() => {
-    setFullName(user?.fullName || '');
+    setFullName(getDefaultFullName(user));
     setBio(user?.bio || '');
     setAvatarUrl(user?.avatarUrl || null);
   }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAuthStatus = async () => {
+      const { data } = await supabase.auth.getUser();
+      const authUser = data.user;
+
+      if (!authUser || cancelled) return;
+
+      const providerSet = new Set<string>();
+
+      const providers = authUser.app_metadata?.providers;
+      if (Array.isArray(providers)) {
+        providers.forEach((provider) => {
+          if (typeof provider === 'string') providerSet.add(provider);
+        });
+      }
+
+      authUser.identities?.forEach((identity) => {
+        if (identity.provider) providerSet.add(identity.provider);
+      });
+
+      const nextProviders = Array.from(providerSet);
+      setAuthProviders(nextProviders);
+
+      setPasswordSetupCompleted(
+        authUser.user_metadata?.password_setup_completed === true ||
+          nextProviders.includes('email')
+      );
+    };
+
+    void loadAuthStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     return () => {
@@ -110,20 +236,14 @@ export default function ProfileSettingsPage() {
   const normalizedNewPassword = normalizePassword(newPassword);
   const normalizedConfirmPassword = normalizePassword(confirmPassword);
 
+  const passwordHasMinLength = normalizedNewPassword.length >= 8;
+  const passwordHasLetter = /[A-Za-zА-Яа-я]/.test(normalizedNewPassword);
+  const passwordHasNumber = /\d/.test(normalizedNewPassword);
+
   const passwordMismatch =
     normalizedNewPassword.length > 0 &&
     normalizedConfirmPassword.length > 0 &&
     normalizedNewPassword !== normalizedConfirmPassword;
-
-  const passwordTooShort =
-    normalizedNewPassword.length > 0 && normalizedNewPassword.length < 8;
-
-  const passwordMissingNumber =
-    normalizedNewPassword.length > 0 && !/\d/.test(normalizedNewPassword);
-
-  const passwordMissingLetter =
-    normalizedNewPassword.length > 0 &&
-    !/[A-Za-zА-Яа-я]/.test(normalizedNewPassword);
 
   const canSavePassword =
     Boolean(user) &&
@@ -131,6 +251,11 @@ export default function ProfileSettingsPage() {
     normalizedConfirmPassword.length >= 8 &&
     normalizedNewPassword === normalizedConfirmPassword &&
     !savingPassword;
+
+  const hasGoogleProvider = authProviders.includes('google');
+  const hasEmailProvider = authProviders.includes('email') || passwordSetupCompleted;
+
+  const displayName = normalizedFullName || user?.fullName || user?.email || 'User';
 
   const upsertProfile = async (patch: {
     full_name?: string | null;
@@ -174,8 +299,8 @@ export default function ProfileSettingsPage() {
     setCropOpen(false);
   };
 
-  const handleAvatarFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleAvatarFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
 
     if (!file) return;
 
@@ -185,7 +310,7 @@ export default function ProfileSettingsPage() {
         description: t('page.profile.toast.invalid_file_type'),
         variant: 'destructive',
       });
-      e.currentTarget.value = '';
+      event.currentTarget.value = '';
       return;
     }
 
@@ -195,7 +320,7 @@ export default function ProfileSettingsPage() {
         description: t('page.profile.toast.file_too_large'),
         variant: 'destructive',
       });
-      e.currentTarget.value = '';
+      event.currentTarget.value = '';
       return;
     }
 
@@ -206,7 +331,7 @@ export default function ProfileSettingsPage() {
     const objectUrl = URL.createObjectURL(file);
     setSelectedImageSrc(objectUrl);
     setCropOpen(true);
-    e.currentTarget.value = '';
+    event.currentTarget.value = '';
   };
 
   const handleAvatarCropped = async (croppedFile: File) => {
@@ -364,6 +489,9 @@ export default function ProfileSettingsPage() {
         },
       });
 
+      setPasswordSetupCompleted(true);
+      setAuthProviders((current) => Array.from(new Set([...current, 'email'])));
+
       await refreshUser();
 
       setNewPassword('');
@@ -387,203 +515,315 @@ export default function ProfileSettingsPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-3xl space-y-6 animate-fade-in">
-        <div>
-          <h2 className="text-xl font-bold">{t('page.profile.title')}</h2>
-          <p className="text-sm text-muted-foreground">
-            {t('page.profile.subtitle')}
-          </p>
-        </div>
+      <div className="mx-auto max-w-5xl space-y-6 animate-fade-in">
+        <PageHeader
+          eyebrow={
+            <>
+              <User size={13} />
+              Аккаунт баптаулары
+            </>
+          }
+          icon={<User size={20} />}
+          title={t('page.profile.title')}
+          description={t('page.profile.subtitle')}
+          actions={
+            <StatusBadge
+              tone={hasEmailProvider ? 'success' : 'warning'}
+              icon={hasEmailProvider ? <ShieldCheck size={12} /> : <KeyRound size={12} />}
+            >
+              {hasEmailProvider ? 'Құпия сөз бар' : 'Құпия сөз қойылмаған'}
+            </StatusBadge>
+          }
+        />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('page.profile.card_title')}</CardTitle>
-            <CardDescription>
-              {t('page.profile.card_description')}
-            </CardDescription>
-          </CardHeader>
+        <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="space-y-6">
+            <SectionCard
+              title="Аккаунт"
+              description="Профильдің қысқаша көрінісі."
+              icon={<BadgeCheck size={16} />}
+            >
+              <div className="flex flex-col items-center text-center">
+                <UserAvatar
+                  name={displayName}
+                  avatarUrl={avatarUrl}
+                  className="h-28 w-28"
+                  fallbackClassName="text-2xl"
+                />
 
-          <CardContent className="space-y-6">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-              <UserAvatar
-                name={normalizedFullName || user?.fullName}
-                avatarUrl={avatarUrl}
-                className="h-24 w-24"
-                fallbackClassName="text-xl"
-              />
+                <h3 className="mt-4 max-w-full truncate text-base font-semibold">
+                  {displayName}
+                </h3>
 
-              <div className="flex-1 space-y-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="avatar">{t('page.profile.field.avatar')}</Label>
-                  <Input
-                    id="avatar"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/jpg"
-                    onChange={handleAvatarFileSelect}
-                    disabled={savingAvatar}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t('page.profile.avatar_hint')}
-                  </p>
+                <p className="mt-1 max-w-full truncate text-sm text-muted-foreground">
+                  {user?.email}
+                </p>
+
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {authProviders.length > 0 ? (
+                    authProviders.map((provider) => (
+                      <StatusBadge
+                        key={provider}
+                        tone={provider === 'google' ? 'info' : 'success'}
+                        icon={provider === 'google' ? <BadgeCheck size={12} /> : <Mail size={12} />}
+                      >
+                        {getProviderLabel(provider)}
+                      </StatusBadge>
+                    ))
+                  ) : (
+                    <StatusBadge tone="muted">Provider анықталмады</StatusBadge>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-2">
+                <InfoRow
+                  label="Рөл"
+                  value={user?.role ? t(`role.${user.role}` as any) : '—'}
+                />
+                <InfoRow label="Email" value={user?.email || '—'} />
+                <InfoRow
+                  label="Google"
+                  value={hasGoogleProvider ? 'Қосылған' : 'Қосылмаған'}
+                />
+                <InfoRow
+                  label="Құпия сөз"
+                  value={hasEmailProvider ? 'Орнатылған' : 'Орнатылмаған'}
+                />
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Аватар"
+              description="Суретті жүктеп, қиып, профильге сақтаңыз."
+              icon={<Camera size={16} />}
+            >
+              <div className="space-y-4">
+                <div className="rounded-xl border border-dashed bg-muted/20 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-card text-primary">
+                      <ImageIcon size={18} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">Сурет таңдау</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        PNG, JPG, JPEG немесе WEBP. Максимум {MAX_AVATAR_SIZE_MB} MB.
+                        Таңдағаннан кейін crop терезесі ашылады.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <Input
+                      id="avatar"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/jpg"
+                      onChange={handleAvatarFileSelect}
+                      disabled={savingAvatar}
+                    />
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={removeAvatar}
+                  disabled={!canRemoveAvatar}
+                  className="w-full"
+                >
+                  <Trash2 size={16} className="mr-2" />
+                  {savingAvatar
+                    ? t('page.profile.action.removing_avatar')
+                    : t('page.profile.action.remove_avatar')}
+                </Button>
+              </div>
+            </SectionCard>
+          </div>
+
+          <div className="space-y-6">
+            <SectionCard
+              title={t('page.profile.card_title')}
+              description={t('page.profile.card_description')}
+              icon={<User size={16} />}
+            >
+              <div className="space-y-5">
+                <div className="grid gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fullName">{t('auth.full_name')}</Label>
+                    <Input
+                      id="fullName"
+                      value={fullName}
+                      onChange={(event) => setFullName(event.target.value)}
+                      disabled={savingProfile}
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bio">{t('page.profile.field.bio')}</Label>
+                    <Textarea
+                      id="bio"
+                      value={bio}
+                      onChange={(event) => setBio(event.target.value)}
+                      placeholder={t('page.profile.placeholder.bio')}
+                      rows={5}
+                      disabled={savingProfile}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Бұл bio мұғалім карточкасында немесе профильде көрсетілуі мүмкін.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
                   <Button
                     type="button"
-                    variant="outline"
-                    onClick={removeAvatar}
-                    disabled={!canRemoveAvatar}
+                    onClick={saveProfile}
+                    disabled={!canSaveProfile}
                   >
-                    <Trash2 size={16} className="mr-2" />
-                    {savingAvatar
-                      ? t('page.profile.action.removing_avatar')
-                      : t('page.profile.action.remove_avatar')}
+                    <Save size={16} className="mr-2" />
+                    {savingProfile
+                      ? t('page.profile.action.saving')
+                      : t('page.profile.action.save_changes')}
                   </Button>
                 </div>
               </div>
-            </div>
+            </SectionCard>
 
-            <div className="grid gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="fullName">{t('auth.full_name')}</Label>
-                <Input
-                  id="fullName"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  disabled={savingProfile}
-                />
+            <SectionCard
+              title="Қауіпсіздік"
+              description="Құпия сөзді орнатыңыз немесе жаңартыңыз."
+              icon={<ShieldCheck size={16} />}
+            >
+              <div className="space-y-5">
+                <div className="rounded-xl border bg-muted/20 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Кіру әдістері</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Google арқылы кірген user үшін бөлек password қоюға болады.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {hasGoogleProvider ? (
+                        <StatusBadge tone="info" icon={<BadgeCheck size={12} />}>
+                          Google қосылған
+                        </StatusBadge>
+                      ) : null}
+
+                      <StatusBadge
+                        tone={hasEmailProvider ? 'success' : 'warning'}
+                        icon={hasEmailProvider ? <CheckCircle2 size={12} /> : <KeyRound size={12} />}
+                      >
+                        {hasEmailProvider ? 'Password active' : 'Password керек'}
+                      </StatusBadge>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="newPassword">Жаңа құпия сөз</Label>
+
+                    <div className="relative">
+                      <Input
+                        id="newPassword"
+                        type={showNewPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(event) => setNewPassword(event.target.value)}
+                        placeholder="Кемінде 8 таңба, әріп және сан"
+                        className="pr-10"
+                        minLength={8}
+                        disabled={savingPassword}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
+                        disabled={savingPassword}
+                        aria-label={
+                          showNewPassword ? 'Құпия сөзді жасыру' : 'Құпия сөзді көрсету'
+                        }
+                      >
+                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="confirmPassword">Қайталау</Label>
+
+                    <div className="relative">
+                      <Input
+                        id="confirmPassword"
+                        type={showConfirmPassword ? 'text' : 'password'}
+                        value={confirmPassword}
+                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        placeholder="Құпия сөзді қайталаңыз"
+                        className="pr-10"
+                        minLength={8}
+                        disabled={savingPassword}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
+                        disabled={savingPassword}
+                        aria-label={
+                          showConfirmPassword
+                            ? 'Құпия сөзді жасыру'
+                            : 'Құпия сөзді көрсету'
+                        }
+                      >
+                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2">
+                  <PasswordRule ok={passwordHasMinLength}>
+                    Кемінде 8 таңба
+                  </PasswordRule>
+                  <PasswordRule ok={passwordHasLetter}>
+                    Кемінде 1 әріп
+                  </PasswordRule>
+                  <PasswordRule ok={passwordHasNumber}>
+                    Кемінде 1 сан
+                  </PasswordRule>
+                  <PasswordRule
+                    ok={
+                      normalizedConfirmPassword.length > 0 &&
+                      normalizedNewPassword === normalizedConfirmPassword
+                    }
+                  >
+                    Қайталанған password сәйкес
+                  </PasswordRule>
+                </div>
+
+                {passwordMismatch ? (
+                  <p className="text-sm text-red-600">
+                    Құпия сөздер сәйкес келмейді.
+                  </p>
+                ) : null}
+
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    onClick={savePassword}
+                    disabled={!canSavePassword}
+                  >
+                    <KeyRound size={16} className="mr-2" />
+                    {savingPassword ? 'Жаңартылуда...' : 'Құпия сөзді жаңарту'}
+                  </Button>
+                </div>
               </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="bio">{t('page.profile.field.bio')}</Label>
-                <Textarea
-                  id="bio"
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  placeholder={t('page.profile.placeholder.bio')}
-                  rows={5}
-                  disabled={savingProfile}
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                onClick={saveProfile}
-                disabled={!canSaveProfile}
-              >
-                <Save size={16} className="mr-2" />
-                {savingProfile
-                  ? t('page.profile.action.saving')
-                  : t('page.profile.action.save_changes')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Қауіпсіздік</CardTitle>
-            <CardDescription>Құпия сөзді өзгерту</CardDescription>
-          </CardHeader>
-
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="newPassword">Жаңа құпия сөз</Label>
-
-              <div className="relative">
-                <Input
-                  id="newPassword"
-                  type={showNewPassword ? 'text' : 'password'}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Кемінде 8 таңба, әріп және сан"
-                  className="pr-10"
-                  minLength={8}
-                  disabled={savingPassword}
-                />
-
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword((prev) => !prev)}
-                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
-                  disabled={savingPassword}
-                  aria-label={
-                    showNewPassword ? 'Құпия сөзді жасыру' : 'Құпия сөзді көрсету'
-                  }
-                >
-                  {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="confirmPassword">Қайталау</Label>
-
-              <div className="relative">
-                <Input
-                  id="confirmPassword"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Құпия сөзді қайталаңыз"
-                  className="pr-10"
-                  minLength={8}
-                  disabled={savingPassword}
-                />
-
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword((prev) => !prev)}
-                  className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
-                  disabled={savingPassword}
-                  aria-label={
-                    showConfirmPassword
-                      ? 'Құпия сөзді жасыру'
-                      : 'Құпия сөзді көрсету'
-                  }
-                >
-                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            {passwordTooShort ? (
-              <p className="text-sm text-red-600">
-                Құпия сөз кемінде 8 таңбадан тұруы керек.
-              </p>
-            ) : null}
-
-            {passwordMissingLetter ? (
-              <p className="text-sm text-red-600">
-                Құпия сөзде кемінде бір әріп болуы керек.
-              </p>
-            ) : null}
-
-            {passwordMissingNumber ? (
-              <p className="text-sm text-red-600">
-                Құпия сөзде кемінде бір сан болуы керек.
-              </p>
-            ) : null}
-
-            {passwordMismatch ? (
-              <p className="text-sm text-red-600">
-                Құпия сөздер сәйкес келмейді.
-              </p>
-            ) : null}
-
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                onClick={savePassword}
-                disabled={!canSavePassword}
-              >
-                {savingPassword ? 'Жаңартылуда...' : 'Құпия сөзді жаңарту'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </SectionCard>
+          </div>
+        </div>
 
         <AvatarCropDialog
           open={cropOpen}

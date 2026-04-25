@@ -1,22 +1,167 @@
+import { useMemo, useState, type ReactNode } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  FileText,
+  GraduationCap,
+  Lock,
+  PlayCircle,
+  RotateCcw,
+  Search,
+  type LucideIcon,
+} from 'lucide-react';
+
 import DashboardLayout from '@/components/DashboardLayout';
-import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
-import { useLessons } from '@/hooks/use-platform-data';
+import PageHeader from '@/components/common/PageHeader';
+import { EmptyState, ErrorState } from '@/components/common/DataState';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
+import LessonCard from '@/components/lesson/LessonCard';
+import { platformKeys, useLessons } from '@/hooks/use-platform-data';
 import { markLessonComplete } from '@/lib/app-data';
+import type { LessonView } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { platformKeys } from '@/hooks/use-platform-data';
-import { CheckCircle2, Lock, PlayCircle } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
-function getLessonStatusLabel(isCompleted: boolean, isLocked: boolean) {
-  if (isCompleted) return t('lesson.status.completed');
-  if (isLocked) return t('common.locked');
-  return t('lesson.status.available');
+type LessonStatusFilter = 'all' | 'available' | 'completed' | 'locked';
+
+function normalizeText(value: string | null | undefined) {
+  return (value || '').toLowerCase().trim();
+}
+
+function getStatusFilterLabel(filter: LessonStatusFilter) {
+  const labels: Record<LessonStatusFilter, string> = {
+    all: 'Барлығы',
+    available: 'Ашық',
+    completed: 'Аяқталған',
+    locked: 'Құлыпталған',
+  };
+
+  return labels[filter];
+}
+
+function getLessonStatusFilter(lesson: LessonView): LessonStatusFilter {
+  if (lesson.isCompleted) return 'completed';
+  if (lesson.isLocked) return 'locked';
+  return 'available';
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: LucideIcon;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="flex items-center gap-3 pt-5">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+          <Icon size={18} />
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-2xl font-semibold">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LessonsPageSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <div className="space-y-2">
+                <SkeletonBlock className="h-3 w-20" />
+                <SkeletonBlock className="h-6 w-12" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-xl border bg-card p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <SkeletonBlock className="h-10 w-full lg:max-w-md" />
+          <div className="flex gap-2">
+            <SkeletonBlock className="h-9 w-20 rounded-full" />
+            <SkeletonBlock className="h-9 w-20 rounded-full" />
+            <SkeletonBlock className="h-9 w-24 rounded-full" />
+          </div>
+        </div>
+
+        <div className="mt-4 flex gap-2 overflow-hidden">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <SkeletonBlock
+              key={index}
+              className="h-7 w-20 shrink-0 rounded-full"
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border bg-card p-5">
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div key={index} className="rounded-xl border p-4">
+              <div className="flex gap-4">
+                <SkeletonBlock className="h-11 w-11 rounded-xl" />
+
+                <div className="flex-1 space-y-2">
+                  <div className="flex gap-2">
+                    <SkeletonBlock className="h-5 w-20 rounded-full" />
+                    <SkeletonBlock className="h-5 w-24 rounded-full" />
+                  </div>
+                  <SkeletonBlock className="h-4 w-2/3" />
+                  <SkeletonBlock className="h-3 w-1/2" />
+                </div>
+
+                <SkeletonBlock className="hidden h-9 w-28 sm:block" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterChip({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+        active
+          ? 'border-primary bg-primary text-primary-foreground'
+          : 'border-border hover:bg-accent'
+      }`}
+    >
+      {children}
+    </button>
+  );
 }
 
 export default function LessonsPage() {
@@ -26,16 +171,26 @@ export default function LessonsPage() {
   const navigate = useNavigate();
 
   const [activeSubject, setActiveSubject] = useState('all');
+  const [activeStatus, setActiveStatus] = useState<LessonStatusFilter>('all');
+  const [search, setSearch] = useState('');
+  const [pendingCompleteLessonId, setPendingCompleteLessonId] = useState<string | null>(
+    null
+  );
 
   const isStudent = user?.role === 'student';
 
-  const { data, isLoading, error } = useLessons(isStudent ? user?.id : undefined, !!user);
+  const { data, isLoading, error } = useLessons(
+    isStudent ? user?.id : undefined,
+    !!user
+  );
 
   const completeMutation = useMutation({
     mutationFn: async (lessonId: string) => {
       if (!user?.id) {
         throw new Error('User not found');
       }
+
+      setPendingCompleteLessonId(lessonId);
 
       return markLessonComplete(user.id, lessonId);
     },
@@ -45,7 +200,9 @@ export default function LessonsPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['lessons'] }),
         queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
+        queryClient.invalidateQueries({ queryKey: ['lesson-learning-state'] }),
         queryClient.invalidateQueries({ queryKey: ['courses'] }),
+        queryClient.invalidateQueries({ queryKey: ['course-progress'] }),
         queryClient.invalidateQueries({
           queryKey: platformKeys.studentDashboard(user.id),
         }),
@@ -75,23 +232,76 @@ export default function LessonsPage() {
         variant: 'destructive',
       });
     },
+    onSettled: () => {
+      setPendingCompleteLessonId(null);
+    },
   });
+
+  const lessons = data || [];
 
   const subjects = useMemo(
     () => [
       'all',
-      ...Array.from(new Set((data || []).map((item) => item.subjectName).filter(Boolean))),
+      ...Array.from(new Set(lessons.map((item) => item.subjectName).filter(Boolean))),
     ],
-    [data]
+    [lessons]
   );
 
-  const filtered = useMemo(
-    () =>
-      (data || []).filter(
-        (item) => activeSubject === 'all' || item.subjectName === activeSubject
-      ),
-    [activeSubject, data]
-  );
+  const stats = useMemo(() => {
+    const total = lessons.length;
+    const completed = lessons.filter((lesson) => lesson.isCompleted).length;
+    const locked = lessons.filter((lesson) => lesson.isLocked).length;
+    const available = lessons.filter(
+      (lesson) => !lesson.isCompleted && !lesson.isLocked
+    ).length;
+
+    return {
+      total,
+      completed,
+      locked,
+      available,
+    };
+  }, [lessons]);
+
+  const filtered = useMemo(() => {
+    const query = normalizeText(search);
+
+    return lessons.filter((lesson) => {
+      const matchesSubject =
+        activeSubject === 'all' || lesson.subjectName === activeSubject;
+
+      const lessonStatus = getLessonStatusFilter(lesson);
+      const matchesStatus = activeStatus === 'all' || lessonStatus === activeStatus;
+
+      const matchesSearch =
+        !query ||
+        normalizeText(lesson.title).includes(query) ||
+        normalizeText(lesson.courseTitle).includes(query) ||
+        normalizeText(lesson.moduleTitle).includes(query) ||
+        normalizeText(lesson.subjectName).includes(query);
+
+      return matchesSubject && matchesStatus && matchesSearch;
+    });
+  }, [activeStatus, activeSubject, lessons, search]);
+
+  const hasActiveFilters =
+    search.trim() || activeSubject !== 'all' || activeStatus !== 'all';
+
+  const resetFilters = () => {
+    setSearch('');
+    setActiveSubject('all');
+    setActiveStatus('all');
+  };
+
+  const handleOpenLesson = (lesson: LessonView) => {
+    if (lesson.isLocked) return;
+    navigate(`/lessons/${lesson.id}`);
+  };
+
+  const handleCompleteLesson = (lesson: LessonView) => {
+    if (!isStudent || lesson.isCompleted || lesson.isLocked) return;
+    completeMutation.mutate(lesson.id);
+  };
 
   const pageTitle = isStudent
     ? t('page.lessons.title.student')
@@ -116,112 +326,189 @@ export default function LessonsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h2 className="text-xl font-bold">{pageTitle}</h2>
-          <p className="text-sm text-muted-foreground">{pageDescription}</p>
-        </div>
+        <PageHeader
+          eyebrow={
+            <>
+              <FileText size={13} />
+              {isStudent ? 'Оқу материалдары' : 'Сабақтарды басқару'}
+            </>
+          }
+          icon={<BookOpen size={20} />}
+          title={pageTitle}
+          description={pageDescription}
+          actions={
+            isStudent ? (
+              <Button type="button" variant="outline" asChild>
+                <Link to="/courses">
+                  Курстарға өту
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            ) : null
+          }
+        />
 
-        {isLoading ? <LoadingState text={t('page.lessons.loading')} /> : null}
+        {isLoading ? <LessonsPageSkeleton /> : null}
 
-        {error ? <ErrorState text={t('page.lessons.error')} /> : null}
-
-        {!isLoading && !error ? (
-          <div className="flex flex-wrap gap-1.5">
-            {subjects.map((subject) => (
-              <button
-                key={subject}
-                onClick={() => setActiveSubject(subject)}
-                className={`rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
-                  activeSubject === subject
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border hover:bg-accent'
-                }`}
+        {!isLoading && error ? (
+          <ErrorState
+            text={t('page.lessons.error')}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
               >
-                {subject === 'all' ? t('common.all') : subject}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {!isLoading && !error && (!data || data.length === 0) ? (
-          <EmptyState title={emptyTitle} text={emptyText} />
-        ) : null}
-
-        {!isLoading && !error && data && data.length > 0 && filtered.length === 0 ? (
-          <EmptyState
-            title={t('page.lessons.empty.title.filtered')}
-            text={t('page.lessons.empty.text.filtered')}
+                Қайта жүктеу
+              </Button>
+            }
           />
         ) : null}
 
-        {!isLoading && !error && filtered.length > 0 ? (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">{listTitle}</CardTitle>
-            </CardHeader>
+        {!isLoading && !error ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard label="Барлығы" value={stats.total} icon={BookOpen} />
+              <StatCard label="Ашық" value={stats.available} icon={PlayCircle} />
+              <StatCard
+                label="Аяқталған"
+                value={stats.completed}
+                icon={CheckCircle2}
+              />
+              <StatCard label="Құлыпталған" value={stats.locked} icon={Lock} />
+            </div>
 
-            <CardContent className="space-y-3">
-              {filtered.map((lesson) => {
-                const statusLabel = getLessonStatusLabel(
-                  lesson.isCompleted,
-                  lesson.isLocked
-                );
+            <Card>
+              <CardContent className="space-y-4 pt-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="relative w-full lg:max-w-md">
+                    <Search
+                      size={16}
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Сабақ, курс, модуль немесе пән бойынша іздеу..."
+                      className="pl-9"
+                    />
+                  </div>
 
-                return (
-                  <div
-                    key={lesson.id}
-                    className={`flex items-center gap-3 rounded-lg border p-4 ${
-                      lesson.isLocked ? 'opacity-60' : ''
-                    } ${!lesson.isLocked ? 'cursor-pointer transition-shadow hover:shadow-sm' : ''}`}
-                    onClick={() => {
-                      if (!lesson.isLocked) {
-                        navigate(`/lessons/${lesson.id}`);
-                      }
-                    }}
-                  >
-                    {lesson.isCompleted ? (
-                      <CheckCircle2 size={18} className="shrink-0 text-success" />
-                    ) : lesson.isLocked ? (
-                      <Lock size={18} className="shrink-0 text-muted-foreground" />
-                    ) : (
-                      <PlayCircle size={18} className="shrink-0 text-primary" />
+                  <div className="flex flex-wrap gap-2">
+                    {(['all', 'available', 'completed', 'locked'] as LessonStatusFilter[]).map(
+                      (status) => (
+                        <Button
+                          key={status}
+                          type="button"
+                          size="sm"
+                          variant={activeStatus === status ? 'default' : 'outline'}
+                          onClick={() => setActiveStatus(status)}
+                        >
+                          {getStatusFilterLabel(status)}
+                        </Button>
+                      )
                     )}
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">{lesson.title}</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {[lesson.subjectName, lesson.courseTitle, lesson.moduleTitle]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </p>
-                        </div>
-
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {statusLabel}
-                        </span>
-                      </div>
-                    </div>
-
-                    {!lesson.isCompleted && !lesson.isLocked && isStudent ? (
+                    {hasActiveFilters ? (
                       <Button
+                        type="button"
                         size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          completeMutation.mutate(lesson.id);
-                        }}
-                        disabled={completeMutation.isPending}
+                        variant="ghost"
+                        onClick={resetFilters}
                       >
-                        {t('lesson.action.complete')}
+                        <RotateCcw size={14} className="mr-1.5" />
+                        Тазалау
                       </Button>
                     ) : null}
                   </div>
-                );
-              })}
-            </CardContent>
-          </Card>
+                </div>
+
+                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+                  {subjects.map((subject) => (
+                    <FilterChip
+                      key={subject}
+                      active={activeSubject === subject}
+                      onClick={() => setActiveSubject(subject)}
+                    >
+                      {subject === 'all' ? t('common.all') : subject}
+                    </FilterChip>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {lessons.length === 0 ? (
+              <EmptyState
+                icon={<BookOpen size={18} />}
+                title={emptyTitle}
+                text={emptyText}
+                action={
+                  isStudent ? (
+                    <Button type="button" asChild>
+                      <Link to="/courses">
+                        Курстарды қарау
+                        <ArrowRight size={15} className="ml-2" />
+                      </Link>
+                    </Button>
+                  ) : null
+                }
+              />
+            ) : null}
+
+            {lessons.length > 0 && filtered.length === 0 ? (
+              <EmptyState
+                icon={<Search size={18} />}
+                title={t('page.lessons.empty.title.filtered')}
+                text={t('page.lessons.empty.text.filtered')}
+                action={
+                  <Button type="button" onClick={resetFilters}>
+                    <RotateCcw size={15} className="mr-2" />
+                    Сүзгіні тазалау
+                  </Button>
+                }
+              />
+            ) : null}
+
+            {filtered.length > 0 ? (
+              <Card>
+                <CardContent className="space-y-3 pt-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">{listTitle}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {filtered.length} сабақ көрсетіліп тұр
+                      </p>
+                    </div>
+
+                    {hasActiveFilters ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={resetFilters}
+                      >
+                        <RotateCcw size={14} className="mr-1.5" />
+                        Reset
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-3">
+                    {filtered.map((lesson) => (
+                      <LessonCard
+                        key={lesson.id}
+                        lesson={lesson}
+                        isStudent={isStudent}
+                        isCompleting={pendingCompleteLessonId === lesson.id}
+                        onOpen={handleOpenLesson}
+                        onComplete={handleCompleteLesson}
+                      />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+          </>
         ) : null}
       </div>
     </DashboardLayout>

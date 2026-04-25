@@ -1,8 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import DashboardLayout from '@/components/DashboardLayout';
 import StatCard from '@/components/StatCard';
 import ProgressBar from '@/components/ProgressBar';
-import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import { EmptyState, ErrorState } from '@/components/common/DataState';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import {
   useAdminDashboard,
   useAnalytics,
@@ -12,14 +16,21 @@ import {
 import { useAuth } from '@/lib/auth-context';
 import t, { getLocale } from '@/lib/i18n';
 import {
-  Target,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
   BookOpen,
   ClipboardList,
   Flame,
-  TrendingUp,
+  GraduationCap,
+  LineChart,
+  RefreshCcw,
+  Target,
   TrendingDown,
+  TrendingUp,
   Users,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 type AnalyticsMode = 'student' | 'parent' | 'teacher' | 'admin';
@@ -108,6 +119,18 @@ function formatDate(value: string) {
   return parsed.toLocaleDateString(locale);
 }
 
+function getScoreTone(score: number) {
+  if (score >= 80) return 'success';
+  if (score >= 50) return 'warning';
+  return 'danger';
+}
+
+function getScoreBadgeLabel(score: number) {
+  if (score >= 80) return 'Жақсы';
+  if (score >= 50) return 'Орташа';
+  return 'Назар қажет';
+}
+
 function buildParentAnalytics(children: ParentChildItem[] | undefined): DisplayAnalyticsData | null {
   if (!children || children.length === 0) return null;
 
@@ -145,22 +168,26 @@ function buildParentAnalytics(children: ParentChildItem[] | undefined): DisplayA
   );
 
   const weakCounts = new Map<string, number>();
+
   validChildren.forEach((child) => {
     const weakSubject = child.summary?.stats?.weakSubject;
+
     if (weakSubject) {
       weakCounts.set(weakSubject, (weakCounts.get(weakSubject) || 0) + 1);
     }
   });
 
-  const weakTopics: WeakTopicItem[] = Array.from(weakCounts.entries()).map(([subject, count]) => {
-    const performance = subjectPerformance.find((item) => item.name === subject);
+  const weakTopics: WeakTopicItem[] = Array.from(weakCounts.entries()).map(
+    ([subject, count]) => {
+      const performance = subjectPerformance.find((item) => item.name === subject);
 
-    return {
-      subject,
-      topic: t('page.analytics.parent_attention_count', { count }),
-      score: performance?.score || 0,
-    };
-  });
+      return {
+        subject,
+        topic: t('page.analytics.parent_attention_count', { count }),
+        score: performance?.score || 0,
+      };
+    }
+  );
 
   const recentActivityDraft: ParentActivityDraft[] = allAttempts.map((attempt) => ({
     action: t('page.analytics.parent_recent_test_action'),
@@ -223,6 +250,384 @@ function buildParentAnalytics(children: ParentChildItem[] | undefined): DisplayA
   };
 }
 
+function AnalyticsSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <div className="space-y-2">
+                <SkeletonBlock className="h-3 w-20" />
+                <SkeletonBlock className="h-6 w-12" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-48" />
+
+            <div className="mt-5 space-y-4">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div key={index} className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <SkeletonBlock className="h-4 w-40" />
+                    <SkeletonBlock className="h-3 w-16" />
+                  </div>
+                  <SkeletonBlock className="h-2 w-full rounded-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-40" />
+
+            <div className="mt-5 space-y-3">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="flex items-center justify-between gap-3">
+                  <div className="space-y-2">
+                    <SkeletonBlock className="h-4 w-36" />
+                    <SkeletonBlock className="h-3 w-56" />
+                  </div>
+                  <SkeletonBlock className="h-4 w-12" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-card p-5">
+          <SkeletonBlock className="h-5 w-36" />
+
+          <div className="mt-5 space-y-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <SkeletonBlock className="h-4 w-28" />
+                  <SkeletonBlock className="h-3 w-10" />
+                </div>
+                <SkeletonBlock className="h-3 w-44" />
+                <SkeletonBlock className="h-2 w-full rounded-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalyticsPanel({
+  title,
+  description,
+  icon,
+  children,
+}: {
+  title: string;
+  description?: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+          {icon}
+          {title}
+        </CardTitle>
+
+        {description ? (
+          <p className="text-xs text-muted-foreground">{description}</p>
+        ) : null}
+      </CardHeader>
+
+      <CardContent className="space-y-4">{children}</CardContent>
+    </Card>
+  );
+}
+
+function SubjectPerformanceList({
+  items,
+}: {
+  items: SubjectPerformanceItem[];
+}) {
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        title={t('page.analytics.subject_performance_empty.title')}
+        text={t('page.analytics.subject_performance_empty.text')}
+        compact
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {items.map((subject) => (
+        <div key={subject.name} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium">{subject.name}</span>
+
+                {subject.trend === 'up' ? (
+                  <TrendingUp size={13} className="shrink-0 text-emerald-600" />
+                ) : subject.trend === 'down' ? (
+                  <TrendingDown size={13} className="shrink-0 text-amber-600" />
+                ) : null}
+              </div>
+
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {subject.tests} {t('page.analytics.tests_short')}
+              </p>
+            </div>
+
+            <StatusBadge
+              tone={getScoreTone(subject.score)}
+              icon={<Target size={12} />}
+            >
+              {subject.score}%
+            </StatusBadge>
+          </div>
+
+          <ProgressBar value={subject.score} size="sm" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WeakTopicsList({
+  items,
+}: {
+  items: WeakTopicItem[];
+}) {
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        title={t('page.analytics.weak_topics_empty.title')}
+        text={t('page.analytics.weak_topics_empty.text')}
+        compact
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((topic, index) => (
+        <div key={`${topic.subject}-${index}`} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="truncate text-xs font-medium">{topic.subject}</span>
+
+            <StatusBadge tone={getScoreTone(topic.score)}>
+              {topic.score}%
+            </StatusBadge>
+          </div>
+
+          <p className="text-[11px] leading-5 text-muted-foreground">{topic.topic}</p>
+          <ProgressBar value={topic.score} size="sm" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RecentActivityList({
+  items,
+}: {
+  items: RecentActivityItem[];
+}) {
+  if (items.length === 0) {
+    return (
+      <EmptyState
+        title={t('page.analytics.recent_activity_empty.title')}
+        text={t('page.analytics.recent_activity_empty.text')}
+        compact
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map((item, index) => (
+        <div
+          key={`${item.detail}-${index}`}
+          className="flex items-start justify-between gap-3 rounded-lg border bg-muted/20 p-3"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{item.action}</p>
+            <p className="mt-0.5 text-[11px] leading-5 text-muted-foreground">
+              {item.detail}
+            </p>
+          </div>
+
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {item.score || item.date || t('page.analytics.not_available')}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TeacherCourseProgressList({
+  courses,
+  metric,
+}: {
+  courses: Array<{
+    courseId: string;
+    courseTitle: string;
+    subjectName: string;
+    students: number;
+    lessons: number;
+    avgProgress: number;
+    completionPct: number;
+  }>;
+  metric: 'avgProgress' | 'completionPct';
+}) {
+  if (courses.length === 0) {
+    return (
+      <EmptyState
+        title={
+          metric === 'avgProgress'
+            ? t('page.analytics.teacher.course_progress_empty.title')
+            : t('page.analytics.teacher.completion_empty.title')
+        }
+        text={
+          metric === 'avgProgress'
+            ? t('page.analytics.teacher.course_progress_empty.text')
+            : t('page.analytics.teacher.completion_empty.text')
+        }
+        compact
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {courses.map((course) => {
+        const value = metric === 'avgProgress' ? course.avgProgress : course.completionPct;
+
+        return (
+          <div key={course.courseId} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="line-clamp-1 text-sm font-medium">{course.courseTitle}</span>
+
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {[
+                    course.subjectName,
+                    `${course.students} ${t('page.analytics.students_short')}`,
+                    `${course.lessons} ${t('course.lessons_count')}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              </div>
+
+              <StatusBadge tone={getScoreTone(value)}>{value}%</StatusBadge>
+            </div>
+
+            <ProgressBar value={value} size="sm" />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AdminSubjectStatsList({
+  subjects,
+}: {
+  subjects: Array<{
+    name: string;
+    courses: number;
+    lessons: number;
+    avgScore: number;
+  }>;
+}) {
+  if (subjects.length === 0) {
+    return (
+      <EmptyState
+        title={t('page.analytics.subject_performance_empty.title')}
+        text={t('page.analytics.subject_performance_empty.text')}
+        compact
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {subjects.map((subject) => (
+        <div key={subject.name} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <span className="line-clamp-1 text-sm font-medium">{subject.name}</span>
+
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {[
+                  `${subject.courses} ${t('dashboard.total_courses')}`,
+                  `${subject.lessons} ${t('course.lessons_count')}`,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+            </div>
+
+            <StatusBadge tone={getScoreTone(subject.avgScore)}>
+              {subject.avgScore}%
+            </StatusBadge>
+          </div>
+
+          <ProgressBar value={subject.avgScore} size="sm" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PageErrorState() {
+  return (
+    <ErrorState
+      text={t('page.analytics.error')}
+      action={
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => window.location.reload()}
+        >
+          <RefreshCcw size={15} className="mr-2" />
+          Қайта жүктеу
+        </Button>
+      }
+    />
+  );
+}
+
+function PageEmptyState() {
+  return (
+    <EmptyState
+      icon={<BarChart3 size={18} />}
+      title={t('page.analytics.empty.title')}
+      text={t('page.analytics.empty.text')}
+      action={
+        <Button type="button" variant="outline" asChild>
+          <Link to="/dashboard">
+            Dashboard-қа қайту
+            <ArrowRight size={15} className="ml-2" />
+          </Link>
+        </Button>
+      }
+    />
+  );
+}
+
 export default function AnalyticsPage() {
   const { user } = useAuth();
   const mode = getMode(user?.role);
@@ -238,23 +643,29 @@ export default function AnalyticsPage() {
     return (
       <DashboardLayout>
         <div className="space-y-6 animate-fade-in">
-          <div>
-            <h2 className="text-xl font-bold">{t('page.analytics.title.teacher')}</h2>
-            <p className="text-sm text-muted-foreground">
-              {t('page.analytics.description.teacher')}
-            </p>
-          </div>
+          <PageHeader
+            eyebrow={
+              <>
+                <LineChart size={13} />
+                Мұғалім аналитикасы
+              </>
+            }
+            icon={<BarChart3 size={20} />}
+            title={t('page.analytics.title.teacher')}
+            description={t('page.analytics.description.teacher')}
+            actions={
+              <Button type="button" asChild>
+                <Link to="/my-courses">
+                  Курстарға өту
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            }
+          />
 
-          {teacher.isLoading ? <LoadingState text={t('page.analytics.loading')} /> : null}
-
-          {teacher.error ? <ErrorState text={t('page.analytics.error')} /> : null}
-
-          {!teacher.isLoading && !teacher.error && !teacher.data ? (
-            <EmptyState
-              title={t('page.analytics.empty.title')}
-              text={t('page.analytics.empty.text')}
-            />
-          ) : null}
+          {teacher.isLoading ? <AnalyticsSkeleton /> : null}
+          {!teacher.isLoading && teacher.error ? <PageErrorState /> : null}
+          {!teacher.isLoading && !teacher.error && !teacher.data ? <PageEmptyState /> : null}
 
           {!teacher.isLoading && !teacher.error && teacher.data ? (
             <>
@@ -288,74 +699,29 @@ export default function AnalyticsPage() {
 
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="space-y-4 lg:col-span-2">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">
-                        {t('page.analytics.teacher.course_progress_title')}
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                      {teacher.data.courseProgress.length === 0 ? (
-                        <EmptyState
-                          title={t('page.analytics.teacher.course_progress_empty.title')}
-                          text={t('page.analytics.teacher.course_progress_empty.text')}
-                        />
-                      ) : (
-                        teacher.data.courseProgress.map((course) => (
-                          <div key={course.courseId} className="space-y-1.5">
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <span className="text-sm font-medium">{course.courseTitle}</span>
-                                <p className="text-[11px] text-muted-foreground">
-                                  {[
-                                    course.subjectName,
-                                    `${course.students} ${t('page.analytics.students_short')}`,
-                                    `${course.lessons} ${t('course.lessons_count')}`,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                                </p>
-                              </div>
-                              <span className="text-xs text-muted-foreground">
-                                {t('page.analytics.average_short')} {course.avgProgress}%
-                              </span>
-                            </div>
-                            <ProgressBar value={course.avgProgress} size="sm" />
-                          </div>
-                        ))
-                      )}
-                    </CardContent>
-                  </Card>
+                  <AnalyticsPanel
+                    title={t('page.analytics.teacher.course_progress_title')}
+                    description="Курстар бойынша оқушылардың орташа прогресі."
+                    icon={<TrendingUp size={15} />}
+                  >
+                    <TeacherCourseProgressList
+                      courses={teacher.data.courseProgress}
+                      metric="avgProgress"
+                    />
+                  </AnalyticsPanel>
                 </div>
 
                 <div className="space-y-4">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">
-                        {t('page.analytics.teacher.completion_title')}
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent className="space-y-3">
-                      {teacher.data.courseProgress.length === 0 ? (
-                        <EmptyState
-                          title={t('page.analytics.teacher.completion_empty.title')}
-                          text={t('page.analytics.teacher.completion_empty.text')}
-                        />
-                      ) : (
-                        teacher.data.courseProgress.map((course) => (
-                          <div key={course.courseId} className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-medium">{course.courseTitle}</span>
-                              <span className="text-xs">{course.completionPct}%</span>
-                            </div>
-                            <ProgressBar value={course.completionPct} size="sm" />
-                          </div>
-                        ))
-                      )}
-                    </CardContent>
-                  </Card>
+                  <AnalyticsPanel
+                    title={t('page.analytics.teacher.completion_title')}
+                    description="Курстар бойынша аяқталу пайызы."
+                    icon={<CheckCircle2 size={15} />}
+                  >
+                    <TeacherCourseProgressList
+                      courses={teacher.data.courseProgress}
+                      metric="completionPct"
+                    />
+                  </AnalyticsPanel>
                 </div>
               </div>
             </>
@@ -369,23 +735,29 @@ export default function AnalyticsPage() {
     return (
       <DashboardLayout>
         <div className="space-y-6 animate-fade-in">
-          <div>
-            <h2 className="text-xl font-bold">{t('page.analytics.title.admin')}</h2>
-            <p className="text-sm text-muted-foreground">
-              {t('page.analytics.description.admin')}
-            </p>
-          </div>
+          <PageHeader
+            eyebrow={
+              <>
+                <LineChart size={13} />
+                Admin analytics
+              </>
+            }
+            icon={<BarChart3 size={20} />}
+            title={t('page.analytics.title.admin')}
+            description={t('page.analytics.description.admin')}
+            actions={
+              <Button type="button" asChild>
+                <Link to="/manage-users">
+                  Қолданушылар
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            }
+          />
 
-          {admin.isLoading ? <LoadingState text={t('page.analytics.loading')} /> : null}
-
-          {admin.error ? <ErrorState text={t('page.analytics.error')} /> : null}
-
-          {!admin.isLoading && !admin.error && !admin.data ? (
-            <EmptyState
-              title={t('page.analytics.empty.title')}
-              text={t('page.analytics.empty.text')}
-            />
-          ) : null}
+          {admin.isLoading ? <AnalyticsSkeleton /> : null}
+          {!admin.isLoading && admin.error ? <PageErrorState /> : null}
+          {!admin.isLoading && !admin.error && !admin.data ? <PageEmptyState /> : null}
 
           {!admin.isLoading && !admin.error && admin.data ? (
             <>
@@ -419,81 +791,40 @@ export default function AnalyticsPage() {
 
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="space-y-4 lg:col-span-2">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">
-                        {t('page.analytics.subject_performance_title')}
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                      {admin.data.subjectStats.length === 0 ? (
-                        <EmptyState
-                          title={t('page.analytics.subject_performance_empty.title')}
-                          text={t('page.analytics.subject_performance_empty.text')}
-                        />
-                      ) : (
-                        admin.data.subjectStats.map((subject) => (
-                          <div key={subject.name} className="space-y-1.5">
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <span className="text-sm font-medium">{subject.name}</span>
-                                <p className="text-[11px] text-muted-foreground">
-                                  {[
-                                    `${subject.courses} ${t('dashboard.total_courses')}`,
-                                    `${subject.lessons} ${t('course.lessons_count')}`,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                                </p>
-                              </div>
-
-                              <span className="text-xs text-muted-foreground">
-                                {subject.avgScore}%
-                              </span>
-                            </div>
-
-                            <ProgressBar value={subject.avgScore} size="sm" />
-                          </div>
-                        ))
-                      )}
-                    </CardContent>
-                  </Card>
+                  <AnalyticsPanel
+                    title={t('page.analytics.subject_performance_title')}
+                    description="Пәндер бойынша курс, сабақ және орташа нәтиже."
+                    icon={<GraduationCap size={15} />}
+                  >
+                    <AdminSubjectStatsList subjects={admin.data.subjectStats} />
+                  </AnalyticsPanel>
                 </div>
 
                 <div className="space-y-4">
-                  <Card>
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">
-                        {t('page.analytics.weak_topics_title')}
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent className="space-y-3">
-                      {admin.data.subjectStats.length === 0 ? (
-                        <EmptyState
-                          title={t('page.analytics.weak_topics_empty.title')}
-                          text={t('page.analytics.weak_topics_empty.text')}
-                        />
-                      ) : (
-                        [...admin.data.subjectStats]
+                  <AnalyticsPanel
+                    title={t('page.analytics.weak_topics_title')}
+                    description="Орташа көрсеткіші төмен пәндер."
+                    icon={<AlertTriangle size={15} />}
+                  >
+                    {admin.data.subjectStats.length === 0 ? (
+                      <EmptyState
+                        title={t('page.analytics.weak_topics_empty.title')}
+                        text={t('page.analytics.weak_topics_empty.text')}
+                        compact
+                      />
+                    ) : (
+                      <WeakTopicsList
+                        items={[...admin.data.subjectStats]
                           .sort((a, b) => a.avgScore - b.avgScore)
                           .slice(0, 3)
-                          .map((subject) => (
-                            <div key={subject.name} className="space-y-1.5">
-                              <div className="flex items-center justify-between">
-                                <span className="text-xs font-medium">{subject.name}</span>
-                                <span className="text-xs text-warning">{subject.avgScore}%</span>
-                              </div>
-                              <p className="text-[11px] text-muted-foreground">
-                                {t('page.analytics.not_available')}
-                              </p>
-                              <ProgressBar value={subject.avgScore} size="sm" />
-                            </div>
-                          ))
-                      )}
-                    </CardContent>
-                  </Card>
+                          .map((subject) => ({
+                            subject: subject.name,
+                            topic: t('page.analytics.not_available'),
+                            score: subject.avgScore,
+                          }))}
+                      />
+                    )}
+                  </AnalyticsPanel>
                 </div>
               </div>
             </>
@@ -520,21 +851,38 @@ export default function AnalyticsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h2 className="text-xl font-bold">{pageTitle}</h2>
-          <p className="text-sm text-muted-foreground">{pageDescription}</p>
-        </div>
+        <PageHeader
+          eyebrow={
+            <>
+              <LineChart size={13} />
+              {mode === 'parent' ? 'Ата-ана аналитикасы' : 'Оқу аналитикасы'}
+            </>
+          }
+          icon={<BarChart3 size={20} />}
+          title={pageTitle}
+          description={pageDescription}
+          actions={
+            mode === 'parent' ? (
+              <Button type="button" asChild>
+                <Link to="/children">
+                  Балалар беті
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            ) : (
+              <Button type="button" asChild>
+                <Link to="/courses">
+                  Курстарға өту
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            )
+          }
+        />
 
-        {isLoading ? <LoadingState text={t('page.analytics.loading')} /> : null}
-
-        {error ? <ErrorState text={t('page.analytics.error')} /> : null}
-
-        {!isLoading && !error && !data ? (
-          <EmptyState
-            title={t('page.analytics.empty.title')}
-            text={t('page.analytics.empty.text')}
-          />
-        ) : null}
+        {isLoading ? <AnalyticsSkeleton /> : null}
+        {!isLoading && error ? <PageErrorState /> : null}
+        {!isLoading && !error && !data ? <PageEmptyState /> : null}
 
         {!isLoading && !error && data ? (
           <>
@@ -568,107 +916,58 @@ export default function AnalyticsPage() {
 
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="space-y-4 lg:col-span-2">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      {t('page.analytics.subject_performance_title')}
-                    </CardTitle>
-                  </CardHeader>
+                <AnalyticsPanel
+                  title={t('page.analytics.subject_performance_title')}
+                  description="Пәндер бойынша тест нәтижелері мен жалпы динамика."
+                  icon={<TrendingUp size={15} />}
+                >
+                  <SubjectPerformanceList items={data.subjectPerformance} />
+                </AnalyticsPanel>
 
-                  <CardContent className="space-y-4">
-                    {data.subjectPerformance.length === 0 ? (
-                      <EmptyState
-                        title={t('page.analytics.subject_performance_empty.title')}
-                        text={t('page.analytics.subject_performance_empty.text')}
-                      />
-                    ) : (
-                      data.subjectPerformance.map((subject) => (
-                        <div key={subject.name} className="space-y-1.5">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-medium">{subject.name}</span>
-
-                              {subject.trend === 'up' ? (
-                                <TrendingUp size={13} className="text-success" />
-                              ) : subject.trend === 'down' ? (
-                                <TrendingDown size={13} className="text-warning" />
-                              ) : null}
-                            </div>
-
-                            <span className="text-xs text-muted-foreground">
-                              {subject.score}% · {subject.tests} {t('page.analytics.tests_short')}
-                            </span>
-                          </div>
-
-                          <ProgressBar value={subject.score} size="sm" />
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      {t('dashboard.recent_activity')}
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-3">
-                    {data.recentActivity.length === 0 ? (
-                      <EmptyState
-                        title={t('page.analytics.recent_activity_empty.title')}
-                        text={t('page.analytics.recent_activity_empty.text')}
-                      />
-                    ) : (
-                      data.recentActivity.map((item, index) => (
-                        <div
-                          key={`${item.detail}-${index}`}
-                          className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0"
-                        >
-                          <div>
-                            <p className="text-sm font-medium">{item.action}</p>
-                            <p className="text-[11px] text-muted-foreground">{item.detail}</p>
-                          </div>
-
-                          <span className="text-xs text-muted-foreground">
-                            {item.score || item.date || t('page.analytics.not_available')}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
+                <AnalyticsPanel
+                  title={t('dashboard.recent_activity')}
+                  description="Соңғы тесттер, әрекеттер және нәтижелер."
+                  icon={<ClipboardList size={15} />}
+                >
+                  <RecentActivityList items={data.recentActivity} />
+                </AnalyticsPanel>
               </div>
 
               <div className="space-y-4">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-semibold">
-                      {t('page.analytics.weak_topics_title')}
-                    </CardTitle>
-                  </CardHeader>
+                <AnalyticsPanel
+                  title={t('page.analytics.weak_topics_title')}
+                  description="Қосымша қайталауды қажет ететін бағыттар."
+                  icon={<AlertTriangle size={15} />}
+                >
+                  <WeakTopicsList items={data.weakTopics} />
+                </AnalyticsPanel>
 
-                  <CardContent className="space-y-3">
-                    {data.weakTopics.length === 0 ? (
-                      <EmptyState
-                        title={t('page.analytics.weak_topics_empty.title')}
-                        text={t('page.analytics.weak_topics_empty.text')}
-                      />
-                    ) : (
-                      data.weakTopics.map((topic, index) => (
-                        <div key={`${topic.subject}-${index}`} className="space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-medium">{topic.subject}</span>
-                            <span className="text-xs text-warning">{topic.score}%</span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground">{topic.topic}</p>
-                          <ProgressBar value={topic.score} size="sm" />
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
+                <AnalyticsPanel
+                  title="Қысқа қорытынды"
+                  description="Оқу көрсеткіштері бойынша автоматты UI summary."
+                  icon={<Target size={15} />}
+                >
+                  <div className="space-y-3 text-sm">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                      <span className="text-muted-foreground">Орташа нәтиже</span>
+                      <StatusBadge tone={getScoreTone(data.stats.avgScore)}>
+                        {getScoreBadgeLabel(data.stats.avgScore)}
+                      </StatusBadge>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                      <span className="text-muted-foreground">Аяқталған сабақ</span>
+                      <span className="font-medium">{data.stats.lessonsCompleted}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+                      <span className="text-muted-foreground">Оқу streak</span>
+                      <span className="font-medium">
+                        {data.stats.streak} {t('common.days')}
+                      </span>
+                    </div>
+                  </div>
+                </AnalyticsPanel>
               </div>
             </div>
           </>
