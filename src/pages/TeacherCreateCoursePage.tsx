@@ -3,6 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 
 import DashboardLayout from '@/components/DashboardLayout';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import {
@@ -58,6 +61,13 @@ import {
   KeyRound,
   Link as LinkIcon,
   Trash2,
+  BookOpen,
+  CheckCircle2,
+  GraduationCap,
+  LayoutDashboard,
+  Plus,
+  RotateCcw,
+  Settings,
 } from 'lucide-react';
 
 const courseStatuses = ['draft', 'published', 'archived'] as const;
@@ -228,6 +238,102 @@ function getFilenameFromUrl(value: string, fallback: string) {
 
 function formatAssetTitle(value: string | null | undefined, filename: string) {
   return value?.trim() || filename || 'Материал';
+}
+
+function TeacherCourseBuilderSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-xl border bg-card p-5">
+            <div className="flex items-center gap-3">
+              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <div className="space-y-2">
+                <SkeletonBlock className="h-3 w-24" />
+                <SkeletonBlock className="h-6 w-14" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-40" />
+            <div className="mt-5 space-y-3">
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-24 w-full rounded-lg" />
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-32 w-full rounded-lg" />
+              <SkeletonBlock className="h-10 w-full" />
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-44" />
+            <div className="mt-5 space-y-2">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <SkeletonBlock key={index} className="h-16 w-full rounded-xl" />
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-40" />
+            <div className="mt-5 space-y-3">
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-24 w-full rounded-lg" />
+              <SkeletonBlock className="h-10 w-full" />
+              <SkeletonBlock className="h-32 w-full rounded-lg" />
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-card p-5">
+            <SkeletonBlock className="h-5 w-52" />
+            <div className="mt-5 space-y-3">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <SkeletonBlock key={index} className="h-14 w-full rounded-lg" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BuilderStatCard({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+          {icon}
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-semibold">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getCourseStatusTone(status: CourseStatus) {
+  if (status === 'published') return 'success';
+  if (status === 'archived') return 'muted';
+  return 'warning';
 }
 
 export default function TeacherCreateCoursePage() {
@@ -1228,21 +1334,89 @@ export default function TeacherCreateCoursePage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 animate-fade-in">
-        <div className="flex flex-col gap-2">
-          <h2 className="text-2xl font-bold">{t('page.teacher_course_builder.title')}</h2>
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            {t('page.teacher_course_builder.subtitle')}
-          </p>
+  <div className="space-y-6 animate-fade-in">
+    <PageHeader
+      eyebrow={
+        <>
+          <LayoutDashboard size={13} />
+          Мұғалім course builder
+        </>
+      }
+      icon={<GraduationCap size={20} />}
+      title={t('page.teacher_course_builder.title')}
+      description={t('page.teacher_course_builder.subtitle')}
+      actions={
+        selectedCourse ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge tone={getCourseStatusTone(courseEdit.status)}>
+              {courseStatusLabels[courseEdit.status]}
+            </StatusBadge>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => updateCourseMutation.mutate()}
+              disabled={updateCourseMutation.isPending}
+            >
+              <Settings size={15} className="mr-2" />
+              Сақтау
+            </Button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            onClick={() => createMutation.mutate()}
+            disabled={!canCreateCourse}
+          >
+            <Plus size={15} className="mr-2" />
+            Курс құру
+          </Button>
+        )
+      }
+    />
+
+    {workspaceLoading ? <TeacherCourseBuilderSkeleton /> : null}
+
+    {!workspaceLoading && workspaceError ? (
+      <ErrorState
+        text={t('page.teacher_course_builder.error')}
+        action={
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => window.location.reload()}
+          >
+            <RotateCcw size={15} className="mr-2" />
+            Қайта жүктеу
+          </Button>
+        }
+      />
+    ) : null}
+
+    {!workspaceLoading && !workspaceError ? (
+      <>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <BuilderStatCard
+            label="Курстар"
+            value={courseCount}
+            icon={<BookOpen size={17} />}
+          />
+          <BuilderStatCard
+            label="Модульдер"
+            value={selectedCourseModules.length}
+            icon={<FileText size={17} />}
+          />
+          <BuilderStatCard
+            label="Сабақтар"
+            value={selectedCourseLessonCount}
+            icon={<CheckCircle2 size={17} />}
+          />
+          <BuilderStatCard
+            label="Курс түрі"
+            value={selectedCourse ? getAccessTypeLabel(courseEdit.accessType) : '—'}
+            icon={<KeyRound size={17} />}
+          />
         </div>
-
-        {workspaceLoading ? (
-          <LoadingState text={t('page.teacher_course_builder.loading')} />
-        ) : null}
-
-        {workspaceError ? (
-          <ErrorState text={t('page.teacher_course_builder.error')} />
-        ) : null}
 
         <div className="space-y-6">
           <div className="space-y-6">
@@ -2610,7 +2784,9 @@ export default function TeacherCreateCoursePage() {
             </Card>
           )}
         </div>
-      </div>
-    </DashboardLayout>
+      </>
+    ) : null}
+  </div>
+</DashboardLayout>
   );
 }
