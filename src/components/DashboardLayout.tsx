@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   BookOpen,
@@ -155,6 +155,7 @@ function getDisplayName(user?: {
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -208,7 +209,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const handleLogout = async () => {
     setSidebarOpen(false);
-    await logout();
+
+    try {
+      await logout();
+    } catch (error) {
+      console.error('[DashboardLayout] Logout failed', error);
+    } finally {
+      navigate('/', { replace: true });
+    }
   };
 
   if (!user) return null;

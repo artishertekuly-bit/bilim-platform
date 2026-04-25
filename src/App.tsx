@@ -1,6 +1,13 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from 'react-router-dom';
+import type { Session } from '@supabase/supabase-js';
 
 import { Toaster as Sonner } from '@/components/ui/sonner';
 import { Toaster } from '@/components/ui/toaster';
@@ -39,6 +46,7 @@ const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
 const AdminCmsPage = lazy(() => import('./pages/AdminCmsPage'));
 
 const ProfileSettingsPage = lazy(() => import('./pages/ProfileSettingsPage'));
+const SetupPasswordPage = lazy(() => import('./pages/SetupPasswordPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 const AiQuestionBuilderPage = lazy(() => import('./pages/AiQuestionBuilderPage'));
@@ -85,11 +93,47 @@ function AppLoadingScreen() {
   );
 }
 
+function hasPasswordIdentity(session: Session | null) {
+  const authUser = session?.user;
+
+  if (!authUser) return false;
+
+  if (authUser.user_metadata?.password_setup_completed === true) {
+    return true;
+  }
+
+  const providers = authUser.app_metadata?.providers;
+  const identities = authUser.identities || [];
+
+  const hasEmailProvider =
+    (Array.isArray(providers) && providers.includes('email')) ||
+    identities.some((identity) => identity.provider === 'email');
+
+  return hasEmailProvider;
+}
+
+function needsPasswordSetup(session: Session | null) {
+  const authUser = session?.user;
+
+  if (!authUser) return false;
+  if (hasPasswordIdentity(session)) return false;
+
+  const providers = authUser.app_metadata?.providers;
+  const identities = authUser.identities || [];
+
+  const hasGoogleProvider =
+    (Array.isArray(providers) && providers.includes('google')) ||
+    identities.some((identity) => identity.provider === 'google');
+
+  return hasGoogleProvider;
+}
+
 /**
  * Root route:
  * - https://bilim-frontend.onrender.com
- * - session бар болса → dashboard
- * - session жоқ болса → landing page
+ * - session бар + password керек → /setup-password
+ * - session бар + password дайын → /dashboard
+ * - session жоқ → landing page
  */
 function RootEntryPage() {
   const { user, session, isLoading } = useAuth();
@@ -99,6 +143,10 @@ function RootEntryPage() {
   }
 
   if (session && user) {
+    if (needsPasswordSetup(session)) {
+      return <Navigate to="/setup-password?next=/dashboard" replace />;
+    }
+
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -108,7 +156,8 @@ function RootEntryPage() {
 /**
  * Login/Register:
  * - already logged in user login/register көрмеуі керек
- * - бірден dashboard-қа өтеді
+ * - password керек болса setup бетіне өтеді
+ * - password дайын болса dashboard-қа өтеді
  */
 function PublicAuthPage({ children }: { children: ReactNode }) {
   const { user, session, isLoading } = useAuth();
@@ -118,7 +167,38 @@ function PublicAuthPage({ children }: { children: ReactNode }) {
   }
 
   if (session && user) {
+    if (needsPasswordSetup(session)) {
+      return <Navigate to="/setup-password?next=/dashboard" replace />;
+    }
+
     return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+/**
+ * Protected pages:
+ * Google арқылы кірген, бірақ password қоймаған user dashboard/course/etc.
+ * беттеріне кірмей тұрып /setup-password бетіне жіберіледі.
+ */
+function PasswordSetupGate({ children }: { children: ReactNode }) {
+  const { session, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return <AppLoadingScreen />;
+  }
+
+  if (needsPasswordSetup(session) && location.pathname !== '/setup-password') {
+    const next = `${location.pathname}${location.search}`;
+
+    return (
+      <Navigate
+        to={`/setup-password?next=${encodeURIComponent(next || '/dashboard')}`}
+        replace
+      />
+    );
   }
 
   return <>{children}</>;
@@ -152,6 +232,11 @@ const publicRoutes: AppRouteConfig[] = [
 const commonProtectedRoutes: AppRouteConfig[] = [
   { path: '/dashboard', element: <DashboardRouter /> },
   { path: '/profile', element: <ProfileSettingsPage /> },
+  {
+    path: '/setup-password',
+    element: <SetupPasswordPage />,
+    allowedRoles: ['student', 'teacher', 'parent', 'admin'],
+  },
   {
     path: '/chat',
     element: <ChatPage />,
@@ -234,27 +319,46 @@ const protectedRoutes: AppRouteConfig[] = [
 function GuardedRoute({
   children,
   allowedRoles,
+  enforcePasswordSetup = true,
 }: {
   children: ReactNode;
   allowedRoles?: UserRole[];
+  enforcePasswordSetup?: boolean;
 }) {
-  return <ProtectedRoute allowedRoles={allowedRoles}>{children}</ProtectedRoute>;
+  return (
+    <ProtectedRoute allowedRoles={allowedRoles}>
+      {enforcePasswordSetup ? (
+        <PasswordSetupGate>{children}</PasswordSetupGate>
+      ) : (
+        children
+      )}
+    </ProtectedRoute>
+  );
 }
 
 function renderRoutes(routes: AppRouteConfig[], guarded = false) {
-  return routes.map((route) => (
-    <Route
-      key={route.path}
-      path={route.path}
-      element={
-        guarded ? (
-          <GuardedRoute allowedRoles={route.allowedRoles}>{route.element}</GuardedRoute>
-        ) : (
-          route.element
-        )
-      }
-    />
-  ));
+  return routes.map((route) => {
+    const isSetupPasswordRoute = route.path === '/setup-password';
+
+    return (
+      <Route
+        key={route.path}
+        path={route.path}
+        element={
+          guarded ? (
+            <GuardedRoute
+              allowedRoles={route.allowedRoles}
+              enforcePasswordSetup={!isSetupPasswordRoute}
+            >
+              {route.element}
+            </GuardedRoute>
+          ) : (
+            route.element
+          )
+        }
+      />
+    );
+  });
 }
 
 export default function App() {

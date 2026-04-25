@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { Session } from '@supabase/supabase-js';
+
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 
@@ -59,7 +61,9 @@ function isMissingRoleRpcError(message: string) {
   );
 }
 
-async function claimRequestedRoleSafe(requestedRole: Exclude<UserRole, 'admin'> | null) {
+async function claimRequestedRoleSafe(
+  requestedRole: Exclude<UserRole, 'admin'> | null
+) {
   const { error } = await supabase.rpc('claim_requested_role' as never, {
     p_requested_role: requestedRole ?? null,
   } as never);
@@ -74,6 +78,45 @@ async function claimRequestedRoleSafe(requestedRole: Exclude<UserRole, 'admin'> 
   }
 
   throw new Error(message);
+}
+
+function hasPasswordIdentity(session: Session | null) {
+  const authUser = session?.user;
+
+  if (!authUser) return false;
+
+  if (authUser.user_metadata?.password_setup_completed === true) {
+    return true;
+  }
+
+  const providers = authUser.app_metadata?.providers;
+  const identities = authUser.identities || [];
+
+  return (
+    (Array.isArray(providers) && providers.includes('email')) ||
+    identities.some((identity) => identity.provider === 'email')
+  );
+}
+
+function hasGoogleIdentity(session: Session | null) {
+  const authUser = session?.user;
+
+  if (!authUser) return false;
+
+  const providers = authUser.app_metadata?.providers;
+  const identities = authUser.identities || [];
+
+  return (
+    (Array.isArray(providers) && providers.includes('google')) ||
+    identities.some((identity) => identity.provider === 'google')
+  );
+}
+
+function needsPasswordSetup(session: Session | null) {
+  if (!session?.user) return false;
+  if (hasPasswordIdentity(session)) return false;
+
+  return hasGoogleIdentity(session);
 }
 
 export default function AuthCallbackPage() {
@@ -117,7 +160,7 @@ export default function AuthCallbackPage() {
 
         setMessage('Сессия тексерілуде...');
 
-        let hasSession = false;
+        let currentSession: Session | null = null;
 
         for (let attempt = 0; attempt < 20; attempt += 1) {
           const {
@@ -130,14 +173,14 @@ export default function AuthCallbackPage() {
           }
 
           if (session?.user) {
-            hasSession = true;
+            currentSession = session;
             break;
           }
 
           await sleep(200);
         }
 
-        if (!hasSession) {
+        if (!currentSession?.user) {
           throw new Error('Google сессиясы табылмады. Қайта кіріп көріңіз.');
         }
 
@@ -152,8 +195,17 @@ export default function AuthCallbackPage() {
           throw new Error('Профильді жүктеу мүмкін болмады.');
         }
 
+        const {
+          data: { session: refreshedSession },
+        } = await supabase.auth.getSession();
+
+        const mustSetupPassword = needsPasswordSetup(refreshedSession || currentSession);
+
         if (!cancelled) {
-          navigate('/dashboard', { replace: true });
+          navigate(
+            mustSetupPassword ? '/setup-password?next=/dashboard' : '/dashboard',
+            { replace: true }
+          );
         }
       } catch (err) {
         console.error('[AuthCallbackPage]', err);
