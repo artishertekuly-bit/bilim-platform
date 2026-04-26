@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from dotenv import load_dotenv
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from supabase import Client, create_client
 
 from app.schemas.learning_analysis import LearningAiMode, LearningAiRequest
@@ -24,6 +24,10 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
 APP_ENV = os.getenv("APP_ENV", os.getenv("ENV", "development")).strip().lower()
+
+MAX_COURSES_RETURNED = 20
+MAX_WEAK_LESSONS_RETURNED = 8
+MAX_RECOMMENDATIONS_RETURNED = 6
 
 _supabase_data_client: Client | None = None
 
@@ -66,7 +70,7 @@ def _get_supabase_data_client() -> Client:
 
 
 def _clean_text(value: Any, limit: int | None = None) -> str:
-    text = " ".join(str(value or "").replace("\x00", " ").split())
+    text = " ".join(str(value or "").replace("\x00", " ").split()).strip()
     return text[:limit] if limit else text
 
 
@@ -78,6 +82,15 @@ def _to_number(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _first_number(*values: Any) -> float | None:
+    for value in values:
+        parsed = _to_number(value)
+        if parsed is not None:
+            return parsed
+
+    return None
 
 
 def _avg(values: Iterable[float | int | None]) -> float | None:
@@ -236,24 +249,24 @@ def _is_completed_progress(row: dict[str, Any]) -> bool:
     if status_value in {"completed", "done", "finished"}:
         return True
 
-    progress_value = (
-        _to_number(row.get("progress_percent"))
-        or _to_number(row.get("progressPercent"))
-        or _to_number(row.get("progress_pct"))
-        or _to_number(row.get("progressPct"))
-        or _to_number(row.get("progress"))
+    progress_value = _first_number(
+        row.get("progress_percent"),
+        row.get("progressPercent"),
+        row.get("progress_pct"),
+        row.get("progressPct"),
+        row.get("progress"),
     )
 
     return bool(progress_value is not None and progress_value >= 100)
 
 
 def _score_from_row(row: dict[str, Any]) -> float | None:
-    return (
-        _to_number(row.get("score"))
-        or _to_number(row.get("score_pct"))
-        or _to_number(row.get("scorePct"))
-        or _to_number(row.get("percentage"))
-        or _to_number(row.get("percent"))
+    return _first_number(
+        row.get("score"),
+        row.get("score_pct"),
+        row.get("scorePct"),
+        row.get("percentage"),
+        row.get("percent"),
     )
 
 
@@ -424,12 +437,49 @@ def _assert_student_in_course(
         raise _http_error("Оқушы бұл курсқа тіркелмеген немесе дерек табылмады.", 403)
 
 
+def _priority_rank(priority: str | None) -> int:
+    if priority == "high":
+        return 0
+    if priority == "medium":
+        return 1
+    return 2
+
+
+def _score_band(score: float | None) -> str:
+    if score is None:
+        return "unknown"
+
+    if score < 50:
+        return "needs_immediate_review"
+
+    if score < 65:
+        return "needs_review"
+
+    if score < 80:
+        return "developing"
+
+    return "stable"
+
+
+def _progress_band(progress_pct: int | float | None) -> str:
+    if progress_pct is None:
+        return "unknown"
+
+    if progress_pct < 40:
+        return "needs_structure"
+
+    if progress_pct < 70:
+        return "developing"
+
+    return "stable"
+
+
 def _build_weak_lessons(
     *,
     lessons: list[dict[str, Any]],
     mini_quiz_attempts: list[dict[str, Any]],
     review_later_items: list[dict[str, Any]],
-    limit: int = 8,
+    limit: int = MAX_WEAK_LESSONS_RETURNED,
 ) -> list[dict[str, Any]]:
     lesson_by_id = {
         _clean_text(lesson.get("id"), 140): lesson
@@ -457,30 +507,42 @@ def _build_weak_lessons(
         avg_score = _avg(scores)
         failed = sum(1 for row in attempts if not _is_passed_attempt(row))
         review_later = lesson_id in review_lesson_ids
+        score_band = _score_band(avg_score)
 
         reasons: list[str] = []
 
-        if avg_score is not None and avg_score < 65:
-            reasons.append(f"mini quiz орташа нәтижесі төмен: {avg_score}%")
+        if score_band in {"needs_immediate_review", "needs_review"}:
+            reasons.append(
+                "mini quiz нәтижесі бұл сабақты қайта қарау пайдалы екенін көрсетеді"
+            )
 
         if failed > 0:
-            reasons.append(f"{failed} рет қайта қарауды қажет еткен attempt бар")
+            reasons.append("қайта орындау немесе қосымша бекіту белгісі бар")
 
         if review_later:
-            reasons.append("оқушы кейін қайталауға белгілеген")
+            reasons.append("оқушы бұл сабақты кейін қайталауға белгілеген")
 
         if not reasons:
             continue
 
-        priority = "high" if failed >= 2 or (avg_score is not None and avg_score < 50) else "medium"
+        priority = (
+            "high"
+            if failed >= 2 or score_band == "needs_immediate_review"
+            else "medium"
+        )
 
         weak_items.append(
             {
                 "lessonId": lesson_id,
                 "lessonTitle": _lesson_title(lesson),
+
+                # Numeric values are kept for internal AI reasoning only.
+                # Prompt rules instruct the model not to list all metrics back to the user.
                 "avgScore": avg_score,
                 "failedAttempts": failed,
                 "reviewLater": review_later,
+
+                "scoreBand": score_band,
                 "priority": priority,
                 "reason": "; ".join(reasons),
             }
@@ -489,7 +551,7 @@ def _build_weak_lessons(
     return sorted(
         weak_items,
         key=lambda item: (
-            0 if item["priority"] == "high" else 1,
+            _priority_rank(item.get("priority")),
             item["avgScore"] if item["avgScore"] is not None else 101,
         ),
     )[:limit]
@@ -503,39 +565,46 @@ def _build_recommendations(
     review_later_count: int,
 ) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
+    progress_band = _progress_band(progress_pct)
+    quiz_band = _score_band(mini_quiz_avg)
 
-    if progress_pct < 40:
+    if progress_band == "needs_structure":
         recommendations.append(
             {
                 "priority": "high",
-                "title": "Курс progress төмен",
-                "description": "Алдымен аяқталмаған негізгі сабақтарды ретімен өту ұсынылады.",
+                "title": "Оқу құрылымын реттеу",
+                "description": "Алдымен аяқталмаған негізгі сабақтарды шағын, реттелген оқу жоспарына бөлу пайдалы.",
+                "reason": "progress signal indicates that learning structure should be strengthened",
             }
         )
-    elif progress_pct < 70:
+    elif progress_band == "developing":
         recommendations.append(
             {
                 "priority": "medium",
                 "title": "Progress-ті тұрақтандыру",
-                "description": "Апталық оқу жоспарын қысқа сабақ блоктарына бөліп жалғастыру тиімді.",
+                "description": "Оқуды қысқа сабақ блоктарына бөліп, тұрақты қайталау режимін сақтау тиімді.",
+                "reason": "progress signal is developing but not yet stable",
             }
         )
 
-    if mini_quiz_avg is not None and mini_quiz_avg < 65:
+    if quiz_band in {"needs_immediate_review", "needs_review"}:
         recommendations.append(
             {
                 "priority": "high",
-                "title": "Mini quiz нәтижесін көтеру",
-                "description": "Төмен нәтиже шыққан сабақтарды қайта қарап, mini quiz-ді қайта тапсыру ұсынылады.",
+                "title": "Түсінуді бекіту",
+                "description": "Mini quiz нәтижесі төмендеу шыққан сабақтарды қайта қарап, қысқа практика арқылы бекіту ұсынылады.",
+                "reason": "mini quiz signal indicates that conceptual review may be needed",
             }
         )
 
     if weak_lessons:
+        first_priority = weak_lessons[0].get("priority")
         recommendations.append(
             {
-                "priority": "high" if weak_lessons[0].get("priority") == "high" else "medium",
-                "title": "Қиын сабақтарды қайталау",
-                "description": "Алдымен қиындық байқалған сабақтарды қысқа конспект және практика арқылы қайталау керек.",
+                "priority": "high" if first_priority == "high" else "medium",
+                "title": "Қиындық байқалған сабақтарды қайталау",
+                "description": "Алдымен қиындық белгісі бар сабақтарды қысқа түсіндіру, мысал және practice арқылы қайталау керек.",
+                "reason": "weak lesson signals are present",
             }
         )
 
@@ -543,8 +612,9 @@ def _build_recommendations(
         recommendations.append(
             {
                 "priority": "medium",
-                "title": "Кейін қайталау тізімін жабу",
-                "description": "Кейін қайталауға белгіленген сабақтарды жеке жоспарға енгізу ұсынылады.",
+                "title": "Қайталау тізімін реттеу",
+                "description": "Кейін қайталауға белгіленген сабақтарды жеке оқу жоспарына енгізу пайдалы.",
+                "reason": "review later items are present",
             }
         )
 
@@ -553,11 +623,100 @@ def _build_recommendations(
             {
                 "priority": "low",
                 "title": "Оқуды жоспар бойынша жалғастыру",
-                "description": "Қазіргі оқу нәтижелері бойынша айқын қауіп байқалмайды.",
+                "description": "Қазіргі оқу сигналдары бойынша шұғыл қиындық байқалмайды. Жоспарлы оқу мен қысқа қайталауды жалғастыру жеткілікті.",
+                "reason": "no strong risk signal found",
             }
         )
 
-    return recommendations[:6]
+    return recommendations[:MAX_RECOMMENDATIONS_RETURNED]
+
+
+def _build_assistant_policy() -> dict[str, Any]:
+    return {
+        "humanAiCollaboration": True,
+        "aiRole": "explain_support_and_suggest",
+        "humanRole": "make_final_decision",
+        "numbersAreForInternalReasoningOnly": True,
+        "avoidRawAnalyticsInFinalAnswer": True,
+        "avoidStudentLabeling": True,
+        "behaviorTrackingUsed": False,
+        "displayGuidance": (
+            "Use numeric metrics internally to infer learning signals, but do not list all "
+            "numbers back to the user. Return a concise explanation and next actions."
+        ),
+    }
+
+
+def _build_student_signals(
+    *,
+    progress_pct: int,
+    mini_quiz_avg: float | None,
+    weak_lessons: list[dict[str, Any]],
+    review_later_count: int,
+) -> dict[str, Any]:
+    signals: list[str] = []
+
+    progress_band = _progress_band(progress_pct)
+    quiz_band = _score_band(mini_quiz_avg)
+
+    if progress_band == "needs_structure":
+        signals.append("Оқу ретін және аяқталмаған сабақтарды реттеу пайдалы.")
+    elif progress_band == "developing":
+        signals.append("Оқу progress-ін тұрақтандыру үшін қысқа жоспар керек.")
+    else:
+        signals.append("Оқу бағыты жалпы тұрақты, жоспарлы қайталау жеткілікті.")
+
+    if quiz_band in {"needs_immediate_review", "needs_review"}:
+        signals.append("Кейбір тақырыптар бойынша түсінуді бекіту қажет болуы мүмкін.")
+
+    if weak_lessons:
+        signals.append("Қайталауға басымдық беретін сабақтар бар.")
+
+    if review_later_count > 0:
+        signals.append("Кейін қайталау тізіміндегі сабақтарды жоспарға енгізу пайдалы.")
+
+    return {
+        "primaryFocus": signals[0] if signals else "Оқу бағытын жоспарлы түрде жалғастыру.",
+        "supportingSignals": signals[:4],
+        "progressBand": progress_band,
+        "quizBand": quiz_band,
+    }
+
+
+def _build_course_signals(
+    *,
+    avg_progress_pct: float | None,
+    mini_quiz_avg: float | None,
+    weak_lessons: list[dict[str, Any]],
+    review_later_count: int,
+) -> dict[str, Any]:
+    signals: list[str] = []
+
+    progress_band = _progress_band(avg_progress_pct)
+    quiz_band = _score_band(mini_quiz_avg)
+
+    if progress_band == "needs_structure":
+        signals.append("Курс бойынша оқу ретін және қайталау құрылымын күшейту керек.")
+    elif progress_band == "developing":
+        signals.append("Курс progress-ін тұрақтандыру үшін ортақ қайталау жоспары пайдалы.")
+    else:
+        signals.append("Курс бағыты жалпы тұрақты, бірақ нақты әлсіз сабақтарды бақылау керек.")
+
+    if weak_lessons:
+        signals.append("Бірнеше сабақ қайта түсіндіру немесе бекітуге сұранып тұр.")
+
+    if quiz_band in {"needs_immediate_review", "needs_review"}:
+        signals.append("Mini quiz сигналдары түсінуді қайта бекітуді ұсынады.")
+
+    if review_later_count > 0:
+        signals.append("Қайталау тізіміндегі сабақтарды ортақ жоспарға енгізуге болады.")
+
+    return {
+        "primaryFocus": signals[0] if signals else "Курс бойынша жоспарлы оқуды жалғастыру.",
+        "supportingSignals": signals[:4],
+        "progressBand": progress_band,
+        "quizBand": quiz_band,
+    }
 
 
 def collect_student_learning_context(
@@ -581,19 +740,27 @@ def collect_student_learning_context(
 
     course_ids = _unique(row.get("course_id") for row in enrollments)
 
-    courses = _rows(
-        "courses",
-        in_={"id": course_ids},
-        limit=200,
-        optional=True,
-    ) if course_ids else []
+    courses = (
+        _rows(
+            "courses",
+            in_={"id": course_ids},
+            limit=200,
+            optional=True,
+        )
+        if course_ids
+        else []
+    )
 
-    lessons = _rows(
-        "lessons",
-        in_={"course_id": course_ids},
-        limit=2000,
-        optional=True,
-    ) if course_ids else []
+    lessons = (
+        _rows(
+            "lessons",
+            in_={"course_id": course_ids},
+            limit=2000,
+            optional=True,
+        )
+        if course_ids
+        else []
+    )
 
     lesson_ids = {
         _clean_text(lesson.get("id"), 140)
@@ -738,6 +905,7 @@ def collect_student_learning_context(
             "name": _student_name(_load_profile(current_user_id), current_user_id),
         },
         "totals": {
+            # Kept for internal model reasoning. Prompt prevents raw analytics dumping.
             "enrolledCourses": len(course_ids),
             "totalLessons": len(lesson_ids),
             "completedLessons": len(completed_lesson_ids),
@@ -751,18 +919,26 @@ def collect_student_learning_context(
             "savedLessons": len(bookmarks),
             "reviewLaterItems": len(review_later),
         },
+        "signals": _build_student_signals(
+            progress_pct=progress_pct,
+            mini_quiz_avg=mini_quiz_avg,
+            weak_lessons=weak_lessons,
+            review_later_count=len(review_later),
+        ),
         "courses": [
             {
                 "id": _clean_text(course.get("id"), 140),
                 "title": _course_title(course),
             }
-            for course in courses[:20]
+            for course in courses[:MAX_COURSES_RETURNED]
         ],
         "weakLessons": weak_lessons,
         "recommendations": recommendations,
+        "assistantPolicy": _build_assistant_policy(),
         "limits": {
-            "maxCoursesReturned": 20,
-            "maxWeakLessonsReturned": 8,
+            "maxCoursesReturned": MAX_COURSES_RETURNED,
+            "maxWeakLessonsReturned": MAX_WEAK_LESSONS_RETURNED,
+            "maxRecommendationsReturned": MAX_RECOMMENDATIONS_RETURNED,
             "behaviorTrackingUsed": False,
         },
     }
@@ -787,10 +963,7 @@ def collect_course_learning_context(
     }
 
     enrollments = _load_course_enrollments(course_id)
-    student_ids = _unique(
-        _student_id_from_row(row)
-        for row in enrollments
-    )
+    student_ids = _unique(_student_id_from_row(row) for row in enrollments)
 
     progress_all = _rows(
         "lesson_progress",
@@ -900,10 +1073,12 @@ def collect_course_learning_context(
 
     mini_quiz_passed = sum(1 for row in mini_quiz_attempts if _is_passed_attempt(row))
     mini_quiz_failed = len(mini_quiz_attempts) - mini_quiz_passed
+    avg_progress_pct = _avg(per_student_progress)
+    mini_quiz_avg = _avg(mini_quiz_scores)
 
     recommendations = _build_recommendations(
-        progress_pct=int(_avg(per_student_progress) or 0),
-        mini_quiz_avg=_avg(mini_quiz_scores),
+        progress_pct=int(avg_progress_pct or 0),
+        mini_quiz_avg=mini_quiz_avg,
         weak_lessons=weak_lessons,
         review_later_count=len(review_later),
     )
@@ -915,12 +1090,13 @@ def collect_course_learning_context(
             "title": _course_title(course),
         },
         "totals": {
+            # Kept for internal model reasoning. Final answer should not dump all metrics.
             "students": len(student_ids),
             "lessons": len(lesson_ids),
             "completedLessonRecords": len(completed_pairs),
-            "avgProgressPct": _avg(per_student_progress),
+            "avgProgressPct": avg_progress_pct,
             "miniQuizAttempts": len(mini_quiz_attempts),
-            "miniQuizAvgScore": _avg(mini_quiz_scores),
+            "miniQuizAvgScore": mini_quiz_avg,
             "miniQuizPassed": mini_quiz_passed,
             "miniQuizFailed": mini_quiz_failed,
             "miniQuizPassRatePct": _pct(mini_quiz_passed, len(mini_quiz_attempts)),
@@ -929,10 +1105,18 @@ def collect_course_learning_context(
             "savedLessons": len(bookmarks),
             "reviewLaterItems": len(review_later),
         },
+        "signals": _build_course_signals(
+            avg_progress_pct=avg_progress_pct,
+            mini_quiz_avg=mini_quiz_avg,
+            weak_lessons=weak_lessons,
+            review_later_count=len(review_later),
+        ),
         "weakLessons": weak_lessons,
         "recommendations": recommendations,
+        "assistantPolicy": _build_assistant_policy(),
         "limits": {
-            "maxWeakLessonsReturned": 8,
+            "maxWeakLessonsReturned": MAX_WEAK_LESSONS_RETURNED,
+            "maxRecommendationsReturned": MAX_RECOMMENDATIONS_RETURNED,
             "behaviorTrackingUsed": False,
         },
     }
@@ -1099,6 +1283,7 @@ def collect_teacher_student_learning_context(
             "name": _student_name(_load_profile(student_id), student_id),
         },
         "totals": {
+            # Kept for internal model reasoning. Final answer should be summarized.
             "totalLessons": len(lesson_ids),
             "completedLessons": len(completed_lesson_ids),
             "progressPct": progress_pct,
@@ -1111,11 +1296,19 @@ def collect_teacher_student_learning_context(
             "savedLessons": len(bookmarks),
             "reviewLaterItems": len(review_later),
         },
+        "signals": _build_student_signals(
+            progress_pct=progress_pct,
+            mini_quiz_avg=mini_quiz_avg,
+            weak_lessons=weak_lessons,
+            review_later_count=len(review_later),
+        ),
         "weakLessons": weak_lessons,
         "recommendations": recommendations,
         "teacherScopeNote": "Бұл дерек тек мұғалімнің өз курсындағы оқу нәтижелеріне негізделеді.",
+        "assistantPolicy": _build_assistant_policy(),
         "limits": {
-            "maxWeakLessonsReturned": 8,
+            "maxWeakLessonsReturned": MAX_WEAK_LESSONS_RETURNED,
+            "maxRecommendationsReturned": MAX_RECOMMENDATIONS_RETURNED,
             "behaviorTrackingUsed": False,
         },
     }

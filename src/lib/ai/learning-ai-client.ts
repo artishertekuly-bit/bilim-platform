@@ -10,6 +10,10 @@ function trimTrailingSlash(value: string | undefined) {
   return value?.trim().replace(/\/+$/, '') || '';
 }
 
+function trimLeadingSlash(value: string) {
+  return value.replace(/^\/+/, '');
+}
+
 function getAiApiBaseUrl() {
   return (
     trimTrailingSlash(import.meta.env.VITE_AI_API_BASE_URL) ||
@@ -24,7 +28,11 @@ function getLearningAiEndpoint() {
     return null;
   }
 
-  return `${baseUrl}${DEFAULT_AI_ENDPOINT_PATH}`;
+  if (baseUrl.endsWith(DEFAULT_AI_ENDPOINT_PATH)) {
+    return baseUrl;
+  }
+
+  return `${baseUrl}/${trimLeadingSlash(DEFAULT_AI_ENDPOINT_PATH)}`;
 }
 
 export function isLearningAiConfigured() {
@@ -32,7 +40,7 @@ export function isLearningAiConfigured() {
 }
 
 function validateLearningAiRequest(request: LearningAiRequest) {
-  if (!request.prompt.trim()) {
+  if (!request.prompt?.trim()) {
     return 'Сұрақ бос болмауы керек.';
   }
 
@@ -50,6 +58,89 @@ function validateLearningAiRequest(request: LearningAiRequest) {
   return null;
 }
 
+async function readJsonSafely(response: Response): Promise<unknown> {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function getStringField(payload: unknown, key: string) {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const value = (payload as Record<string, unknown>)[key];
+
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function getBackendErrorMessage(status: number, payload: unknown) {
+  const detail = getStringField(payload, 'detail');
+  const message = getStringField(payload, 'message');
+  const error = getStringField(payload, 'error');
+
+  if (detail || message || error) {
+    return detail || message || error;
+  }
+
+  if (status === 401) {
+    return 'AI backend авторизацияны қабылдамады. Аккаунт session-ы немесе access token тексерілуі керек.';
+  }
+
+  if (status === 403) {
+    return 'AI backend бұл scope үшін рұқсат бермеді. Course/student access немесе user role тексерілуі керек.';
+  }
+
+  if (status === 404) {
+    return 'AI endpoint табылмады. Backend URL және /api/learning-analysis route дұрыс қосылғанын тексеріңіз.';
+  }
+
+  if (status >= 500) {
+    return `AI backend ішкі қатесі: ${status}. Render backend logs ішінен learning-analysis service қатесін тексеріңіз.`;
+  }
+
+  return `AI backend қатесі: ${status}`;
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof DOMException ||
+    error instanceof Error
+  ) && error.name === 'AbortError';
+}
+
+function getNetworkErrorMessage(error: unknown) {
+  if (isAbortError(error)) {
+    return 'AI сұранысы тоқтатылды.';
+  }
+
+  const rawMessage = error instanceof Error ? error.message : '';
+
+  if (
+    rawMessage.toLowerCase().includes('failed to fetch') ||
+    rawMessage.toLowerCase().includes('networkerror')
+  ) {
+    return 'AI backend-ке қосылу мүмкін болмады. VITE_AI_API_BASE_URL, Render backend status және CORS allowed origins баптауларын тексеріңіз.';
+  }
+
+  return rawMessage || 'AI сұранысын орындау кезінде белгісіз қате болды.';
+}
+
+function normalizeRequest(request: LearningAiRequest): LearningAiRequest {
+  return {
+    ...request,
+    prompt: request.prompt.trim(),
+  };
+}
+
 export async function requestLearningAiAnalysis(
   request: LearningAiRequest,
   options?: {
@@ -57,7 +148,8 @@ export async function requestLearningAiAnalysis(
     signal?: AbortSignal;
   }
 ): Promise<LearningAiClientResult> {
-  const validationError = validateLearningAiRequest(request);
+  const normalizedRequest = normalizeRequest(request);
+  const validationError = validateLearningAiRequest(normalizedRequest);
 
   if (validationError) {
     return {
@@ -72,7 +164,7 @@ export async function requestLearningAiAnalysis(
     return {
       ok: false,
       error:
-        'AI backend әлі қосылмаған. Frontend env ішінде VITE_AI_API_BASE_URL көрсетілуі керек. Уақытша backward compatibility үшін VITE_AI_API_URL да оқылады.',
+        'AI backend URL көрсетілмеген. Frontend env ішінде VITE_AI_API_BASE_URL=https://сіздің-backend.onrender.com болуы керек. VITE_AI_API_URL уақытша fallback ретінде ғана оқылады.',
     };
   }
 
@@ -81,29 +173,34 @@ export async function requestLearningAiAnalysis(
       method: 'POST',
       signal: options?.signal,
       headers: {
+        Accept: 'application/json',
         'Content-Type': 'application/json',
         ...(options?.accessToken
           ? { Authorization: `Bearer ${options.accessToken}` }
           : {}),
       },
-      body: JSON.stringify(request),
+      body: JSON.stringify(normalizedRequest),
     });
 
-    if (!response.ok) {
-      const errorPayload = await response.json().catch(() => null);
+    const payload = await readJsonSafely(response);
 
+    if (!response.ok) {
       return {
         ok: false,
-        error:
-          errorPayload?.detail ||
-          errorPayload?.message ||
-          `AI backend қатесі: ${response.status}`,
+        error: getBackendErrorMessage(response.status, payload),
       };
     }
 
-    const data = (await response.json()) as LearningAiResponse;
+    const data = payload as LearningAiResponse | null;
 
-    if (!data?.answer) {
+    if (!data || typeof data !== 'object') {
+      return {
+        ok: false,
+        error: 'AI backend жауап қайтарды, бірақ JSON форматы дұрыс емес.',
+      };
+    }
+
+    if (!data.answer || typeof data.answer !== 'string' || !data.answer.trim()) {
       return {
         ok: false,
         error: 'AI backend жауап қайтарды, бірақ answer өрісі бос.',
@@ -112,22 +209,15 @@ export async function requestLearningAiAnalysis(
 
     return {
       ok: true,
-      data,
+      data: {
+        ...data,
+        answer: data.answer.trim(),
+      },
     };
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      return {
-        ok: false,
-        error: 'AI сұранысы тоқтатылды.',
-      };
-    }
-
     return {
       ok: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : 'AI сұранысын орындау кезінде белгісіз қате болды.',
+      error: getNetworkErrorMessage(error),
     };
   }
 }

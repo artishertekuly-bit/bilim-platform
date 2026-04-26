@@ -7,9 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from supabase import Client, create_client
 
 from .ai_adapter import (
     evaluate_answer_for_bilimcorp,
@@ -32,8 +31,8 @@ from .ai_storage import (
     list_tutor_messages,
     update_ai_exam_status,
 )
-
 from .api.learning_analysis_api import router as learning_analysis_router
+from .dependencies.auth import get_current_user_id
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 ENV_FILE = ROOT_DIR / ".env"
@@ -68,13 +67,6 @@ DEBUG_USER_ID_FALLBACK_ENABLED = ALLOW_DEBUG_USER_ID_FALLBACK and APP_ENV in {
     "test",
 }
 
-app = FastAPI(
-    title="Bilimcorp AI Bridge",
-    version="1.6.0",
-)
-
-app.include_router(learning_analysis_router)
-
 
 def _build_allowed_origins() -> list[str]:
     configured = [
@@ -82,6 +74,7 @@ def _build_allowed_origins() -> list[str]:
         for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
         if origin.strip()
     ]
+
     if configured:
         return configured
 
@@ -97,6 +90,15 @@ def _build_allowed_origins() -> list[str]:
     ]
 
 
+app = FastAPI(
+    title="Bilimcorp AI Bridge",
+    version="1.6.1",
+    description=(
+        "AI bridge service for Bilimcorp. Provides legacy AI tools and "
+        "scoped learning-analysis endpoints for AI Tracker and AI Assistant."
+    ),
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_build_allowed_origins(),
@@ -106,7 +108,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_supabase_auth_client: Client | None = None
+app.include_router(learning_analysis_router)
 
 
 def _utc_iso() -> str:
@@ -114,83 +116,12 @@ def _utc_iso() -> str:
 
 
 def _clean_text(value: Any, limit: int | None = None) -> str:
-    text = " ".join(str(value or "").replace("\x00", " ").split())
+    text = " ".join(str(value or "").replace("\x00", " ").split()).strip()
     return text[:limit] if limit else text
 
 
 def _http_error(message: str, status_code: int = 400) -> HTTPException:
     return HTTPException(status_code=status_code, detail=message)
-
-
-def _get_supabase_auth_client() -> Client:
-    global _supabase_auth_client
-
-    if _supabase_auth_client is not None:
-        return _supabase_auth_client
-
-    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-        raise _http_error(
-            "Supabase auth конфигурациясы табылмады. SUPABASE_URL және SUPABASE_ANON_KEY қажет.",
-            500,
-        )
-
-    _supabase_auth_client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-    return _supabase_auth_client
-
-
-def _extract_bearer_token(authorization: str | None) -> str:
-    auth_value = _clean_text(authorization, 4000)
-    if not auth_value:
-        raise _http_error("Authorization header қажет", 401)
-
-    scheme, _, token = auth_value.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        raise _http_error("Authorization Bearer token форматында болуы керек", 401)
-
-    return token.strip()
-
-
-def _resolve_user_id_from_bearer_token(token: str) -> str:
-    try:
-        supabase = _get_supabase_auth_client()
-        user_response = supabase.auth.get_user(token)
-    except HTTPException:
-        raise
-    except Exception:
-        logger.exception("supabase auth get_user failed")
-        raise _http_error(
-            "Пайдаланушы токенін тексеру кезінде серверлік қате пайда болды",
-            500,
-        )
-
-    user = getattr(user_response, "user", None)
-    user_id = _clean_text(getattr(user, "id", None), 120)
-
-    if not user_id:
-        raise _http_error("Жарамсыз немесе мерзімі өткен токен", 401)
-
-    return user_id
-
-
-def get_current_user_id(
-    authorization: str | None = Header(default=None, alias="Authorization"),
-    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
-) -> str:
-    if authorization:
-        token = _extract_bearer_token(authorization)
-        return _resolve_user_id_from_bearer_token(token)
-
-    if DEBUG_USER_ID_FALLBACK_ENABLED:
-        debug_user_id = _clean_text(x_user_id, 120)
-        if debug_user_id:
-            logger.warning(
-                "Using insecure debug X-User-Id fallback for user_id=%s in env=%s",
-                debug_user_id,
-                APP_ENV,
-            )
-            return debug_user_id
-
-    raise _http_error("Авторизация қажет", 401)
 
 
 def _public_tutor_session(session: dict[str, Any]) -> dict[str, Any]:
@@ -279,7 +210,10 @@ def root():
     return {
         "ok": True,
         "service": "bilimcorp-ai-bridge",
+        "version": app.version,
         "docs": "/docs",
+        "health": "/health",
+        "learning_analysis_endpoint": "/api/learning-analysis",
     }
 
 
@@ -288,10 +222,13 @@ def healthcheck():
     return {
         "ok": True,
         "service": "bilimcorp-ai-bridge",
+        "version": app.version,
         "env": APP_ENV,
         "env_file_present": ENV_FILE.exists(),
         "allowed_origins": _build_allowed_origins(),
         "supabase_auth_configured": bool(SUPABASE_URL and SUPABASE_ANON_KEY),
+        "learning_analysis_enabled": True,
+        "learning_analysis_endpoint": "/api/learning-analysis",
         "debug_user_id_fallback": DEBUG_USER_ID_FALLBACK_ENABLED,
         "debug_user_id_fallback_configured": ALLOW_DEBUG_USER_ID_FALLBACK,
     }
@@ -586,15 +523,15 @@ def api_update_ai_exam_status(
     payload: dict[str, Any],
     user_id: str = Depends(get_current_user_id),
 ):
-    status = _clean_text(payload.get("status"), 20).lower()
-    if status not in AI_EXAM_STATUSES:
+    status_value = _clean_text(payload.get("status"), 20).lower()
+    if status_value not in AI_EXAM_STATUSES:
         raise _http_error("AI exam статусы дұрыс емес", 400)
 
     try:
         stored = update_ai_exam_status(
             exam_id=exam_id,
             owner_id=user_id,
-            status=status,
+            status=status_value,
         )
     except ValueError as exc:
         raise _http_error(str(exc), 400)

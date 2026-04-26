@@ -1,9 +1,7 @@
-import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   BrainCircuit,
-  CheckCircle2,
   GraduationCap,
   MessageCircle,
   RotateCcw,
@@ -11,8 +9,6 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
-  TrendingDown,
-  Users,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
@@ -49,79 +45,62 @@ type AssistantMode = 'course' | 'student';
 const TEACHER_COURSE_ASSISTANT_PROMPTS: AiPromptSuggestion[] = [
   {
     id: 'course-difficult-lessons',
-    label: 'Қиын сабақтар',
+    label: 'Қай сабаққа назар аударамын?',
     prompt:
-      'Осы курс нәтижелеріне қарап, оқушыларға қай сабақтар қиын болып тұрғанын түсіндір.',
+      'Осы курс context-іне сүйеніп, мұғалім ретінде ең алдымен қай сабаққа немесе бағытқа назар аударуым керек екенін түсіндір. Сандық көрсеткіштерді тізбей, нақты педагогикалық әрекет ұсын.',
   },
   {
     id: 'course-improvement',
     label: 'Курсты жақсарту',
     prompt:
-      'Осы курс нәтижелеріне сүйеніп, қандай сабақтарды, тапсырмаларды немесе mini quiz-дерді жақсартуға болатынын ұсын.',
+      'Осы курс бойынша оқу жағдайын түсіндіріп, сабақты немесе тапсырманы қалай жақсартуға болатынын қысқа әрі нақты ұсын.',
   },
   {
     id: 'course-repeat-plan',
     label: 'Қайталау жоспары',
     prompt:
-      'Осы курс бойынша оқушыларға ортақ қысқа қайталау жоспарын ұсын.',
+      'Осы курс үшін оқушыларға ортақ, орындауға ыңғайлы қысқа қайталау жоспарын жаса.',
   },
   {
     id: 'teacher-discussion',
     label: 'Талқылау сұрақтары',
     prompt:
-      'Осы курс нәтижелеріне қарап, мұғалім оқушылармен қандай сұрақтарды талқылай алады?',
+      'Осы курс context-іне сүйеніп, оқушылармен талқылауға болатын пайдалы сұрақтар дайында.',
   },
 ];
 
 const TEACHER_STUDENT_ASSISTANT_PROMPTS: AiPromptSuggestion[] = [
   {
     id: 'student-support',
-    label: 'Оқушыға көмек',
+    label: 'Қалай көмектесемін?',
     prompt:
-      'Осы оқушының курс бойынша нәтижелеріне қарап, оған қандай педагогикалық қолдау ұсынуға болады?',
+      'Осы оқушының оқу context-іне сүйеніп, оған қандай педагогикалық қолдау пайдалы болуы мүмкін екенін түсіндір. Оқушыны бағаламай, қолдау бағытын ұсын.',
   },
   {
     id: 'student-repeat-plan',
     label: 'Жеке жоспар',
     prompt:
-      'Осы оқушыға progress және mini quiz нәтижелері бойынша жеке қайталау жоспарын жаса.',
+      'Осы оқушыға қысқа, нақты және орындауға болатын жеке қайталау жоспарын жаса.',
   },
   {
     id: 'student-parent-summary',
     label: 'Ата-анаға summary',
     prompt:
-      'Осы оқушының оқу жағдайын ата-анаға түсінікті, жұмсақ және нақты тілмен қысқаша summary етіп дайында.',
+      'Осы оқушының оқу жағдайын ата-анаға түсінікті, жұмсақ және кінәламайтын тілмен қысқаша summary етіп дайында.',
   },
   {
     id: 'student-discussion',
-    label: 'Талқылау сұрақтары',
+    label: 'Оқушымен сөйлесу',
     prompt:
-      'Осы оқушымен мұғалім қандай сұрақтарды талқыласа пайдалы болады?',
+      'Осы оқушымен мұғалім қандай сұрақтарды талқыласа пайдалы болады? Сұрақтар қолдаушы және нақты болсын.',
   },
 ];
-
-function formatPercent(value: number | null | undefined) {
-  if (value === null || value === undefined) return '—';
-  return `${value}%`;
-}
-
-function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined) return '—';
-  return value.toLocaleString('kk-KZ');
-}
-
-function getScoreTone(value: number | null | undefined) {
-  if (value === null || value === undefined) return 'muted';
-  if (value >= 80) return 'success';
-  if (value >= 60) return 'warning';
-  return 'danger';
-}
 
 function getRiskLabel(risk: LearningRiskLevel) {
   const map: Record<LearningRiskLevel, string> = {
     low: 'Тұрақты',
     medium: 'Назар керек',
-    high: 'Қайталау қажет',
+    high: 'Қолдау қажет',
   };
 
   return map[risk];
@@ -149,39 +128,6 @@ function getInitials(name: string | null | undefined) {
 function getStudentName(student: CourseAnalyticsStudentOptionView) {
   return student.fullName?.trim() || `Оқушы ${student.studentId.slice(0, 8)}`;
 }
-
-function MetricCard({
-  label,
-  value,
-  hint,
-  icon,
-}: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  icon: ReactNode;
-}) {
-  return (
-    <div className="group rounded-2xl border bg-card/95 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md">
-      <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-          {icon}
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          <p className="mt-1 truncate text-xl font-semibold text-foreground">{value}</p>
-          {hint ? (
-            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-              {hint}
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 
 function normalizeCourseOptions(workspace: unknown): CourseOption[] {
   const raw = workspace as any;
@@ -271,8 +217,7 @@ export default function AiAssistantPage() {
   }, [students, selectedStudentId]);
 
   const selectedStudent = useMemo(
-    () =>
-      students.find((student) => student.studentId === selectedStudentId) || null,
+    () => students.find((student) => student.studentId === selectedStudentId) || null,
     [students, selectedStudentId]
   );
 
@@ -324,6 +269,12 @@ export default function AiAssistantPage() {
     }
   };
 
+  const changeMode = (mode: AssistantMode) => {
+    setAssistantMode(mode);
+    courseAi.reset();
+    studentAi.reset();
+  };
+
   const isAnyFetching =
     workspaceFetching ||
     courseSnapshotFetching ||
@@ -331,58 +282,67 @@ export default function AiAssistantPage() {
     studentSnapshotFetching;
 
   const topDifficultLesson = courseSnapshot?.difficultLessons[0] || null;
-  const selectedModeLabel = assistantMode === 'student' ? 'Оқушы insight' : 'Курс insight';
+  const topStudentWeakLesson = studentSnapshot?.weakLessons[0] || null;
+  const topStudentRecommendation = studentSnapshot?.recommendations[0] || null;
+
+  const selectedModeLabel = assistantMode === 'student' ? 'Оқушы context' : 'Курс context';
+
   const activeScopeLabel =
     assistantMode === 'student' && selectedStudent
       ? `${getStudentName(selectedStudent)} · ${selectedCourse?.title || 'Курс'}`
       : selectedCourse?.title || 'Курс таңдалмаған';
 
-  const promptShell =
-    assistantMode === 'student' && selectedStudent ? (
-      <AiPromptShell
-        title="AI оқушы көмекшісі"
-        description="AI таңдалған оқушының осы курс бойынша оқу нәтижелерін ғана қолданып, мұғалімге педагогикалық ұсыныс береді."
-        placeholder="Мысалы: Осы оқушыға қандай қайталау жоспарын ұсынуға болады?"
-        suggestions={TEACHER_STUDENT_ASSISTANT_PROMPTS}
-        contextLabel="Оқушы бойынша оқу деректері"
-        contextDescription="Context ретінде таңдалған оқушының осы курс бойынша progress, mini quiz, test, сақталған сабақтар және кейін қайталау белгілері қолданылады."
-        disabled={false}
-        isSubmitting={studentAi.isSubmitting}
-        answer={studentAi.answer}
-        error={studentAi.error}
-        onSubmit={studentAi.submit}
-        answerTitle="AI оқушы көмекшісінің жауабы"
-        emptyAnswerText={
-          studentAi.isConfigured
-            ? 'Сұрақ жазып немесе жылдам сұрақ таңдап, AI ұсыныс алуға болады.'
-            : 'AI backend әлі қосылмаған. Frontend env ішінде VITE_AI_API_BASE_URL көрсетілгенде нақты жауап осы жерге шығады.'
-        }
-      />
-    ) : selectedCourse ? (
-      <AiPromptShell
-        title="AI курс көмекшісі"
-        description="AI таңдалған курстың оқу нәтижелерін ғана қолданып, мұғалімге курс бойынша ұсыныс береді."
-        placeholder="Мысалы: Осы курста қай сабақтарды қайта түсіндіру керек?"
-        suggestions={TEACHER_COURSE_ASSISTANT_PROMPTS}
-        contextLabel="Курс бойынша оқу деректері"
-        contextDescription="Context ретінде курс progress-і, оқушы саны, қиын сабақтар, mini quiz pass rate және course-level оқу нәтижелері қолданылады."
-        disabled={false}
-        isSubmitting={courseAi.isSubmitting}
-        answer={courseAi.answer}
-        error={courseAi.error}
-        onSubmit={courseAi.submit}
-        answerTitle="AI курс көмекшісінің жауабы"
-        emptyAnswerText={
-          courseAi.isConfigured
-            ? 'Сұрақ жазып немесе жылдам сұрақ таңдап, AI ұсыныс алуға болады.'
-            : 'AI backend әлі қосылмаған. Frontend env ішінде VITE_AI_API_BASE_URL көрсетілгенде нақты жауап осы жерге шығады.'
-        }
-      />
-    ) : null;
+  const chatDisabled =
+    assistantMode === 'student'
+      ? !selectedCourse || !selectedStudent
+      : !selectedCourse;
+
+  const chatDisabledReason =
+    assistantMode === 'student'
+      ? 'AI оқушы көмекшісін қолдану үшін курс пен нақты оқушыны таңдаңыз.'
+      : 'AI курс көмекшісін қолдану үшін алдымен курс таңдаңыз.';
+
+  const chatTitle =
+    assistantMode === 'student' && selectedStudent
+      ? 'AI оқушы көмекшісі'
+      : 'AI курс көмекшісі';
+
+  const chatDescription =
+    assistantMode === 'student' && selectedStudent
+      ? 'AI таңдалған оқушының оқу context-ін ішкі талдап, мұғалімге жұмсақ әрі нақты педагогикалық ұсыныс береді.'
+      : 'AI таңдалған курс context-ін ішкі талдап, мұғалімге сабақ пен қайталау жұмысын жоспарлауға көмектеседі.';
+
+  const chatPlaceholder =
+    assistantMode === 'student'
+      ? 'Мысалы: Осы оқушыға қандай жеке қолдау жоспарын ұсынуға болады?'
+      : 'Мысалы: Осы курста қай бағытқа бірінші назар аудару керек?';
+
+  const chatSuggestions =
+    assistantMode === 'student'
+      ? TEACHER_STUDENT_ASSISTANT_PROMPTS
+      : TEACHER_COURSE_ASSISTANT_PROMPTS;
+
+  const activeAi = assistantMode === 'student' ? studentAi : courseAi;
+
+  const contextSignalTitle =
+    assistantMode === 'student'
+      ? topStudentRecommendation?.title || topStudentWeakLesson?.lessonTitle || 'Жеке қолдау бағыты'
+      : topDifficultLesson?.lessonTitle || 'Курс бойынша жалпы бағыт';
+
+  const contextSignalDescription =
+    assistantMode === 'student'
+      ? topStudentRecommendation?.description ||
+        topStudentWeakLesson?.reason ||
+        'Оқушы бойынша айқын шұғыл қиындық байқалмаса, AI жеке оқу бағытын жұмсақ түрде нақтылап береді.'
+      : topDifficultLesson?.reason ||
+        'Курс бойынша AI қиындық байқалған бағыттарды ішкі context ретінде талдап, мұғалімге нақты әрекет ұсынады.';
+
+  const activeWarnings = activeAi.lastResponse?.warnings || [];
+  const activeFollowUpPrompts = activeAi.lastResponse?.followUpPrompts || [];
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 animate-fade-in">
+      <div className="space-y-5 animate-fade-in">
         <PageHeader
           eyebrow={
             <>
@@ -392,7 +352,7 @@ export default function AiAssistantPage() {
           }
           icon={<BrainCircuit size={20} />}
           title="AI көмекші"
-          description="Мұғалімге курс және оқушы нәтижелері бойынша педагогикалық талқылау мен ұсыныс дайындауға арналған көмекші."
+          description="Курс немесе нақты оқушы context-ін түсіндіріп, мұғалімге педагогикалық шешім қабылдауға көмектесетін AI copilot."
           actions={
             <Button
               type="button"
@@ -405,69 +365,6 @@ export default function AiAssistantPage() {
             </Button>
           }
         />
-
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/15 via-background to-background shadow-sm">
-            <CardContent className="p-5 sm:p-6">
-              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                <div className="max-w-3xl">
-                  <div className="inline-flex items-center gap-2 rounded-full border bg-background/80 px-3 py-1 text-[11px] font-medium text-primary shadow-sm">
-                    <MessageCircle size={12} />
-                    {selectedModeLabel}
-                  </div>
-
-                  <h2 className="mt-4 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                    Мұғалімге арналған AI жұмыс панелі
-                  </h2>
-                  <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
-                    Курс немесе нақты оқушы бойынша оқу нәтижесін бір экранда қарап, AI-дан педагогикалық ұсыныс аласыз. Жауап тек таңдалған scope деректерімен шектеледі.
-                  </p>
-
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    <StatusBadge tone="primary">Scope: {activeScopeLabel}</StatusBadge>
-                    <StatusBadge tone={courseAi.isConfigured || studentAi.isConfigured ? 'success' : 'warning'}>
-                      {courseAi.isConfigured || studentAi.isConfigured ? 'AI endpoint дайын' : 'Env күтілуде'}
-                    </StatusBadge>
-                    <StatusBadge tone="muted">Teacher role</StatusBadge>
-                  </div>
-                </div>
-
-                <div className="min-w-[230px] rounded-2xl border bg-background/75 p-4">
-                  <p className="text-xs font-semibold text-foreground">Негізгі сигнал</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    {topDifficultLesson
-                      ? topDifficultLesson.lessonTitle
-                      : selectedCourse
-                        ? 'Қазір курс бойынша айқын қиын сабақ белгіленбеген.'
-                        : 'Алдымен курс таңдаңыз.'}
-                  </p>
-                  {topDifficultLesson ? (
-                    <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-                      {topDifficultLesson.reason}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/10 bg-card/95 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck size={16} />
-                Педагогикалық шектеу
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-xs leading-5 text-muted-foreground">
-              <p>
-                AI оқушыға үкім шығармайды және баға қоймайды. Ол тек оқу нәтижесін түсіндіруге арналған көмекші ұсыныс береді.
-              </p>
-              <div className="rounded-xl border bg-background p-3">
-                Соңғы педагогикалық шешім мұғалімде қалады; AI жауабы тек талқылау мен жоспарлау материалы.
-              </div>
-            </CardContent>
-          </Card>
-        </div>
 
         {!user ? (
           <EmptyState
@@ -510,98 +407,39 @@ export default function AiAssistantPage() {
         {user && !workspaceLoading && !workspaceError && courses.length > 0 ? (
           <>
             <Card className="border-primary/10 bg-card/95 shadow-sm">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <BookOpen size={16} />
-                      Курс және assistant режимі
-                    </CardTitle>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Scope нақты таңдалған сайын AI жауабы да сол дерекпен шектеледі.
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge tone="primary">{selectedModeLabel}</StatusBadge>
+                      <StatusBadge tone={activeAi.isConfigured ? 'success' : 'warning'}>
+                        {activeAi.isConfigured ? 'AI endpoint дайын' : 'Env күтілуде'}
+                      </StatusBadge>
+                      <StatusBadge tone="muted">Соңғы шешім мұғалімде</StatusBadge>
+                    </div>
+
+                    <h2 className="mt-3 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                      Мұғалімге арналған AI copilot
+                    </h2>
+                    <p className="mt-2 max-w-4xl text-sm leading-6 text-muted-foreground">
+                      Бұл бет analytics dashboard емес. Оқу деректері AI үшін ішкі context ретінде қолданылады, ал мұғалімге тек сұраққа байланысты түсіндірілген ұсыныс қайтарылады.
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={assistantMode === 'course' ? 'default' : 'outline'}
-                      onClick={() => setAssistantMode('course')}
-                    >
-                      Курс insight
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={assistantMode === 'student' ? 'default' : 'outline'}
-                      onClick={() => setAssistantMode('student')}
-                      disabled={!selectedStudent}
-                    >
-                      Оқушы insight
-                    </Button>
+                  <div className="rounded-2xl border bg-background px-4 py-3 text-xs leading-5 text-muted-foreground xl:max-w-sm">
+                    AI course/student context-ті талдайды, бірақ барлық сандық көрсеткішті тізбейді. Негізгі мақсат — мұғалімге келесі педагогикалық әрекетті нақтылау.
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <select
-                  value={selectedCourseId}
-                  onChange={(event) => {
-                    const nextCourseId = event.target.value;
-
-                    setSelectedCourseId(nextCourseId);
-                    setSelectedStudentId('');
-                    setAssistantMode('course');
-                    courseAi.reset();
-                    studentAi.reset();
-                  }}
-                  className="h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
-                >
-                  {courses.map((course) => (
-                    <option key={course.id} value={course.id}>
-                      {course.title}
-                      {course.subjectName ? ` · ${course.subjectName}` : ''}
-                    </option>
-                  ))}
-                </select>
               </CardContent>
             </Card>
 
-            {selectedCourse ? (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <MetricCard
-                  label="Курс"
-                  value={selectedCourse.title}
-                  icon={<BookOpen size={17} />}
-                />
-
-                <MetricCard
-                  label="Оқушы саны"
-                  value={formatNumber(courseSnapshot?.totals.students)}
-                  icon={<Users size={17} />}
-                />
-
-                <MetricCard
-                  label="Орташа progress"
-                  value={formatPercent(courseSnapshot?.totals.avgProgressPct)}
-                  icon={<Target size={17} />}
-                />
-
-                <MetricCard
-                  label="Mini quiz өту көрсеткіші"
-                  value={formatPercent(courseSnapshot?.totals.miniQuizPassRatePct)}
-                  icon={<CheckCircle2 size={17} />}
-                />
-              </div>
-            ) : null}
-
             {courseSnapshotLoading ? (
-              <LoadingState text="Курс деректері жүктелуде..." />
+              <LoadingState text="Курс context жүктелуде..." />
             ) : null}
 
             {!courseSnapshotLoading && courseSnapshotError ? (
               <ErrorState
-                text="Курс оқу деректерін жүктеу мүмкін болмады."
+                text="Курс оқу context-ін жүктеу мүмкін болмады."
                 action={
                   <Button
                     type="button"
@@ -614,354 +452,300 @@ export default function AiAssistantPage() {
               />
             ) : null}
 
-            {!courseSnapshotLoading && !courseSnapshotError && courseSnapshot ? (
-              <div className="grid gap-4 xl:grid-cols-2">
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <CardTitle className="text-base">Қиын сабақтар</CardTitle>
-                      <StatusBadge
-                        tone={
-                          courseSnapshot.difficultLessons.length ? 'warning' : 'success'
-                        }
-                      >
-                        {courseSnapshot.difficultLessons.length}
-                      </StatusBadge>
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="space-y-2">
-                    {courseSnapshot.difficultLessons.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
-                        Қазір курс бойынша айқын қиын сабақ байқалмайды.
-                      </div>
-                    ) : (
-                      courseSnapshot.difficultLessons.slice(0, 5).map((lesson) => (
-                        <div key={lesson.lessonId} className="rounded-lg border p-3">
-                          <div className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-amber-500/10 text-amber-600">
-                              <TrendingDown size={15} />
-                            </div>
-
-                            <div>
-                              <p className="text-sm font-medium">{lesson.lessonTitle}</p>
-                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                {lesson.reason}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Mini quiz нәтижелері</CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-2">
-                    {courseSnapshot.miniQuizzes.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
-                        Бұл курс бойынша mini quiz нәтижелері әлі жоқ.
-                      </div>
-                    ) : (
-                      courseSnapshot.miniQuizzes.slice(0, 5).map((quiz) => (
-                        <div key={quiz.quizId} className="rounded-lg border p-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="line-clamp-1 text-sm font-medium">
-                                {quiz.lessonTitle}
-                              </p>
-                              <p className="mt-1 text-[11px] text-muted-foreground">
-                                Тапсырылғаны: {quiz.attempts} · Өткен: {quiz.passed} ·
-                                Қайта қарау керек: {quiz.failed}
-                              </p>
-                            </div>
-
-                            <StatusBadge tone={getScoreTone(quiz.avgScore)}>
-                              Орташа: {formatPercent(quiz.avgScore)}
-                            </StatusBadge>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_350px]">
+              <div className="min-w-0">
+                <AiPromptShell
+                  title={chatTitle}
+                  description={chatDescription}
+                  placeholder={chatPlaceholder}
+                  suggestions={chatSuggestions}
+                  contextLabel={activeScopeLabel}
+                  contextDescription={
+                    assistantMode === 'student'
+                      ? 'AI таңдалған оқушының оқу context-ін ішкі талдау ретінде қолданады. Жауапта барлық сандық көрсеткіш емес, мұғалімге қажет қорытылған insight беріледі.'
+                      : 'AI таңдалған курс context-ін ішкі талдау ретінде қолданады. Жауап dashboard есебі емес, педагогикалық ұсыныс ретінде қайтарылады.'
+                  }
+                  disabled={chatDisabled}
+                  disabledReason={chatDisabledReason}
+                  isSubmitting={activeAi.isSubmitting}
+                  answer={activeAi.answer}
+                  error={activeAi.error}
+                  onSubmit={activeAi.submit}
+                  answerTitle={
+                    assistantMode === 'student'
+                      ? 'AI оқушы көмекшісінің жауабы'
+                      : 'AI курс көмекшісінің жауабы'
+                  }
+                  emptyAnswerText={
+                    activeAi.isConfigured
+                      ? 'Дайын prompt таңдаңыз немесе өз сұрағыңызды жазыңыз. AI жауапты осы жерде береді.'
+                      : 'AI backend әлі қосылмаған. Frontend env ішінде VITE_AI_API_BASE_URL көрсетілгенде нақты жауап осы жерде шығады.'
+                  }
+                  contextSummary={null}
+                  warnings={activeWarnings}
+                  followUpPrompts={activeFollowUpPrompts}
+                />
               </div>
-            ) : null}
 
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
+              <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
+                <Card className="shadow-sm">
+                  <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-base">
-                      <GraduationCap size={16} />
-                      Оқушы бойынша оқу деректері
+                      <MessageCircle size={16} />
+                      Context таңдау
                     </CardTitle>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Нақты оқушыны таңдап, оның осы курс бойынша оқу нәтижесін көріңіз.
-                    </p>
-                  </div>
-                </div>
-              </CardHeader>
+                  </CardHeader>
 
-              <CardContent className="space-y-4">
-                {studentsLoading ? (
-                  <LoadingState text="Оқушылар жүктелуде..." />
-                ) : null}
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-muted-foreground">
+                        Курс
+                      </label>
+                      <select
+                        value={selectedCourseId}
+                        onChange={(event) => {
+                          const nextCourseId = event.target.value;
 
-                {!studentsLoading && studentsError ? (
-                  <ErrorState
-                    text="Оқушылар деректерін жүктеу мүмкін болмады."
-                    action={
+                          setSelectedCourseId(nextCourseId);
+                          setSelectedStudentId('');
+                          setStudentSearch('');
+                          setAssistantMode('course');
+                          courseAi.reset();
+                          studentAi.reset();
+                        }}
+                        className="h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      >
+                        {courses.map((course) => (
+                          <option key={course.id} value={course.id}>
+                            {course.title}
+                            {course.subjectName ? ` · ${course.subjectName}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
                       <Button
                         type="button"
-                        variant="outline"
-                        onClick={() => void refetchStudents()}
+                        size="sm"
+                        variant={assistantMode === 'course' ? 'default' : 'outline'}
+                        onClick={() => changeMode('course')}
                       >
-                        Қайта жүктеу
+                        Курс
                       </Button>
-                    }
-                  />
-                ) : null}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={assistantMode === 'student' ? 'default' : 'outline'}
+                        onClick={() => changeMode('student')}
+                        disabled={!selectedStudent}
+                      >
+                        Оқушы
+                      </Button>
+                    </div>
 
-                {!studentsLoading && !studentsError && students.length === 0 ? (
-                  <EmptyState
-                    title="Оқушы деректері жоқ"
-                    text="Курсқа оқушы тіркелгеннен кейін бұл жерде жеке оқу деректері көрінеді."
-                  />
-                ) : null}
+                    {studentsLoading ? (
+                      <LoadingState text="Оқушылар жүктелуде..." />
+                    ) : null}
 
-                {!studentsLoading && !studentsError && students.length > 0 ? (
-                  <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-                    <div className="space-y-3">
-                      <div className="relative">
-                        <Search
-                          size={15}
-                          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                        />
-                        <Input
-                          value={studentSearch}
-                          onChange={(event) => setStudentSearch(event.target.value)}
-                          placeholder="Оқушыны іздеу..."
-                          className="pl-9"
-                        />
-                      </div>
-
-                      <div className="max-h-[480px] space-y-2 overflow-y-auto pr-1">
-                        {filteredStudents.map((student) => (
-                          <button
-                            key={student.studentId}
+                    {!studentsLoading && studentsError ? (
+                      <ErrorState
+                        text="Оқушылар деректерін жүктеу мүмкін болмады."
+                        action={
+                          <Button
                             type="button"
-                            onClick={() => {
-                              setSelectedStudentId(student.studentId);
-                              setAssistantMode('student');
-                              studentAi.reset();
-                            }}
-                            className={`w-full rounded-2xl border p-3 text-left transition-all duration-200 ${
-                              selectedStudentId === student.studentId
-                                ? 'border-primary/45 bg-primary/10 shadow-sm ring-1 ring-primary/15'
-                                : 'bg-card hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/5 hover:shadow-sm'
-                            }`}
+                            variant="outline"
+                            onClick={() => void refetchStudents()}
                           >
-                            <div className="flex items-start gap-3">
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-muted text-xs font-semibold">
-                                {getInitials(student.fullName)}
-                              </div>
+                            Қайта жүктеу
+                          </Button>
+                        }
+                      />
+                    ) : null}
 
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="line-clamp-1 text-sm font-semibold">
-                                    {getStudentName(student)}
-                                  </p>
+                    {!studentsLoading && !studentsError && students.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                        Бұл курс бойынша оқушы context әзірге жоқ. Оқушы қосылғаннан кейін student mode іске қосылады.
+                      </div>
+                    ) : null}
 
-                                  <StatusBadge tone={getRiskTone(student.riskLevel)}>
-                                    {getRiskLabel(student.riskLevel)}
-                                  </StatusBadge>
+                    {!studentsLoading && !studentsError && students.length > 0 ? (
+                      <div className="space-y-3">
+                        <div className="relative">
+                          <Search
+                            size={15}
+                            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                          />
+                          <Input
+                            value={studentSearch}
+                            onChange={(event) => setStudentSearch(event.target.value)}
+                            placeholder="Оқушыны іздеу..."
+                            className="pl-9"
+                          />
+                        </div>
+
+                        <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+                          {filteredStudents.map((student) => (
+                            <button
+                              key={student.studentId}
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentId(student.studentId);
+                                setAssistantMode('student');
+                                studentAi.reset();
+                              }}
+                              className={`w-full rounded-2xl border p-3 text-left transition-all duration-200 ${
+                                selectedStudentId === student.studentId
+                                  ? 'border-primary/45 bg-primary/10 shadow-sm ring-1 ring-primary/15'
+                                  : 'bg-background hover:border-primary/25 hover:bg-primary/5'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border bg-muted text-xs font-semibold">
+                                  {getInitials(student.fullName)}
                                 </div>
 
-                                <p className="mt-1 text-[11px] text-muted-foreground">
-                                  Progress: {student.progressPct}% · Mini quiz:{' '}
-                                  {formatPercent(student.miniQuizAvgScore)}
-                                </p>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="line-clamp-1 text-sm font-semibold">
+                                      {getStudentName(student)}
+                                    </p>
+
+                                    <StatusBadge tone={getRiskTone(student.riskLevel)}>
+                                      {getRiskLabel(student.riskLevel)}
+                                    </StatusBadge>
+                                  </div>
+
+                                  <p className="mt-1 text-[11px] text-muted-foreground">
+                                    Оқушы context дайын. Толық түсіндірмені AI жауап ретінде береді.
+                                  </p>
+                                </div>
                               </div>
-                            </div>
-                          </button>
-                        ))}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Target size={16} />
+                      Context signal
+                    </CardTitle>
+                  </CardHeader>
+
+                  <CardContent className="space-y-3">
+                    <div className="rounded-2xl border bg-background p-3">
+                      <div className="flex items-start gap-2">
+                        {assistantMode === 'student' ? (
+                          <GraduationCap size={15} className="mt-0.5 shrink-0 text-primary" />
+                        ) : (
+                          <BookOpen size={15} className="mt-0.5 shrink-0 text-primary" />
+                        )}
+
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold leading-5">
+                            {contextSignalTitle}
+                          </p>
+                          <p className="mt-1 line-clamp-4 text-xs leading-5 text-muted-foreground">
+                            {contextSignalDescription}
+                          </p>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="min-w-0 space-y-4">
-                      {!selectedStudent ? (
-                        <EmptyState
-                          title="Оқушы таңдалмаған"
-                          text="Жеке оқу деректерін көру үшін тізімнен оқушы таңдаңыз."
-                        />
-                      ) : null}
+                    {assistantMode === 'student' && selectedStudent ? (
+                      <>
+                        {studentSnapshotLoading ? (
+                          <LoadingState text="Оқушы context жүктелуде..." />
+                        ) : null}
 
-                      {selectedStudent ? (
-                        <>
-                          <div className="rounded-2xl border bg-card/95 p-4 shadow-sm">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <h3 className="text-base font-semibold">
-                                  {getStudentName(selectedStudent)}
-                                </h3>
-                                <p className="mt-1 text-xs text-muted-foreground">
-                                  {selectedStudent.courseTitle}
-                                </p>
-                              </div>
+                        {!studentSnapshotLoading && studentSnapshotError ? (
+                          <ErrorState
+                            text="Оқушы оқу context-ін жүктеу мүмкін болмады."
+                            action={
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void refetchStudentSnapshot()}
+                              >
+                                Қайта жүктеу
+                              </Button>
+                            }
+                          />
+                        ) : null}
 
-                              <StatusBadge tone={getRiskTone(selectedStudent.riskLevel)}>
-                                {getRiskLabel(selectedStudent.riskLevel)}
-                              </StatusBadge>
-                            </div>
-
-                            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                              <MetricCard
-                                label="Progress"
-                                value={formatPercent(selectedStudent.progressPct)}
-                                icon={<Target size={15} />}
-                              />
-
-                              <MetricCard
-                                label="Mini quiz"
-                                value={formatPercent(selectedStudent.miniQuizAvgScore)}
-                                icon={<CheckCircle2 size={15} />}
-                              />
-
-                              <MetricCard
-                                label="Сақталған сабақтар"
-                                value={formatNumber(selectedStudent.savedLessons)}
-                                icon={<BookOpen size={15} />}
-                              />
-
-                              <MetricCard
-                                label="Кейін қайталау"
-                                value={formatNumber(selectedStudent.reviewLaterItems)}
-                                icon={<RotateCcw size={15} />}
-                              />
-                            </div>
+                        {!studentSnapshotLoading && !studentSnapshotError ? (
+                          <div className="rounded-2xl border bg-background p-3">
+                            <p className="text-xs font-medium text-foreground">
+                              Таңдалған оқушы
+                            </p>
+                            <p className="mt-1 text-sm font-semibold">
+                              {getStudentName(selectedStudent)}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              AI бұл оқушыны бағаламайды. Тек оқу context бойынша қолдау бағытын ұсынады.
+                            </p>
                           </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <div className="rounded-2xl border bg-background p-3">
+                        <p className="text-xs font-medium text-foreground">
+                          Курс режимі
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          AI курс бойынша ортақ оқу сигналдарын ішкі талдап, мұғалімге сабақ жоспарын нақтылауға көмектеседі.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
-                          {studentSnapshotLoading ? (
-                            <LoadingState text="Оқушы деректері жүктелуде..." />
-                          ) : null}
-
-                          {!studentSnapshotLoading && studentSnapshotError ? (
-                            <ErrorState
-                              text="Оқушы оқу деректерін жүктеу мүмкін болмады."
-                              action={
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => void refetchStudentSnapshot()}
-                                >
-                                  Қайта жүктеу
-                                </Button>
-                              }
-                            />
-                          ) : null}
-
-                          {!studentSnapshotLoading &&
-                          !studentSnapshotError &&
-                          studentSnapshot ? (
-                            <div className="grid gap-4 xl:grid-cols-2">
-                              <div className="rounded-xl border p-4">
-                                <div className="mb-3 flex items-center justify-between gap-3">
-                                  <p className="text-sm font-semibold">
-                                    Қайталау ұсыныстары
-                                  </p>
-                                  <StatusBadge
-                                    tone={
-                                      studentSnapshot.recommendations.length
-                                        ? 'warning'
-                                        : 'success'
-                                    }
-                                  >
-                                    {studentSnapshot.recommendations.length}
-                                  </StatusBadge>
-                                </div>
-
-                                {studentSnapshot.recommendations.length === 0 ? (
-                                  <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
-                                    Қазір нақты қайталау ұсынысы жоқ.
-                                  </div>
-                                ) : (
-                                  <div className="space-y-2">
-                                    {studentSnapshot.recommendations
-                                      .slice(0, 5)
-                                      .map((item) => (
-                                        <div
-                                          key={item.id}
-                                          className="rounded-lg border p-3"
-                                        >
-                                          <p className="text-sm font-medium">
-                                            {item.title}
-                                          </p>
-                                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                            {item.description}
-                                          </p>
-                                        </div>
-                                      ))}
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="rounded-xl border p-4">
-                                <div className="mb-3 flex items-center justify-between gap-3">
-                                  <p className="text-sm font-semibold">
-                                    Қиындық байқалған сабақтар
-                                  </p>
-                                  <StatusBadge
-                                    tone={
-                                      studentSnapshot.weakLessons.length
-                                        ? 'warning'
-                                        : 'success'
-                                    }
-                                  >
-                                    {studentSnapshot.weakLessons.length}
-                                  </StatusBadge>
-                                </div>
-
-                                {studentSnapshot.weakLessons.length === 0 ? (
-                                  <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
-                                    Бұл оқушы бойынша айқын қиын сабақ байқалмайды.
-                                  </div>
-                                ) : (
-                                  <div className="space-y-2">
-                                    {studentSnapshot.weakLessons
-                                      .slice(0, 5)
-                                      .map((lesson) => (
-                                        <div
-                                          key={lesson.lessonId}
-                                          className="rounded-lg border p-3"
-                                        >
-                                          <p className="text-sm font-medium">
-                                            {lesson.lessonTitle}
-                                          </p>
-                                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                            {lesson.reason}
-                                          </p>
-                                        </div>
-                                      ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ) : null}
-                        </>
-                      ) : null}
+                <Card className="shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Sparkles size={16} />
+                      Human–AI collaboration
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-xs leading-5 text-muted-foreground">
+                    <div className="rounded-2xl border bg-background p-3">
+                      <p className="font-medium text-foreground">AI рөлі</p>
+                      <p className="mt-1">
+                        Оқу context-ін түсіндіреді, бағыт береді, жоспар ұсынады.
+                      </p>
                     </div>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
 
-            <div className="rounded-[1.35rem] border border-primary/10 bg-background/60 p-1 shadow-sm">
-              {promptShell}
+                    <div className="rounded-2xl border bg-background p-3">
+                      <p className="font-medium text-foreground">Мұғалім рөлі</p>
+                      <p className="mt-1">
+                        Оқушының нақты жағдайын ескеріп, соңғы педагогикалық шешім қабылдайды.
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-primary/10 bg-card/90 shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <ShieldCheck size={16} />
+                      Педагогикалық шектеу
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-xs leading-5 text-muted-foreground">
+                    <p>
+                      AI оқушыға үкім шығармайды және баға қоймайды. Ол тек оқу нәтижесін түсіндіруге арналған көмекші ұсыныс береді.
+                    </p>
+                    <div className="rounded-2xl border bg-background p-3">
+                      Сандық analytics негізгі экранға шығарылмайды; қажет insight AI жауабында түсіндіріліп беріледі.
+                    </div>
+                  </CardContent>
+                </Card>
+              </aside>
             </div>
           </>
         ) : null}

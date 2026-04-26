@@ -1,17 +1,15 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   AlertTriangle,
   Bot,
-  BrainCircuit,
   Check,
   Clipboard,
-  CornerDownRight,
   Eraser,
-  HelpCircle,
   Loader2,
   MessageCircle,
   Send,
   Sparkles,
+  UserRound,
   Wand2,
 } from 'lucide-react';
 
@@ -48,6 +46,14 @@ type AiPromptShellProps = {
   answerTitle?: string;
   emptyAnswerText?: string;
 
+  /**
+   * Optional response metadata.
+   * These fields are intentionally compact. They should not turn the chat into an analytics dashboard.
+   */
+  contextSummary?: string | null;
+  warnings?: string[];
+  followUpPrompts?: string[];
+
   onSubmit?: (payload: AiPromptSubmitPayload) => void | Promise<void>;
 };
 
@@ -57,6 +63,7 @@ function normalizeMarkdownLine(line: string) {
     .replace(/^[-*]\s+/, '')
     .replace(/^\d+[.)]\s+/, '')
     .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
     .trim();
 }
 
@@ -72,10 +79,11 @@ function renderStructuredAnswer(answer: string) {
 
   return lines.map((line, index) => {
     const numbered = line.match(/^(\d+)[.)]\s+(.*)$/);
+    const key = `${line}-${index}`;
 
     if (/^#{1,6}\s+/.test(line)) {
       return (
-        <h4 key={`${line}-${index}`} className="mt-4 first:mt-0 text-sm font-semibold text-foreground">
+        <h4 key={key} className="mt-4 first:mt-0 text-sm font-semibold text-foreground">
           {normalizeMarkdownLine(line)}
         </h4>
       );
@@ -83,8 +91,8 @@ function renderStructuredAnswer(answer: string) {
 
     if (/^[-*]\s+/.test(line)) {
       return (
-        <div key={`${line}-${index}`} className="flex gap-2 text-sm leading-7 text-foreground">
-          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+        <div key={key} className="flex gap-2 text-sm leading-7 text-foreground">
+          <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
           <span>{normalizeMarkdownLine(line)}</span>
         </div>
       );
@@ -92,7 +100,7 @@ function renderStructuredAnswer(answer: string) {
 
     if (numbered) {
       return (
-        <div key={`${line}-${index}`} className="flex gap-2 text-sm leading-7 text-foreground">
+        <div key={key} className="flex gap-2 text-sm leading-7 text-foreground">
           <span className="mt-1 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border bg-primary/10 px-1 text-[10px] font-semibold text-primary">
             {numbered[1]}
           </span>
@@ -102,27 +110,25 @@ function renderStructuredAnswer(answer: string) {
     }
 
     return (
-      <p key={`${line}-${index}`} className="text-sm leading-7 text-foreground">
+      <p key={key} className="text-sm leading-7 text-foreground">
         {normalizeMarkdownLine(line)}
       </p>
     );
   });
 }
 
-function SoftInfoRow({ icon, label, text }: { icon: ReactNode; label: string; text: string }) {
-  return (
-    <div className="rounded-2xl border bg-background/80 p-3">
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-primary/10 text-primary">
-          {icon}
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-foreground">{label}</p>
-          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{text}</p>
-        </div>
-      </div>
-    </div>
-  );
+function getVisibleWarnings(warnings: string[] | undefined) {
+  return (warnings || [])
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
+function getVisibleFollowUps(followUpPrompts: string[] | undefined) {
+  return (followUpPrompts || [])
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 3);
 }
 
 export default function AiPromptShell({
@@ -131,8 +137,8 @@ export default function AiPromptShell({
   placeholder,
   suggestions,
 
-  contextLabel = 'Analytics snapshot',
-  contextDescription = 'AI кейін осы беттегі дайын analytics snapshot бойынша ғана жауап береді.',
+  contextLabel = 'Контекст',
+  contextDescription = 'AI таңдалған оқу context-ін ішкі талдап, сұрағыңызға байланысты жауап береді.',
 
   disabled = true,
   disabledReason,
@@ -142,7 +148,11 @@ export default function AiPromptShell({
   error = null,
 
   answerTitle = 'AI жауабы',
-  emptyAnswerText = 'Backend AI endpoint қосылғаннан кейін жауап осы жерде көрсетіледі. Жауап тек берілген snapshot context пен сіз жазған сұраққа сүйенеді.',
+  emptyAnswerText = 'Сұрақ жазыңыз немесе дайын prompt таңдаңыз. AI жауап осы жерде чат ретінде көрсетіледі.',
+
+  contextSummary = null,
+  warnings = [],
+  followUpPrompts = [],
 
   onSubmit,
 }: AiPromptShellProps) {
@@ -156,10 +166,10 @@ export default function AiPromptShell({
     [suggestions, selectedSuggestionId]
   );
 
-  const renderedAnswer = useMemo(
-    () => (answer ? renderStructuredAnswer(answer) : null),
-    [answer]
-  );
+  const renderedAnswer = useMemo(() => (answer ? renderStructuredAnswer(answer) : null), [answer]);
+
+  const visibleWarnings = useMemo(() => getVisibleWarnings(warnings), [warnings]);
+  const visibleFollowUps = useMemo(() => getVisibleFollowUps(followUpPrompts), [followUpPrompts]);
 
   const hasPrompt = prompt.trim().length > 0;
   const endpointReady = Boolean(onSubmit);
@@ -168,7 +178,7 @@ export default function AiPromptShell({
   const visibleDisabledReason =
     disabledReason ||
     (!endpointReady
-      ? 'AI жауап беру backend-і кейін қосылады. Қазір бұл блок сұрақ сценарийін және context логикасын дайындап тұр.'
+      ? 'AI backend endpoint әлі қосылмаған. Бұл интерфейс тек сценарий мен context логикасын дайындап тұр.'
       : 'AI қазір уақытша өшірулі.');
 
   useEffect(() => {
@@ -183,24 +193,48 @@ export default function AiPromptShell({
     setPrompt(suggestion.prompt);
   };
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
+  const clearPrompt = () => {
+    setPrompt('');
+    setSelectedSuggestionId(null);
+  };
 
-    if (effectiveDisabled || isSubmitting || !hasPrompt || !onSubmit) {
+  const submitPrompt = async (nextPrompt?: string, nextSuggestionId?: string | null) => {
+    const rawPrompt = nextPrompt ?? prompt;
+
+    if (effectiveDisabled || isSubmitting || !rawPrompt.trim() || !onSubmit) {
       return;
     }
 
-    const normalizedPrompt = prompt.trim();
+    const normalizedPrompt = rawPrompt.trim();
     setLastPrompt(normalizedPrompt);
 
     await onSubmit({
       prompt: normalizedPrompt,
-      selectedSuggestionId: selectedSuggestion?.id || null,
+      selectedSuggestionId:
+        nextSuggestionId !== undefined ? nextSuggestionId : selectedSuggestion?.id || null,
     });
   };
 
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    await submitPrompt();
+  };
+
+  const handleTextareaKeyDown = async (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      await submitPrompt();
+    }
+  };
+
+  const handleFollowUpClick = async (followUpPrompt: string) => {
+    setPrompt(followUpPrompt);
+    setSelectedSuggestionId(null);
+    await submitPrompt(followUpPrompt, null);
+  };
+
   const handleCopy = async () => {
-    if (!answer) return;
+    if (!answer || !navigator.clipboard) return;
 
     try {
       await navigator.clipboard.writeText(answer);
@@ -210,58 +244,52 @@ export default function AiPromptShell({
     }
   };
 
-  const clearPrompt = () => {
-    setPrompt('');
-    setSelectedSuggestionId(null);
-  };
-
   return (
-    <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/10 via-background to-background shadow-sm">
-      <CardHeader className="border-b bg-background/55 pb-4 backdrop-blur">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-primary text-primary-foreground shadow-sm shadow-primary/20">
-              <BrainCircuit size={19} />
-            </div>
-
-            <div className="min-w-0">
-              <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
-              <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-                {description}
-              </p>
+    <Card className="overflow-hidden border-border/80 bg-background shadow-sm">
+      <CardHeader className="border-b bg-muted/20 px-4 py-4 sm:px-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border bg-background text-primary shadow-sm">
+                <Bot size={17} />
+              </span>
+              <div className="min-w-0">
+                <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+                <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+                  {description}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="inline-flex w-fit items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm">
-            <Sparkles size={12} className={endpointReady && !disabled ? 'text-primary' : ''} />
-            {endpointReady && !disabled ? 'Live AI endpoint' : 'Дайындық режимі'}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">
+              <Sparkles size={12} className={endpointReady && !disabled ? 'text-primary' : ''} />
+              {endpointReady && !disabled ? 'AI дайын' : 'Дайындық режимі'}
+            </span>
+            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">
+              <MessageCircle size={12} />
+              {contextLabel}
+            </span>
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-5 p-4 sm:p-5">
-        <div className="grid gap-3 lg:grid-cols-2">
-          <SoftInfoRow
-            icon={<HelpCircle size={16} />}
-            label={contextLabel}
-            text={contextDescription}
-          />
-          <SoftInfoRow
-            icon={<CornerDownRight size={16} />}
-            label="Жауап шектеуі"
-            text="AI жауапты осы экрандағы snapshot пен сіздің сұрағыңызға сүйеніп береді; роль мен scope backend жағында қайта тексеріледі."
-          />
-        </div>
+      <CardContent className="p-0">
+        <form onSubmit={handleSubmit} className="flex min-h-[560px] flex-col">
+          <div className="border-b bg-background px-4 py-3 sm:px-5">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
+                {contextDescription}
+              </p>
 
-        <form onSubmit={handleSubmit} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-semibold text-muted-foreground">Жылдам action prompt</p>
-                <span className="text-[11px] text-muted-foreground">{suggestions.length} сценарий</span>
-              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Ctrl + Enter арқылы жіберуге болады
+              </p>
+            </div>
 
-              <div className="grid gap-2 sm:grid-cols-2">
+            {suggestions.length > 0 ? (
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                 {suggestions.map((suggestion) => {
                   const active = selectedSuggestion?.id === suggestion.id;
 
@@ -270,53 +298,168 @@ export default function AiPromptShell({
                       key={suggestion.id}
                       type="button"
                       onClick={() => handleSuggestionClick(suggestion)}
-                      className={`group rounded-2xl border p-3 text-left transition-all duration-200 ${
+                      className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition-all duration-200 ${
                         active
-                          ? 'border-primary/45 bg-primary/10 shadow-sm ring-1 ring-primary/20 scale-[1.01]'
-                          : 'bg-background/85 hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/5 hover:shadow-sm'
+                          ? 'border-primary/40 bg-primary text-primary-foreground shadow-sm'
+                          : 'bg-background text-muted-foreground hover:border-primary/30 hover:bg-primary/5 hover:text-foreground'
                       }`}
+                      title={suggestion.prompt}
                     >
-                      <div className="flex items-start gap-2">
-                        <span
-                          className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border transition-colors ${
-                            active
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'
-                          }`}
-                        >
-                          <Wand2 size={13} />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-sm font-semibold text-foreground">
-                            {suggestion.label}
-                          </span>
-                          <span className="mt-1 line-clamp-2 block text-[11px] leading-4 text-muted-foreground">
-                            {suggestion.prompt}
-                          </span>
-                        </span>
-                      </div>
+                      <Wand2 size={13} />
+                      {suggestion.label}
                     </button>
                   );
                 })}
               </div>
+            ) : null}
+          </div>
+
+          <div className="flex-1 space-y-4 overflow-y-auto bg-muted/10 px-4 py-5 sm:px-5">
+            <div className="flex items-start gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-primary">
+                <Bot size={15} />
+              </div>
+              <div className="max-w-3xl rounded-2xl border bg-background px-4 py-3 shadow-sm">
+                <p className="text-sm leading-6 text-foreground">
+                  Сұрағыңызды жазыңыз. Мен оқу context-ін ішкі талдап, тек сұрағыңызға қажет түсіндірме мен келесі қадамды ұсынамын.
+                </p>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  Барлық analytics көрсеткіштері жауапта тізілмейді. Олар тек бағытты нақтылау үшін қолданылады.
+                </p>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-xs font-semibold text-muted-foreground">
-                  Сұрағыңыз
-                </label>
-                <button
-                  type="button"
-                  onClick={clearPrompt}
-                  disabled={!hasPrompt || isSubmitting}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                >
-                  <Eraser size={12} />
-                  Тазалау
-                </button>
+            {lastPrompt ? (
+              <div className="flex items-start justify-end gap-3">
+                <div className="max-w-3xl rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm">
+                  <p className="text-sm leading-6">{lastPrompt}</p>
+                </div>
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-muted-foreground">
+                  <UserRound size={15} />
+                </div>
               </div>
+            ) : null}
 
+            {error ? (
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-destructive">
+                  <AlertTriangle size={15} />
+                </div>
+                <div className="max-w-3xl rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3">
+                  <p className="text-sm font-semibold text-destructive">
+                    AI жауабын алу мүмкін болмады
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{error}</p>
+                </div>
+              </div>
+            ) : null}
+
+            {isSubmitting ? (
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-primary">
+                  <Loader2 size={15} className="animate-spin" />
+                </div>
+                <div className="w-full max-w-3xl rounded-2xl border bg-background px-4 py-4 shadow-sm">
+                  <div className="space-y-3 animate-pulse">
+                    <div className="h-3 w-2/3 rounded-full bg-muted" />
+                    <div className="h-3 w-full rounded-full bg-muted" />
+                    <div className="h-3 w-5/6 rounded-full bg-muted" />
+                  </div>
+                </div>
+              </div>
+            ) : renderedAnswer ? (
+              <div className="flex items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-primary">
+                  <Bot size={15} />
+                </div>
+
+                <div className="group w-full max-w-4xl rounded-2xl border bg-background shadow-sm">
+                  <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{answerTitle}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        Сұраққа байланысты қорытылған жауап
+                      </p>
+                    </div>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleCopy}
+                      disabled={!answer}
+                      className="h-8 px-2 text-xs"
+                    >
+                      {copied ? <Check size={14} className="mr-1.5" /> : <Clipboard size={14} className="mr-1.5" />}
+                      {copied ? 'Көшірілді' : 'Көшіру'}
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2 px-4 py-4 animate-fade-in">{renderedAnswer}</div>
+
+                  {contextSummary || visibleWarnings.length > 0 || visibleFollowUps.length > 0 ? (
+                    <div className="space-y-3 border-t bg-muted/20 px-4 py-3">
+                      {contextSummary ? (
+                        <p className="text-[11px] leading-5 text-muted-foreground">
+                          {contextSummary}
+                        </p>
+                      ) : null}
+
+                      {visibleWarnings.length > 0 ? (
+                        <div className="space-y-1">
+                          {visibleWarnings.map((warning) => (
+                            <p key={warning} className="text-[11px] leading-5 text-muted-foreground">
+                              {warning}
+                            </p>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {visibleFollowUps.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {visibleFollowUps.map((followUp) => (
+                            <button
+                              key={followUp}
+                              type="button"
+                              onClick={() => void handleFollowUpClick(followUp)}
+                              disabled={effectiveDisabled || isSubmitting}
+                              className="inline-flex items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition hover:border-primary/30 hover:bg-primary/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                            >
+                              <Sparkles size={12} />
+                              {followUp}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <div className="flex min-h-[220px] items-center justify-center">
+                <div className="max-w-md rounded-3xl border border-dashed bg-background/80 px-6 py-7 text-center">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted/40 text-primary">
+                    <Sparkles size={18} />
+                  </div>
+                  <p className="mt-3 text-sm font-semibold text-foreground">
+                    AI диалог дайын
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    {emptyAnswerText}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t bg-background p-4 sm:p-5">
+            {effectiveDisabled ? (
+              <div className="mb-3 rounded-2xl border bg-muted/30 px-4 py-3">
+                <p className="text-xs leading-5 text-muted-foreground">{visibleDisabledReason}</p>
+              </div>
+            ) : null}
+
+            <div className="rounded-3xl border bg-background px-3 py-3 shadow-sm focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/10">
               <textarea
                 value={prompt}
                 onChange={(event) => {
@@ -327,101 +470,36 @@ export default function AiPromptShell({
                     setSelectedSuggestionId(null);
                   }
                 }}
+                onKeyDown={handleTextareaKeyDown}
                 placeholder={placeholder}
-                rows={6}
-                className="min-h-[150px] w-full resize-y rounded-2xl border border-input bg-background/90 px-4 py-3 text-sm leading-6 outline-none transition-colors placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/10"
+                rows={3}
+                className="min-h-[88px] w-full resize-none border-0 bg-transparent px-1 text-sm leading-6 outline-none placeholder:text-muted-foreground"
               />
-            </div>
 
-            {error ? (
-              <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-background text-destructive">
-                    <AlertTriangle size={16} />
-                  </div>
+              <div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+                <button
+                  type="button"
+                  onClick={clearPrompt}
+                  disabled={!hasPrompt || isSubmitting}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <Eraser size={13} />
+                  Тазалау
+                </button>
 
-                  <div>
-                    <p className="text-sm font-semibold text-destructive">
-                      AI жауабын алу мүмкін болмады
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      {error}
-                    </p>
-                  </div>
-                </div>
+                <Button
+                  type="submit"
+                  disabled={effectiveDisabled || isSubmitting || !hasPrompt}
+                  className="sm:min-w-[150px]"
+                >
+                  {isSubmitting ? (
+                    <Loader2 size={14} className="mr-2 animate-spin" />
+                  ) : (
+                    <Send size={14} className="mr-2" />
+                  )}
+                  {isSubmitting ? 'Жіберілуде...' : 'Жіберу'}
+                </Button>
               </div>
-            ) : null}
-
-            <div className="flex flex-col gap-3 rounded-2xl border bg-background/75 p-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs leading-5 text-muted-foreground">
-                {effectiveDisabled
-                  ? visibleDisabledReason
-                  : 'AI берілген snapshot пен сұрақ бойынша қысқа, нақты ұсыныс дайындайды.'}
-              </p>
-
-              <Button
-                type="submit"
-                disabled={effectiveDisabled || isSubmitting || !hasPrompt}
-                className="shrink-0"
-              >
-                {isSubmitting ? (
-                  <Loader2 size={14} className="mr-2 animate-spin" />
-                ) : (
-                  <Send size={14} className="mr-2" />
-                )}
-                {isSubmitting ? 'Талдау жүріп жатыр...' : 'AI ұсыныс алу'}
-              </Button>
-            </div>
-          </div>
-
-          <div className="min-w-0 rounded-2xl border bg-background/90 shadow-sm">
-            <div className="flex items-center justify-between gap-3 border-b p-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border bg-muted text-muted-foreground">
-                  {answer ? <Bot size={16} /> : <MessageCircle size={16} />}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{answerTitle}</p>
-                  {lastPrompt ? (
-                    <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
-                      Соңғы сұрақ: {lastPrompt}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={handleCopy}
-                disabled={!answer}
-              >
-                {copied ? <Check size={14} /> : <Clipboard size={14} />}
-                {copied ? 'Көшірілді' : 'Көшіру'}
-              </Button>
-            </div>
-
-            <div className="min-h-[280px] p-4">
-              {isSubmitting ? (
-                <div className="space-y-3 animate-pulse">
-                  <div className="h-3 w-2/3 rounded-full bg-muted" />
-                  <div className="h-3 w-full rounded-full bg-muted" />
-                  <div className="h-3 w-5/6 rounded-full bg-muted" />
-                  <div className="mt-5 h-20 rounded-2xl bg-muted" />
-                </div>
-              ) : renderedAnswer ? (
-                <div className="space-y-2 animate-fade-in">{renderedAnswer}</div>
-              ) : (
-                <div className="flex min-h-[230px] flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/30 p-5 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl border bg-background text-primary">
-                    <Sparkles size={18} />
-                  </div>
-                  <p className="mt-3 max-w-sm text-xs leading-5 text-muted-foreground">
-                    {emptyAnswerText}
-                  </p>
-                </div>
-              )}
             </div>
           </div>
         </form>

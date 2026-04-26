@@ -5,6 +5,11 @@ export type LearningAiMode =
 
 export type LearningAiRole = 'student' | 'teacher';
 
+export type LearningAiContextSource =
+  | 'student_learning_snapshot'
+  | 'course_learning_snapshot'
+  | 'teacher_student_learning_snapshot';
+
 export type LearningAiScope = {
   courseId?: string | null;
   studentId?: string | null;
@@ -18,15 +23,34 @@ export type LearningAiRequest = {
   scope?: LearningAiScope;
 };
 
+export type LearningAiUsedContext = {
+  source: LearningAiContextSource;
+  courseId?: string | null;
+  studentId?: string | null;
+
+  /**
+   * Optional frontend-friendly metadata.
+   * Backend may return these later without breaking current UI.
+   */
+  courseTitle?: string | null;
+  studentName?: string | null;
+  snapshotGeneratedAt?: string | null;
+};
+
 export type LearningAiResponse = {
   answer: string;
   generatedAt: string;
   mode: LearningAiMode;
-  usedContext: {
-    source: 'student_learning_snapshot' | 'course_learning_snapshot' | 'teacher_student_learning_snapshot';
-    courseId?: string | null;
-    studentId?: string | null;
-  };
+  usedContext: LearningAiUsedContext;
+
+  /**
+   * Optional fields for chat-first UI.
+   * Current backend does not have to return them.
+   */
+  contextSummary?: string | null;
+  confidence?: 'low' | 'medium' | 'high' | null;
+  warnings?: string[];
+  followUpPrompts?: string[];
 };
 
 export type LearningAiClientResult =

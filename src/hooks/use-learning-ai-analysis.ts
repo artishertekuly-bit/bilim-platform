@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
 import { useAuth } from '@/lib/auth-context';
@@ -19,6 +19,18 @@ type LearningAiAnalysisInput = Omit<
 
 type SubmitOverride = Partial<LearningAiAnalysisInput>;
 
+type MutationVariables = {
+  payload: AiPromptSubmitPayload;
+  override?: SubmitOverride;
+  requestId: number;
+  signal: AbortSignal;
+};
+
+type MutationSuccess = {
+  data: LearningAiResponse;
+  requestId: number;
+};
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   return 'AI сұранысын орындау кезінде белгісіз қате болды.';
@@ -31,16 +43,14 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
   const [lastResponse, setLastResponse] = useState<LearningAiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestCounterRef = useRef(0);
+  const activeRequestIdRef = useRef<number | null>(null);
+
   const isConfigured = useMemo(() => isLearningAiConfigured(), []);
 
-  const mutation = useMutation({
-    mutationFn: async ({
-      payload,
-      override,
-    }: {
-      payload: AiPromptSubmitPayload;
-      override?: SubmitOverride;
-    }) => {
+  const mutation = useMutation<MutationSuccess, Error, MutationVariables>({
+    mutationFn: async ({ payload, override, requestId, signal }) => {
       const request: LearningAiRequest = {
         ...defaultInput,
         ...override,
@@ -54,43 +64,93 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
 
       const result = await requestLearningAiAnalysis(request, {
         accessToken: session?.access_token || null,
+        signal,
       });
 
       if (!result.ok) {
         throw new Error(result.error);
       }
 
-      return result.data;
+      return {
+        data: result.data,
+        requestId,
+      };
     },
-    onMutate: () => {
+
+    onMutate: ({ requestId }) => {
+      if (activeRequestIdRef.current !== requestId) return;
+
+      setAnswer(null);
+      setLastResponse(null);
       setError(null);
     },
-    onSuccess: (data) => {
+
+    onSuccess: ({ data, requestId }) => {
+      if (activeRequestIdRef.current !== requestId) return;
+
       setAnswer(data.answer);
       setLastResponse(data);
       setError(null);
     },
-    onError: (caughtError) => {
+
+    onError: (caughtError, variables) => {
+      if (activeRequestIdRef.current !== variables.requestId) return;
+
+      setAnswer(null);
+      setLastResponse(null);
       setError(getErrorMessage(caughtError));
     },
   });
 
   const submit = useCallback(
     async (payload: AiPromptSubmitPayload, override?: SubmitOverride) => {
-      await mutation.mutateAsync({
-        payload,
-        override,
-      });
+      abortControllerRef.current?.abort();
+
+      const requestId = requestCounterRef.current + 1;
+      requestCounterRef.current = requestId;
+      activeRequestIdRef.current = requestId;
+
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
+      try {
+        await mutation.mutateAsync({
+          payload,
+          override,
+          requestId,
+          signal: abortController.signal,
+        });
+      } catch {
+        // Error state is handled inside onError.
+        // Do not rethrow, because AiPromptShell should not receive an unhandled promise rejection.
+      } finally {
+        if (activeRequestIdRef.current === requestId) {
+          abortControllerRef.current = null;
+        }
+      }
     },
     [mutation]
   );
 
   const reset = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    activeRequestIdRef.current = null;
+
     setAnswer(null);
     setLastResponse(null);
     setError(null);
+
     mutation.reset();
   }, [mutation]);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      activeRequestIdRef.current = null;
+    };
+  }, []);
 
   return {
     submit,
