@@ -2,27 +2,25 @@ import * as React from 'react';
 
 import { cn } from '@/lib/utils';
 
-const Card = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & {
-    interactive?: boolean;
-  }
->(({ className, interactive = false, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn(
-      [
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  interactive?: boolean;
+}
+
+const Card = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, interactive = false, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn(
         'rounded-3xl border border-border bg-card text-card-foreground shadow-soft',
         'transition-all duration-200 ease-soft',
-        interactive
-          ? 'hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md active:translate-y-0 active:scale-[0.995]'
-          : '',
-      ].join(' '),
-      className
-    )}
-    {...props}
-  />
-));
+        interactive &&
+          'hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md active:translate-y-0 active:scale-[0.995]',
+        className
+      )}
+      {...props}
+    />
+  )
+);
 Card.displayName = 'Card';
 
 const CardHeader = React.forwardRef<
@@ -68,7 +66,11 @@ const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn('p-5 pt-0 sm:p-6 sm:pt-0', className)} {...props} />
+  <div
+    ref={ref}
+    className={cn('p-5 pt-0 sm:p-6 sm:pt-0', className)}
+    {...props}
+  />
 ));
 CardContent.displayName = 'CardContent';
 
@@ -79,7 +81,7 @@ const CardFooter = React.forwardRef<
   <div
     ref={ref}
     className={cn(
-      'flex items-center gap-3 border-t border-border/70 p-5 sm:p-6',
+      'flex flex-col gap-3 border-t border-border/70 p-5 sm:flex-row sm:items-center sm:p-6',
       className
     )}
     {...props}

@@ -1,18 +1,16 @@
 import { BookOpen } from 'lucide-react';
 
+import { cn } from '@/lib/utils';
+
 type SkeletonProps = {
   className?: string;
 };
 
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(' ');
-}
-
 export function SkeletonBlock({ className }: SkeletonProps) {
   return (
     <div
-      className={cx(
-        'animate-pulse rounded-md bg-muted',
+      className={cn(
+        'animate-pulse rounded-2xl bg-muted shadow-inner-soft',
         className
       )}
     />
@@ -21,20 +19,25 @@ export function SkeletonBlock({ className }: SkeletonProps) {
 
 export function PageHeaderSkeleton() {
   return (
-    <div className="space-y-4">
-      <SkeletonBlock className="h-7 w-40 rounded-full" />
+    <div className="relative overflow-hidden rounded-3xl border border-border bg-card p-5 shadow-soft">
+      <div className="pointer-events-none absolute -left-20 -top-20 h-44 w-44 rounded-full bg-primary-soft blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 top-0 h-44 w-44 rounded-full bg-secondary-soft blur-3xl" />
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="flex gap-3">
-          <SkeletonBlock className="h-10 w-10 rounded-xl" />
+      <div className="relative space-y-4">
+        <SkeletonBlock className="h-7 w-40 rounded-full" />
 
-          <div className="space-y-2">
-            <SkeletonBlock className="h-7 w-56" />
-            <SkeletonBlock className="h-4 w-80 max-w-full" />
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="flex gap-3">
+            <SkeletonBlock className="h-11 w-11 rounded-2xl" />
+
+            <div className="space-y-2">
+              <SkeletonBlock className="h-7 w-56" />
+              <SkeletonBlock className="h-4 w-80 max-w-full" />
+            </div>
           </div>
-        </div>
 
-        <SkeletonBlock className="h-10 w-32" />
+          <SkeletonBlock className="h-10 w-32 rounded-2xl" />
+        </div>
       </div>
     </div>
   );
@@ -42,9 +45,9 @@ export function PageHeaderSkeleton() {
 
 export function StatCardSkeleton() {
   return (
-    <div className="rounded-xl border bg-card p-5">
+    <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
       <div className="flex items-center gap-3">
-        <SkeletonBlock className="h-10 w-10 rounded-xl" />
+        <SkeletonBlock className="h-11 w-11 rounded-2xl" />
 
         <div className="space-y-2">
           <SkeletonBlock className="h-3 w-20" />
@@ -67,10 +70,10 @@ export function StatsGridSkeleton({ count = 4 }: { count?: number }) {
 
 export function FilterPanelSkeleton() {
   return (
-    <div className="rounded-xl border bg-card p-5">
+    <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <SkeletonBlock className="h-10 w-full lg:max-w-md" />
-        <SkeletonBlock className="h-9 w-36" />
+        <SkeletonBlock className="h-11 w-full rounded-2xl lg:max-w-md" />
+        <SkeletonBlock className="h-9 w-36 rounded-2xl" />
       </div>
 
       <div className="mt-4 flex gap-2 overflow-hidden">
@@ -87,9 +90,9 @@ export function FilterPanelSkeleton() {
 
 export function CourseCardSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
-      <div className="relative flex h-28 items-center justify-center border-b bg-accent">
-        <BookOpen size={28} className="text-muted-foreground/20" />
+    <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft">
+      <div className="relative flex h-28 items-center justify-center border-b border-border bg-surface-soft/70">
+        <BookOpen size={28} className="text-muted-foreground/25" />
         <SkeletonBlock className="absolute left-3 top-3 h-6 w-16 rounded-full" />
         <SkeletonBlock className="absolute right-3 top-3 h-8 w-8 rounded-full" />
       </div>
@@ -108,9 +111,9 @@ export function CourseCardSkeleton() {
           <SkeletonBlock className="h-3 w-14" />
         </div>
 
-        <div className="rounded-lg border p-3">
+        <div className="rounded-3xl border border-border bg-surface-soft/55 p-3">
           <div className="flex items-center gap-2">
-            <SkeletonBlock className="h-8 w-8 rounded-full" />
+            <SkeletonBlock className="h-8 w-8 rounded-2xl" />
             <div className="space-y-1">
               <SkeletonBlock className="h-3 w-24" />
               <SkeletonBlock className="h-3 w-16" />
@@ -118,7 +121,7 @@ export function CourseCardSkeleton() {
           </div>
         </div>
 
-        <SkeletonBlock className="h-8 w-full" />
+        <SkeletonBlock className="h-9 w-full rounded-2xl" />
       </div>
     </div>
   );
@@ -136,7 +139,7 @@ export function CourseGridSkeleton({ count = 8 }: { count?: number }) {
 
 export function SavedLessonCardSkeleton() {
   return (
-    <div className="rounded-xl border bg-card p-4">
+    <div className="rounded-3xl border border-border bg-card p-4 shadow-soft">
       <div className="space-y-3">
         <div className="flex flex-wrap gap-2">
           <SkeletonBlock className="h-6 w-20 rounded-full" />
@@ -149,14 +152,14 @@ export function SavedLessonCardSkeleton() {
         </div>
 
         <div className="grid gap-2 sm:grid-cols-3">
-          <SkeletonBlock className="h-10 w-full" />
-          <SkeletonBlock className="h-10 w-full" />
-          <SkeletonBlock className="h-10 w-full" />
+          <SkeletonBlock className="h-10 w-full rounded-2xl" />
+          <SkeletonBlock className="h-10 w-full rounded-2xl" />
+          <SkeletonBlock className="h-10 w-full rounded-2xl" />
         </div>
 
         <div className="flex justify-end gap-2">
-          <SkeletonBlock className="h-9 w-32" />
-          <SkeletonBlock className="h-9 w-28" />
+          <SkeletonBlock className="h-9 w-32 rounded-2xl" />
+          <SkeletonBlock className="h-9 w-28 rounded-2xl" />
         </div>
       </div>
     </div>
@@ -180,10 +183,10 @@ export function TimelineLessonSkeleton({ isLast = false }: { isLast?: boolean })
         <div className="absolute left-[18px] top-9 h-full w-px bg-border" />
       ) : null}
 
-      <SkeletonBlock className="relative z-10 h-9 w-9 shrink-0 rounded-full" />
+      <SkeletonBlock className="relative z-10 h-9 w-9 shrink-0 rounded-2xl" />
 
       <div className="min-w-0 flex-1 pb-5">
-        <div className="rounded-xl border bg-card p-4">
+        <div className="rounded-3xl border border-border bg-card p-4 shadow-soft">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="space-y-2">
               <div className="flex gap-2">
@@ -194,7 +197,7 @@ export function TimelineLessonSkeleton({ isLast = false }: { isLast?: boolean })
               <SkeletonBlock className="h-3 w-32" />
             </div>
 
-            <SkeletonBlock className="h-9 w-28" />
+            <SkeletonBlock className="h-9 w-28 rounded-2xl" />
           </div>
         </div>
       </div>
@@ -204,8 +207,8 @@ export function TimelineLessonSkeleton({ isLast = false }: { isLast?: boolean })
 
 export function ModuleTimelineSkeleton() {
   return (
-    <div className="rounded-xl border bg-card">
-      <div className="border-b p-5">
+    <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft">
+      <div className="border-b border-border bg-card/80 p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
             <SkeletonBlock className="h-5 w-44" />
@@ -233,9 +236,9 @@ export function CourseTimelineSkeleton() {
     <div className="space-y-6">
       <StatsGridSkeleton count={4} />
 
-      <div className="rounded-xl border bg-card p-5">
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <SkeletonBlock className="h-4 w-40" />
             <SkeletonBlock className="h-4 w-12" />
           </div>

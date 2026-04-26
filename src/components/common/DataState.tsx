@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
-import { AlertTriangle, Inbox, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Inbox, Loader2 } from 'lucide-react';
+
+import { cn } from '@/lib/utils';
 
 type Align = 'left' | 'center';
-type StateTone = 'default' | 'warning' | 'danger' | 'ai';
+type StateTone = 'default' | 'success' | 'warning' | 'danger' | 'ai';
 type StateSize = 'sm' | 'md';
 
 type BaseStateProps = {
@@ -18,33 +20,51 @@ type BaseStateProps = {
   size?: StateSize;
 };
 
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(' ');
-}
-
 function getToneClasses(tone: StateTone) {
   const map: Record<
     StateTone,
     {
       card: string;
       icon: string;
+      glow: string;
+      badge: string;
+      badgeLabel: string;
     }
   > = {
     default: {
       card: 'border-border bg-card text-card-foreground shadow-soft',
       icon: 'border-border bg-muted text-muted-foreground',
+      glow: 'bg-surface-soft/70',
+      badge: 'border-border bg-muted text-muted-foreground',
+      badgeLabel: '',
+    },
+    success: {
+      card: 'border-success-muted bg-success-soft/70 text-success-foreground shadow-soft',
+      icon: 'border-success-muted bg-card/80 text-success-foreground',
+      glow: 'bg-success-muted/30',
+      badge: 'border-success-muted bg-success-soft text-success-foreground',
+      badgeLabel: 'Дайын',
     },
     warning: {
-      card: 'border-warning-muted bg-warning-soft text-warning-foreground shadow-soft',
-      icon: 'border-warning-muted bg-card/75 text-warning-foreground',
+      card: 'border-warning-muted bg-warning-soft/70 text-warning-foreground shadow-soft',
+      icon: 'border-warning-muted bg-card/80 text-warning-foreground',
+      glow: 'bg-warning-muted/30',
+      badge: 'border-warning-muted bg-warning-soft text-warning-foreground',
+      badgeLabel: 'Ескерту',
     },
     danger: {
-      card: 'border-destructive-muted bg-destructive-soft text-destructive shadow-soft',
-      icon: 'border-destructive-muted bg-card/75 text-destructive',
+      card: 'border-destructive-muted bg-destructive-soft/70 text-destructive shadow-soft',
+      icon: 'border-destructive-muted bg-card/80 text-destructive',
+      glow: 'bg-destructive-muted/30',
+      badge: 'border-destructive-muted bg-destructive-soft text-destructive',
+      badgeLabel: 'Қате',
     },
     ai: {
-      card: 'border-ai-border bg-ai-soft text-ai-foreground shadow-soft',
-      icon: 'border-ai-border bg-card/75 text-primary',
+      card: 'border-ai-border bg-ai-soft/80 text-ai-foreground shadow-soft',
+      icon: 'border-ai-border bg-card/80 text-primary',
+      glow: 'bg-primary-soft/70',
+      badge: 'border-ai-border bg-ai-soft text-primary',
+      badgeLabel: 'AI',
     },
   };
 
@@ -64,10 +84,12 @@ function StateCard({
   role,
   compact = false,
   size = 'md',
+  ariaBusy,
 }: BaseStateProps & {
   icon: ReactNode;
   tone?: StateTone;
   role?: 'status' | 'alert';
+  ariaBusy?: boolean;
 }) {
   const isCentered = align === 'center';
   const isSmall = size === 'sm' || compact;
@@ -76,7 +98,9 @@ function StateCard({
   return (
     <div
       role={role}
-      className={cx(
+      aria-live={role === 'alert' ? 'assertive' : role === 'status' ? 'polite' : undefined}
+      aria-busy={ariaBusy}
+      className={cn(
         'relative overflow-hidden rounded-3xl border transition-all duration-200 ease-soft',
         isSmall ? 'p-4' : 'p-5 sm:p-6',
         toneClasses.card,
@@ -84,24 +108,25 @@ function StateCard({
       )}
     >
       <div
-        className={cx(
-          'pointer-events-none absolute inset-0 opacity-60',
-          tone === 'ai' && 'bg-[radial-gradient(circle_at_20%_0%,hsl(var(--primary-soft)/0.8),transparent_34%),radial-gradient(circle_at_100%_15%,hsl(var(--secondary-soft)/0.65),transparent_32%)]',
-          tone === 'default' && 'bg-[radial-gradient(circle_at_100%_0%,hsl(var(--surface-soft)/0.72),transparent_30%)]',
-          tone === 'warning' && 'bg-[radial-gradient(circle_at_100%_0%,hsl(var(--accent-muted)/0.45),transparent_30%)]',
-          tone === 'danger' && 'bg-[radial-gradient(circle_at_100%_0%,hsl(var(--destructive-muted)/0.40),transparent_30%)]'
+        className={cn(
+          'pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-3xl',
+          toneClasses.glow
         )}
       />
 
+      {tone === 'ai' ? (
+        <div className="pointer-events-none absolute -bottom-12 left-8 h-28 w-28 rounded-full bg-secondary-soft/60 blur-3xl" />
+      ) : null}
+
       <div
-        className={cx(
+        className={cn(
           'relative flex gap-4',
           isCentered && 'flex-col items-center text-center',
           isSmall && 'gap-3'
         )}
       >
         <div
-          className={cx(
+          className={cn(
             'flex shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
             isSmall ? 'h-10 w-10' : 'h-11 w-11',
             toneClasses.icon
@@ -110,16 +135,39 @@ function StateCard({
           {icon}
         </div>
 
-        <div className={cx('min-w-0 flex-1', isCentered && 'flex flex-col items-center')}>
+        <div className={cn('min-w-0 flex-1', isCentered && 'flex flex-col items-center')}>
           {title ? (
-            <p className={cx('font-semibold text-foreground', isSmall ? 'text-sm' : 'text-base')}>
-              {title}
-            </p>
+            <div
+              className={cn(
+                'flex flex-wrap items-center gap-2',
+                isCentered && 'justify-center'
+              )}
+            >
+              <p
+                className={cn(
+                  'font-semibold text-foreground',
+                  isSmall ? 'text-sm' : 'text-base'
+                )}
+              >
+                {title}
+              </p>
+
+              {tone !== 'default' ? (
+                <span
+                  className={cn(
+                    'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+                    toneClasses.badge
+                  )}
+                >
+                  {toneClasses.badgeLabel}
+                </span>
+              ) : null}
+            </div>
           ) : null}
 
           {text ? (
             <p
-              className={cx(
+              className={cn(
                 'mt-1 text-muted-foreground',
                 isSmall ? 'text-xs leading-5' : 'max-w-2xl text-sm leading-6'
               )}
@@ -129,14 +177,14 @@ function StateCard({
           ) : null}
 
           {hint ? (
-            <p className="mt-3 max-w-2xl text-xs leading-5 text-muted-foreground">
+            <p className="mt-3 max-w-2xl rounded-2xl border border-border bg-card/65 px-3 py-2 text-xs leading-5 text-muted-foreground">
               {hint}
             </p>
           ) : null}
 
           {action || secondaryAction ? (
             <div
-              className={cx(
+              className={cn(
                 'mt-4 flex flex-wrap gap-2',
                 isCentered ? 'justify-center' : 'justify-start'
               )}
@@ -173,6 +221,7 @@ export function LoadingState({
   return (
     <StateCard
       role="status"
+      ariaBusy
       tone="default"
       align={align}
       className={className}
@@ -260,8 +309,8 @@ export function EmptyState({
     <StateCard
       tone={tone}
       align={align}
-      className={cx('border-dashed', className)}
-      icon={icon || <Inbox size={18} />}
+      className={cn('border-dashed', className)}
+      icon={icon || (tone === 'success' ? <CheckCircle2 size={18} /> : <Inbox size={18} />)}
       title={title}
       text={text}
       hint={hint}

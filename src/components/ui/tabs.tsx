@@ -13,9 +13,10 @@ const TabsList = React.forwardRef<
     ref={ref}
     className={cn(
       [
-        'inline-flex min-h-11 items-center justify-center gap-1 rounded-2xl border border-border',
+        'inline-flex min-h-11 max-w-full items-center justify-start gap-1 overflow-x-auto rounded-2xl border border-border',
         'bg-muted/70 p-1 text-muted-foreground shadow-inner-soft',
         'backdrop-blur-sm',
+        '[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
       ].join(' '),
       className
     )}
@@ -33,7 +34,7 @@ const TabsTrigger = React.forwardRef<
     ref={ref}
     className={cn(
       [
-        'inline-flex items-center justify-center whitespace-nowrap rounded-xl px-3.5 py-2',
+        'inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3.5 py-2',
         'text-sm font-medium transition-all duration-200 ease-soft',
         'ring-offset-background',
         'hover:-translate-y-0.5 hover:bg-card hover:text-foreground hover:shadow-soft',
@@ -41,7 +42,8 @@ const TabsTrigger = React.forwardRef<
         'data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-soft',
         'data-[state=active]:ring-1 data-[state=active]:ring-primary-muted',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-2',
-        'disabled:pointer-events-none disabled:opacity-50',
+        'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+        '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
       ].join(' '),
       className
     )}

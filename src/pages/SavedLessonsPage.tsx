@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -77,7 +77,8 @@ function getLessonStatus(lesson: SavedLessonView): SavedLessonFilter {
 function SavedLessonStatus({ lesson }: { lesson: SavedLessonView }) {
   if (lesson.isLocked) {
     return (
-      <StatusBadge tone="muted" icon={<Lock size={12} />}>
+      <StatusBadge tone="muted">
+        <Lock size={12} />
         Құлыпталған
       </StatusBadge>
     );
@@ -85,38 +86,54 @@ function SavedLessonStatus({ lesson }: { lesson: SavedLessonView }) {
 
   if (lesson.isCompleted) {
     return (
-      <StatusBadge tone="success" icon={<CheckCircle2 size={12} />}>
+      <StatusBadge tone="success">
+        <CheckCircle2 size={12} />
         Аяқталған
       </StatusBadge>
     );
   }
 
   return (
-    <StatusBadge tone="warning" icon={<Clock size={12} />}>
+    <StatusBadge tone="warning">
+      <Clock size={12} />
       Қайталау керек
     </StatusBadge>
   );
 }
 
-function StatCard({
+function SavedStatCard({
   label,
   value,
   icon: Icon,
+  tone = 'primary',
 }: {
   label: string;
   value: string | number;
   icon: LucideIcon;
+  tone?: 'primary' | 'secondary' | 'success' | 'warning' | 'muted';
 }) {
+  const toneClassName = {
+    primary: 'border-primary-muted bg-primary-soft text-primary',
+    secondary: 'border-secondary-muted bg-secondary-soft text-secondary-foreground',
+    success: 'border-success-muted bg-success-soft text-success-foreground',
+    warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
+    muted: 'border-border bg-muted text-muted-foreground',
+  }[tone];
+
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="flex items-center gap-3 pt-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+    <Card interactive className="overflow-hidden">
+      <CardContent className="flex items-center gap-3 p-4 sm:p-5">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+        >
           <Icon size={18} />
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-2xl font-semibold">{value}</p>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
+            {value}
+          </p>
         </div>
       </CardContent>
     </Card>
@@ -133,26 +150,33 @@ function ModeTab({
   active: boolean;
   title: string;
   text: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl border p-4 text-left transition-all ${
+      aria-pressed={active}
+      className={`rounded-3xl border p-4 text-left shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99] ${
         active
-          ? 'border-primary bg-primary/5 shadow-sm'
-          : 'border-border hover:bg-accent'
+          ? 'border-primary-muted bg-primary-soft'
+          : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/55'
       }`}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-background text-primary">
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${
+            active
+              ? 'border-primary-muted bg-card text-primary'
+              : 'border-border bg-surface-soft text-muted-foreground'
+          }`}
+        >
           {icon}
         </div>
 
         <div className="min-w-0">
-          <p className="text-sm font-semibold">{title}</p>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
         </div>
       </div>
@@ -166,21 +190,41 @@ function SubjectChip({
   onClick,
 }: {
   active: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+      aria-pressed={active}
+      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] ${
         active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border hover:bg-accent'
+          ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
+          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
       }`}
     >
       {children}
     </button>
+  );
+}
+
+function SavedLessonMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
+      <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="mt-0.5 block truncate text-sm font-semibold text-foreground">
+        {value}
+      </span>
+    </div>
   );
 }
 
@@ -195,15 +239,17 @@ function SavedLessonCard({
 }) {
   return (
     <Card
-      className={`overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-sm ${
-        lesson.isLocked ? 'bg-muted/30 opacity-85' : ''
+      interactive={!lesson.isLocked}
+      className={`overflow-hidden ${
+        lesson.isLocked ? 'bg-muted/35 opacity-85' : 'bg-card'
       }`}
     >
-      <CardHeader className="pb-3">
+      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
             <div className="mb-2 flex flex-wrap items-center gap-2">
-              <StatusBadge tone="info" icon={<BookOpen size={12} />}>
+              <StatusBadge tone="primary">
+                <BookOpen size={12} />
                 {lesson.subjectName}
               </StatusBadge>
 
@@ -214,37 +260,30 @@ function SavedLessonCard({
               {lesson.lessonTitle}
             </CardTitle>
 
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {[lesson.courseTitle, lesson.moduleTitle].filter(Boolean).join(' · ')}
             </p>
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 p-4 sm:p-5">
         <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-          <div className="rounded-lg border bg-muted/20 p-3">
-            <span className="block text-[11px] uppercase tracking-wide">Пән</span>
-            <span className="mt-0.5 block text-foreground">{lesson.subjectName}</span>
-          </div>
+          <SavedLessonMetric label="Пән" value={lesson.subjectName} />
 
-          <div className="rounded-lg border bg-muted/20 p-3">
-            <span className="block text-[11px] uppercase tracking-wide">Сабақ реті</span>
-            <span className="mt-0.5 block text-foreground">
-              №{lesson.sortOrder || 1}
-            </span>
-          </div>
+          <SavedLessonMetric
+            label="Сабақ реті"
+            value={`№${lesson.sortOrder || 1}`}
+          />
 
-          <div className="rounded-lg border bg-muted/20 p-3">
-            <span className="block text-[11px] uppercase tracking-wide">Сақталған күні</span>
-            <span className="mt-0.5 block text-foreground">
-              {formatDate(lesson.createdAt)}
-            </span>
-          </div>
+          <SavedLessonMetric
+            label="Сақталған күні"
+            value={formatDate(lesson.createdAt)}
+          />
         </div>
 
         {lesson.isLocked ? (
-          <div className="rounded-lg border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
+          <div className="rounded-3xl border border-border bg-muted/55 p-4 text-xs leading-5 text-muted-foreground">
             Бұл сабақ қазір жабық. Курс шарты орындалғаннан кейін ашылады.
           </div>
         ) : null}
@@ -353,7 +392,10 @@ export default function SavedLessonsPage() {
   }, [activeSubject, filter, mode, savedLessons, search]);
 
   const hasActiveFilters =
-    search.trim() || filter !== 'all' || activeSubject !== 'all' || mode !== 'saved';
+    Boolean(search.trim()) ||
+    filter !== 'all' ||
+    activeSubject !== 'all' ||
+    mode !== 'saved';
 
   const handleRemove = async (lesson: SavedLessonView) => {
     if (!user?.id) {
@@ -449,11 +491,36 @@ export default function SavedLessonsPage() {
         {!isLoading && !error ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <StatCard label="Барлығы" value={stats.total} icon={Bookmark} />
-              <StatCard label="Қайталау" value={stats.active} icon={Clock} />
-              <StatCard label="Аяқталған" value={stats.completed} icon={CheckCircle2} />
-              <StatCard label="Құлыпталған" value={stats.locked} icon={Lock} />
-              <StatCard label="Пән саны" value={stats.subjects} icon={GraduationCap} />
+              <SavedStatCard
+                label="Барлығы"
+                value={stats.total}
+                icon={Bookmark}
+                tone="primary"
+              />
+              <SavedStatCard
+                label="Қайталау"
+                value={stats.active}
+                icon={Clock}
+                tone="warning"
+              />
+              <SavedStatCard
+                label="Аяқталған"
+                value={stats.completed}
+                icon={CheckCircle2}
+                tone="success"
+              />
+              <SavedStatCard
+                label="Құлыпталған"
+                value={stats.locked}
+                icon={Lock}
+                tone="muted"
+              />
+              <SavedStatCard
+                label="Пән саны"
+                value={stats.subjects}
+                icon={GraduationCap}
+                tone="secondary"
+              />
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
@@ -473,19 +540,19 @@ export default function SavedLessonsPage() {
               />
             </div>
 
-            <Card>
-              <CardContent className="space-y-4 pt-5">
+            <Card className="overflow-hidden">
+              <CardContent className="space-y-4 p-4 sm:p-5">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="relative w-full lg:max-w-md">
                     <Search
                       size={16}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
                     />
                     <Input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder="Сабақ, курс, модуль немесе пән бойынша іздеу..."
-                      className="pl-9"
+                      className="pl-10"
                     />
                   </div>
 
@@ -518,16 +585,18 @@ export default function SavedLessonsPage() {
                   </div>
                 </div>
 
-                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-                  {subjects.map((subject) => (
-                    <SubjectChip
-                      key={subject}
-                      active={activeSubject === subject}
-                      onClick={() => setActiveSubject(subject)}
-                    >
-                      {subject === 'all' ? 'Барлық пән' : subject}
-                    </SubjectChip>
-                  ))}
+                <div className="rounded-3xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
+                  <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {subjects.map((subject) => (
+                      <SubjectChip
+                        key={subject}
+                        active={activeSubject === subject}
+                        onClick={() => setActiveSubject(subject)}
+                      >
+                        {subject === 'all' ? 'Барлық пән' : subject}
+                      </SubjectChip>
+                    ))}
+                  </div>
                 </div>
 
                 {savedLessons.length === 0 ? (

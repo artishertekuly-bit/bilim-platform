@@ -1,4 +1,4 @@
-import { Suspense, lazy, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   BrowserRouter,
@@ -91,45 +91,75 @@ type AppRouteConfig = {
 
 function AppLoadingScreen() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-soft animate-fade-in">
-        <LoadingState text={t('page.app.loading')} />
+    <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="w-full max-w-md animate-fade-in">
+        <LoadingState
+          align="center"
+          title="Bilimcorp жүктелуде"
+          text={t('page.app.loading')}
+        />
       </div>
     </div>
   );
 }
 
+function getSessionProviders(session: Session | null) {
+  const authUser = session?.user;
+  const providers = new Set<string>();
+
+  if (!authUser) {
+    return providers;
+  }
+
+  const metadataProviders = authUser.app_metadata?.providers;
+
+  if (Array.isArray(metadataProviders)) {
+    metadataProviders.forEach((provider) => {
+      if (typeof provider === 'string') {
+        providers.add(provider);
+      }
+    });
+  }
+
+  (authUser.identities || []).forEach((identity) => {
+    if (identity.provider) {
+      providers.add(identity.provider);
+    }
+  });
+
+  return providers;
+}
+
 function hasPasswordIdentity(session: Session | null) {
   const authUser = session?.user;
 
-  if (!authUser) return false;
+  if (!authUser) {
+    return false;
+  }
 
   if (authUser.user_metadata?.password_setup_completed === true) {
     return true;
   }
 
-  const providers = authUser.app_metadata?.providers;
-  const identities = authUser.identities || [];
-
-  return (
-    (Array.isArray(providers) && providers.includes('email')) ||
-    identities.some((identity) => identity.provider === 'email')
-  );
+  return getSessionProviders(session).has('email');
 }
 
 function needsPasswordSetup(session: Session | null) {
   const authUser = session?.user;
 
-  if (!authUser) return false;
-  if (hasPasswordIdentity(session)) return false;
+  if (!authUser) {
+    return false;
+  }
 
-  const providers = authUser.app_metadata?.providers;
-  const identities = authUser.identities || [];
+  if (hasPasswordIdentity(session)) {
+    return false;
+  }
 
-  return (
-    (Array.isArray(providers) && providers.includes('google')) ||
-    identities.some((identity) => identity.provider === 'google')
-  );
+  return getSessionProviders(session).has('google');
+}
+
+function buildSetupPasswordRedirect(next = '/dashboard') {
+  return `/setup-password?next=${encodeURIComponent(next || '/dashboard')}`;
 }
 
 function RootEntryPage() {
@@ -141,7 +171,7 @@ function RootEntryPage() {
 
   if (session && user) {
     if (needsPasswordSetup(session)) {
-      return <Navigate to="/setup-password?next=/dashboard" replace />;
+      return <Navigate to={buildSetupPasswordRedirect('/dashboard')} replace />;
     }
 
     return <Navigate to="/dashboard" replace />;
@@ -159,7 +189,7 @@ function PublicAuthPage({ children }: { children: ReactNode }) {
 
   if (session && user) {
     if (needsPasswordSetup(session)) {
-      return <Navigate to="/setup-password?next=/dashboard" replace />;
+      return <Navigate to={buildSetupPasswordRedirect('/dashboard')} replace />;
     }
 
     return <Navigate to="/dashboard" replace />;
@@ -177,17 +207,26 @@ function PasswordSetupGate({ children }: { children: ReactNode }) {
   }
 
   if (needsPasswordSetup(session) && location.pathname !== '/setup-password') {
-    const next = `${location.pathname}${location.search}`;
+    const next = `${location.pathname}${location.search}` || '/dashboard';
 
-    return (
-      <Navigate
-        to={`/setup-password?next=${encodeURIComponent(next || '/dashboard')}`}
-        replace
-      />
-    );
+    return <Navigate to={buildSetupPasswordRedirect(next)} replace />;
   }
 
   return <>{children}</>;
+}
+
+function RouterScrollReset() {
+  const { pathname } = useLocation();
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
+  return null;
 }
 
 const publicRoutes: AppRouteConfig[] = [
@@ -274,18 +313,42 @@ const studentRoutes: AppRouteConfig[] = [
   { path: '/ai-practice', element: <AiPracticePage />, allowedRoles: ['student'] },
   { path: '/ai-tutor', element: <AiTutorPage />, allowedRoles: ['student'] },
   { path: '/ai-tracker', element: <AiTrackerPage />, allowedRoles: ['student'] },
-  { path: '/ai-exam/:examId', element: <AiExamSessionPage />, allowedRoles: ['student'] },
-  { path: '/ai-exams-open', element: <AiStudentExamsPage />, allowedRoles: ['student'] },
+  {
+    path: '/ai-exam/:examId',
+    element: <AiExamSessionPage />,
+    allowedRoles: ['student'],
+  },
+  {
+    path: '/ai-exams-open',
+    element: <AiStudentExamsPage />,
+    allowedRoles: ['student'],
+  },
 ];
 
 const teacherRoutes: AppRouteConfig[] = [
   { path: '/my-courses', element: <CourseCatalogPage />, allowedRoles: ['teacher'] },
-  { path: '/create-course', element: <TeacherCreateCoursePage />, allowedRoles: ['teacher'] },
-  { path: '/create-test', element: <TeacherCreateTestPage />, allowedRoles: ['teacher'] },
+  {
+    path: '/create-course',
+    element: <TeacherCreateCoursePage />,
+    allowedRoles: ['teacher'],
+  },
+  {
+    path: '/create-test',
+    element: <TeacherCreateTestPage />,
+    allowedRoles: ['teacher'],
+  },
   { path: '/students', element: <TeacherStudentsPage />, allowedRoles: ['teacher'] },
-  { path: '/ai-question-builder', element: <AiQuestionBuilderPage />, allowedRoles: ['teacher'] },
+  {
+    path: '/ai-question-builder',
+    element: <AiQuestionBuilderPage />,
+    allowedRoles: ['teacher'],
+  },
   { path: '/ai-exams', element: <AiExamsPage />, allowedRoles: ['teacher'] },
-  { path: '/ai-assistant', element: <AiAssistantPage />, allowedRoles: ['teacher'] },
+  {
+    path: '/ai-assistant',
+    element: <AiAssistantPage />,
+    allowedRoles: ['teacher'],
+  },
 ];
 
 const parentRoutes: AppRouteConfig[] = parentChildPaths.map((path) => ({
@@ -297,7 +360,11 @@ const parentRoutes: AppRouteConfig[] = parentChildPaths.map((path) => ({
 const adminRoutes: AppRouteConfig[] = [
   { path: '/subjects', element: <AdminSubjectsPage />, allowedRoles: ['admin'] },
   { path: '/manage-lessons', element: <LessonsPage />, allowedRoles: ['admin'] },
-  { path: '/manage-courses', element: <CourseCatalogPage />, allowedRoles: ['admin'] },
+  {
+    path: '/manage-courses',
+    element: <CourseCatalogPage />,
+    allowedRoles: ['admin'],
+  },
   { path: '/moderation', element: <AdminModerationPage />, allowedRoles: ['admin'] },
   { path: '/manage-tests', element: <AdminModerationPage />, allowedRoles: ['admin'] },
   { path: '/cms', element: <AdminCmsPage />, allowedRoles: ['admin'] },
@@ -363,11 +430,12 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <Toaster />
-          <Sonner />
+        <BrowserRouter>
+          <AuthProvider>
+            <Toaster />
+            <Sonner />
+            <RouterScrollReset />
 
-          <BrowserRouter>
             <Suspense fallback={<AppLoadingScreen />}>
               <Routes>
                 {renderRoutes(publicRoutes)}
@@ -375,8 +443,8 @@ export default function App() {
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
-          </BrowserRouter>
-        </AuthProvider>
+          </AuthProvider>
+        </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>
   );

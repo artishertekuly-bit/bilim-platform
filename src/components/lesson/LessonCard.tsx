@@ -10,6 +10,7 @@ import StatusBadge, { LessonStatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button';
 import type { LessonView } from '@/lib/app-data-types';
 import t from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 type LessonCardProps = {
   lesson: LessonView;
@@ -27,14 +28,26 @@ function getLessonStatus(lesson: LessonView) {
 
 function getLessonIcon(lesson: LessonView) {
   if (lesson.isCompleted) {
-    return <CheckCircle2 size={18} className="text-emerald-600" />;
+    return <CheckCircle2 size={18} />;
   }
 
   if (lesson.isLocked) {
-    return <Lock size={18} className="text-muted-foreground" />;
+    return <Lock size={18} />;
   }
 
-  return <PlayCircle size={18} className="text-primary" />;
+  return <PlayCircle size={18} />;
+}
+
+function getIconToneClassName(lesson: LessonView) {
+  if (lesson.isCompleted) {
+    return 'border-success-muted bg-success-soft text-success-foreground';
+  }
+
+  if (lesson.isLocked) {
+    return 'border-border bg-muted text-muted-foreground';
+  }
+
+  return 'border-primary-muted bg-primary-soft text-primary';
 }
 
 export default function LessonCard({
@@ -48,40 +61,48 @@ export default function LessonCard({
   const canOpen = !lesson.isLocked;
   const canComplete = isStudent && !lesson.isCompleted && !lesson.isLocked;
 
+  const handleOpen = () => {
+    if (!canOpen) return;
+    onOpen?.(lesson);
+  };
+
   return (
     <div
-      className={`
-        group rounded-xl border bg-card p-4 transition-all
-        ${
+      className={cn(
+        [
+          'group rounded-3xl border p-4 shadow-soft transition-all duration-200 ease-soft',
           canOpen
-            ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md'
-            : 'bg-muted/30 opacity-75'
-        }
-      `}
-      onClick={() => {
-        if (canOpen) {
-          onOpen?.(lesson);
-        }
-      }}
+            ? 'cursor-pointer border-border bg-card hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md active:translate-y-0 active:scale-[0.995]'
+            : 'border-border bg-muted/35 opacity-80',
+        ].join(' ')
+      )}
+      onClick={handleOpen}
       role={canOpen ? 'button' : undefined}
       tabIndex={canOpen ? 0 : undefined}
+      aria-disabled={!canOpen}
       onKeyDown={(event) => {
         if (!canOpen) return;
 
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          onOpen?.(lesson);
+          handleOpen();
         }
       }}
     >
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border bg-background">
+        <div
+          className={cn(
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            getIconToneClassName(lesson)
+          )}
+        >
           {getLessonIcon(lesson)}
         </div>
 
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone="info" icon={<BookOpen size={12} />}>
+            <StatusBadge tone="primary">
+              <BookOpen size={12} />
               {lesson.subjectName}
             </StatusBadge>
 
@@ -89,7 +110,7 @@ export default function LessonCard({
           </div>
 
           <div className="min-w-0">
-            <h3 className="line-clamp-2 text-sm font-semibold group-hover:underline">
+            <h3 className="line-clamp-2 text-sm font-semibold text-foreground transition-colors duration-200 ease-soft group-hover:text-primary">
               {lesson.title}
             </h3>
 
@@ -99,7 +120,7 @@ export default function LessonCard({
           </div>
 
           {lesson.isLocked ? (
-            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+            <p className="flex items-center gap-1.5 rounded-2xl border border-border bg-card/65 px-3 py-2 text-xs leading-5 text-muted-foreground">
               <Lock size={13} />
               Бұл сабаққа кіру үшін алдыңғы шарттарды орындау қажет.
             </p>

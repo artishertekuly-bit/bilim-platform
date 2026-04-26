@@ -17,10 +17,14 @@ import {
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
+import ProgressBar from '@/components/ProgressBar';
 import PageHeader from '@/components/common/PageHeader';
 import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, ErrorState } from '@/components/common/DataState';
-import { CourseTimelineSkeleton } from '@/components/common/SkeletonBlocks';
+import {
+  CourseTimelineSkeleton,
+  SkeletonBlock,
+} from '@/components/common/SkeletonBlocks';
 import {
   useCourseAnnouncements,
   useCourseProgressTimeline,
@@ -41,6 +45,13 @@ function getStatusDotClass(status: CourseProgressLessonStatus) {
   if (status === 'current') return 'bg-primary';
   if (status === 'locked') return 'bg-muted-foreground';
   return 'bg-secondary';
+}
+
+function getProgressTone(status: CourseProgressLessonStatus) {
+  if (status === 'completed') return 'success' as const;
+  if (status === 'current') return 'primary' as const;
+  if (status === 'locked') return 'warning' as const;
+  return 'secondary' as const;
 }
 
 function getLockedReasonText(reason: CourseProgressLessonView['lockedReason']) {
@@ -104,9 +115,9 @@ function getAnnouncementPriorityLabel(priority: CourseAnnouncementPriority) {
 }
 
 function getAnnouncementPriorityTone(priority: CourseAnnouncementPriority) {
-  if (priority === 'urgent') return 'danger';
-  if (priority === 'important') return 'warning';
-  return 'secondary';
+  if (priority === 'urgent') return 'danger' as const;
+  if (priority === 'important') return 'warning' as const;
+  return 'secondary' as const;
 }
 
 function findNextLesson(
@@ -127,32 +138,30 @@ function findNextLesson(
   );
 }
 
-function ProgressBar({ value }: { value: number }) {
-  const normalizedValue = Math.min(100, Math.max(0, Math.round(value || 0)));
-
-  return (
-    <div className="h-2.5 w-full overflow-hidden rounded-full border border-border bg-muted shadow-inner-soft">
-      <div
-        className="progress-fill h-full rounded-full bg-primary"
-        style={{ width: `${normalizedValue}%` }}
-      />
-    </div>
-  );
-}
-
 function CourseStatCard({
   label,
   value,
   icon: Icon,
+  tone = 'primary',
 }: {
   label: string;
   value: string | number;
   icon: LucideIcon;
+  tone?: 'primary' | 'success' | 'warning' | 'secondary';
 }) {
+  const toneClassName = {
+    primary: 'border-primary-muted bg-primary-soft text-primary',
+    success: 'border-success-muted bg-success-soft text-success-foreground',
+    warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
+    secondary: 'border-secondary-muted bg-secondary-soft text-secondary-foreground',
+  }[tone];
+
   return (
     <Card interactive className="overflow-hidden">
       <CardContent className="flex items-center gap-3 p-4 sm:p-5">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+        >
           <Icon size={18} />
         </div>
 
@@ -233,7 +242,7 @@ function TimelineLegend() {
         {items.map((item) => (
           <div
             key={item.label}
-            className="flex items-center gap-2 rounded-full border border-border bg-muted/60 px-3 py-1.5 text-xs"
+            className="flex items-center gap-2 rounded-full border border-border bg-surface-soft/70 px-3 py-1.5 text-xs shadow-inner-soft"
           >
             <span className={`h-2.5 w-2.5 rounded-full ${item.className}`} />
             <span className="text-muted-foreground">{item.label}</span>
@@ -254,7 +263,9 @@ function CurrentLessonCard({
       <Card>
         <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold">Келесі сабақ анықталмады</p>
+            <p className="text-sm font-semibold text-foreground">
+              Келесі сабақ анықталмады
+            </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Барлық ашық сабақ аяқталған немесе курс ішінде сабақ жоқ.
             </p>
@@ -324,9 +335,9 @@ function AnnouncementCard({
     <div
       className={`rounded-3xl border p-4 shadow-soft ${
         isUrgent
-          ? 'border-destructive-muted bg-destructive-soft'
+          ? 'border-destructive-muted bg-destructive-soft/80'
           : isImportant
-            ? 'border-warning-muted bg-warning-soft'
+            ? 'border-warning-muted bg-warning-soft/80'
             : 'border-border bg-card'
       }`}
     >
@@ -384,20 +395,22 @@ function CourseAnnouncementsPanel({
 }) {
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
           <CardTitle className="flex items-center gap-2 text-base">
-            <Megaphone size={16} />
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+              <Megaphone size={16} />
+            </span>
             Хабарландырулар
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 p-4 sm:p-5">
           {Array.from({ length: 2 }).map((_, index) => (
-            <div key={index} className="rounded-3xl border border-border bg-card p-4">
-              <div className="h-4 w-32 rounded-full bg-muted" />
-              <div className="mt-3 h-3 w-4/5 rounded-full bg-muted" />
-              <div className="mt-2 h-3 w-2/3 rounded-full bg-muted" />
+            <div key={index} className="rounded-3xl border border-border bg-card p-4 shadow-soft">
+              <SkeletonBlock className="h-4 w-32 rounded-full" />
+              <SkeletonBlock className="mt-3 h-3 w-4/5 rounded-full" />
+              <SkeletonBlock className="mt-2 h-3 w-2/3 rounded-full" />
             </div>
           ))}
         </CardContent>
@@ -407,16 +420,18 @@ function CourseAnnouncementsPanel({
 
   if (hasError) {
     return (
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="overflow-hidden">
+        <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
           <CardTitle className="flex items-center gap-2 text-base">
-            <Megaphone size={16} />
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-warning-muted bg-warning-soft text-warning-foreground shadow-inner-soft">
+              <Megaphone size={16} />
+            </span>
             Хабарландырулар
           </CardTitle>
         </CardHeader>
 
-        <CardContent>
-          <div className="rounded-2xl border border-border bg-muted/60 p-3 text-xs text-muted-foreground">
+        <CardContent className="p-4 sm:p-5">
+          <div className="rounded-3xl border border-warning-muted bg-warning-soft/70 p-4 text-xs leading-5 text-warning-foreground">
             Хабарландыруларды жүктеу мүмкін болмады.
           </div>
         </CardContent>
@@ -429,11 +444,13 @@ function CourseAnnouncementsPanel({
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <Megaphone size={16} />
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+              <Megaphone size={16} />
+            </span>
             Хабарландырулар
           </CardTitle>
 
@@ -441,7 +458,7 @@ function CourseAnnouncementsPanel({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-3 p-4 sm:p-5">
         {announcements.map((announcement) => (
           <AnnouncementCard key={announcement.id} announcement={announcement} />
         ))}
@@ -576,12 +593,13 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
             </p>
           </div>
 
-          <div className="min-w-[180px] rounded-2xl border border-border bg-surface-soft/70 p-3">
-            <div className="mb-1 flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Прогресс</span>
-              <span className="font-semibold text-foreground">{module.progressPct}%</span>
-            </div>
-            <ProgressBar value={module.progressPct} />
+          <div className="min-w-[180px] rounded-2xl border border-border bg-surface-soft/70 p-3 shadow-inner-soft">
+            <ProgressBar
+              value={module.progressPct}
+              label="Прогресс"
+              size="sm"
+              tone={isCompleted ? 'success' : 'primary'}
+            />
           </div>
         </div>
       </CardHeader>
@@ -721,21 +739,25 @@ export default function CourseDetailPage() {
                 label="Жалпы прогресс"
                 value={`${timeline.progressPct}%`}
                 icon={Target}
+                tone="primary"
               />
               <CourseStatCard
                 label="Сабақ саны"
                 value={timeline.totalLessons}
                 icon={BookOpen}
+                tone="secondary"
               />
               <CourseStatCard
                 label="Аяқталған"
                 value={timeline.completedLessons}
                 icon={CheckCircle2}
+                tone="success"
               />
               <CourseStatCard
                 label="Қалған сабақ"
                 value={remainingLessons}
                 icon={Clock}
+                tone="warning"
               />
             </div>
 
@@ -749,14 +771,12 @@ export default function CourseDetailPage() {
 
             <Card>
               <CardContent className="p-5">
-                <div className="mb-2 flex items-center justify-between text-sm">
-                  <span className="font-semibold">Курс бойынша оқу барысы</span>
-                  <span className="rounded-full border border-border bg-muted/70 px-2.5 py-1 text-xs text-muted-foreground">
-                    {timeline.completedLessons}/{timeline.totalLessons}
-                  </span>
-                </div>
-
-                <ProgressBar value={timeline.progressPct} />
+                <ProgressBar
+                  value={timeline.progressPct}
+                  label="Курс бойынша оқу барысы"
+                  size="md"
+                  tone="primary"
+                />
 
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
                   Сабақтар ретімен ашылады. Алдыңғы сабақ аяқталмаса, келесі сабақ

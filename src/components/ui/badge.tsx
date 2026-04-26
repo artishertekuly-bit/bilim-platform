@@ -5,10 +5,11 @@ import { cn } from '@/lib/utils';
 
 const badgeVariants = cva(
   [
-    'inline-flex items-center gap-1.5 rounded-full border',
+    'inline-flex w-fit items-center gap-1.5 rounded-full border',
     'px-2.5 py-1 text-xs font-semibold leading-none',
     'transition-all duration-200 ease-soft',
     'focus:outline-none focus:ring-2 focus:ring-ring/35 focus:ring-offset-2 focus:ring-offset-background',
+    '[&_svg]:pointer-events-none [&_svg]:size-3 [&_svg]:shrink-0',
   ].join(' '),
   {
     variants: {
@@ -65,13 +66,16 @@ export interface BadgeProps
   extends React.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof badgeVariants> {}
 
-function Badge({ className, variant, ...props }: BadgeProps) {
-  return (
+const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
+  ({ className, variant, ...props }, ref) => (
     <div
+      ref={ref}
       className={cn(badgeVariants({ variant }), className)}
       {...props}
     />
-  );
-}
+  )
+);
+
+Badge.displayName = 'Badge';
 
 export { Badge, badgeVariants };

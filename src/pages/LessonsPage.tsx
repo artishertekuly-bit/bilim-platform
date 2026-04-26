@@ -19,15 +19,15 @@ import PageHeader from '@/components/common/PageHeader';
 import { EmptyState, ErrorState } from '@/components/common/DataState';
 import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import LessonCard from '@/components/lesson/LessonCard';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { platformKeys, useLessons } from '@/hooks/use-platform-data';
+import { useToast } from '@/hooks/use-toast';
 import { markLessonComplete } from '@/lib/app-data';
 import type { LessonView } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useToast } from '@/hooks/use-toast';
 
 type LessonStatusFilter = 'all' | 'available' | 'completed' | 'locked';
 
@@ -52,25 +52,38 @@ function getLessonStatusFilter(lesson: LessonView): LessonStatusFilter {
   return 'available';
 }
 
-function StatCard({
+function LessonStatCard({
   label,
   value,
   icon: Icon,
+  tone = 'primary',
 }: {
   label: string;
   value: string | number;
   icon: LucideIcon;
+  tone?: 'primary' | 'success' | 'warning' | 'muted';
 }) {
+  const toneClassName = {
+    primary: 'border-primary-muted bg-primary-soft text-primary',
+    success: 'border-success-muted bg-success-soft text-success-foreground',
+    warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
+    muted: 'border-border bg-muted text-muted-foreground',
+  }[tone];
+
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="flex items-center gap-3 pt-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+    <Card interactive className="overflow-hidden">
+      <CardContent className="flex items-center gap-3 p-4 sm:p-5">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+        >
           <Icon size={18} />
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-2xl font-semibold">{value}</p>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
+            {value}
+          </p>
         </div>
       </CardContent>
     </Card>
@@ -82,9 +95,12 @@ function LessonsPageSkeleton() {
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-xl border bg-card p-5">
+          <div
+            key={index}
+            className="rounded-3xl border border-border bg-card p-5 shadow-soft"
+          >
             <div className="flex items-center gap-3">
-              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <SkeletonBlock className="h-11 w-11 rounded-2xl" />
               <div className="space-y-2">
                 <SkeletonBlock className="h-3 w-20" />
                 <SkeletonBlock className="h-6 w-12" />
@@ -94,13 +110,14 @@ function LessonsPageSkeleton() {
         ))}
       </div>
 
-      <div className="rounded-xl border bg-card p-5">
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <SkeletonBlock className="h-10 w-full lg:max-w-md" />
-          <div className="flex gap-2">
-            <SkeletonBlock className="h-9 w-20 rounded-full" />
-            <SkeletonBlock className="h-9 w-20 rounded-full" />
-            <SkeletonBlock className="h-9 w-24 rounded-full" />
+          <SkeletonBlock className="h-11 w-full rounded-2xl lg:max-w-md" />
+
+          <div className="flex gap-2 overflow-hidden">
+            <SkeletonBlock className="h-9 w-20 rounded-2xl" />
+            <SkeletonBlock className="h-9 w-20 rounded-2xl" />
+            <SkeletonBlock className="h-9 w-24 rounded-2xl" />
           </div>
         </div>
 
@@ -114,12 +131,15 @@ function LessonsPageSkeleton() {
         </div>
       </div>
 
-      <div className="rounded-xl border bg-card p-5">
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="rounded-xl border p-4">
+            <div
+              key={index}
+              className="rounded-3xl border border-border bg-card p-4 shadow-soft"
+            >
               <div className="flex gap-4">
-                <SkeletonBlock className="h-11 w-11 rounded-xl" />
+                <SkeletonBlock className="h-11 w-11 rounded-2xl" />
 
                 <div className="flex-1 space-y-2">
                   <div className="flex gap-2">
@@ -130,7 +150,7 @@ function LessonsPageSkeleton() {
                   <SkeletonBlock className="h-3 w-1/2" />
                 </div>
 
-                <SkeletonBlock className="hidden h-9 w-28 sm:block" />
+                <SkeletonBlock className="hidden h-9 w-28 rounded-2xl sm:block" />
               </div>
             </div>
           ))}
@@ -153,10 +173,11 @@ function FilterChip({
     <button
       type="button"
       onClick={onClick}
-      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+      aria-pressed={active}
+      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] ${
         active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border hover:bg-accent'
+          ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
+          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
       }`}
     >
       {children}
@@ -173,9 +194,9 @@ export default function LessonsPage() {
   const [activeSubject, setActiveSubject] = useState('all');
   const [activeStatus, setActiveStatus] = useState<LessonStatusFilter>('all');
   const [search, setSearch] = useState('');
-  const [pendingCompleteLessonId, setPendingCompleteLessonId] = useState<string | null>(
-    null
-  );
+  const [pendingCompleteLessonId, setPendingCompleteLessonId] = useState<
+    string | null
+  >(null);
 
   const isStudent = user?.role === 'student';
 
@@ -242,7 +263,9 @@ export default function LessonsPage() {
   const subjects = useMemo(
     () => [
       'all',
-      ...Array.from(new Set(lessons.map((item) => item.subjectName).filter(Boolean))),
+      ...Array.from(
+        new Set(lessons.map((item) => item.subjectName).filter(Boolean))
+      ),
     ],
     [lessons]
   );
@@ -285,7 +308,7 @@ export default function LessonsPage() {
   }, [activeStatus, activeSubject, lessons, search]);
 
   const hasActiveFilters =
-    search.trim() || activeSubject !== 'all' || activeStatus !== 'all';
+    Boolean(search.trim()) || activeSubject !== 'all' || activeStatus !== 'all';
 
   const resetFilters = () => {
     setSearch('');
@@ -359,6 +382,7 @@ export default function LessonsPage() {
                 variant="outline"
                 onClick={() => window.location.reload()}
               >
+                <RotateCcw size={15} className="mr-2" />
                 Қайта жүктеу
               </Button>
             }
@@ -368,29 +392,45 @@ export default function LessonsPage() {
         {!isLoading && !error ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <StatCard label="Барлығы" value={stats.total} icon={BookOpen} />
-              <StatCard label="Ашық" value={stats.available} icon={PlayCircle} />
-              <StatCard
+              <LessonStatCard
+                label="Барлығы"
+                value={stats.total}
+                icon={BookOpen}
+                tone="primary"
+              />
+              <LessonStatCard
+                label="Ашық"
+                value={stats.available}
+                icon={PlayCircle}
+                tone="warning"
+              />
+              <LessonStatCard
                 label="Аяқталған"
                 value={stats.completed}
                 icon={CheckCircle2}
+                tone="success"
               />
-              <StatCard label="Құлыпталған" value={stats.locked} icon={Lock} />
+              <LessonStatCard
+                label="Құлыпталған"
+                value={stats.locked}
+                icon={Lock}
+                tone="muted"
+              />
             </div>
 
-            <Card>
-              <CardContent className="space-y-4 pt-5">
+            <Card className="overflow-hidden">
+              <CardContent className="space-y-4 p-4 sm:p-5">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="relative w-full lg:max-w-md">
                     <Search
                       size={16}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
                     />
                     <Input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder="Сабақ, курс, модуль немесе пән бойынша іздеу..."
-                      className="pl-9"
+                      className="pl-10"
                     />
                   </div>
 
@@ -423,16 +463,18 @@ export default function LessonsPage() {
                   </div>
                 </div>
 
-                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-                  {subjects.map((subject) => (
-                    <FilterChip
-                      key={subject}
-                      active={activeSubject === subject}
-                      onClick={() => setActiveSubject(subject)}
-                    >
-                      {subject === 'all' ? t('common.all') : subject}
-                    </FilterChip>
-                  ))}
+                <div className="rounded-3xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
+                  <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {subjects.map((subject) => (
+                      <FilterChip
+                        key={subject}
+                        active={activeSubject === subject}
+                        onClick={() => setActiveSubject(subject)}
+                      >
+                        {subject === 'all' ? t('common.all') : subject}
+                      </FilterChip>
+                    ))}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -470,11 +512,13 @@ export default function LessonsPage() {
             ) : null}
 
             {filtered.length > 0 ? (
-              <Card>
-                <CardContent className="space-y-3 pt-5">
+              <Card className="overflow-hidden">
+                <CardContent className="space-y-4 p-4 sm:p-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold">{listTitle}</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {listTitle}
+                      </p>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {filtered.length} сабақ көрсетіліп тұр
                       </p>

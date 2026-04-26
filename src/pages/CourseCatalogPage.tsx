@@ -19,21 +19,21 @@ import {
   FilterPanelSkeleton,
 } from '@/components/common/SkeletonBlocks';
 import CourseCard from '@/components/course/CourseCard';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import {
   useCourseCatalog,
   useRedeemCourseInviteMutation,
   useRequestPaidCourseAccessMutation,
   useSubjects,
 } from '@/hooks/use-platform-data';
+import { useToast } from '@/hooks/use-toast';
 import { bookmarkCourse, enrollInCourse, unbookmarkCourse } from '@/lib/app-data';
 import type { CourseView } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/hooks/use-toast';
 
 type CatalogMode = 'student' | 'teacher' | 'admin';
 
@@ -79,11 +79,14 @@ export default function CourseCatalogPage() {
   const [activeSubject, setActiveSubject] = useState('all');
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
   const [pendingCourseId, setPendingCourseId] = useState<string | null>(null);
-  const [pendingBookmarkCourseId, setPendingBookmarkCourseId] = useState<string | null>(null);
+  const [pendingBookmarkCourseId, setPendingBookmarkCourseId] = useState<string | null>(
+    null
+  );
   const [inviteCourseId, setInviteCourseId] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState('');
 
   const { data: subjects } = useSubjects();
+
   const { data, isLoading, error } = useCourseCatalog(
     user?.role === 'student' ? user.id : undefined,
     isTeacherView ? user?.id : undefined,
@@ -122,7 +125,9 @@ export default function CourseCatalogPage() {
     onSuccess: async (courseId) => {
       await invalidateCatalogData();
 
-      toast({ title: t('page.course_catalog.toast.enroll_success') });
+      toast({
+        title: t('page.course_catalog.toast.enroll_success'),
+      });
 
       navigate(buildCourseDetailPath(courseId));
     },
@@ -158,11 +163,11 @@ export default function CourseCatalogPage() {
         ? unbookmarkCourse(user.id, courseId)
         : bookmarkCourse(user.id, courseId);
     },
-    onSuccess: async (_data, vars) => {
+    onSuccess: async (_data, variables) => {
       await queryClient.invalidateQueries({ queryKey: ['courses'] });
 
       toast({
-        title: vars.bookmarked
+        title: variables.bookmarked
           ? t('page.course_catalog.toast.bookmark_removed')
           : t('page.course_catalog.toast.bookmark_added'),
       });
@@ -180,11 +185,14 @@ export default function CourseCatalogPage() {
 
   const subjectFilters = useMemo(
     () => [
-      { value: 'all', label: t('common.all') },
+      {
+        value: 'all',
+        label: t('common.all'),
+      },
       ...((subjects || []).map((subject) => ({
         value: subject.name_kk,
         label: subject.name_kk,
-      }))),
+      })) || []),
     ],
     [subjects]
   );
@@ -199,7 +207,8 @@ export default function CourseCatalogPage() {
         );
 
         const matchSearch = haystack.includes(normalizedSearch);
-        const matchSubject = activeSubject === 'all' || course.subjectName === activeSubject;
+        const matchSubject =
+          activeSubject === 'all' || course.subjectName === activeSubject;
         const matchBookmarks = !showBookmarksOnly || course.bookmarked;
 
         return matchSearch && matchSubject && matchBookmarks;
@@ -397,6 +406,7 @@ export default function CourseCatalogPage() {
                 variant="outline"
                 onClick={() => window.location.reload()}
               >
+                <RotateCcw size={15} className="mr-2" />
                 Қайта жүктеу
               </Button>
             }
@@ -413,10 +423,11 @@ export default function CourseCatalogPage() {
                       size={16}
                       className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
                     />
+
                     <Input
                       placeholder={t('page.course_catalog.search_placeholder')}
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onChange={(event) => setSearch(event.target.value)}
                       className="pl-10"
                     />
                   </div>
@@ -426,9 +437,24 @@ export default function CourseCatalogPage() {
                       Барлығы: {totalCourses}
                     </Badge>
 
-                    <Badge variant={hasActiveFilters ? 'default' : 'outline'} className="text-[11px]">
+                    <Badge
+                      variant={hasActiveFilters ? 'default' : 'outline'}
+                      className="text-[11px]"
+                    >
                       Көрсетілді: {filteredCourses}
                     </Badge>
+
+                    {isTeacherView ? (
+                      <Badge variant="secondary" className="text-[11px]">
+                        Мұғалім курстары
+                      </Badge>
+                    ) : null}
+
+                    {isAdminView ? (
+                      <Badge variant="warning" className="text-[11px]">
+                        Admin mode
+                      </Badge>
+                    ) : null}
                   </div>
                 </div>
 
@@ -438,7 +464,7 @@ export default function CourseCatalogPage() {
                       type="button"
                       variant={showBookmarksOnly ? 'default' : 'outline'}
                       size="sm"
-                      onClick={() => setShowBookmarksOnly((prev) => !prev)}
+                      onClick={() => setShowBookmarksOnly((previous) => !previous)}
                     >
                       <Bookmark size={14} className="mr-1.5" />
                       {showBookmarksOnly
@@ -461,13 +487,13 @@ export default function CourseCatalogPage() {
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-border bg-surface-soft/60 p-3">
-                <div className="mb-2 flex items-center gap-2 px-1 text-xs font-medium text-muted-foreground">
+              <div className="rounded-3xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
+                <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold text-muted-foreground">
                   <Filter size={14} />
                   Пән бойынша сүзгі
                 </div>
 
-                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {subjectFilters.map((subject) => {
                     const active = activeSubject === subject.value;
 

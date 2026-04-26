@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -17,9 +18,9 @@ import {
   CourseStatusBadge,
   OrderStatusBadge,
 } from '@/components/common/StatusBadge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import type { CourseView } from '@/lib/app-data-types';
 import t from '@/lib/i18n';
 
@@ -55,6 +56,8 @@ function getNormalizedCatalogAccessType(course: CourseView) {
 
   if (accessType === 'subscription_only') return 'paid';
   if (accessType === 'school_only') return 'private_invite';
+  if (accessType === 'closed') return 'private_invite';
+  if (accessType === 'open') return 'public_free';
 
   return accessType;
 }
@@ -139,19 +142,19 @@ function MetricItem({
   label,
   emphasized = false,
 }: {
-  icon: React.ReactNode;
-  label: React.ReactNode;
+  icon: ReactNode;
+  label: ReactNode;
   emphasized?: boolean;
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${
+      className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none ${
         emphasized
           ? 'border-accent-muted bg-accent-soft text-accent-foreground'
-          : 'border-border bg-muted/70 text-muted-foreground'
+          : 'border-border bg-surface-soft/70 text-muted-foreground'
       }`}
     >
-      {icon}
+      <span className="shrink-0">{icon}</span>
       <span className="truncate">{label}</span>
     </span>
   );
@@ -187,13 +190,13 @@ export default function CourseCard({
   const cardBody = (
     <>
       <div className="relative flex h-32 items-center justify-center overflow-hidden border-b border-border bg-surface-soft">
-        <div className="pointer-events-none absolute inset-0">
+        <div className="pointer-events-none absolute inset-0 opacity-90 dark:opacity-55">
           <div className="absolute -left-12 -top-12 h-32 w-32 rounded-full bg-primary-soft blur-2xl" />
           <div className="absolute -right-12 top-4 h-32 w-32 rounded-full bg-secondary-soft blur-2xl" />
           <div className="absolute bottom-0 left-1/3 h-24 w-24 rounded-full bg-accent-soft blur-2xl" />
         </div>
 
-        <div className="relative flex h-14 w-14 items-center justify-center rounded-3xl border border-primary-muted bg-card/80 text-primary shadow-soft transition-transform duration-200 ease-soft group-hover:scale-[1.03]">
+        <div className="relative flex h-14 w-14 items-center justify-center rounded-3xl border border-primary-muted bg-card/85 text-primary shadow-soft transition-transform duration-200 ease-soft group-hover:scale-[1.03]">
           <BookOpen size={26} />
         </div>
 
@@ -209,11 +212,11 @@ export default function CourseCard({
 
       <CardContent className="space-y-4 p-4">
         <div>
-          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-surface-soft/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             <span className="truncate">{course.subjectName || 'Жалпы курс'}</span>
           </span>
 
-          <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground transition-colors group-hover:text-primary">
+          <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground transition-colors duration-200 ease-soft group-hover:text-primary">
             {course.title}
           </h3>
 
@@ -222,11 +225,8 @@ export default function CourseCard({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <MetricItem
-            icon={<Users size={11} />}
-            label={course.students}
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <MetricItem icon={<Users size={11} />} label={course.students} />
 
           <MetricItem
             icon={<Clock size={11} />}
@@ -241,7 +241,7 @@ export default function CourseCard({
         </div>
 
         {course.access?.accessState === 'enrollment_closed' ? (
-          <div className="flex items-center gap-2 rounded-2xl border border-border bg-muted/70 px-3 py-2 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-2 rounded-2xl border border-warning-muted bg-warning-soft/65 px-3 py-2 text-[11px] font-medium text-warning-foreground">
             <Lock size={12} />
             Курсқа жазылу уақытша жабық
           </div>
@@ -262,10 +262,7 @@ export default function CourseCard({
   );
 
   return (
-    <Card
-      interactive
-      className="group overflow-hidden border-border/80 bg-card/95"
-    >
+    <Card interactive className="group overflow-hidden border-border/80 bg-card/95">
       <div className="relative">
         {isStudentView && canOpenCourseDetail(course) ? (
           <Link to={courseDetailPath} className="block">
@@ -308,8 +305,8 @@ export default function CourseCard({
 
         <div className="space-y-3 px-4 pb-4">
           {isStudentView && course.enrolled ? (
-            <div className="space-y-3 rounded-3xl border border-border bg-surface-soft/60 p-3">
-              <ProgressBar value={course.progress} size="sm" />
+            <div className="space-y-3 rounded-3xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
+              <ProgressBar value={course.progress} size="sm" tone="success" />
 
               <Button type="button" size="sm" className="w-full text-xs" asChild>
                 <Link to={courseDetailPath}>
@@ -321,7 +318,7 @@ export default function CourseCard({
           ) : isStudentView ? (
             <>
               {showInviteInput ? (
-                <div className="space-y-3 rounded-3xl border border-primary-muted bg-primary-soft/70 p-3">
+                <div className="space-y-3 rounded-3xl border border-primary-muted bg-primary-soft/70 p-3 shadow-inner-soft">
                   <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                     <KeyRound size={13} />
                     Invite code
@@ -383,15 +380,22 @@ export default function CourseCard({
               </Link>
             </Button>
           ) : isAdminView ? (
-            <div className="space-y-3 rounded-3xl border border-border bg-surface-soft/60 p-3 text-[11px] text-muted-foreground">
+            <div className="space-y-3 rounded-3xl border border-border bg-surface-soft/60 p-3 text-[11px] text-muted-foreground shadow-inner-soft">
               <div className="flex flex-wrap items-center gap-2">
                 <CourseStatusBadge status={course.status} />
                 <CourseAccessBadge accessType={getNormalizedCatalogAccessType(course)} />
               </div>
 
-              <div className="rounded-2xl border border-border bg-card/70 px-3 py-2">
+              <div className="rounded-2xl border border-border bg-card/75 px-3 py-2 text-xs leading-5">
                 Access: {getCourseAccessLabel(course)} · {formatCoursePrice(course)}
               </div>
+
+              <Button type="button" variant="outline" size="sm" className="w-full text-xs" asChild>
+                <Link to={courseEditPath}>
+                  Басқару
+                  <ArrowRight size={12} className="ml-1" />
+                </Link>
+              </Button>
             </div>
           ) : null}
         </div>

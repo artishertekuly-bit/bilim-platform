@@ -1,26 +1,51 @@
 import { Link, Navigate, useLocation } from 'react-router-dom';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  GraduationCap,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
+import KazakhOrnament from '@/components/KazakhOrnament';
 import { useAuth } from '@/lib/auth-context';
+import AdminDashboard from '@/pages/AdminDashboard';
+import ParentDashboard from '@/pages/ParentDashboard';
 import StudentDashboard from '@/pages/StudentDashboard';
 import TeacherDashboard from '@/pages/TeacherDashboard';
-import ParentDashboard from '@/pages/ParentDashboard';
-import AdminDashboard from '@/pages/AdminDashboard';
-import { Button } from '@/components/ui/button';
 
 function DashboardLoadingScreen() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-sm rounded-2xl border bg-card p-6 text-center shadow-sm">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border bg-primary/10 text-primary">
-          <Loader2 size={22} className="animate-spin" />
+    <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card p-6 text-center shadow-soft">
+        <div className="pointer-events-none absolute -left-16 -top-16 h-32 w-32 rounded-full bg-primary-soft blur-3xl" />
+        <div className="pointer-events-none absolute -right-16 top-4 h-32 w-32 rounded-full bg-secondary-soft blur-3xl" />
+
+        <div className="relative">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+            <Loader2 size={23} className="animate-spin" />
+          </div>
+
+          <div className="mt-4 flex justify-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
+              <Sparkles size={12} />
+              Soft academic workspace
+            </span>
+          </div>
+
+          <h1 className="mt-4 text-base font-semibold text-foreground">
+            Dashboard жүктелуде...
+          </h1>
+
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Аккаунт сессиясы және рөл дерегі тексеріліп жатыр.
+          </p>
+
+          <div className="mt-5">
+            <KazakhOrnament variant="divider" className="py-0 opacity-70" />
+          </div>
         </div>
-
-        <h1 className="mt-4 text-base font-semibold">Dashboard жүктелуде...</h1>
-
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Аккаунт сессиясы және рөл дерегі тексеріліп жатыр.
-        </p>
       </div>
     </div>
   );
@@ -28,26 +53,43 @@ function DashboardLoadingScreen() {
 
 function UnknownRoleState() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md rounded-2xl border bg-card p-6 text-center shadow-sm">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border bg-destructive/10 text-destructive">
-          <AlertTriangle size={22} />
-        </div>
+    <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-destructive-muted bg-destructive-soft/70 p-6 text-center shadow-soft">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full bg-destructive-muted/40 blur-3xl" />
 
-        <h1 className="mt-4 text-lg font-semibold">Рөл анықталмады</h1>
+        <div className="relative">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-destructive-muted bg-card text-destructive shadow-inner-soft">
+            <AlertTriangle size={23} />
+          </div>
 
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Аккаунт рөлі дұрыс орнатылмаған. Қайта кіріп көріңіз немесе әкімшіге хабарласыңыз.
-        </p>
+          <div className="mt-4 flex justify-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive-muted bg-destructive-soft px-3 py-1 text-xs font-semibold text-destructive">
+              <ShieldCheck size={12} />
+              Рөл қатесі
+            </span>
+          </div>
 
-        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
-          <Button type="button" variant="outline" asChild>
-            <Link to="/">Басты бетке қайту</Link>
-          </Button>
+          <h1 className="mt-4 text-lg font-semibold text-foreground">
+            Рөл анықталмады
+          </h1>
 
-          <Button type="button" asChild>
-            <Link to="/profile">Профильді ашу</Link>
-          </Button>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Аккаунт рөлі дұрыс орнатылмаған. Қайта кіріп көріңіз немесе әкімшіге
+            хабарласыңыз.
+          </p>
+
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
+            <Button type="button" variant="outline" asChild>
+              <Link to="/">Басты бетке қайту</Link>
+            </Button>
+
+            <Button type="button" asChild>
+              <Link to="/profile">
+                <GraduationCap size={15} className="mr-2" />
+                Профильді ашу
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
     </div>

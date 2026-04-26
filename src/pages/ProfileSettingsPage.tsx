@@ -1,23 +1,4 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
-import DashboardLayout from '@/components/DashboardLayout';
-import UserAvatar from '@/components/UserAvatar';
-import PageHeader from '@/components/common/PageHeader';
-import StatusBadge from '@/components/common/StatusBadge';
-import { useAuth } from '@/lib/auth-context';
-import t from '@/lib/i18n';
-import { supabase } from '@/integrations/supabase/client';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
-import { useToast } from '@/hooks/use-toast';
 import {
   BadgeCheck,
   Camera,
@@ -33,7 +14,28 @@ import {
   User,
   XCircle,
 } from 'lucide-react';
+
 import AvatarCropDialog from '@/components/AvatarCropDialog';
+import DashboardLayout from '@/components/DashboardLayout';
+import UserAvatar from '@/components/UserAvatar';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/lib/auth-context';
+import t from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 const AVATAR_BUCKET = 'avatars';
 const MAX_AVATAR_SIZE_MB = 25;
@@ -94,19 +96,21 @@ function SectionCard({
   children: ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-4">
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
         <CardTitle className="flex items-center gap-2 text-base">
-          {icon}
+          {icon ? (
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+              {icon}
+            </span>
+          ) : null}
           {title}
         </CardTitle>
 
-        {description ? (
-          <CardDescription>{description}</CardDescription>
-        ) : null}
+        {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
 
-      <CardContent>{children}</CardContent>
+      <CardContent className="p-5">{children}</CardContent>
     </Card>
   );
 }
@@ -119,9 +123,11 @@ function InfoRow({
   value: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 px-3 py-2.5 shadow-inner-soft">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <div className="min-w-0 text-right text-sm font-medium">{value}</div>
+      <div className="min-w-0 text-right text-sm font-semibold text-foreground">
+        {value}
+      </div>
     </div>
   );
 }
@@ -135,12 +141,64 @@ function PasswordRule({
 }) {
   return (
     <div
-      className={`flex items-center gap-2 text-xs ${
-        ok ? 'text-emerald-700' : 'text-muted-foreground'
-      }`}
+      className={cn(
+        'flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-medium',
+        ok
+          ? 'border-success-muted bg-success-soft text-success-foreground'
+          : 'border-border bg-card text-muted-foreground'
+      )}
     >
       {ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
       <span>{children}</span>
+    </div>
+  );
+}
+
+function PasswordField({
+  id,
+  label,
+  value,
+  onChange,
+  placeholder,
+  visible,
+  onToggleVisible,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  visible: boolean;
+  onToggleVisible: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+
+      <div className="relative">
+        <Input
+          id={id}
+          type={visible ? 'text' : 'password'}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className="pr-11"
+          minLength={8}
+          disabled={disabled}
+        />
+
+        <button
+          type="button"
+          onClick={onToggleVisible}
+          className="absolute inset-y-0 right-0 flex items-center rounded-r-2xl px-3 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+          disabled={disabled}
+          aria-label={visible ? 'Құпия сөзді жасыру' : 'Құпия сөзді көрсету'}
+        >
+          {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+      </div>
     </div>
   );
 }
@@ -275,10 +333,9 @@ export default function ProfileSettingsPage() {
           user_id: user.id,
           full_name: patch.full_name ?? (normalizedFullName || defaultFullName),
           bio: patch.bio ?? (normalizedBio || null),
-          avatar_url:
-            Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
-              ? patch.avatar_url
-              : avatarUrl,
+          avatar_url: Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
+            ? patch.avatar_url
+            : avatarUrl,
         },
         {
           onConflict: 'user_id',
@@ -391,10 +448,7 @@ export default function ProfileSettingsPage() {
     } catch (error) {
       toast({
         title: t('page.profile.toast.error_title'),
-        description: getErrorMessage(
-          error,
-          t('page.profile.toast.avatar_save_error')
-        ),
+        description: getErrorMessage(error, t('page.profile.toast.avatar_save_error')),
         variant: 'destructive',
       });
     } finally {
@@ -421,10 +475,7 @@ export default function ProfileSettingsPage() {
     } catch (error) {
       toast({
         title: t('page.profile.toast.error_title'),
-        description: getErrorMessage(
-          error,
-          t('page.profile.toast.profile_save_error')
-        ),
+        description: getErrorMessage(error, t('page.profile.toast.profile_save_error')),
         variant: 'destructive',
       });
     } finally {
@@ -463,10 +514,7 @@ export default function ProfileSettingsPage() {
     } catch (error) {
       toast({
         title: t('page.profile.toast.error_title'),
-        description: getErrorMessage(
-          error,
-          t('page.profile.toast.avatar_remove_error')
-        ),
+        description: getErrorMessage(error, t('page.profile.toast.avatar_remove_error')),
         variant: 'destructive',
       });
     } finally {
@@ -527,10 +575,8 @@ export default function ProfileSettingsPage() {
           title={t('page.profile.title')}
           description={t('page.profile.subtitle')}
           actions={
-            <StatusBadge
-              tone={hasEmailProvider ? 'success' : 'warning'}
-              icon={hasEmailProvider ? <ShieldCheck size={12} /> : <KeyRound size={12} />}
-            >
+            <StatusBadge tone={hasEmailProvider ? 'success' : 'warning'}>
+              {hasEmailProvider ? <ShieldCheck size={12} /> : <KeyRound size={12} />}
               {hasEmailProvider ? 'Құпия сөз бар' : 'Құпия сөз қойылмаған'}
             </StatusBadge>
           }
@@ -544,14 +590,16 @@ export default function ProfileSettingsPage() {
               icon={<BadgeCheck size={16} />}
             >
               <div className="flex flex-col items-center text-center">
-                <UserAvatar
-                  name={displayName}
-                  avatarUrl={avatarUrl}
-                  className="h-28 w-28"
-                  fallbackClassName="text-2xl"
-                />
+                <div className="rounded-full border border-primary-muted bg-primary-soft p-1.5 shadow-soft">
+                  <UserAvatar
+                    name={displayName}
+                    avatarUrl={avatarUrl}
+                    className="h-28 w-28"
+                    fallbackClassName="text-2xl"
+                  />
+                </div>
 
-                <h3 className="mt-4 max-w-full truncate text-base font-semibold">
+                <h3 className="mt-4 max-w-full truncate text-base font-semibold text-foreground">
                   {displayName}
                 </h3>
 
@@ -564,9 +612,13 @@ export default function ProfileSettingsPage() {
                     authProviders.map((provider) => (
                       <StatusBadge
                         key={provider}
-                        tone={provider === 'google' ? 'info' : 'success'}
-                        icon={provider === 'google' ? <BadgeCheck size={12} /> : <Mail size={12} />}
+                        tone={provider === 'google' ? 'primary' : 'success'}
                       >
+                        {provider === 'google' ? (
+                          <BadgeCheck size={12} />
+                        ) : (
+                          <Mail size={12} />
+                        )}
                         {getProviderLabel(provider)}
                       </StatusBadge>
                     ))
@@ -599,14 +651,16 @@ export default function ProfileSettingsPage() {
               icon={<Camera size={16} />}
             >
               <div className="space-y-4">
-                <div className="rounded-xl border border-dashed bg-muted/20 p-4">
+                <div className="rounded-3xl border border-dashed border-border bg-surface-soft/60 p-4 shadow-inner-soft">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-card text-primary">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-inner-soft">
                       <ImageIcon size={18} />
                     </div>
 
                     <div className="min-w-0">
-                      <p className="text-sm font-medium">Сурет таңдау</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        Сурет таңдау
+                      </p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
                         PNG, JPG, JPEG немесе WEBP. Максимум {MAX_AVATAR_SIZE_MB} MB.
                         Таңдағаннан кейін crop терезесі ашылады.
@@ -669,7 +723,7 @@ export default function ProfileSettingsPage() {
                       rows={5}
                       disabled={savingProfile}
                     />
-                    <p className="text-xs text-muted-foreground">
+                    <p className="rounded-2xl border border-border bg-surface-soft/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
                       Бұл bio мұғалім карточкасында немесе профильде көрсетілуі мүмкін.
                     </p>
                   </div>
@@ -696,26 +750,31 @@ export default function ProfileSettingsPage() {
               icon={<ShieldCheck size={16} />}
             >
               <div className="space-y-5">
-                <div className="rounded-xl border bg-muted/20 p-4">
+                <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-sm font-medium">Кіру әдістері</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="text-sm font-semibold text-foreground">
+                        Кіру әдістері
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
                         Google арқылы кірген user үшін бөлек password қоюға болады.
                       </p>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
                       {hasGoogleProvider ? (
-                        <StatusBadge tone="info" icon={<BadgeCheck size={12} />}>
+                        <StatusBadge tone="primary">
+                          <BadgeCheck size={12} />
                           Google қосылған
                         </StatusBadge>
                       ) : null}
 
-                      <StatusBadge
-                        tone={hasEmailProvider ? 'success' : 'warning'}
-                        icon={hasEmailProvider ? <CheckCircle2 size={12} /> : <KeyRound size={12} />}
-                      >
+                      <StatusBadge tone={hasEmailProvider ? 'success' : 'warning'}>
+                        {hasEmailProvider ? (
+                          <CheckCircle2 size={12} />
+                        ) : (
+                          <KeyRound size={12} />
+                        )}
                         {hasEmailProvider ? 'Password active' : 'Password керек'}
                       </StatusBadge>
                     </div>
@@ -723,68 +782,30 @@ export default function ProfileSettingsPage() {
                 </div>
 
                 <div className="grid gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="newPassword">Жаңа құпия сөз</Label>
+                  <PasswordField
+                    id="newPassword"
+                    label="Жаңа құпия сөз"
+                    value={newPassword}
+                    onChange={setNewPassword}
+                    placeholder="Кемінде 8 таңба, әріп және сан"
+                    visible={showNewPassword}
+                    onToggleVisible={() => setShowNewPassword((prev) => !prev)}
+                    disabled={savingPassword}
+                  />
 
-                    <div className="relative">
-                      <Input
-                        id="newPassword"
-                        type={showNewPassword ? 'text' : 'password'}
-                        value={newPassword}
-                        onChange={(event) => setNewPassword(event.target.value)}
-                        placeholder="Кемінде 8 таңба, әріп және сан"
-                        className="pr-10"
-                        minLength={8}
-                        disabled={savingPassword}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPassword((prev) => !prev)}
-                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
-                        disabled={savingPassword}
-                        aria-label={
-                          showNewPassword ? 'Құпия сөзді жасыру' : 'Құпия сөзді көрсету'
-                        }
-                      >
-                        {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="confirmPassword">Қайталау</Label>
-
-                    <div className="relative">
-                      <Input
-                        id="confirmPassword"
-                        type={showConfirmPassword ? 'text' : 'password'}
-                        value={confirmPassword}
-                        onChange={(event) => setConfirmPassword(event.target.value)}
-                        placeholder="Құпия сөзді қайталаңыз"
-                        className="pr-10"
-                        minLength={8}
-                        disabled={savingPassword}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword((prev) => !prev)}
-                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground disabled:opacity-50"
-                        disabled={savingPassword}
-                        aria-label={
-                          showConfirmPassword
-                            ? 'Құпия сөзді жасыру'
-                            : 'Құпия сөзді көрсету'
-                        }
-                      >
-                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </div>
-                  </div>
+                  <PasswordField
+                    id="confirmPassword"
+                    label="Қайталау"
+                    value={confirmPassword}
+                    onChange={setConfirmPassword}
+                    placeholder="Құпия сөзді қайталаңыз"
+                    visible={showConfirmPassword}
+                    onToggleVisible={() => setShowConfirmPassword((prev) => !prev)}
+                    disabled={savingPassword}
+                  />
                 </div>
 
-                <div className="grid gap-2 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2">
+                <div className="grid gap-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft sm:grid-cols-2">
                   <PasswordRule ok={passwordHasMinLength}>
                     Кемінде 8 таңба
                   </PasswordRule>
@@ -805,7 +826,7 @@ export default function ProfileSettingsPage() {
                 </div>
 
                 {passwordMismatch ? (
-                  <p className="text-sm text-red-600">
+                  <p className="rounded-2xl border border-destructive-muted bg-destructive-soft px-3 py-2 text-sm text-destructive">
                     Құпия сөздер сәйкес келмейді.
                   </p>
                 ) : null}

@@ -1,20 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import DashboardLayout from '@/components/DashboardLayout';
-import StatCard from '@/components/StatCard';
-import ProgressBar from '@/components/ProgressBar';
-import PageHeader from '@/components/common/PageHeader';
-import StatusBadge from '@/components/common/StatusBadge';
-import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
-import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
-import {
-  useAdminDashboard,
-  useManualApproveOrderMutation,
-  useManualGrantCourseAccessMutation,
-  usePendingOrdersForAdmin,
-} from '@/hooks/use-platform-data';
-import { useAuth } from '@/lib/auth-context';
-import t from '@/lib/i18n';
 import {
   ArrowRight,
   BarChart3,
@@ -26,16 +11,31 @@ import {
   FileText,
   KeyRound,
   LayoutDashboard,
-  Plus,
   RotateCcw,
   ShieldCheck,
   Users,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+import DashboardLayout from '@/components/DashboardLayout';
+import ProgressBar from '@/components/ProgressBar';
+import StatCard from '@/components/StatCard';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  useAdminDashboard,
+  useManualApproveOrderMutation,
+  useManualGrantCourseAccessMutation,
+  usePendingOrdersForAdmin,
+} from '@/hooks/use-platform-data';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/lib/auth-context';
+import t from '@/lib/i18n';
 
 function formatReviewDate(value: string | null | undefined) {
   if (!value) return t('page.admin_dashboard.not_available');
@@ -99,24 +99,52 @@ function getReviewStatusLabel(value: string) {
 }
 
 function getReviewStatusTone(value: string) {
-  if (value === 'published') return 'success';
-  if (value === 'under_review') return 'warning';
-  return 'muted';
+  if (value === 'published') return 'success' as const;
+  if (value === 'under_review') return 'warning' as const;
+  if (value === 'archived') return 'muted' as const;
+  return 'completed' as const;
+}
+
+function getScoreTone(value: number | null | undefined) {
+  const score = Number(value || 0);
+
+  if (score >= 80) return 'success' as const;
+  if (score >= 60) return 'warning' as const;
+  return 'danger' as const;
 }
 
 function StatRow({
   label,
   value,
-  valueClassName = 'font-medium',
+  icon,
+  tone = 'default',
 }: {
   label: string;
-  value: string | number;
-  valueClassName?: string;
+  value: ReactNode;
+  icon?: ReactNode;
+  tone?: 'default' | 'success' | 'warning' | 'primary';
 }) {
+  const toneClassName = {
+    default: 'border-border bg-surface-soft/60 text-muted-foreground',
+    success: 'border-success-muted bg-success-soft/65 text-success-foreground',
+    warning: 'border-warning-muted bg-warning-soft/65 text-warning-foreground',
+    primary: 'border-primary-muted bg-primary-soft/65 text-primary',
+  }[tone];
+
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className={`text-xs ${valueClassName}`}>{value}</span>
+    <div className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 ${toneClassName}`}>
+      <span className="inline-flex min-w-0 items-center gap-2 text-xs">
+        {icon ? (
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground">
+            {icon}
+          </span>
+        ) : null}
+        <span className="truncate">{label}</span>
+      </span>
+
+      <span className="shrink-0 text-right text-xs font-semibold text-foreground">
+        {value}
+      </span>
     </div>
   );
 }
@@ -133,18 +161,23 @@ function PanelCard({
   children: ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-            {icon}
+            {icon ? (
+              <span className="flex h-7 w-7 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+                {icon}
+              </span>
+            ) : null}
             {title}
           </CardTitle>
+
           {action}
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-3">{children}</CardContent>
+      <CardContent className="space-y-3 p-4 sm:p-5">{children}</CardContent>
     </Card>
   );
 }
@@ -154,30 +187,53 @@ function QuickActionCard({
   text,
   to,
   icon,
+  tone = 'primary',
 }: {
   title: string;
   text: string;
   to: string;
   icon: ReactNode;
+  tone?: 'primary' | 'accent' | 'success' | 'warning';
 }) {
+  const toneClassName = {
+    primary: {
+      card: 'hover:border-primary-muted hover:bg-primary-soft/60',
+      icon: 'border-primary-muted bg-primary-soft text-primary',
+    },
+    accent: {
+      card: 'hover:border-accent-muted hover:bg-accent-soft/60',
+      icon: 'border-accent-muted bg-accent-soft text-accent-foreground',
+    },
+    success: {
+      card: 'hover:border-success-muted hover:bg-success-soft/60',
+      icon: 'border-success-muted bg-success-soft text-success-foreground',
+    },
+    warning: {
+      card: 'hover:border-warning-muted hover:bg-warning-soft/60',
+      icon: 'border-warning-muted bg-warning-soft text-warning-foreground',
+    },
+  }[tone];
+
   return (
     <Link
       to={to}
-      className="group rounded-xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:shadow-md"
+      className={`group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99] ${toneClassName.card}`}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName.icon}`}
+        >
           {icon}
         </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">{title}</p>
+          <p className="text-sm font-semibold text-foreground">{title}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
         </div>
 
         <ArrowRight
           size={15}
-          className="mt-1 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+          className="mt-1 shrink-0 text-muted-foreground transition-transform duration-200 ease-soft group-hover:translate-x-0.5 group-hover:text-primary"
         />
       </div>
     </Link>
@@ -189,9 +245,9 @@ function AdminDashboardSkeleton() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-xl border bg-card p-5">
+          <div key={index} className="rounded-3xl border border-border bg-card p-5 shadow-soft">
             <div className="flex items-center gap-3">
-              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <SkeletonBlock className="h-10 w-10 rounded-2xl" />
               <div className="space-y-2">
                 <SkeletonBlock className="h-3 w-24" />
                 <SkeletonBlock className="h-6 w-14" />
@@ -203,9 +259,9 @@ function AdminDashboardSkeleton() {
 
       <div className="grid gap-3 md:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-xl border bg-card p-4">
+          <div key={index} className="rounded-3xl border border-border bg-card p-4 shadow-soft">
             <div className="flex items-start gap-3">
-              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <SkeletonBlock className="h-10 w-10 rounded-2xl" />
               <div className="flex-1 space-y-2">
                 <SkeletonBlock className="h-4 w-28" />
                 <SkeletonBlock className="h-3 w-full" />
@@ -219,12 +275,12 @@ function AdminDashboardSkeleton() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           {Array.from({ length: 3 }).map((_, cardIndex) => (
-            <div key={cardIndex} className="rounded-xl border bg-card p-5">
+            <div key={cardIndex} className="rounded-3xl border border-border bg-card p-5 shadow-soft">
               <SkeletonBlock className="h-5 w-44" />
 
               <div className="mt-5 space-y-3">
                 {Array.from({ length: 3 }).map((_, rowIndex) => (
-                  <div key={rowIndex} className="rounded-lg border p-3">
+                  <div key={rowIndex} className="rounded-3xl border border-border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-2">
                         <SkeletonBlock className="h-4 w-44" />
@@ -232,7 +288,7 @@ function AdminDashboardSkeleton() {
                         <SkeletonBlock className="h-3 w-48 max-w-full" />
                       </div>
 
-                      <SkeletonBlock className="h-9 w-24" />
+                      <SkeletonBlock className="h-9 w-24 rounded-2xl" />
                     </div>
                   </div>
                 ))}
@@ -243,14 +299,14 @@ function AdminDashboardSkeleton() {
 
         <div className="space-y-4">
           {Array.from({ length: 2 }).map((_, index) => (
-            <div key={index} className="rounded-xl border bg-card p-5">
+            <div key={index} className="rounded-3xl border border-border bg-card p-5 shadow-soft">
               <SkeletonBlock className="h-5 w-36" />
 
               <div className="mt-4 space-y-3">
-                <SkeletonBlock className="h-10 w-full rounded-lg" />
-                <SkeletonBlock className="h-10 w-full rounded-lg" />
-                <SkeletonBlock className="h-10 w-full rounded-lg" />
-                <SkeletonBlock className="h-10 w-full rounded-lg" />
+                <SkeletonBlock className="h-10 w-full rounded-2xl" />
+                <SkeletonBlock className="h-10 w-full rounded-2xl" />
+                <SkeletonBlock className="h-10 w-full rounded-2xl" />
+                <SkeletonBlock className="h-10 w-full rounded-2xl" />
               </div>
             </div>
           ))}
@@ -447,21 +503,25 @@ export default function AdminDashboard() {
                 label={t('dashboard.total_students')}
                 value={data.stats.totalStudents}
                 icon={<Users size={16} />}
+                tone="primary"
               />
               <StatCard
                 label={t('dashboard.total_courses')}
                 value={data.stats.totalCourses}
                 icon={<BookOpen size={16} />}
+                tone="success"
               />
               <StatCard
                 label={t('dashboard.total_lessons')}
                 value={data.stats.totalLessons}
                 icon={<FileText size={16} />}
+                tone="secondary"
               />
               <StatCard
                 label={t('dashboard.total_tests')}
                 value={data.stats.totalTests}
                 icon={<ClipboardList size={16} />}
+                tone="accent"
               />
             </div>
 
@@ -471,6 +531,7 @@ export default function AdminDashboard() {
                 text="Курстарды қарау, тексеру және басқару."
                 to="/manage-courses"
                 icon={<BookOpen size={18} />}
+                tone="primary"
               />
 
               <QuickActionCard
@@ -478,6 +539,7 @@ export default function AdminDashboard() {
                 text="Сабақ контентін басқару және модерациялау."
                 to="/manage-lessons"
                 icon={<FileText size={18} />}
+                tone="success"
               />
 
               <QuickActionCard
@@ -485,6 +547,7 @@ export default function AdminDashboard() {
                 text="Тесттерді қарап, жалпы контент сапасын бақылау."
                 to="/manage-tests"
                 icon={<ClipboardList size={18} />}
+                tone="accent"
               />
 
               <QuickActionCard
@@ -492,6 +555,7 @@ export default function AdminDashboard() {
                 text={`${pendingReviewsCount} review элементі бақылауда.`}
                 to="/moderation"
                 icon={<Eye size={18} />}
+                tone="warning"
               />
             </div>
 
@@ -535,7 +599,7 @@ export default function AdminDashboard() {
                       {sortedPendingOrders.map((order) => (
                         <div
                           key={order.id}
-                          className="rounded-xl border bg-card p-4 transition-colors hover:bg-accent/20"
+                          className="rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md"
                         >
                           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                             <div className="min-w-0 space-y-2">
@@ -549,7 +613,7 @@ export default function AdminDashboard() {
                                 </StatusBadge>
                               </div>
 
-                              <p className="text-base font-semibold">
+                              <p className="text-base font-semibold text-foreground">
                                 {formatMoney(order.amount, order.currency)}
                               </p>
 
@@ -562,6 +626,7 @@ export default function AdminDashboard() {
                             </div>
 
                             <Button
+                              type="button"
                               size="sm"
                               onClick={() => approveOrder(order.id)}
                               disabled={approveOrderMutation.isPending}
@@ -580,7 +645,7 @@ export default function AdminDashboard() {
                   title="Manual course access"
                   icon={<ShieldCheck size={14} />}
                 >
-                  <div className="rounded-lg border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                  <div className="rounded-3xl border border-ai-border bg-ai-soft/65 p-4 text-xs leading-5 text-muted-foreground">
                     Payment толық қосылмай тұрып, admin оқушыға ақылы немесе жабық
                     курсқа access бере алады. Бұл MVP кезеңіндегі қолмен басқару құралы.
                   </div>
@@ -590,10 +655,10 @@ export default function AdminDashboard() {
                       <Label>User ID</Label>
                       <Input
                         value={manualGrantForm.userId}
-                        onChange={(e) =>
-                          setManualGrantForm((prev) => ({
-                            ...prev,
-                            userId: e.target.value,
+                        onChange={(event) =>
+                          setManualGrantForm((previous) => ({
+                            ...previous,
+                            userId: event.target.value,
                           }))
                         }
                         placeholder="student user_id"
@@ -604,10 +669,10 @@ export default function AdminDashboard() {
                       <Label>Course ID</Label>
                       <Input
                         value={manualGrantForm.courseId}
-                        onChange={(e) =>
-                          setManualGrantForm((prev) => ({
-                            ...prev,
-                            courseId: e.target.value,
+                        onChange={(event) =>
+                          setManualGrantForm((previous) => ({
+                            ...previous,
+                            courseId: event.target.value,
                           }))
                         }
                         placeholder="course id"
@@ -619,10 +684,10 @@ export default function AdminDashboard() {
                     <Label>Себебі</Label>
                     <Input
                       value={manualGrantForm.reason}
-                      onChange={(e) =>
-                        setManualGrantForm((prev) => ({
-                          ...prev,
-                          reason: e.target.value,
+                      onChange={(event) =>
+                        setManualGrantForm((previous) => ({
+                          ...previous,
+                          reason: event.target.value,
                         }))
                       }
                       placeholder="Мысалы: қолма-қол төледі / тест үшін ашылды"
@@ -631,6 +696,7 @@ export default function AdminDashboard() {
 
                   <div className="flex justify-end">
                     <Button
+                      type="button"
                       onClick={grantManualAccess}
                       disabled={manualGrantMutation.isPending}
                     >
@@ -659,31 +725,33 @@ export default function AdminDashboard() {
                       compact
                     />
                   ) : (
-                    pendingReviews.map((review) => (
-                      <div
-                        key={review.id}
-                        className="flex items-center justify-between gap-3 rounded-lg border p-3 transition-colors hover:bg-accent"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-medium">
-                              {getContentTypeLabel(review.content_type)}
-                            </p>
+                    <div className="space-y-3">
+                      {pendingReviews.map((review) => (
+                        <div
+                          key={review.id}
+                          className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-semibold text-foreground">
+                                {getContentTypeLabel(review.content_type)}
+                              </p>
 
-                            <StatusBadge tone={getReviewStatusTone(review.status)}>
-                              {getReviewStatusLabel(review.status)}
-                            </StatusBadge>
+                              <StatusBadge tone={getReviewStatusTone(review.status)}>
+                                {getReviewStatusLabel(review.status)}
+                              </StatusBadge>
+                            </div>
+
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              {t('page.admin_dashboard.review_label')} #{review.content_id} ·{' '}
+                              {formatReviewDate(review.reviewed_at)}
+                            </p>
                           </div>
 
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            {t('page.admin_dashboard.review_label')} #{review.content_id} ·{' '}
-                            {formatReviewDate(review.reviewed_at)}
-                          </p>
+                          <ArrowRight size={14} className="text-muted-foreground" />
                         </div>
-
-                        <ArrowRight size={14} className="text-muted-foreground" />
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
                 </PanelCard>
 
@@ -700,10 +768,13 @@ export default function AdminDashboard() {
                   ) : (
                     <div className="space-y-3">
                       {subjectStats.map((subject) => (
-                        <div key={subject.name} className="rounded-lg border bg-muted/20 p-3">
-                          <div className="mb-2 flex items-start justify-between gap-3">
+                        <div
+                          key={subject.name}
+                          className="rounded-3xl border border-border bg-card p-4 shadow-soft"
+                        >
+                          <div className="mb-3 flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="line-clamp-1 text-sm font-medium">
+                              <p className="line-clamp-1 text-sm font-semibold text-foreground">
                                 {subject.name}
                               </p>
                               <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -712,12 +783,16 @@ export default function AdminDashboard() {
                               </p>
                             </div>
 
-                            <StatusBadge tone={subject.avgScore >= 70 ? 'success' : 'warning'}>
+                            <StatusBadge tone={getScoreTone(subject.avgScore)}>
                               {subject.avgScore}%
                             </StatusBadge>
                           </div>
 
-                          <ProgressBar value={subject.avgScore} size="sm" />
+                          <ProgressBar
+                            value={subject.avgScore}
+                            size="sm"
+                            tone={getScoreTone(subject.avgScore)}
+                          />
                         </div>
                       ))}
                     </div>
@@ -731,28 +806,32 @@ export default function AdminDashboard() {
                     <StatRow
                       label={t('course.status.published')}
                       value={publishedCount}
-                      valueClassName="font-medium text-emerald-700"
+                      icon={<CheckCircle2 size={13} />}
+                      tone="success"
                     />
                     <StatRow
                       label={t('page.admin_dashboard.review_status.under_review')}
                       value={underReviewCount}
-                      valueClassName="font-medium text-amber-700"
+                      icon={<Eye size={13} />}
+                      tone="warning"
                     />
                     <StatRow
                       label={t('course.status.draft')}
                       value={draftCount}
+                      icon={<FileText size={13} />}
                     />
                     <StatRow
                       label={t('course.status.archived')}
                       value={archivedCount}
+                      icon={<BookOpen size={13} />}
                     />
 
-                    <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="rounded-3xl border border-border bg-surface-soft/60 p-4">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <span className="text-xs text-muted-foreground">
                           Published ratio
                         </span>
-                        <span className="text-xs font-medium">
+                        <span className="text-xs font-semibold text-foreground">
                           {totalContentStatus > 0
                             ? Math.round((publishedCount / totalContentStatus) * 100)
                             : 0}
@@ -767,6 +846,7 @@ export default function AdminDashboard() {
                             : 0
                         }
                         size="sm"
+                        tone="success"
                       />
                     </div>
                   </div>
@@ -787,43 +867,53 @@ export default function AdminDashboard() {
                     <StatRow
                       label={t('role.student')}
                       value={data.roleCounts.students}
+                      icon={<Users size={13} />}
+                      tone="primary"
                     />
                     <StatRow
                       label={t('role.teacher')}
                       value={data.roleCounts.teachers}
+                      icon={<ShieldCheck size={13} />}
                     />
                     <StatRow
                       label={t('role.parent')}
                       value={data.roleCounts.parents}
+                      icon={<Users size={13} />}
                     />
                     <StatRow
                       label={t('role.admin')}
                       value={data.roleCounts.admins}
+                      icon={<ShieldCheck size={13} />}
+                      tone="warning"
                     />
                   </div>
                 </PanelCard>
 
                 <PanelCard title="Admin қысқаша бақылау">
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
-                      <span className="text-xs text-muted-foreground">
-                        Pending order
-                      </span>
-                      <StatusBadge tone={pendingOrdersCount > 0 ? 'warning' : 'success'}>
-                        {pendingOrdersCount}
-                      </StatusBadge>
-                    </div>
+                    <StatRow
+                      label="Pending order"
+                      value={
+                        <StatusBadge tone={pendingOrdersCount > 0 ? 'warning' : 'success'}>
+                          {pendingOrdersCount}
+                        </StatusBadge>
+                      }
+                      icon={<CreditCard size={13} />}
+                      tone={pendingOrdersCount > 0 ? 'warning' : 'success'}
+                    />
 
-                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
-                      <span className="text-xs text-muted-foreground">
-                        Review queue
-                      </span>
-                      <StatusBadge tone={pendingReviewsCount > 0 ? 'warning' : 'success'}>
-                        {pendingReviewsCount}
-                      </StatusBadge>
-                    </div>
+                    <StatRow
+                      label="Review queue"
+                      value={
+                        <StatusBadge tone={pendingReviewsCount > 0 ? 'warning' : 'success'}>
+                          {pendingReviewsCount}
+                        </StatusBadge>
+                      }
+                      icon={<Eye size={13} />}
+                      tone={pendingReviewsCount > 0 ? 'warning' : 'success'}
+                    />
 
-                    <div className="rounded-lg border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                    <div className="rounded-3xl border border-ai-border bg-ai-soft/65 p-4 text-xs leading-5 text-muted-foreground">
                       Бұл dashboard MVP admin бақылауын көрсетеді: user саны,
                       контент статусы, ақылы course access және moderation queue.
                     </div>

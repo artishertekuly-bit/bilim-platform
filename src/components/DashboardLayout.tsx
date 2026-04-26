@@ -36,6 +36,7 @@ import UserAvatar from '@/components/UserAvatar';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 import t, { type TranslationKey } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 type NavItemConfig = {
   labelKey?: TranslationKey;
@@ -51,6 +52,8 @@ type NavGroupConfig = {
   title: string;
   items: NavItemConfig[];
 };
+
+const SIDEBAR_ID = 'dashboard-sidebar';
 
 const roleTitleKeys: Record<UserRole, TranslationKey> = {
   student: 'role.student',
@@ -436,14 +439,14 @@ function flattenGroups(groups: NavGroupConfig[]) {
 function getIconToneClass(item: NavItemConfig, isActive: boolean) {
   if (isActive) {
     if (item.tone === 'ai') {
-      return 'border-ai-border bg-ai-soft text-primary shadow-sm';
+      return 'border-ai-border bg-ai-soft text-primary shadow-soft';
     }
 
     if (item.tone === 'create') {
-      return 'border-accent-muted bg-accent-soft text-accent-foreground shadow-sm';
+      return 'border-accent-muted bg-accent-soft text-accent-foreground shadow-soft';
     }
 
-    return 'border-primary-muted bg-card text-primary shadow-sm';
+    return 'border-primary-muted bg-card text-primary shadow-soft';
   }
 
   if (item.tone === 'ai') {
@@ -482,6 +485,7 @@ function ThemeToggle() {
     <div
       className="flex items-center rounded-2xl border border-border bg-card/80 p-1 shadow-soft"
       title={`Theme: ${theme} · active ${resolvedTheme}`}
+      aria-label="Theme switcher"
     >
       {items.map((item) => {
         const Icon = item.icon;
@@ -492,18 +496,15 @@ function ThemeToggle() {
             key={item.value}
             type="button"
             onClick={() => setTheme(item.value)}
-            className={`
-              inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground
-              transition-all duration-200 ease-soft
-              hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary
-              active:translate-y-0 active:scale-[0.98]
-              ${
-                active
-                  ? 'bg-primary-soft text-primary shadow-sm ring-1 ring-primary-muted'
-                  : ''
-              }
-            `}
             aria-label={item.label}
+            aria-pressed={active}
+            className={cn(
+              'inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground',
+              'transition-all duration-200 ease-soft',
+              'hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary',
+              'active:translate-y-0 active:scale-[0.98]',
+              active && 'bg-primary-soft text-primary shadow-soft ring-1 ring-primary-muted'
+            )}
           >
             <Icon size={14} />
           </button>
@@ -540,18 +541,16 @@ function SidebarSection({
             key={item.path}
             to={item.path}
             onClick={onNavigate}
-            className={`
-              group relative flex items-center gap-3 overflow-hidden rounded-2xl px-3 py-2.5 text-sm
-              transition-all duration-200 ease-soft
-              hover:-translate-y-0.5 hover:shadow-soft
-              active:translate-y-0 active:scale-[0.99]
-              ${
-                isActive
-                  ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-soft ring-1 ring-sidebar-border'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent/75 hover:text-foreground'
-              }
-            `}
             aria-current={isActive ? 'page' : undefined}
+            className={cn(
+              'group relative flex items-center gap-3 overflow-hidden rounded-2xl px-3 py-2.5 text-sm',
+              'transition-all duration-200 ease-soft',
+              'hover:-translate-y-0.5 hover:shadow-soft',
+              'active:translate-y-0 active:scale-[0.99]',
+              isActive
+                ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-soft ring-1 ring-sidebar-border'
+                : 'text-sidebar-foreground hover:bg-sidebar-accent/75 hover:text-foreground'
+            )}
           >
             {isActive ? (
               <>
@@ -561,11 +560,11 @@ function SidebarSection({
             ) : null}
 
             <span
-              className={`
-                flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border
-                transition-all duration-200 ease-soft
-                ${getIconToneClass(item, isActive)}
-              `}
+              className={cn(
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border',
+                'transition-all duration-200 ease-soft',
+                getIconToneClass(item, isActive)
+              )}
             >
               <Icon size={16} />
             </span>
@@ -606,19 +605,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     };
 
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
   }, [sidebarOpen]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
 
-    if (!sidebarOpen) {
-      document.body.style.overflow = '';
-      return;
-    }
-
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    }
 
     return () => {
       document.body.style.overflow = previousOverflow;
@@ -639,6 +639,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const displayName = useMemo(() => getDisplayName(user), [user]);
   const activeLabel = activeItem ? getNavLabel(activeItem) : t('nav.dashboard');
+  const ActiveIcon = activeItem?.icon;
 
   const handleLogout = async () => {
     setSidebarOpen(false);
@@ -662,16 +663,19 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           className="fixed inset-0 z-40 bg-foreground/15 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-label={t('common.close')}
+          aria-controls={SIDEBAR_ID}
         />
       ) : null}
 
       <aside
-        className={`
-          fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-sidebar-border
-          bg-sidebar/95 shadow-soft-lg backdrop-blur-xl
-          transition-transform duration-200 ease-soft lg:sticky lg:translate-x-0 lg:shadow-none
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        `}
+        id={SIDEBAR_ID}
+        className={cn(
+          'fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-sidebar-border',
+          'bg-sidebar/95 shadow-soft-lg backdrop-blur-xl',
+          'transition-transform duration-200 ease-soft',
+          'lg:sticky lg:translate-x-0 lg:shadow-none',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
       >
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
           <Link
@@ -698,6 +702,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             onClick={() => setSidebarOpen(false)}
             className="rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-sidebar-accent hover:text-foreground lg:hidden"
             aria-label={t('common.close')}
+            aria-controls={SIDEBAR_ID}
           >
             <X size={18} />
           </button>
@@ -722,7 +727,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-3">
+        <nav
+          className="flex-1 overflow-y-auto px-3 pb-3"
+          aria-label="Dashboard navigation"
+        >
           {navGroups.map((group) => (
             <SidebarSection
               key={group.title}
@@ -787,14 +795,16 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             onClick={() => setSidebarOpen(true)}
             className="-ml-2 mr-3 rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary lg:hidden"
             aria-label={t('common.open_menu')}
+            aria-controls={SIDEBAR_ID}
+            aria-expanded={sidebarOpen}
           >
             <Menu size={19} />
           </button>
 
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              {activeItem ? (
-                <activeItem.icon
+              {ActiveIcon ? (
+                <ActiveIcon
                   size={15}
                   className="shrink-0 text-muted-foreground"
                 />
