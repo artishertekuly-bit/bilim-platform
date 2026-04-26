@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -12,13 +11,16 @@ import {
   Check,
   Clipboard,
   Eraser,
+  Info,
   Loader2,
+  MessageCircle,
   Send,
   Sparkles,
   Trash2,
   UserRound,
 } from 'lucide-react';
 
+import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -100,7 +102,7 @@ function renderStructuredAnswer(answer: string) {
       return (
         <h4
           key={key}
-          className="mt-4 first:mt-0 text-sm font-semibold tracking-tight text-foreground"
+          className="mt-4 text-sm font-semibold tracking-tight text-foreground first:mt-0"
         >
           {normalizeMarkdownLine(line)}
         </h4>
@@ -187,14 +189,16 @@ export default function AiPromptShell({
   const hasPrompt = prompt.trim().length > 0;
   const endpointReady = Boolean(onSubmit);
   const effectiveDisabled = disabled || !endpointReady;
+  const hasConversation = messages.length > 0;
+  const hasSuggestions = suggestions.length > 0;
+  const hasCompactMeta =
+    Boolean(contextSummary?.trim()) || warnings.length > 0 || followUpPrompts.length > 0;
 
   const visibleDisabledReason =
     disabledReason ||
     (!endpointReady
       ? 'AI backend endpoint әлі қосылмаған.'
       : 'AI қазір уақытша өшірулі.');
-
-  const hasConversation = messages.length > 0;
 
   useEffect(() => {
     if (!copiedMessageId) return;
@@ -233,21 +237,23 @@ export default function AiPromptShell({
     setCopiedMessageId(null);
   };
 
-  const submitPrompt = async () => {
-    if (effectiveDisabled || isSubmitting || !hasPrompt || !onSubmit) {
+  const submitPrompt = async (overridePrompt?: string, suggestionId: string | null = null) => {
+    const promptText = (overridePrompt ?? prompt).trim();
+
+    if (effectiveDisabled || isSubmitting || !promptText || !onSubmit) {
       return;
     }
 
-    const normalizedPrompt = prompt.trim();
     const history = buildHistory(messages);
-    const userMessage = createMessage('user', normalizedPrompt);
+    const userMessage = createMessage('user', promptText);
 
+    lastAppliedAnswerRef.current = null;
     setMessages((currentMessages) => [...currentMessages, userMessage]);
     setPrompt('');
 
     await onSubmit({
-      prompt: normalizedPrompt,
-      selectedSuggestionId: null,
+      prompt: promptText,
+      selectedSuggestionId: suggestionId,
       conversationHistory: history,
     });
   };
@@ -276,14 +282,7 @@ export default function AiPromptShell({
   };
 
   return (
-    <Card
-      className="ai-soft-panel overflow-hidden"
-      data-suggestion-count={suggestions.length}
-      data-context-label={contextLabel}
-      data-context-summary={contextSummary || ''}
-      data-warning-count={warnings.length}
-      data-follow-up-count={followUpPrompts.length}
-    >
+    <Card className="ai-soft-panel overflow-hidden">
       <CardHeader className="border-b border-ai-border/70 bg-card/70 px-4 py-4 backdrop-blur sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
@@ -296,10 +295,10 @@ export default function AiPromptShell({
                 <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
 
                 {contextLabel ? (
-                  <span className="inline-flex max-w-[220px] items-center gap-1.5 truncate rounded-full border border-primary-muted bg-primary-soft px-2.5 py-1 text-[10px] font-semibold text-primary">
+                  <StatusBadge tone="ai" className="max-w-[240px] truncate">
                     <Sparkles size={11} />
                     <span className="truncate">{contextLabel}</span>
-                  </span>
+                  </StatusBadge>
                 ) : null}
               </div>
 
@@ -318,7 +317,10 @@ export default function AiPromptShell({
                   : 'border-border bg-muted text-muted-foreground'
               )}
             >
-              <Sparkles size={12} className={endpointReady && !disabled ? 'text-primary' : ''} />
+              <Sparkles
+                size={12}
+                className={endpointReady && !disabled ? 'text-primary' : ''}
+              />
               {endpointReady && !disabled ? 'AI дайын' : 'Дайын емес'}
             </span>
 
@@ -348,18 +350,90 @@ export default function AiPromptShell({
       <CardContent className="p-0">
         <form onSubmit={handleSubmit} className="flex min-h-[640px] flex-col">
           <div className="flex-1 space-y-4 overflow-y-auto bg-surface-soft/40 px-4 py-5 sm:px-5">
+            {hasCompactMeta ? (
+              <div className="rounded-3xl border border-border bg-card/85 p-4 shadow-soft">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
+                    <Info size={15} />
+                  </div>
+
+                  <div className="min-w-0 flex-1 space-y-3">
+                    {contextSummary ? (
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">
+                          Контекст қысқаша
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {contextSummary}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {warnings.length > 0 ? (
+                      <div className="space-y-1">
+                        {warnings.map((warning, index) => (
+                          <p
+                            key={`${warning}-${index}`}
+                            className="rounded-2xl border border-warning-muted bg-warning-soft/65 px-3 py-2 text-xs leading-5 text-muted-foreground"
+                          >
+                            {warning}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {followUpPrompts.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {followUpPrompts.slice(0, 4).map((followUpPrompt, index) => (
+                          <button
+                            key={`${followUpPrompt}-${index}`}
+                            type="button"
+                            disabled={effectiveDisabled || isSubmitting}
+                            onClick={() => void submitPrompt(followUpPrompt, null)}
+                            className="rounded-full border border-primary-muted bg-primary-soft px-3 py-1.5 text-[11px] font-medium text-primary transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-card disabled:pointer-events-none disabled:opacity-60"
+                          >
+                            {followUpPrompt}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             {!hasConversation && !error && !isSubmitting ? (
               <div className="flex min-h-[340px] items-center justify-center">
                 <div className="max-w-md rounded-3xl border border-dashed border-ai-border bg-card/80 px-6 py-7 text-center shadow-soft backdrop-blur">
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
-                    <Sparkles size={18} />
+                    <MessageCircle size={18} />
                   </div>
+
                   <p className="mt-3 text-sm font-semibold text-foreground">
                     AI диалог дайын
                   </p>
+
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
                     {emptyAnswerText}
                   </p>
+
+                  {hasSuggestions ? (
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      {suggestions.slice(0, 4).map((suggestion) => (
+                        <button
+                          key={suggestion.id}
+                          type="button"
+                          disabled={effectiveDisabled || isSubmitting}
+                          onClick={() =>
+                            void submitPrompt(suggestion.prompt, suggestion.id)
+                          }
+                          className="rounded-full border border-primary-muted bg-primary-soft px-3 py-1.5 text-[11px] font-medium text-primary transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-card disabled:pointer-events-none disabled:opacity-60"
+                        >
+                          {suggestion.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -398,7 +472,9 @@ export default function AiPromptShell({
                   <div className="group w-full max-w-4xl overflow-hidden rounded-3xl border border-border bg-card/95 shadow-soft">
                     <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-card/80 px-4 py-3">
                       <div>
-                        <p className="text-sm font-semibold text-foreground">{answerTitle}</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {answerTitle}
+                        </p>
                         <p className="mt-0.5 text-[11px] text-muted-foreground">
                           Диалог жалғасы бойынша жауап
                         </p>
@@ -433,11 +509,14 @@ export default function AiPromptShell({
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-destructive-muted bg-destructive-soft text-destructive shadow-soft">
                   <AlertTriangle size={15} />
                 </div>
+
                 <div className="max-w-3xl rounded-3xl border border-destructive-muted bg-destructive-soft px-4 py-3 shadow-soft">
                   <p className="text-sm font-semibold text-destructive">
                     AI жауабын алу мүмкін болмады
                   </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{error}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {error}
+                  </p>
                 </div>
               </div>
             ) : null}
@@ -447,6 +526,7 @@ export default function AiPromptShell({
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-soft">
                   <Loader2 size={15} className="animate-spin" />
                 </div>
+
                 <div className="w-full max-w-3xl rounded-3xl border border-border bg-card/90 px-4 py-4 shadow-soft">
                   <div className="space-y-3 animate-pulse">
                     <div className="h-3 w-2/3 rounded-full bg-muted" />
@@ -462,8 +542,10 @@ export default function AiPromptShell({
 
           <div className="border-t border-ai-border/70 bg-card/80 p-4 backdrop-blur sm:p-5">
             {effectiveDisabled ? (
-              <div className="mb-3 rounded-2xl border border-border bg-muted/70 px-4 py-3">
-                <p className="text-xs leading-5 text-muted-foreground">{visibleDisabledReason}</p>
+              <div className="mb-3 rounded-2xl border border-warning-muted bg-warning-soft/70 px-4 py-3">
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {visibleDisabledReason}
+                </p>
               </div>
             ) : null}
 
@@ -503,6 +585,10 @@ export default function AiPromptShell({
                 </Button>
               </div>
             </div>
+
+            <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+              Жіберу: батырма арқылы. Жылдам жіберу: Ctrl/⌘ + Enter.
+            </p>
           </div>
         </form>
       </CardContent>

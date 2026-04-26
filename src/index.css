@@ -190,7 +190,7 @@
     --shadow-soft-lg: 0 4px 8px rgb(0 0 0 / 0.26), 0 26px 58px rgb(0 0 0 / 0.34);
     --shadow-inner-soft: inset 0 1px 0 rgb(255 255 255 / 0.06);
 
-    --ornament-opacity: 0.025;
+    --ornament-opacity: 0.022;
 
     color-scheme: dark;
   }
@@ -201,23 +201,29 @@
 
   html {
     @apply scroll-smooth;
+    min-height: 100%;
+  }
+
+  body,
+  #root {
+    min-height: 100vh;
   }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    min-height: 100vh;
+    margin: 0;
     text-rendering: optimizeLegibility;
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
   }
 
-  body::selection {
+  ::selection {
     background: hsl(var(--primary-soft));
     color: hsl(var(--primary));
   }
 
-  .dark body::selection {
+  .dark ::selection {
     background: hsl(var(--primary-muted));
     color: hsl(var(--foreground));
   }
@@ -247,6 +253,14 @@
   textarea,
   select {
     @apply bg-background text-foreground placeholder:text-muted-foreground;
+  }
+
+  input:-webkit-autofill,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: hsl(var(--foreground));
+    box-shadow: 0 0 0 1000px hsl(var(--card)) inset;
+    transition: background-color 9999s ease-in-out 0s;
   }
 
   ::-webkit-scrollbar {
@@ -303,10 +317,16 @@
   }
 
   .ai-soft-panel {
-    @apply rounded-3xl border border-ai-border bg-ai-soft text-foreground shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md;
+    @apply rounded-3xl border border-ai-border bg-ai-soft text-foreground shadow-soft transition-all duration-200 ease-soft hover:border-primary-muted hover:shadow-soft-md;
     background-image:
-      radial-gradient(circle at 10% 0%, hsl(var(--primary-soft) / 0.8), transparent 34%),
-      radial-gradient(circle at 100% 20%, hsl(var(--secondary-soft) / 0.7), transparent 30%);
+      radial-gradient(circle at 10% 0%, hsl(var(--primary-soft) / 0.78), transparent 34%),
+      radial-gradient(circle at 100% 20%, hsl(var(--secondary-soft) / 0.68), transparent 30%);
+  }
+
+  .dark .ai-soft-panel {
+    background-image:
+      radial-gradient(circle at 10% 0%, hsl(var(--primary-soft) / 0.45), transparent 34%),
+      radial-gradient(circle at 100% 20%, hsl(var(--secondary-soft) / 0.32), transparent 30%);
   }
 
   .status-new {
@@ -346,6 +366,11 @@
     background-repeat: repeat;
   }
 
+  .dark .kazakh-ornament-bg::before {
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cpath d='M110 24 C133 48, 155 48, 180 24 C156 58, 156 82, 180 110 C156 88, 133 88, 110 110 C87 88, 64 88, 40 110 C64 82, 64 58, 40 24 C65 48, 87 48, 110 24Z' fill='none' stroke='%23F3F4F6' stroke-width='1'/%3E%3Ccircle cx='110' cy='68' r='8' fill='none' stroke='%23F3F4F6' stroke-width='0.8'/%3E%3Cpath d='M94 68 Q110 50 126 68 Q110 86 94 68Z' fill='none' stroke='%23F3F4F6' stroke-width='0.7'/%3E%3C/svg%3E");
+  }
+
   .kazakh-ornament-corner {
     position: relative;
     overflow: hidden;
@@ -364,6 +389,11 @@
       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='132' viewBox='0 0 132 132'%3E%3Cpath d='M12 66 Q34 32 66 12 Q98 32 120 66 Q98 100 66 120 Q34 100 12 66Z' fill='none' stroke='%231F2933' stroke-width='1.2'/%3E%3Cpath d='M34 66 Q50 44 66 34 Q82 44 98 66 Q82 88 66 98 Q50 88 34 66Z' fill='none' stroke='%231F2933' stroke-width='0.8'/%3E%3Ccircle cx='66' cy='66' r='10' fill='none' stroke='%231F2933' stroke-width='0.6'/%3E%3C/svg%3E");
     background-size: contain;
     background-repeat: no-repeat;
+  }
+
+  .dark .kazakh-ornament-corner::after {
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='132' height='132' viewBox='0 0 132 132'%3E%3Cpath d='M12 66 Q34 32 66 12 Q98 32 120 66 Q98 100 66 120 Q34 100 12 66Z' fill='none' stroke='%23F3F4F6' stroke-width='1.2'/%3E%3Cpath d='M34 66 Q50 44 66 34 Q82 44 98 66 Q82 88 66 98 Q50 88 34 66Z' fill='none' stroke='%23F3F4F6' stroke-width='0.8'/%3E%3Ccircle cx='66' cy='66' r='10' fill='none' stroke='%23F3F4F6' stroke-width='0.6'/%3E%3C/svg%3E");
   }
 }
 
@@ -386,5 +416,48 @@
 
   .soft-hover-lift {
     @apply transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:scale-[1.01] active:translate-y-0 active:scale-[0.99];
+  }
+
+  .animate-fade-in-soft {
+    animation: fade-in-soft 220ms var(--soft-motion) both;
+  }
+
+  .animate-slide-up-soft {
+    animation: slide-up-soft 260ms var(--soft-motion) both;
+  }
+}
+
+@keyframes fade-in-soft {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-up-soft {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
   }
 }

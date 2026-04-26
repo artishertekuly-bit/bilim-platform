@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -8,6 +9,7 @@ import {
 } from 'react';
 
 type Theme = 'light' | 'dark' | 'system';
+type ResolvedTheme = 'light' | 'dark';
 
 type ThemeProviderProps = {
   children: ReactNode;
@@ -17,11 +19,12 @@ type ThemeProviderProps = {
 
 type ThemeProviderState = {
   theme: Theme;
-  resolvedTheme: 'light' | 'dark';
+  resolvedTheme: ResolvedTheme;
   setTheme: (theme: Theme) => void;
 };
 
 const DEFAULT_STORAGE_KEY = 'bilim-theme';
+const DEFAULT_THEME: Theme = 'system';
 
 const ThemeProviderContext = createContext<ThemeProviderState | null>(null);
 
@@ -29,86 +32,161 @@ function isTheme(value: unknown): value is Theme {
   return value === 'light' || value === 'dark' || value === 'system';
 }
 
-function getSystemTheme(): 'light' | 'dark' {
+function canUseDom() {
+  return typeof window !== 'undefined' && typeof document !== 'undefined';
+}
+
+function getSystemTheme(): ResolvedTheme {
   if (typeof window === 'undefined') {
     return 'light';
   }
 
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  if (typeof window.matchMedia !== 'function') {
+    return 'light';
+  }
+
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+    ? 'dark'
+    : 'light';
 }
 
-function getStoredTheme(storageKey: string, defaultTheme: Theme): Theme {
+function resolveTheme(theme: Theme): ResolvedTheme {
+  return theme === 'system' ? getSystemTheme() : theme;
+}
+
+function safeGetStoredTheme(storageKey: string, defaultTheme: Theme): Theme {
   if (typeof window === 'undefined') {
     return defaultTheme;
   }
 
-  const storedTheme = window.localStorage.getItem(storageKey);
-
-  return isTheme(storedTheme) ? storedTheme : defaultTheme;
+  try {
+    const storedTheme = window.localStorage.getItem(storageKey);
+    return isTheme(storedTheme) ? storedTheme : defaultTheme;
+  } catch {
+    return defaultTheme;
+  }
 }
 
-function applyTheme(theme: Theme) {
-  if (typeof document === 'undefined') {
-    return getSystemTheme();
+function safeSetStoredTheme(storageKey: string, theme: Theme) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, theme);
+  } catch {
+    // Ignore storage errors. Theme should not break the app.
+  }
+}
+
+function applyTheme(theme: Theme): ResolvedTheme {
+  const resolvedTheme = resolveTheme(theme);
+
+  if (!canUseDom()) {
+    return resolvedTheme;
   }
 
   const root = document.documentElement;
-  const resolvedTheme = theme === 'system' ? getSystemTheme() : theme;
 
   root.classList.remove('light', 'dark');
   root.classList.add(resolvedTheme);
+
+  root.dataset.theme = resolvedTheme;
+  root.dataset.themeMode = theme;
   root.style.colorScheme = resolvedTheme;
 
   return resolvedTheme;
 }
 
+function subscribeToSystemThemeChange(callback: () => void) {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => undefined;
+  }
+
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+  if (typeof mediaQuery.addEventListener === 'function') {
+    mediaQuery.addEventListener('change', callback);
+
+    return () => {
+      mediaQuery.removeEventListener('change', callback);
+    };
+  }
+
+  mediaQuery.addListener(callback);
+
+  return () => {
+    mediaQuery.removeListener(callback);
+  };
+}
+
 export function ThemeProvider({
   children,
-  defaultTheme = 'system',
+  defaultTheme = DEFAULT_THEME,
   storageKey = DEFAULT_STORAGE_KEY,
 }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() =>
-    getStoredTheme(storageKey, defaultTheme)
+    safeGetStoredTheme(storageKey, defaultTheme)
   );
-  const [resolvedTheme, setResolvedTheme] = useState<'light' | 'dark'>(() =>
-    applyTheme(getStoredTheme(storageKey, defaultTheme))
+
+  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    applyTheme(safeGetStoredTheme(storageKey, defaultTheme))
   );
+
+  const setTheme = useCallback((nextTheme: Theme) => {
+    setThemeState(nextTheme);
+  }, []);
 
   useEffect(() => {
     const nextResolvedTheme = applyTheme(theme);
     setResolvedTheme(nextResolvedTheme);
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(storageKey, theme);
-    }
+    safeSetStoredTheme(storageKey, theme);
   }, [theme, storageKey]);
 
   useEffect(() => {
-    if (theme !== 'system' || typeof window === 'undefined') {
-      return;
+    if (theme !== 'system') {
+      return undefined;
     }
-
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
     const handleSystemThemeChange = () => {
       const nextResolvedTheme = applyTheme('system');
       setResolvedTheme(nextResolvedTheme);
     };
 
-    mediaQuery.addEventListener('change', handleSystemThemeChange);
+    return subscribeToSystemThemeChange(handleSystemThemeChange);
+  }, [theme]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key !== storageKey) {
+        return;
+      }
+
+      if (!isTheme(event.newValue)) {
+        return;
+      }
+
+      setThemeState(event.newValue);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
 
     return () => {
-      mediaQuery.removeEventListener('change', handleSystemThemeChange);
+      window.removeEventListener('storage', handleStorageChange);
     };
-  }, [theme]);
+  }, [storageKey]);
 
   const value = useMemo<ThemeProviderState>(
     () => ({
       theme,
       resolvedTheme,
-      setTheme: setThemeState,
+      setTheme,
     }),
-    [theme, resolvedTheme]
+    [theme, resolvedTheme, setTheme]
   );
 
   return (

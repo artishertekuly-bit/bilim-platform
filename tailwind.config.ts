@@ -4,10 +4,11 @@ import tailwindcssAnimate from 'tailwindcss-animate';
 export default {
   darkMode: 'class',
   content: [
-    './pages/**/*.{ts,tsx}',
-    './components/**/*.{ts,tsx}',
-    './app/**/*.{ts,tsx}',
-    './src/**/*.{ts,tsx}',
+    './index.html',
+    './pages/**/*.{js,ts,jsx,tsx}',
+    './components/**/*.{js,ts,jsx,tsx}',
+    './app/**/*.{js,ts,jsx,tsx}',
+    './src/**/*.{js,ts,jsx,tsx}',
   ],
   prefix: '',
   theme: {
@@ -176,6 +177,10 @@ export default {
           from: { opacity: '0', transform: 'translateY(4px)' },
           to: { opacity: '1', transform: 'translateY(0)' },
         },
+        'slide-up-soft': {
+          from: { opacity: '0', transform: 'translateY(10px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
         'slide-in-left': {
           from: { opacity: '0', transform: 'translateX(-10px)' },
           to: { opacity: '1', transform: 'translateX(0)' },
@@ -195,6 +200,7 @@ export default {
         'accordion-up': 'accordion-up 180ms cubic-bezier(0.22, 1, 0.36, 1)',
         'fade-in': 'fade-in 220ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
         'fade-in-soft': 'fade-in-soft 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
+        'slide-up-soft': 'slide-up-soft 260ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
         'slide-in-left': 'slide-in-left 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
         'scale-in': 'scale-in 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
         'soft-pop': 'soft-pop 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
