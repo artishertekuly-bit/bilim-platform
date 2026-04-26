@@ -4,6 +4,7 @@ import {
   BookOpen,
   CheckCircle2,
   HelpCircle,
+  ListChecks,
   RotateCcw,
   Target,
   TrendingDown,
@@ -19,7 +20,7 @@ import TeacherStudentAnalyticsPanel from '@/components/course-builder/TeacherStu
 
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined) return '—';
-  return `${value}%`;
+  return `${Math.round(value)}%`;
 }
 
 function formatNumber(value: number | null | undefined) {
@@ -28,10 +29,10 @@ function formatNumber(value: number | null | undefined) {
 }
 
 function getScoreTone(value: number | null | undefined) {
-  if (value === null || value === undefined) return 'muted';
-  if (value >= 80) return 'success';
-  if (value >= 60) return 'warning';
-  return 'danger';
+  if (value === null || value === undefined) return 'muted' as const;
+  if (value >= 80) return 'success' as const;
+  if (value >= 60) return 'warning' as const;
+  return 'danger' as const;
 }
 
 function MetricCard({
@@ -39,29 +40,55 @@ function MetricCard({
   value,
   hint,
   icon,
+  tone = 'primary',
 }: {
   label: string;
   value: string | number;
   hint?: string;
   icon: ReactNode;
+  tone?: 'primary' | 'success' | 'warning' | 'ai';
 }) {
+  const toneClassName = {
+    primary: 'border-primary-muted bg-primary-soft text-primary',
+    success: 'border-success-muted bg-success-soft text-success-foreground',
+    warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
+    ai: 'border-ai-border bg-ai-soft text-primary',
+  }[tone];
+
   return (
-    <div className="rounded-xl border bg-card p-4">
+    <div className="rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+        >
           {icon}
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-semibold">{value}</p>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
+            {value}
+          </p>
           {hint ? (
-            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+            <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
               {hint}
             </p>
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ProgressLine({ value }: { value: number | null | undefined }) {
+  const normalized = Math.max(0, Math.min(100, Math.round(value || 0)));
+
+  return (
+    <div className="h-2 overflow-hidden rounded-full border border-border bg-muted shadow-inner-soft">
+      <div
+        className="h-full rounded-full bg-primary transition-all duration-500 ease-soft"
+        style={{ width: `${normalized}%` }}
+      />
     </div>
   );
 }
@@ -83,19 +110,33 @@ export default function CourseAnalyticsPanel({
 
   return (
     <div className="space-y-4">
-      <Card id="course-analytics" className="scroll-mt-24">
-        <CardHeader className="pb-3">
+      <Card id="course-analytics" className="scroll-mt-24 overflow-hidden">
+        <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <BarChart3 size={16} />
-                Курс аналитикасы
-              </CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                  <BarChart3 size={16} />
+                  Курс аналитикасы
+                </CardTitle>
 
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                <StatusBadge tone="ai">
+                  <HelpCircle size={12} />
+                  Human + AI қолдау
+                </StatusBadge>
+
+                {snapshot ? (
+                  <StatusBadge tone="secondary">
+                    <Users size={12} />
+                    {formatNumber(snapshot.totals.students)} оқушы
+                  </StatusBadge>
+                ) : null}
+              </div>
+
+              <p className="mt-2 max-w-3xl text-xs leading-5 text-muted-foreground">
                 Бұл блок оқушыны бақыламайды. Тек оқу нәтижелері, progress және
-                quiz/test қорытындылары бойынша мұғалімге педагогикалық ұсыныс
-                береді.
+                quiz/test қорытындылары бойынша мұғалімге педагогикалық талдау
+                жасауға көмектеседі.
               </p>
             </div>
 
@@ -107,14 +148,14 @@ export default function CourseAnalyticsPanel({
               disabled={isFetching}
             >
               <RotateCcw size={14} className="mr-1.5" />
-              Жаңарту
+              {isFetching ? 'Жаңартылуда...' : 'Жаңарту'}
             </Button>
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5 p-4 sm:p-5">
           {isLoading ? (
-            <LoadingState text="Курс аналитикасы жүктелуде..." />
+            <LoadingState text="Курс аналитикасы жүктелуде..." compact />
           ) : null}
 
           {!isLoading && error ? (
@@ -126,9 +167,11 @@ export default function CourseAnalyticsPanel({
                   variant="outline"
                   onClick={() => void refetch()}
                 >
+                  <RotateCcw size={15} className="mr-2" />
                   Қайта жүктеу
                 </Button>
               }
+              compact
             />
           ) : null}
 
@@ -136,6 +179,8 @@ export default function CourseAnalyticsPanel({
             <EmptyState
               title="Аналитика әзірге жоқ"
               text="Курс бойынша деректер жиналғаннан кейін analytics осы жерде көрінеді."
+              compact
+              tone="ai"
             />
           ) : null}
 
@@ -159,6 +204,7 @@ export default function CourseAnalyticsPanel({
                   value={formatPercent(snapshot.totals.avgProgressPct)}
                   hint="Курс ішіндегі аяқталған сабақтар негізінде."
                   icon={<Target size={17} />}
+                  tone="success"
                 />
 
                 <MetricCard
@@ -166,42 +212,56 @@ export default function CourseAnalyticsPanel({
                   value={formatPercent(snapshot.totals.miniQuizPassRatePct)}
                   hint={`Attempts: ${formatNumber(snapshot.totals.miniQuizAttempts)}`}
                   icon={<CheckCircle2 size={17} />}
+                  tone="ai"
                 />
               </div>
 
               <div className="grid gap-4 xl:grid-cols-2">
-                <div className="rounded-xl border p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
+                <section className="rounded-3xl border border-border bg-card p-4 shadow-soft">
+                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="text-sm font-semibold">Mini quiz нәтижелері</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-foreground">
+                          Mini quiz нәтижелері
+                        </p>
+
+                        <StatusBadge tone={getScoreTone(snapshot.totals.miniQuizAvgScore)}>
+                          Орташа: {formatPercent(snapshot.totals.miniQuizAvgScore)}
+                        </StatusBadge>
+                      </div>
+
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
                         Қай сабақтағы mini quiz қиын екенін көруге арналған.
                       </p>
                     </div>
 
-                    <StatusBadge tone={getScoreTone(snapshot.totals.miniQuizAvgScore)}>
-                      Орташа: {formatPercent(snapshot.totals.miniQuizAvgScore)}
-                    </StatusBadge>
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
+                      <ListChecks size={17} />
+                    </div>
                   </div>
 
                   {snapshot.miniQuizzes.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
-                      Бұл курста mini quiz нәтижелері әлі жоқ. Оқушылар mini quiz
-                      тапсырғаннан кейін pass rate және орташа score осы жерде
-                      көрінеді.
-                    </div>
+                    <EmptyState
+                      title="Mini quiz нәтижелері жоқ"
+                      text="Оқушылар mini quiz тапсырғаннан кейін pass rate және орташа score осы жерде көрінеді."
+                      compact
+                      tone="ai"
+                    />
                   ) : (
                     <div className="space-y-2">
                       {snapshot.miniQuizzes.slice(0, 6).map((quiz) => (
-                        <div key={quiz.quizId} className="rounded-lg border p-3">
+                        <div
+                          key={quiz.quizId}
+                          className="rounded-3xl border border-border bg-surface-soft/55 p-3 shadow-soft"
+                        >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="line-clamp-1 text-sm font-medium">
+                              <p className="line-clamp-1 text-sm font-semibold text-foreground">
                                 {quiz.lessonTitle}
                               </p>
-                              <p className="mt-1 text-[11px] text-muted-foreground">
-                                Attempts: {quiz.attempts} · Passed: {quiz.passed} ·
-                                Failed: {quiz.failed}
+                              <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                                Attempts: {quiz.attempts} · Passed: {quiz.passed} · Failed:{' '}
+                                {quiz.failed}
                               </p>
                             </div>
 
@@ -210,11 +270,8 @@ export default function CourseAnalyticsPanel({
                             </StatusBadge>
                           </div>
 
-                          <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full bg-primary"
-                              style={{ width: `${quiz.passRatePct ?? 0}%` }}
-                            />
+                          <div className="mt-3">
+                            <ProgressLine value={quiz.passRatePct} />
                           </div>
 
                           <p className="mt-1 text-[11px] text-muted-foreground">
@@ -224,43 +281,57 @@ export default function CourseAnalyticsPanel({
                       ))}
                     </div>
                   )}
-                </div>
+                </section>
 
-                <div className="rounded-xl border p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
+                <section className="rounded-3xl border border-border bg-card p-4 shadow-soft">
+                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="text-sm font-semibold">Қиын сабақтар</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-foreground">
+                          Қиын сабақтар
+                        </p>
+
+                        <StatusBadge
+                          tone={snapshot.difficultLessons.length ? 'warning' : 'success'}
+                        >
+                          {snapshot.difficultLessons.length}
+                        </StatusBadge>
+                      </div>
+
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
                         Бұл автоматты үкім емес. Мұғалім талқылап, педагогикалық
                         шешім қабылдайды.
                       </p>
                     </div>
 
-                    <StatusBadge
-                      tone={snapshot.difficultLessons.length ? 'warning' : 'success'}
-                    >
-                      {snapshot.difficultLessons.length}
-                    </StatusBadge>
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-warning-muted bg-warning-soft text-warning-foreground shadow-inner-soft">
+                      <TrendingDown size={17} />
+                    </div>
                   </div>
 
                   {snapshot.difficultLessons.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
-                      Қазір course analytics бойынша айқын қиын сабақ байқалмайды.
-                      Дерек көбейген сайын бұл бөлім нақтырақ болады.
-                    </div>
+                    <EmptyState
+                      title="Айқын қиын сабақ байқалмайды"
+                      text="Дерек көбейген сайын бұл бөлім нақтырақ болады."
+                      compact
+                    />
                   ) : (
                     <div className="space-y-2">
                       {snapshot.difficultLessons.slice(0, 6).map((lesson) => (
-                        <div key={lesson.lessonId} className="rounded-lg border p-3">
+                        <div
+                          key={lesson.lessonId}
+                          className="rounded-3xl border border-warning-muted bg-warning-soft/50 p-3 shadow-soft"
+                        >
                           <div className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-amber-500/10 text-amber-600">
+                            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-warning-muted bg-card text-warning-foreground shadow-inner-soft">
                               <TrendingDown size={15} />
                             </div>
 
                             <div className="min-w-0 flex-1">
-                              <p className="line-clamp-1 text-sm font-medium">
+                              <p className="line-clamp-1 text-sm font-semibold text-foreground">
                                 {lesson.lessonTitle}
                               </p>
+
                               <p className="mt-1 text-xs leading-5 text-muted-foreground">
                                 {lesson.reason}
                               </p>
@@ -286,17 +357,19 @@ export default function CourseAnalyticsPanel({
                       ))}
                     </div>
                   )}
-                </div>
+                </section>
               </div>
 
-              <div className="rounded-xl border bg-muted/20 p-4">
+              <div className="rounded-3xl border border-ai-border bg-ai-soft/65 p-4 shadow-soft">
                 <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-card text-primary">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-card text-primary shadow-inner-soft">
                     <HelpCircle size={16} />
                   </div>
 
                   <div>
-                    <p className="text-sm font-semibold">Педагогикалық ескерту</p>
+                    <p className="text-sm font-semibold text-foreground">
+                      Педагогикалық ескерту
+                    </p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
                       Бұл аналитика оқушыны бақылау үшін емес, оқу нәтижесін түсіну
                       үшін қолданылады. Оқушы сабаққа кірмесе де, тақырыпты мектепте,
