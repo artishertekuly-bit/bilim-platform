@@ -6,8 +6,15 @@ import type {
 
 const DEFAULT_AI_ENDPOINT_PATH = '/api/learning-analysis';
 
+function trimTrailingSlash(value: string | undefined) {
+  return value?.trim().replace(/\/+$/, '') || '';
+}
+
 function getAiApiBaseUrl() {
-  return import.meta.env.VITE_AI_API_URL?.replace(/\/$/, '') || '';
+  return (
+    trimTrailingSlash(import.meta.env.VITE_AI_API_BASE_URL) ||
+    trimTrailingSlash(import.meta.env.VITE_AI_API_URL)
+  );
 }
 
 function getLearningAiEndpoint() {
@@ -65,7 +72,7 @@ export async function requestLearningAiAnalysis(
     return {
       ok: false,
       error:
-        'AI backend әлі қосылмаған. VITE_AI_API_URL көрсетілгеннен кейін бұл сұраныс FastAPI endpoint-ке жіберіледі.',
+        'AI backend әлі қосылмаған. Frontend env ішінде VITE_AI_API_BASE_URL көрсетілуі керек. Уақытша backward compatibility үшін VITE_AI_API_URL да оқылады.',
     };
   }
 

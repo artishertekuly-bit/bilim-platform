@@ -162,15 +162,15 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-4">
+    <div className="group rounded-2xl border bg-card/95 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
           {icon}
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-semibold">{value}</p>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="mt-1 truncate text-xl font-semibold text-foreground">{value}</p>
           {hint ? (
             <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
               {hint}
@@ -181,6 +181,7 @@ function MetricCard({
     </div>
   );
 }
+
 
 function normalizeCourseOptions(workspace: unknown): CourseOption[] {
   const raw = workspace as any;
@@ -329,6 +330,13 @@ export default function AiAssistantPage() {
     studentsFetching ||
     studentSnapshotFetching;
 
+  const topDifficultLesson = courseSnapshot?.difficultLessons[0] || null;
+  const selectedModeLabel = assistantMode === 'student' ? 'Оқушы insight' : 'Курс insight';
+  const activeScopeLabel =
+    assistantMode === 'student' && selectedStudent
+      ? `${getStudentName(selectedStudent)} · ${selectedCourse?.title || 'Курс'}`
+      : selectedCourse?.title || 'Курс таңдалмаған';
+
   const promptShell =
     assistantMode === 'student' && selectedStudent ? (
       <AiPromptShell
@@ -347,7 +355,7 @@ export default function AiAssistantPage() {
         emptyAnswerText={
           studentAi.isConfigured
             ? 'Сұрақ жазып немесе жылдам сұрақ таңдап, AI ұсыныс алуға болады.'
-            : 'AI backend әлі қосылмаған. Батырманы басқанда жүйе конфигурация қатесін көрсетеді. Кейін VITE_AI_API_URL қосылғанда осы жерге нақты жауап шығады.'
+            : 'AI backend әлі қосылмаған. Frontend env ішінде VITE_AI_API_BASE_URL көрсетілгенде нақты жауап осы жерге шығады.'
         }
       />
     ) : selectedCourse ? (
@@ -367,7 +375,7 @@ export default function AiAssistantPage() {
         emptyAnswerText={
           courseAi.isConfigured
             ? 'Сұрақ жазып немесе жылдам сұрақ таңдап, AI ұсыныс алуға болады.'
-            : 'AI backend әлі қосылмаған. Батырманы басқанда жүйе конфигурация қатесін көрсетеді. Кейін VITE_AI_API_URL қосылғанда осы жерге нақты жауап шығады.'
+            : 'AI backend әлі қосылмаған. Frontend env ішінде VITE_AI_API_BASE_URL көрсетілгенде нақты жауап осы жерге шығады.'
         }
       />
     ) : null;
@@ -398,38 +406,65 @@ export default function AiAssistantPage() {
           }
         />
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <MessageCircle size={16} />
-                Құралдың мақсаты
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm leading-7 text-muted-foreground">
-              <p>
-                AI көмекші мұғалімге курс немесе нақты оқушы бойынша оқу нәтижелерін
-                түсіндіруге көмектеседі. Қазір бұл бет AI integration алдында дайын
-                оқу деректерін көру және сұрақ сценарийін дайындау үшін жасалды.
-              </p>
-              <p>
-                Кейін AI жауап беру бөлігі қосылғанда, мұғалім “Осы оқушыға қандай
-                қайталау жоспары керек?”, “Қай сабақтарды қайта түсіндіру керек?”
-                сияқты сұрақтар қоя алады.
-              </p>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/15 via-background to-background shadow-sm">
+            <CardContent className="p-5 sm:p-6">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-3xl">
+                  <div className="inline-flex items-center gap-2 rounded-full border bg-background/80 px-3 py-1 text-[11px] font-medium text-primary shadow-sm">
+                    <MessageCircle size={12} />
+                    {selectedModeLabel}
+                  </div>
+
+                  <h2 className="mt-4 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                    Мұғалімге арналған AI жұмыс панелі
+                  </h2>
+                  <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+                    Курс немесе нақты оқушы бойынша оқу нәтижесін бір экранда қарап, AI-дан педагогикалық ұсыныс аласыз. Жауап тек таңдалған scope деректерімен шектеледі.
+                  </p>
+
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <StatusBadge tone="primary">Scope: {activeScopeLabel}</StatusBadge>
+                    <StatusBadge tone={courseAi.isConfigured || studentAi.isConfigured ? 'success' : 'warning'}>
+                      {courseAi.isConfigured || studentAi.isConfigured ? 'AI endpoint дайын' : 'Env күтілуде'}
+                    </StatusBadge>
+                    <StatusBadge tone="muted">Teacher role</StatusBadge>
+                  </div>
+                </div>
+
+                <div className="min-w-[230px] rounded-2xl border bg-background/75 p-4">
+                  <p className="text-xs font-semibold text-foreground">Негізгі сигнал</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    {topDifficultLesson
+                      ? topDifficultLesson.lessonTitle
+                      : selectedCourse
+                        ? 'Қазір курс бойынша айқын қиын сабақ белгіленбеген.'
+                        : 'Алдымен курс таңдаңыз.'}
+                  </p>
+                  {topDifficultLesson ? (
+                    <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+                      {topDifficultLesson.reason}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
+          <Card className="border-primary/10 bg-card/95 shadow-sm">
+            <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <ShieldCheck size={16} />
                 Педагогикалық шектеу
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-sm leading-7 text-muted-foreground">
-              AI оқушыға үкім шығармайды. Ол тек оқу нәтижесі бойынша талқылауға
-              арналған ұсыныс береді. Соңғы шешім мұғалімде қалады.
+            <CardContent className="space-y-3 text-xs leading-5 text-muted-foreground">
+              <p>
+                AI оқушыға үкім шығармайды және баға қоймайды. Ол тек оқу нәтижесін түсіндіруге арналған көмекші ұсыныс береді.
+              </p>
+              <div className="rounded-xl border bg-background p-3">
+                Соңғы педагогикалық шешім мұғалімде қалады; AI жауабы тек талқылау мен жоспарлау материалы.
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -474,9 +509,39 @@ export default function AiAssistantPage() {
 
         {user && !workspaceLoading && !workspaceError && courses.length > 0 ? (
           <>
-            <Card>
+            <Card className="border-primary/10 bg-card/95 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Курс таңдау</CardTitle>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <BookOpen size={16} />
+                      Курс және assistant режимі
+                    </CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Scope нақты таңдалған сайын AI жауабы да сол дерекпен шектеледі.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={assistantMode === 'course' ? 'default' : 'outline'}
+                      onClick={() => setAssistantMode('course')}
+                    >
+                      Курс insight
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={assistantMode === 'student' ? 'default' : 'outline'}
+                      onClick={() => setAssistantMode('student')}
+                      disabled={!selectedStudent}
+                    >
+                      Оқушы insight
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <select
@@ -490,7 +555,7 @@ export default function AiAssistantPage() {
                     courseAi.reset();
                     studentAi.reset();
                   }}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-11 w-full rounded-2xl border border-input bg-background px-4 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/10"
                 >
                   {courses.map((course) => (
                     <option key={course.id} value={course.id}>
@@ -636,7 +701,7 @@ export default function AiAssistantPage() {
                       Оқушы бойынша оқу деректері
                     </CardTitle>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Нақты оқушыны таңдап оқу дер, оның осы курс бойынша оқу нәтижесін көріңіз.
+                      Нақты оқушыны таңдап, оның осы курс бойынша оқу нәтижесін көріңіз.
                     </p>
                   </div>
                 </div>
@@ -695,10 +760,10 @@ export default function AiAssistantPage() {
                               setAssistantMode('student');
                               studentAi.reset();
                             }}
-                            className={`w-full rounded-xl border p-3 text-left transition-all ${
+                            className={`w-full rounded-2xl border p-3 text-left transition-all duration-200 ${
                               selectedStudentId === student.studentId
-                                ? 'border-primary/40 bg-primary/5 shadow-sm'
-                                : 'bg-card hover:-translate-y-0.5 hover:shadow-sm'
+                                ? 'border-primary/45 bg-primary/10 shadow-sm ring-1 ring-primary/15'
+                                : 'bg-card hover:-translate-y-0.5 hover:border-primary/25 hover:bg-primary/5 hover:shadow-sm'
                             }`}
                           >
                             <div className="flex items-start gap-3">
@@ -729,27 +794,6 @@ export default function AiAssistantPage() {
                     </div>
 
                     <div className="min-w-0 space-y-4">
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={assistantMode === 'course' ? 'default' : 'outline'}
-                          onClick={() => setAssistantMode('course')}
-                        >
-                          Курс бойынша
-                        </Button>
-
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={assistantMode === 'student' ? 'default' : 'outline'}
-                          onClick={() => setAssistantMode('student')}
-                          disabled={!selectedStudent}
-                        >
-                          Оқушы бойынша
-                        </Button>
-                      </div>
-
                       {!selectedStudent ? (
                         <EmptyState
                           title="Оқушы таңдалмаған"
@@ -759,7 +803,7 @@ export default function AiAssistantPage() {
 
                       {selectedStudent ? (
                         <>
-                          <div className="rounded-xl border bg-card p-4">
+                          <div className="rounded-2xl border bg-card/95 p-4 shadow-sm">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                               <div>
                                 <h3 className="text-base font-semibold">
@@ -916,7 +960,9 @@ export default function AiAssistantPage() {
               </CardContent>
             </Card>
 
-            {promptShell}
+            <div className="rounded-[1.35rem] border border-primary/10 bg-background/60 p-1 shadow-sm">
+              {promptShell}
+            </div>
           </>
         ) : null}
       </div>

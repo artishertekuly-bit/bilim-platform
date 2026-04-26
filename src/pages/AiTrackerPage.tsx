@@ -99,15 +99,15 @@ function MetricCard({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-4">
+    <div className="group rounded-2xl border bg-card/95 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-primary/10 text-primary">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
           {icon}
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-semibold">{value}</p>
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="mt-1 truncate text-xl font-semibold text-foreground">{value}</p>
           {hint ? (
             <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
               {hint}
@@ -138,6 +138,22 @@ export default function AiTrackerPage() {
     },
   });
 
+  const topRecommendation = snapshot
+    ? snapshot.recommendations.find((item) => item.priority === 'high') ||
+      snapshot.recommendations[0] ||
+      null
+    : null;
+
+  const topWeakLesson = snapshot?.weakLessons[0] || null;
+  const focusTitle =
+    topRecommendation?.title ||
+    topWeakLesson?.lessonTitle ||
+    'Оқу бағытыңыз тұрақты';
+  const focusDescription =
+    topRecommendation?.description ||
+    topWeakLesson?.reason ||
+    'Қазір айқын қиындық байқалмайды. Жоспарлы түрде келесі сабақтарды жалғастырып, mini quiz нәтижелерін бақылаңыз.';
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -150,7 +166,7 @@ export default function AiTrackerPage() {
           }
           icon={<BrainCircuit size={20} />}
           title="AI Tracker"
-          description="Оқу нәтижелеріңізге сүйеніп, қай тақырыпты қайталау керегін түсіндіретін жеке оқу трекері."
+          description="Оқу нәтижелеріңізді түсіндіріп, бүгінгі қайталау фокусын және нақты әрекет жоспарын көрсететін жеке оқу трекері."
           actions={
             <Button
               type="button"
@@ -166,43 +182,6 @@ export default function AiTrackerPage() {
             </Button>
           }
         />
-
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <MessageCircle size={16} />
-                Құралдың мақсаты
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm leading-7 text-muted-foreground">
-              <p>
-                AI Tracker оқушыны бақылауға емес, оқу нәтижесін түсіндіруге арналған.
-                Бұл құрал сабақ progress-і, mini quiz нәтижелері, сақталған сабақтар
-                және кейін қайталау белгілеріне сүйенеді.
-              </p>
-              <p>
-                Кейін AI жауап беру бөлігі қосылғанда, осы беттен “Бүгін не оқимын?”,
-                “3 күндік оқу жоспарын жаса”, “Mini quiz нәтижемді түсіндір” сияқты
-                сұрақтар қоюға болады.
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck size={16} />
-                Қауіпсіздік қағидасы
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm leading-7 text-muted-foreground">
-              Бұл бет сабаққа кіріп-шығу, бетте қанша уақыт отырғаныңыз немесе click
-              tracking сияқты бақылау деректерін қолданбайды. Тек оқу нәтижелері
-              бойынша ұсыныс береді.
-            </CardContent>
-          </Card>
-        </div>
 
         {!user ? (
           <EmptyState
@@ -237,6 +216,71 @@ export default function AiTrackerPage() {
 
         {user && !isLoading && !error && snapshot ? (
           <>
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/15 via-background to-background shadow-sm">
+                <CardContent className="p-5 sm:p-6">
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-3xl">
+                      <div className="inline-flex items-center gap-2 rounded-full border bg-background/80 px-3 py-1 text-[11px] font-medium text-primary shadow-sm">
+                        <Target size={12} />
+                        Бүгінгі оқу фокусы
+                      </div>
+
+                      <h2 className="mt-4 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                        {focusTitle}
+                      </h2>
+                      <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground">
+                        {focusDescription}
+                      </p>
+
+                      <div className="mt-5 flex flex-wrap gap-2">
+                        <StatusBadge tone={topRecommendation ? getPriorityTone(topRecommendation.priority) : 'success'}>
+                          {topRecommendation
+                            ? getPriorityLabel(topRecommendation.priority)
+                            : 'Жоспар бойынша'}
+                        </StatusBadge>
+                        <StatusBadge tone="primary">AI snapshot дайын</StatusBadge>
+                        <StatusBadge tone="muted">Click/time tracking жоқ</StatusBadge>
+                      </div>
+                    </div>
+
+                    <div className="grid min-w-[220px] gap-2 rounded-2xl border bg-background/75 p-4">
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">Progress</p>
+                        <p className="text-2xl font-semibold">
+                          {formatPercent(snapshot.totals.progressPct)}
+                        </p>
+                      </div>
+                      <div className="h-px bg-border" />
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">Mini quiz орташа</p>
+                        <p className="text-2xl font-semibold">
+                          {formatPercent(snapshot.totals.miniQuizAvgScore)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-primary/10 bg-card/95 shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <ShieldCheck size={16} />
+                    Қауіпсіз context
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-xs leading-5 text-muted-foreground">
+                  <p>
+                    AI тек оқу нәтижелерін қолданады: progress, mini quiz, сақталған сабақтар және кейін қайталау белгілері.
+                  </p>
+                  <div className="rounded-xl border bg-background p-3">
+                    Оқушыны бақылауға арналған click tracking, бетте отырған уақыт немесе жасырын behavior деректері қолданылмайды.
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard
                 label="Жалпы progress"
@@ -265,128 +309,137 @@ export default function AiTrackerPage() {
               />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-2">
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <CardTitle className="text-base">Қайталау ұсыныстары</CardTitle>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Бұл ұсыныстар оқу нәтижелеріңізге негізделеді.
-                      </p>
-                    </div>
-
-                    <StatusBadge
-                      tone={snapshot.recommendations.length ? 'warning' : 'success'}
-                    >
-                      {snapshot.recommendations.length}
-                    </StatusBadge>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="space-y-2">
-                  {snapshot.recommendations.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
-                      Қазір нақты қайталау ұсынысы жоқ. Оқуды жоспар бойынша
-                      жалғастыруға болады.
-                    </div>
-                  ) : (
-                    snapshot.recommendations.slice(0, 6).map((item) => (
-                      <div key={item.id} className="rounded-lg border p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium">{item.title}</p>
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                              {item.description}
-                            </p>
-                          </div>
-
-                          <StatusBadge tone={getPriorityTone(item.priority)}>
-                            {getPriorityLabel(item.priority)}
-                          </StatusBadge>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <CardTitle className="text-base">Қайталау керек сабақтар</CardTitle>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Mini quiz нәтижесі және кейін қайталау белгісі бойынша.
-                      </p>
-                    </div>
-
-                    <StatusBadge
-                      tone={snapshot.weakLessons.length ? 'warning' : 'success'}
-                    >
-                      {snapshot.weakLessons.length}
-                    </StatusBadge>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="space-y-2">
-                  {snapshot.weakLessons.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
-                      Қазір айқын қиын сабақ байқалмайды.
-                    </div>
-                  ) : (
-                    snapshot.weakLessons.slice(0, 6).map((lesson) => (
-                      <div key={lesson.lessonId} className="rounded-lg border p-3">
-                        <p className="text-sm font-medium">{lesson.lessonTitle}</p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          {lesson.reason}
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_470px]">
+              <div className="space-y-5">
+                <Card className="shadow-sm">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-base">Қайталау ұсыныстары</CardTitle>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Бірінші орындауға болатын нақты оқу әрекеттері.
                         </p>
-
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <StatusBadge tone={getScoreTone(lesson.miniQuizAvgScore)}>
-                            Нәтиже: {formatPercent(lesson.miniQuizAvgScore)}
-                          </StatusBadge>
-
-                          {lesson.failedAttempts > 0 ? (
-                            <StatusBadge tone="danger">
-                              Қайта тапсыру керек: {lesson.failedAttempts}
-                            </StatusBadge>
-                          ) : null}
-
-                          {lesson.reviewLater ? (
-                            <StatusBadge tone="warning">Кейін қайталау</StatusBadge>
-                          ) : null}
-                        </div>
                       </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-            </div>
 
-            <AiPromptShell
-              title="AI Tracker сұрағы"
-              description="AI осы беттегі оқу snapshot-ты ғана қолданып, сізге түсінікті ұсыныс береді."
-              placeholder="Мысалы: Маған бүгін қай тақырыпты қайталау керек?"
-              suggestions={STUDENT_AI_TRACKER_PROMPTS}
-              contextLabel="Сіздің оқу snapshot-ыңыз"
-              contextDescription="Context ретінде progress, аяқталған сабақтар, mini quiz нәтижелері, сақталған сабақтар және кейін қайталау белгілері қолданылады. Click/time tracking қолданылмайды."
-              disabled={false}
-              isSubmitting={trackerAi.isSubmitting}
-              answer={trackerAi.answer}
-              error={trackerAi.error}
-              onSubmit={trackerAi.submit}
-              answerTitle="AI Tracker жауабы"
-              emptyAnswerText={
-                trackerAi.isConfigured
-                  ? 'Сұрақ жазып немесе жылдам сұрақ таңдап, AI ұсыныс алуға болады.'
-                  : 'AI backend әлі қосылмаған. Батырманы басқанда жүйе конфигурация қатесін көрсетеді. Кейін VITE_AI_API_URL қосылғанда осы жерге нақты жауап шығады.'
-              }
-            />
+                      <StatusBadge
+                        tone={snapshot.recommendations.length ? 'warning' : 'success'}
+                      >
+                        {snapshot.recommendations.length}
+                      </StatusBadge>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-2">
+                    {snapshot.recommendations.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed bg-muted/30 p-4 text-xs leading-5 text-muted-foreground">
+                        Қазір нақты қайталау ұсынысы жоқ. Оқуды жоспар бойынша жалғастыруға болады.
+                      </div>
+                    ) : (
+                      snapshot.recommendations.slice(0, 6).map((item) => (
+                        <div
+                          key={item.id}
+                          className="rounded-2xl border bg-background p-4 transition-all hover:border-primary/25 hover:bg-primary/5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold">{item.title}</p>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                {item.description}
+                              </p>
+                            </div>
+
+                            <StatusBadge tone={getPriorityTone(item.priority)}>
+                              {getPriorityLabel(item.priority)}
+                            </StatusBadge>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="shadow-sm">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-base">Қайталау керек сабақтар</CardTitle>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Mini quiz нәтижесі және кейін қайталау белгісі бойынша.
+                        </p>
+                      </div>
+
+                      <StatusBadge
+                        tone={snapshot.weakLessons.length ? 'warning' : 'success'}
+                      >
+                        {snapshot.weakLessons.length}
+                      </StatusBadge>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-2">
+                    {snapshot.weakLessons.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed bg-muted/30 p-4 text-xs leading-5 text-muted-foreground">
+                        Қазір айқын қиын сабақ байқалмайды.
+                      </div>
+                    ) : (
+                      snapshot.weakLessons.slice(0, 6).map((lesson) => (
+                        <div
+                          key={lesson.lessonId}
+                          className="rounded-2xl border bg-background p-4 transition-all hover:border-primary/25 hover:bg-primary/5"
+                        >
+                          <p className="text-sm font-semibold">{lesson.lessonTitle}</p>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                            {lesson.reason}
+                          </p>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <StatusBadge tone={getScoreTone(lesson.miniQuizAvgScore)}>
+                              Нәтиже: {formatPercent(lesson.miniQuizAvgScore)}
+                            </StatusBadge>
+
+                            {lesson.failedAttempts > 0 ? (
+                              <StatusBadge tone="danger">
+                                Қайта тапсыру керек: {lesson.failedAttempts}
+                              </StatusBadge>
+                            ) : null}
+
+                            {lesson.reviewLater ? (
+                              <StatusBadge tone="warning">Кейін қайталау</StatusBadge>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="xl:sticky xl:top-6 xl:self-start">
+                <AiPromptShell
+                  title="AI Tracker сұрағы"
+                  description="AI осы беттегі оқу snapshot-ты ғана қолданып, түсінікті оқу жоспарын дайындайды."
+                  placeholder="Мысалы: Маған бүгін қай тақырыпты қайталау керек?"
+                  suggestions={STUDENT_AI_TRACKER_PROMPTS}
+                  contextLabel="Сіздің оқу snapshot-ыңыз"
+                  contextDescription="Context ретінде progress, аяқталған сабақтар, mini quiz нәтижелері, сақталған сабақтар және кейін қайталау белгілері қолданылады."
+                  disabled={false}
+                  isSubmitting={trackerAi.isSubmitting}
+                  answer={trackerAi.answer}
+                  error={trackerAi.error}
+                  onSubmit={trackerAi.submit}
+                  answerTitle="AI Tracker жауабы"
+                  emptyAnswerText={
+                    trackerAi.isConfigured
+                      ? 'Жылдам prompt таңдаңыз немесе өз сұрағыңызды жазыңыз. AI ұсыныс осы panel ішінде пайда болады.'
+                      : 'AI backend әлі қосылмаған. Frontend env ішінде VITE_AI_API_BASE_URL көрсетілгенде нақты жауап осы жерге шығады.'
+                  }
+                />
+              </div>
+            </div>
           </>
         ) : null}
 
-        <Card>
+        <Card className="bg-card/80">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <BarChart3 size={16} />
@@ -394,18 +447,27 @@ export default function AiTrackerPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 text-xs leading-5 text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
-            <div className="rounded-lg border p-3">
-              <p className="font-medium text-foreground">Progress</p>
+            <div className="rounded-2xl border bg-background p-4">
+              <p className="flex items-center gap-2 font-medium text-foreground">
+                <BookOpen size={14} />
+                Progress
+              </p>
               <p className="mt-1">Аяқталған сабақтар және курс progress-і</p>
             </div>
 
-            <div className="rounded-lg border p-3">
-              <p className="font-medium text-foreground">Mini quiz</p>
+            <div className="rounded-2xl border bg-background p-4">
+              <p className="flex items-center gap-2 font-medium text-foreground">
+                <CheckCircle2 size={14} />
+                Mini quiz
+              </p>
               <p className="mt-1">Mini quiz нәтижелері және қайта тапсыру белгілері</p>
             </div>
 
-            <div className="rounded-lg border p-3">
-              <p className="font-medium text-foreground">Қайталау</p>
+            <div className="rounded-2xl border bg-background p-4">
+              <p className="flex items-center gap-2 font-medium text-foreground">
+                <RotateCcw size={14} />
+                Қайталау
+              </p>
               <p className="mt-1">Сақталған сабақтар және кейін қайталау белгілері</p>
             </div>
           </CardContent>
