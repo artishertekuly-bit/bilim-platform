@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import { Card, CardContent } from '@/components/ui/card';
+
 export function BuilderStatCard({
   label,
   value,
@@ -10,17 +12,23 @@ export function BuilderStatCard({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-xl border bg-card p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-primary/10 text-primary">
-          {icon}
-        </div>
+    <Card interactive className="overflow-hidden">
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+            {icon}
+          </div>
 
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-semibold">{value}</p>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">
+              {label}
+            </p>
+            <p className="mt-0.5 truncate text-2xl font-semibold tracking-tight text-foreground">
+              {value}
+            </p>
+          </div>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

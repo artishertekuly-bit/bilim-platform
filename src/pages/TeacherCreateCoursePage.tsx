@@ -68,6 +68,7 @@ export default function TeacherCreateCoursePage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: subjects } = useSubjects();
+
   const {
     data: workspace,
     isLoading: workspaceLoading,
@@ -152,7 +153,6 @@ export default function TeacherCreateCoursePage() {
   } = useLessonMiniQuiz(editingLessonId || '', user?.id, !!editingLessonId, true);
 
   const selectedMiniQuiz = miniQuizData?.quiz || null;
-
   const subjectOptions = subjects || [];
 
   const courseStatusLabels: Record<CourseStatus, string> = {
@@ -278,6 +278,7 @@ export default function TeacherCreateCoursePage() {
   });
 
   const courseCount = workspace?.courses?.length || 0;
+
   const selectedCourseLessonCount =
     selectedCourse?.modules.reduce(
       (sum, module) => sum + (module.lessons?.length || 0),
@@ -290,285 +291,344 @@ export default function TeacherCreateCoursePage() {
 
   return (
     <DashboardLayout>
-  <div className="space-y-6 animate-fade-in">
-    <PageHeader
-      eyebrow={
-        <>
-          <LayoutDashboard size={13} />
-          Мұғалім course builder
-        </>
-      }
-      icon={<GraduationCap size={20} />}
-      title={t('page.teacher_course_builder.title')}
-      description={t('page.teacher_course_builder.subtitle')}
-      actions={
-        selectedCourse ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone={getCourseStatusTone(courseEdit.status)}>
-              {courseStatusLabels[courseEdit.status]}
-            </StatusBadge>
+      <div className="space-y-6 animate-fade-in">
+        <PageHeader
+          eyebrow={
+            <>
+              <LayoutDashboard size={13} />
+              Мұғалім course builder
+            </>
+          }
+          icon={<GraduationCap size={20} />}
+          title={t('page.teacher_course_builder.title')}
+          description={t('page.teacher_course_builder.subtitle')}
+          actions={
+            selectedCourse ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone={getCourseStatusTone(courseEdit.status)}>
+                  {courseStatusLabels[courseEdit.status]}
+                </StatusBadge>
 
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => updateCourseMutation.mutate()}
-              disabled={updateCourseMutation.isPending}
-            >
-              <Settings size={15} className="mr-2" />
-              Сақтау
-            </Button>
-          </div>
-        ) : (
-          <Button
-            type="button"
-            onClick={() => createMutation.mutate()}
-            disabled={!canCreateCourse}
-          >
-            <Plus size={15} className="mr-2" />
-            Курс құру
-          </Button>
-        )
-      }
-    />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => updateCourseMutation.mutate()}
+                  disabled={updateCourseMutation.isPending}
+                >
+                  <Settings size={15} className="mr-2" />
+                  Сақтау
+                </Button>
+              </div>
+            ) : (
+              <Button
+                type="button"
+                onClick={() => createMutation.mutate()}
+                disabled={!canCreateCourse}
+              >
+                <Plus size={15} className="mr-2" />
+                Курс құру
+              </Button>
+            )
+          }
+        />
 
-    {workspaceLoading ? <TeacherCourseBuilderSkeleton /> : null}
+        {workspaceLoading ? <TeacherCourseBuilderSkeleton /> : null}
 
-    {!workspaceLoading && workspaceError ? (
-      <ErrorState
-        text={t('page.teacher_course_builder.error')}
-        action={
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => window.location.reload()}
-          >
-            <RotateCcw size={15} className="mr-2" />
-            Қайта жүктеу
-          </Button>
-        }
-      />
-    ) : null}
-
-    {!workspaceLoading && !workspaceError ? (
-      <>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <BuilderStatCard
-            label="Курстар"
-            value={courseCount}
-            icon={<BookOpen size={17} />}
+        {!workspaceLoading && workspaceError ? (
+          <ErrorState
+            text={t('page.teacher_course_builder.error')}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                <RotateCcw size={15} className="mr-2" />
+                Қайта жүктеу
+              </Button>
+            }
           />
-          <BuilderStatCard
-            label="Модульдер"
-            value={selectedCourseModules.length}
-            icon={<FileText size={17} />}
-          />
-          <BuilderStatCard
-            label="Сабақтар"
-            value={selectedCourseLessonCount}
-            icon={<CheckCircle2 size={17} />}
-          />
-          <BuilderStatCard
-            label="Курс түрі"
-            value={selectedCourse ? getAccessTypeLabel(courseEdit.accessType) : '—'}
-            icon={<KeyRound size={17} />}
-          />
-        </div>
+        ) : null}
 
-        <CourseBuilderStepper hasSelectedCourse={!!selectedCourse} />
+        {!workspaceLoading && !workspaceError ? (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <BuilderStatCard
+                label="Курстар"
+                value={courseCount}
+                icon={<BookOpen size={17} />}
+              />
+              <BuilderStatCard
+                label="Модульдер"
+                value={selectedCourseModules.length}
+                icon={<FileText size={17} />}
+              />
+              <BuilderStatCard
+                label="Сабақтар"
+                value={selectedCourseLessonCount}
+                icon={<CheckCircle2 size={17} />}
+              />
+              <BuilderStatCard
+                label="Курс түрі"
+                value={selectedCourse ? getAccessTypeLabel(courseEdit.accessType) : '—'}
+                icon={<KeyRound size={17} />}
+              />
+            </div>
 
-        <div className="space-y-6">
-          <div className="space-y-6">
-            <CourseBasicCreateCard
-              newCourse={newCourse}
-              setNewCourse={setNewCourse}
-              subjectOptions={subjectOptions}
-              canCreateCourse={canCreateCourse}
-              creating={createMutation.isPending}
-              onCreateCourse={() => createMutation.mutate()}
-            />
+            <CourseBuilderStepper hasSelectedCourse={!!selectedCourse} />
 
-            <CourseManageList
-              courses={workspace?.courses || []}
-              selectedCourseId={selectedCourse?.id || null}
-              courseStatusLabels={courseStatusLabels}
-              onSelectCourse={seedEditFromCourse}
-            />
-          </div>
-
-          {selectedCourse ? (
             <div className="space-y-6">
-              <div className="space-y-6">
-                <CourseSettingsCard
-                  courseEdit={courseEdit}
-                  setCourseEdit={setCourseEdit}
-                  subjectOptions={subjectOptions}
-                  selectedCoursePrice={selectedCoursePrice}
-                  updating={updateCourseMutation.isPending}
-                  onSaveCourse={() => updateCourseMutation.mutate()}
-                />
+              <section className="space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-semibold tracking-tight text-foreground">
+                      1. Курс негізі
+                    </h2>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Алдымен жаңа курс жасаңыз немесе бұрынғы курсты таңдаңыз.
+                    </p>
+                  </div>
+                </div>
 
-                <div className="space-y-4">
-                  <CourseSummaryCard
-                    selectedCourse={selectedCourse}
-                    moduleCount={selectedCourseModules.length}
-                    lessonCount={selectedCourseLessonCount}
-                    accessType={courseEdit.accessType}
-                    selectedCoursePrice={selectedCoursePrice}
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+                  <CourseBasicCreateCard
+                    newCourse={newCourse}
+                    setNewCourse={setNewCourse}
+                    subjectOptions={subjectOptions}
+                    canCreateCourse={canCreateCourse}
+                    creating={createMutation.isPending}
+                    onCreateCourse={() => createMutation.mutate()}
                   />
 
-                  <CourseAnalyticsPanel courseId={selectedCourse.id} teacherId={user?.id || ''}/>
-
-                  <CourseAnnouncementsPanel
-                    announcementForm={announcementForm}
-                    setAnnouncementForm={setAnnouncementForm}
-                    editingAnnouncementId={editingAnnouncementId}
-                    courseAnnouncements={courseAnnouncements || []}
-                    courseAnnouncementsLoading={courseAnnouncementsLoading}
-                    onResetAnnouncementForm={resetAnnouncementForm}
-                    onSaveAnnouncement={handleSaveAnnouncement}
-                    onEditAnnouncement={handleEditAnnouncement}
-                    onDeleteAnnouncement={handleDeleteAnnouncement}
-                    canSaveAnnouncement={canSaveAnnouncement}
-                    creatingAnnouncement={createAnnouncementMutation.isPending}
-                    updatingAnnouncement={updateAnnouncementMutation.isPending}
-                    deletingAnnouncement={deleteAnnouncementMutation.isPending}
-                  />
-
-                  <CourseMaterialsPanel
-                    courseAssetForm={courseAssetForm}
-                    setCourseAssetForm={setCourseAssetForm}
-                    onCreateCourseAsset={handleCreateCourseAsset}
-                    canCreateCourseAsset={canCreateCourseAsset}
-                    courseAssets={courseAssets || []}
-                    courseAssetsLoading={courseAssetsLoading}
-                    deleteCourseAssetPending={deleteCourseAssetMutation.isPending}
-                    onDeleteCourseAsset={handleDeleteCourseAsset}
-                  />
-
-                  <CourseInviteCodesPanel
-                    accessType={courseEdit.accessType}
-                    inviteForm={inviteForm}
-                    setInviteForm={setInviteForm}
-                    courseInvites={courseInvites || []}
-                    courseInvitesLoading={courseInvitesLoading}
-                    createInvitePending={createInviteMutation.isPending}
-                    deactivateInvitePending={deactivateInviteMutation.isPending}
-                    onCreateInvite={handleCreateInvite}
-                    onDeactivateInvite={handleDeactivateInvite}
-                    onCopyInviteCode={copyInviteCode}
-                  />
-
-                  <CoursePublishPanel
-                    courseId={selectedCourse.id}
-                    status={courseEdit.status}
-                    pending={quickStatusMutation.isPending}
-                    onChangeStatus={(input) => quickStatusMutation.mutate(input)}
-                  />
-
-                  <CourseDangerZone
-                    deleting={deleteCourseMutation.isPending}
-                    onDeleteCourse={() => {
-                      if (window.confirm(t('page.teacher_course_builder.confirm.delete_course'))) {
-                        deleteCourseMutation.mutate(selectedCourse.id);
-                      }
-                    }}
+                  <CourseManageList
+                    courses={workspace?.courses || []}
+                    selectedCourseId={selectedCourse?.id || null}
+                    courseStatusLabels={courseStatusLabels}
+                    onSelectCourse={seedEditFromCourse}
                   />
                 </div>
-              </div>
+              </section>
 
-              <div className="space-y-6">
-                <ModuleListPanel
-                  selectedCourseModules={selectedCourseModules}
-                  moduleForm={moduleForm}
-                  setModuleForm={setModuleForm}
-                  canAddModule={canAddModule}
-                  reorderModulesPending={reorderModulesMutation.isPending}
-                  deleteModulePending={deleteModuleMutation.isPending}
-                  reorderLessonsPending={reorderLessonsMutation.isPending}
-                  deleteLessonPending={deleteLessonMutation.isPending}
-                  onAddModule={() => addModuleMutation.mutate()}
-                  onUpdateModuleTitle={(moduleId, title) =>
-                    updateModuleTitleMutation.mutate({ moduleId, title })
-                  }
-                  onReorderModule={(moduleId, direction) =>
-                    reorderModulesMutation.mutate({ moduleId, direction })
-                  }
-                  onDeleteModule={(moduleId) => deleteModuleMutation.mutate(moduleId)}
-                  onStartEditLesson={startEditLesson}
-                  onReorderLesson={(moduleId, lessonId, direction) =>
-                    reorderLessonsMutation.mutate({ moduleId, lessonId, direction })
-                  }
-                  onDeleteLesson={(input) => deleteLessonMutation.mutate(input)}
-                />
+              {selectedCourse ? (
+                <div className="space-y-6">
+                  <section className="space-y-4">
+                    <div>
+                      <h2 className="text-base font-semibold tracking-tight text-foreground">
+                        2. Курс баптаулары
+                      </h2>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Access түрі, баға, сипаттама және жариялау күйін реттеңіз.
+                      </p>
+                    </div>
 
-                <LessonEditorPanel
-                  editingLessonId={editingLessonId}
-                  lessonForm={lessonForm}
-                  setLessonForm={setLessonForm}
-                  selectedCourseModules={selectedCourseModules}
-                  getNextLessonSortOrder={getNextLessonSortOrder}
-                  canSaveLesson={canSaveLesson}
-                  onSaveLesson={() => addOrUpdateLessonMutation.mutate()}
-                  onResetLessonForm={resetLessonForm}
-                />
+                    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+                      <CourseSettingsCard
+                        courseEdit={courseEdit}
+                        setCourseEdit={setCourseEdit}
+                        subjectOptions={subjectOptions}
+                        selectedCoursePrice={selectedCoursePrice}
+                        updating={updateCourseMutation.isPending}
+                        onSaveCourse={() => updateCourseMutation.mutate()}
+                      />
 
-                <LessonMiniQuizEditor
-                  editingLessonId={editingLessonId}
-                  selectedEditingLesson={selectedEditingLesson}
-                  miniQuizLoading={miniQuizLoading}
-                  miniQuizForm={miniQuizForm}
-                  setMiniQuizForm={setMiniQuizForm}
-                  selectedMiniQuiz={selectedMiniQuiz}
-                  handleDeleteMiniQuiz={handleDeleteMiniQuiz}
-                  deleteMiniQuizPending={deleteMiniQuizMutation.isPending}
-                  handleSaveMiniQuiz={handleSaveMiniQuiz}
-                  canSaveMiniQuiz={canSaveMiniQuiz}
-                  upsertMiniQuizPending={upsertMiniQuizMutation.isPending}
-                  miniQuizQuestionForm={miniQuizQuestionForm}
-                  setMiniQuizQuestionForm={setMiniQuizQuestionForm}
-                  editingMiniQuizQuestionId={editingMiniQuizQuestionId}
-                  resetMiniQuizQuestionForm={resetMiniQuizQuestionForm}
-                  handleSaveMiniQuizQuestion={handleSaveMiniQuizQuestion}
-                  canSaveMiniQuizQuestion={canSaveMiniQuizQuestion}
-                  updateMiniQuizQuestionPending={updateMiniQuizQuestionMutation.isPending}
-                  createMiniQuizQuestionPending={createMiniQuizQuestionMutation.isPending}
-                  handleToggleMiniQuizCorrectAnswer={handleToggleMiniQuizCorrectAnswer}
-                  handleEditMiniQuizQuestion={handleEditMiniQuizQuestion}
-                  handleDeleteMiniQuizQuestion={handleDeleteMiniQuizQuestion}
-                  handleMoveMiniQuizQuestion={handleMoveMiniQuizQuestion}
-                  deleteMiniQuizQuestionPending={deleteMiniQuizQuestionMutation.isPending}
-                  reorderMiniQuizQuestionsPending={reorderMiniQuizQuestionsMutation.isPending}
-                />
+                      <div className="space-y-4">
+                        <CourseSummaryCard
+                          selectedCourse={selectedCourse}
+                          moduleCount={selectedCourseModules.length}
+                          lessonCount={selectedCourseLessonCount}
+                          accessType={courseEdit.accessType}
+                          selectedCoursePrice={selectedCoursePrice}
+                        />
 
-                <LessonAttachmentPanel
-                  editingLessonId={editingLessonId}
-                  selectedEditingLesson={selectedEditingLesson}
-                  lessonAttachmentForm={lessonAttachmentForm}
-                  setLessonAttachmentForm={setLessonAttachmentForm}
-                  handleCreateLessonAttachment={handleCreateLessonAttachment}
-                  canCreateLessonAttachment={canCreateLessonAttachment}
-                  createLessonAttachmentPending={createLessonAttachmentMutation.isPending}
-                  lessonAttachmentsLoading={lessonAttachmentsLoading}
-                  lessonAttachments={lessonAttachments || []}
-                  handleDeleteLessonAttachment={handleDeleteLessonAttachment}
-                  deleteLessonAttachmentPending={deleteLessonAttachmentMutation.isPending}
-                />
-              </div>
+                        <CourseAnalyticsPanel
+                          courseId={selectedCourse.id}
+                          teacherId={user?.id || ''}
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-4">
+                    <div>
+                      <h2 className="text-base font-semibold tracking-tight text-foreground">
+                        3. Контент және басқару
+                      </h2>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Хабарландыру, материалдар, invite code, жариялау және қауіпті әрекеттер.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <CourseAnnouncementsPanel
+                        announcementForm={announcementForm}
+                        setAnnouncementForm={setAnnouncementForm}
+                        editingAnnouncementId={editingAnnouncementId}
+                        courseAnnouncements={courseAnnouncements || []}
+                        courseAnnouncementsLoading={courseAnnouncementsLoading}
+                        onResetAnnouncementForm={resetAnnouncementForm}
+                        onSaveAnnouncement={handleSaveAnnouncement}
+                        onEditAnnouncement={handleEditAnnouncement}
+                        onDeleteAnnouncement={handleDeleteAnnouncement}
+                        canSaveAnnouncement={canSaveAnnouncement}
+                        creatingAnnouncement={createAnnouncementMutation.isPending}
+                        updatingAnnouncement={updateAnnouncementMutation.isPending}
+                        deletingAnnouncement={deleteAnnouncementMutation.isPending}
+                      />
+
+                      <CourseMaterialsPanel
+                        courseAssetForm={courseAssetForm}
+                        setCourseAssetForm={setCourseAssetForm}
+                        onCreateCourseAsset={handleCreateCourseAsset}
+                        canCreateCourseAsset={canCreateCourseAsset}
+                        courseAssets={courseAssets || []}
+                        courseAssetsLoading={courseAssetsLoading}
+                        deleteCourseAssetPending={deleteCourseAssetMutation.isPending}
+                        onDeleteCourseAsset={handleDeleteCourseAsset}
+                      />
+
+                      <CourseInviteCodesPanel
+                        accessType={courseEdit.accessType}
+                        inviteForm={inviteForm}
+                        setInviteForm={setInviteForm}
+                        courseInvites={courseInvites || []}
+                        courseInvitesLoading={courseInvitesLoading}
+                        createInvitePending={createInviteMutation.isPending}
+                        deactivateInvitePending={deactivateInviteMutation.isPending}
+                        onCreateInvite={handleCreateInvite}
+                        onDeactivateInvite={handleDeactivateInvite}
+                        onCopyInviteCode={copyInviteCode}
+                      />
+
+                      <div className="space-y-4">
+                        <CoursePublishPanel
+                          courseId={selectedCourse.id}
+                          status={courseEdit.status}
+                          pending={quickStatusMutation.isPending}
+                          onChangeStatus={(input) => quickStatusMutation.mutate(input)}
+                        />
+
+                        <CourseDangerZone
+                          deleting={deleteCourseMutation.isPending}
+                          onDeleteCourse={() => {
+                            if (
+                              window.confirm(
+                                t('page.teacher_course_builder.confirm.delete_course')
+                              )
+                            ) {
+                              deleteCourseMutation.mutate(selectedCourse.id);
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-4">
+                    <div>
+                      <h2 className="text-base font-semibold tracking-tight text-foreground">
+                        4. Модульдер және сабақтар
+                      </h2>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Курстың оқу құрылымын жасаңыз: модуль, сабақ, mini quiz және файлдар.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
+                      <ModuleListPanel
+                        selectedCourseModules={selectedCourseModules}
+                        moduleForm={moduleForm}
+                        setModuleForm={setModuleForm}
+                        canAddModule={canAddModule}
+                        reorderModulesPending={reorderModulesMutation.isPending}
+                        deleteModulePending={deleteModuleMutation.isPending}
+                        reorderLessonsPending={reorderLessonsMutation.isPending}
+                        deleteLessonPending={deleteLessonMutation.isPending}
+                        onAddModule={() => addModuleMutation.mutate()}
+                        onUpdateModuleTitle={(moduleId, title) =>
+                          updateModuleTitleMutation.mutate({ moduleId, title })
+                        }
+                        onReorderModule={(moduleId, direction) =>
+                          reorderModulesMutation.mutate({ moduleId, direction })
+                        }
+                        onDeleteModule={(moduleId) => deleteModuleMutation.mutate(moduleId)}
+                        onStartEditLesson={startEditLesson}
+                        onReorderLesson={(moduleId, lessonId, direction) =>
+                          reorderLessonsMutation.mutate({ moduleId, lessonId, direction })
+                        }
+                        onDeleteLesson={(input) => deleteLessonMutation.mutate(input)}
+                      />
+
+                      <div className="space-y-4 xl:sticky xl:top-20 xl:self-start">
+                        <LessonEditorPanel
+                          editingLessonId={editingLessonId}
+                          lessonForm={lessonForm}
+                          setLessonForm={setLessonForm}
+                          selectedCourseModules={selectedCourseModules}
+                          getNextLessonSortOrder={getNextLessonSortOrder}
+                          canSaveLesson={canSaveLesson}
+                          onSaveLesson={() => addOrUpdateLessonMutation.mutate()}
+                          onResetLessonForm={resetLessonForm}
+                        />
+
+                        <LessonMiniQuizEditor
+                          editingLessonId={editingLessonId}
+                          selectedEditingLesson={selectedEditingLesson}
+                          miniQuizLoading={miniQuizLoading}
+                          miniQuizForm={miniQuizForm}
+                          setMiniQuizForm={setMiniQuizForm}
+                          selectedMiniQuiz={selectedMiniQuiz}
+                          handleDeleteMiniQuiz={handleDeleteMiniQuiz}
+                          deleteMiniQuizPending={deleteMiniQuizMutation.isPending}
+                          handleSaveMiniQuiz={handleSaveMiniQuiz}
+                          canSaveMiniQuiz={canSaveMiniQuiz}
+                          upsertMiniQuizPending={upsertMiniQuizMutation.isPending}
+                          miniQuizQuestionForm={miniQuizQuestionForm}
+                          setMiniQuizQuestionForm={setMiniQuizQuestionForm}
+                          editingMiniQuizQuestionId={editingMiniQuizQuestionId}
+                          resetMiniQuizQuestionForm={resetMiniQuizQuestionForm}
+                          handleSaveMiniQuizQuestion={handleSaveMiniQuizQuestion}
+                          canSaveMiniQuizQuestion={canSaveMiniQuizQuestion}
+                          updateMiniQuizQuestionPending={updateMiniQuizQuestionMutation.isPending}
+                          createMiniQuizQuestionPending={createMiniQuizQuestionMutation.isPending}
+                          handleToggleMiniQuizCorrectAnswer={handleToggleMiniQuizCorrectAnswer}
+                          handleEditMiniQuizQuestion={handleEditMiniQuizQuestion}
+                          handleDeleteMiniQuizQuestion={handleDeleteMiniQuizQuestion}
+                          handleMoveMiniQuizQuestion={handleMoveMiniQuizQuestion}
+                          deleteMiniQuizQuestionPending={deleteMiniQuizQuestionMutation.isPending}
+                          reorderMiniQuizQuestionsPending={reorderMiniQuizQuestionsMutation.isPending}
+                        />
+
+                        <LessonAttachmentPanel
+                          editingLessonId={editingLessonId}
+                          selectedEditingLesson={selectedEditingLesson}
+                          lessonAttachmentForm={lessonAttachmentForm}
+                          setLessonAttachmentForm={setLessonAttachmentForm}
+                          handleCreateLessonAttachment={handleCreateLessonAttachment}
+                          canCreateLessonAttachment={canCreateLessonAttachment}
+                          createLessonAttachmentPending={createLessonAttachmentMutation.isPending}
+                          lessonAttachmentsLoading={lessonAttachmentsLoading}
+                          lessonAttachments={lessonAttachments || []}
+                          handleDeleteLessonAttachment={handleDeleteLessonAttachment}
+                          deleteLessonAttachmentPending={deleteLessonAttachmentMutation.isPending}
+                        />
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              ) : (
+                <Card className="border-dashed">
+                  <CardContent className="py-10">
+                    <EmptyState
+                      title={t('page.teacher_course_builder.empty.select_course_title')}
+                      text={t('page.teacher_course_builder.empty.select_course_text')}
+                    />
+                  </CardContent>
+                </Card>
+              )}
             </div>
-          ) : (
-            <Card>
-              <CardContent className="py-10">
-                <EmptyState
-                  title={t('page.teacher_course_builder.empty.select_course_title')}
-                  text={t('page.teacher_course_builder.empty.select_course_text')}
-                />
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </>
-    ) : null}
-  </div>
-</DashboardLayout>
+          </>
+        ) : null}
+      </div>
+    </DashboardLayout>
   );
 }

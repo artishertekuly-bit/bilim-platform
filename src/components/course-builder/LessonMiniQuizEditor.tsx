@@ -1,7 +1,8 @@
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  CheckCircle2,
   HelpCircle,
   ListChecks,
   Pencil,
@@ -45,6 +46,59 @@ export type MiniQuizQuestionFormState = {
   sortOrder: string;
 };
 
+function FieldBlock({
+  label,
+  children,
+  hint,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-semibold text-foreground">{label}</Label>
+      {children}
+      {hint ? (
+        <p className="text-[11px] leading-5 text-muted-foreground">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function EditorSection({
+  title,
+  description,
+  icon,
+  children,
+}: {
+  title: string;
+  description?: string;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-3xl border border-border bg-surface-soft/55 p-4 shadow-soft">
+      <div className="mb-4 flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
+          {icon}
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          {description ? (
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
 function MiniQuizQuestionCard({
   question,
   index,
@@ -63,52 +117,70 @@ function MiniQuizQuestionCard({
   disabled: boolean;
 }) {
   return (
-    <div className="rounded-lg border bg-card p-3 text-sm">
+    <div className="rounded-3xl border border-border bg-card p-4 text-sm shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <StatusBadge tone="info">#{question.sortOrder}</StatusBadge>
-            <StatusBadge tone={question.questionType === 'multiple_choice' ? 'warning' : 'primary'}>
+            <StatusBadge tone="muted">#{question.sortOrder}</StatusBadge>
+
+            <StatusBadge
+              tone={question.questionType === 'multiple_choice' ? 'warning' : 'primary'}
+            >
+              <HelpCircle size={12} />
               {getMiniQuizQuestionTypeLabel(question.questionType)}
             </StatusBadge>
           </div>
 
-          <p className="font-semibold">{question.questionText}</p>
+          <p className="font-semibold leading-6 text-foreground">
+            {question.questionText}
+          </p>
 
-          <div className="mt-3 space-y-1.5">
+          <div className="mt-3 space-y-2">
             {question.options.map((option, optionIndex) => {
               const isCorrect = question.correctAnswer.includes(optionIndex);
 
               return (
                 <div
                   key={`${question.id}-${optionIndex}`}
-                  className={`rounded-md border px-2.5 py-1.5 text-xs ${
-                    isCorrect ? 'border-emerald-500/30 bg-emerald-500/10' : 'bg-muted/20'
+                  className={`rounded-2xl border px-3 py-2 text-xs ${
+                    isCorrect
+                      ? 'border-success-muted bg-success-soft text-success-foreground'
+                      : 'border-border bg-muted/45 text-muted-foreground'
                   }`}
                 >
-                  <span className="font-medium">{optionIndex + 1}.</span>{' '}
+                  <span className="font-semibold">
+                    {String.fromCharCode(65 + optionIndex)}.
+                  </span>{' '}
                   <span>{option}</span>
-                  {isCorrect ? <span className="ml-2 text-emerald-700">дұрыс</span> : null}
+                  {isCorrect ? (
+                    <span className="ml-2 inline-flex items-center gap-1 font-semibold">
+                      <CheckCircle2 size={11} />
+                      дұрыс
+                    </span>
+                  ) : null}
                 </div>
               );
             })}
           </div>
 
           {question.explanation ? (
-            <p className="mt-2 whitespace-pre-line text-xs leading-5 text-muted-foreground">
-              Түсіндірме: {question.explanation}
-            </p>
+            <div className="mt-3 rounded-2xl border border-border bg-surface-soft/60 p-3">
+              <p className="text-xs font-semibold text-foreground">Түсіндірме</p>
+              <p className="mt-1 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+                {question.explanation}
+              </p>
+            </div>
           ) : null}
         </div>
 
-        <div className="flex shrink-0 flex-wrap gap-1">
+        <div className="flex shrink-0 flex-wrap gap-1.5">
           <Button
             type="button"
             variant="outline"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             disabled={index === 0 || disabled}
             onClick={() => onMove(question.id, 'up')}
+            aria-label="Сұрақты жоғары жылжыту"
           >
             <ArrowUp size={13} />
           </Button>
@@ -116,10 +188,10 @@ function MiniQuizQuestionCard({
           <Button
             type="button"
             variant="outline"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             disabled={index === total - 1 || disabled}
             onClick={() => onMove(question.id, 'down')}
+            aria-label="Сұрақты төмен жылжыту"
           >
             <ArrowDown size={13} />
           </Button>
@@ -127,10 +199,10 @@ function MiniQuizQuestionCard({
           <Button
             type="button"
             variant="outline"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             disabled={disabled}
             onClick={() => onEdit(question)}
+            aria-label="Сұрақты өңдеу"
           >
             <Pencil size={13} />
           </Button>
@@ -138,10 +210,10 @@ function MiniQuizQuestionCard({
           <Button
             type="button"
             variant="destructive"
-            size="icon"
-            className="h-8 w-8"
+            size="icon-sm"
             disabled={disabled}
             onClick={() => onDelete(question)}
+            aria-label="Сұрақты өшіру"
           >
             <Trash2 size={13} />
           </Button>
@@ -204,33 +276,80 @@ export function LessonMiniQuizEditor({
   deleteMiniQuizQuestionPending: boolean;
   reorderMiniQuizQuestionsPending: boolean;
 }) {
+  const hasSelectedLesson = Boolean(editingLessonId && selectedEditingLesson);
+  const isEditingQuestion = Boolean(editingMiniQuizQuestionId);
+  const savingQuestion = updateMiniQuizQuestionPending || createMiniQuizQuestionPending;
+  const questionActionLabel = isEditingQuestion
+    ? updateMiniQuizQuestionPending
+      ? 'Жаңартылуда...'
+      : 'Сұрақты жаңарту'
+    : createMiniQuizQuestionPending
+      ? 'Қосылуда...'
+      : 'Сұрақ қосу';
+
   return (
-    <Card id="lesson-mini-quiz" className="scroll-mt-24">
-      <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          <ListChecks size={16} />
-          Lesson Mini Quiz
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Сабақ соңында оқушыға қысқа тексеру тестін көрсетіңіз. Бір сабаққа бір mini quiz беріледі.
-        </p>
+    <Card id="lesson-mini-quiz" className="scroll-mt-24 overflow-hidden">
+      <CardHeader className="border-b border-ai-border/70 bg-card/80 pb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <ListChecks size={16} />
+                Lesson Mini Quiz
+              </CardTitle>
+
+              <StatusBadge tone="ai">
+                <HelpCircle size={12} />
+                Қысқа тексеріс
+              </StatusBadge>
+
+              {selectedMiniQuiz ? (
+                <StatusBadge tone={selectedMiniQuiz.isPublished ? 'success' : 'completed'}>
+                  {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Draft'}
+                </StatusBadge>
+              ) : null}
+            </div>
+
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
+              Сабақ соңында оқушыға қысқа тексеру тестін көрсетіңіз. Бір сабаққа
+              бір mini quiz беріледі.
+            </p>
+          </div>
+        </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
-        {!editingLessonId || !selectedEditingLesson ? (
-          <div className="rounded-lg border bg-muted/40 p-4 text-sm text-muted-foreground">
-            Mini quiz қосу үшін алдымен бар сабақты таңдаңыз немесе жаңа сабақты сақтаңыз.
+      <CardContent className="space-y-5 p-4 sm:p-5">
+        {!hasSelectedLesson ? (
+          <div className="rounded-3xl border border-dashed border-ai-border bg-ai-soft/65 p-4 text-sm text-muted-foreground">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-card text-primary shadow-inner-soft">
+                <ListChecks size={17} />
+              </div>
+
+              <div>
+                <p className="font-semibold text-foreground">
+                  Сабақ таңдалмаған
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Mini quiz қосу үшін алдымен бар сабақты таңдаңыз немесе жаңа
+                  сабақты сақтаңыз.
+                </p>
+              </div>
+            </div>
           </div>
         ) : (
           <>
             {miniQuizLoading ? (
-              <LoadingState text="Mini quiz жүктелуде..." />
+              <LoadingState text="Mini quiz жүктелуде..." compact />
             ) : null}
 
-            <div className="space-y-3 rounded-lg border p-3">
+            <EditorSection
+              title="Mini quiz баптаулары"
+              description="Quiz атауы, өту пайызы және оқушыға көріну күйі."
+              icon={<ListChecks size={17} />}
+            >
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
-                <div className="space-y-1.5">
-                  <Label>Mini quiz атауы</Label>
+                <FieldBlock label="Mini quiz атауы">
                   <Input
                     value={miniQuizForm.title}
                     onChange={(e) =>
@@ -238,10 +357,9 @@ export function LessonMiniQuizEditor({
                     }
                     placeholder="Мысалы: Сабақ бойынша қысқа тексеру"
                   />
-                </div>
+                </FieldBlock>
 
-                <div className="space-y-1.5">
-                  <Label>Өту пайызы</Label>
+                <FieldBlock label="Өту пайызы" hint="0–100 аралығында көрсетіңіз.">
                   <Input
                     type="number"
                     min={0}
@@ -254,11 +372,10 @@ export function LessonMiniQuizEditor({
                       }))
                     }
                   />
-                </div>
+                </FieldBlock>
               </div>
 
-              <div className="space-y-1.5">
-                <Label>Сипаттама</Label>
+              <FieldBlock label="Сипаттама">
                 <Textarea
                   rows={2}
                   value={miniQuizForm.description}
@@ -267,23 +384,36 @@ export function LessonMiniQuizEditor({
                   }
                   placeholder="Қысқаша нұсқаулық немесе түсіндірме"
                 />
-              </div>
+              </FieldBlock>
 
-              <div className="flex items-center justify-between rounded-lg border px-3 py-2">
-                <div>
-                  <Label htmlFor="mini-quiz-published">Оқушыға көрсету</Label>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Publish қосылса, quiz сабақ detail бетінде көрінеді.
-                  </p>
+              <div
+                className={`rounded-3xl border p-4 transition-all duration-200 ease-soft ${
+                  miniQuizForm.isPublished
+                    ? 'border-success-muted bg-success-soft/70'
+                    : 'border-border bg-card/75'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <Label
+                      htmlFor="mini-quiz-published"
+                      className="text-sm font-semibold text-foreground"
+                    >
+                      Оқушыға көрсету
+                    </Label>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Publish қосылса, quiz сабақ detail бетінде көрінеді.
+                    </p>
+                  </div>
+
+                  <Switch
+                    id="mini-quiz-published"
+                    checked={miniQuizForm.isPublished}
+                    onCheckedChange={(checked) =>
+                      setMiniQuizForm((p) => ({ ...p, isPublished: checked }))
+                    }
+                  />
                 </div>
-
-                <Switch
-                  id="mini-quiz-published"
-                  checked={miniQuizForm.isPublished}
-                  onCheckedChange={(checked) =>
-                    setMiniQuizForm((p) => ({ ...p, isPublished: checked }))
-                  }
-                />
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -301,28 +431,23 @@ export function LessonMiniQuizEditor({
 
                 <Button
                   type="button"
+                  variant="ai"
                   onClick={handleSaveMiniQuiz}
-                  disabled={!canSaveMiniQuiz}
+                  disabled={!canSaveMiniQuiz || upsertMiniQuizPending}
                 >
                   <Save size={14} className="mr-1.5" />
                   {upsertMiniQuizPending ? 'Сақталуда...' : 'Mini quiz сақтау'}
                 </Button>
               </div>
-            </div>
+            </EditorSection>
 
-            <div className="space-y-3 rounded-lg border p-3">
-              <div className="flex flex-col gap-1">
-                <p className="text-sm font-semibold">
-                  {editingMiniQuizQuestionId ? 'Сұрақты өңдеу' : 'Жаңа сұрақ'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Дұрыс жауап индекс арқылы емес, checkbox/radio арқылы таңдалады.
-                </p>
-              </div>
-
+            <EditorSection
+              title={isEditingQuestion ? 'Сұрақты өңдеу' : 'Жаңа сұрақ'}
+              description="Дұрыс жауап индекс арқылы емес, checkbox/radio арқылы таңдалады."
+              icon={<HelpCircle size={17} />}
+            >
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_120px]">
-                <div className="space-y-1.5">
-                  <Label>Сұрақ мәтіні</Label>
+                <FieldBlock label="Сұрақ мәтіні">
                   <Input
                     value={miniQuizQuestionForm.questionText}
                     onChange={(e) =>
@@ -333,10 +458,9 @@ export function LessonMiniQuizEditor({
                     }
                     placeholder="Мысалы: Бұл тақырыптың негізгі ұғымы қандай?"
                   />
-                </div>
+                </FieldBlock>
 
-                <div className="space-y-1.5">
-                  <Label>Сұрақ түрі</Label>
+                <FieldBlock label="Сұрақ түрі">
                   <select
                     value={miniQuizQuestionForm.questionType}
                     onChange={(e) =>
@@ -346,7 +470,7 @@ export function LessonMiniQuizEditor({
                         correctAnswer: [],
                       }))
                     }
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground shadow-inner-soft outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
                   >
                     {miniQuizQuestionTypes.map((type) => (
                       <option key={type} value={type}>
@@ -354,10 +478,9 @@ export function LessonMiniQuizEditor({
                       </option>
                     ))}
                   </select>
-                </div>
+                </FieldBlock>
 
-                <div className="space-y-1.5">
-                  <Label>Реті</Label>
+                <FieldBlock label="Реті">
                   <Input
                     type="number"
                     min={1}
@@ -369,49 +492,73 @@ export function LessonMiniQuizEditor({
                       }))
                     }
                   />
-                </div>
+                </FieldBlock>
               </div>
 
               <div className="space-y-2">
-                <Label>Жауап нұсқалары</Label>
-                {miniQuizQuestionForm.options.map((option, optionIndex) => {
-                  const checked = miniQuizQuestionForm.correctAnswer.includes(optionIndex);
-                  const inputType =
-                    miniQuizQuestionForm.questionType === 'single_choice'
-                      ? 'radio'
-                      : 'checkbox';
+                <Label className="text-xs font-semibold text-foreground">
+                  Жауап нұсқалары
+                </Label>
 
-                  return (
-                    <div key={optionIndex} className="flex items-center gap-2">
-                      <input
-                        type={inputType}
-                        name="mini-quiz-correct-answer"
-                        checked={checked}
-                        onChange={() => handleToggleMiniQuizCorrectAnswer(optionIndex)}
-                        className="h-4 w-4"
-                      />
-                      <Input
-                        value={option}
-                        onChange={(e) =>
-                          setMiniQuizQuestionForm((p) => {
-                            const nextOptions = [...p.options];
-                            nextOptions[optionIndex] = e.target.value;
+                <div className="space-y-2">
+                  {miniQuizQuestionForm.options.map((option, optionIndex) => {
+                    const checked =
+                      miniQuizQuestionForm.correctAnswer.includes(optionIndex);
+                    const inputType =
+                      miniQuizQuestionForm.questionType === 'single_choice'
+                        ? 'radio'
+                        : 'checkbox';
 
-                            return {
-                              ...p,
-                              options: nextOptions,
-                            };
-                          })
-                        }
-                        placeholder={`Жауап ${optionIndex + 1}`}
-                      />
-                    </div>
-                  );
-                })}
+                    return (
+                      <div
+                        key={optionIndex}
+                        className={`flex items-center gap-3 rounded-2xl border p-2 transition-all duration-200 ease-soft ${
+                          checked
+                            ? 'border-success-muted bg-success-soft/70'
+                            : 'border-border bg-card/75'
+                        }`}
+                      >
+                        <input
+                          type={inputType}
+                          name="mini-quiz-correct-answer"
+                          checked={checked}
+                          onChange={() => handleToggleMiniQuizCorrectAnswer(optionIndex)}
+                          className="h-4 w-4 accent-primary"
+                        />
+
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-xs font-semibold text-muted-foreground">
+                          {String.fromCharCode(65 + optionIndex)}
+                        </div>
+
+                        <Input
+                          value={option}
+                          onChange={(e) =>
+                            setMiniQuizQuestionForm((p) => {
+                              const nextOptions = [...p.options];
+                              nextOptions[optionIndex] = e.target.value;
+
+                              return {
+                                ...p,
+                                options: nextOptions,
+                              };
+                            })
+                          }
+                          placeholder={`Жауап ${optionIndex + 1}`}
+                        />
+
+                        {checked ? (
+                          <StatusBadge tone="success">
+                            <CheckCircle2 size={12} />
+                            Дұрыс
+                          </StatusBadge>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label>Түсіндірме</Label>
+              <FieldBlock label="Түсіндірме">
                 <Textarea
                   rows={2}
                   value={miniQuizQuestionForm.explanation}
@@ -423,7 +570,7 @@ export function LessonMiniQuizEditor({
                   }
                   placeholder="Оқушы жауап бергеннен кейін көретін қысқаша түсіндірме"
                 />
-              </div>
+              </FieldBlock>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 {editingMiniQuizQuestionId ? (
@@ -440,40 +587,51 @@ export function LessonMiniQuizEditor({
                 <Button
                   type="button"
                   onClick={handleSaveMiniQuizQuestion}
-                  disabled={!canSaveMiniQuizQuestion}
+                  disabled={!canSaveMiniQuizQuestion || savingQuestion}
                 >
                   <HelpCircle size={14} className="mr-1.5" />
-                  {editingMiniQuizQuestionId
-                    ? updateMiniQuizQuestionPending
-                      ? 'Жаңартылуда...'
-                      : 'Сұрақты жаңарту'
-                    : createMiniQuizQuestionPending
-                      ? 'Қосылуда...'
-                      : 'Сұрақ қосу'}
+                  {questionActionLabel}
                 </Button>
               </div>
-            </div>
+            </EditorSection>
 
             {!miniQuizLoading && !selectedMiniQuiz ? (
               <EmptyState
                 title="Mini quiz әлі сақталмаған"
-                text="Алдымен quiz баптауларын сақтаңыз немесе бірден сұрақ қосыңыз."
+                text="Алдымен quiz баптауларын сақтаңыз. Содан кейін сұрақтарды толық басқаруға болады."
+                compact
+                tone="ai"
               />
             ) : null}
 
             {selectedMiniQuiz ? (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge tone={selectedMiniQuiz.isPublished ? 'success' : 'warning'}>
-                      {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Draft'}
-                    </StatusBadge>
-                    <StatusBadge tone="info">
-                      {selectedMiniQuiz.questionsCount} сұрақ
-                    </StatusBadge>
-                    <StatusBadge tone="muted">
-                      Өту: {selectedMiniQuiz.passingScore}%
-                    </StatusBadge>
+              <section className="space-y-3">
+                <div className="rounded-3xl border border-border bg-surface-soft/60 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        Quiz сұрақтары
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Сұрақтарды реттеңіз, өңдеңіз немесе өшіріңіз.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge
+                        tone={selectedMiniQuiz.isPublished ? 'success' : 'completed'}
+                      >
+                        {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Draft'}
+                      </StatusBadge>
+
+                      <StatusBadge tone="secondary">
+                        {selectedMiniQuiz.questionsCount} сұрақ
+                      </StatusBadge>
+
+                      <StatusBadge tone="muted">
+                        Өту: {selectedMiniQuiz.passingScore}%
+                      </StatusBadge>
+                    </div>
                   </div>
                 </div>
 
@@ -481,6 +639,8 @@ export function LessonMiniQuizEditor({
                   <EmptyState
                     title="Сұрақ жоқ"
                     text="Mini quiz оқушыға пайдалы болуы үшін кемінде бір сұрақ қосыңыз."
+                    compact
+                    tone="ai"
                   />
                 ) : (
                   <div className="space-y-2">
@@ -493,12 +653,15 @@ export function LessonMiniQuizEditor({
                         onEdit={handleEditMiniQuizQuestion}
                         onDelete={handleDeleteMiniQuizQuestion}
                         onMove={handleMoveMiniQuizQuestion}
-                        disabled={deleteMiniQuizQuestionPending || reorderMiniQuizQuestionsPending}
+                        disabled={
+                          deleteMiniQuizQuestionPending ||
+                          reorderMiniQuizQuestionsPending
+                        }
                       />
                     ))}
                   </div>
                 )}
-              </div>
+              </section>
             ) : null}
           </>
         )}
