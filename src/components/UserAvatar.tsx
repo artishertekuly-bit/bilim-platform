@@ -55,9 +55,10 @@ export default function UserAvatar({
   return (
     <Avatar
       className={cn(
-        'overflow-hidden rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft',
+        'overflow-hidden border border-primary-muted bg-primary-soft text-primary shadow-inner-soft',
         'transition-all duration-200 ease-soft',
-        className
+        className,
+        'rounded-full'
       )}
     >
       {showImage ? (
@@ -65,7 +66,7 @@ export default function UserAvatar({
           key={normalizedAvatarUrl}
           src={normalizedAvatarUrl || undefined}
           alt={name ? `${name} avatar` : 'User avatar'}
-          className="h-full w-full object-cover"
+          className="h-full w-full rounded-full object-cover"
           referrerPolicy="no-referrer"
           onError={() => setImageError(true)}
         />
@@ -73,7 +74,7 @@ export default function UserAvatar({
 
       <AvatarFallback
         className={cn(
-          'h-full w-full rounded-2xl bg-primary-soft text-xs font-semibold text-primary',
+          'h-full w-full rounded-full bg-primary-soft text-xs font-semibold text-primary',
           fallbackClassName
         )}
       >

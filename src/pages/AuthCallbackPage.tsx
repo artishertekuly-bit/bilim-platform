@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
+import {
+  AlertTriangle,
+  ArrowRight,
+  GraduationCap,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 
+import KazakhOrnament from '@/components/KazakhOrnament';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 
@@ -119,10 +129,35 @@ function needsPasswordSetup(session: Session | null) {
   return hasGoogleIdentity(session);
 }
 
+function AuthCallbackShell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background p-6">
+      <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary-soft blur-3xl" />
+      <div className="pointer-events-none absolute right-0 top-24 h-72 w-72 rounded-full bg-secondary-soft blur-3xl" />
+      <div className="pointer-events-none absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-accent-soft blur-3xl" />
+
+      <div className="absolute left-8 top-8 hidden text-primary/60 lg:block">
+        <KazakhOrnament variant="corner" />
+      </div>
+
+      <div className="absolute bottom-8 right-8 hidden rotate-180 text-primary/60 lg:block">
+        <KazakhOrnament variant="corner" />
+      </div>
+
+      <div className="relative w-full max-w-md">{children}</div>
+    </div>
+  );
+}
+
 export default function AuthCallbackPage() {
   const navigate = useNavigate();
   const { refreshUser } = useAuth();
   const processedRef = useRef(false);
+
   const [error, setError] = useState('');
   const [message, setMessage] = useState('Google арқылы кіру аяқталуда...');
 
@@ -199,7 +234,9 @@ export default function AuthCallbackPage() {
           data: { session: refreshedSession },
         } = await supabase.auth.getSession();
 
-        const mustSetupPassword = needsPasswordSetup(refreshedSession || currentSession);
+        const mustSetupPassword = needsPasswordSetup(
+          refreshedSession || currentSession
+        );
 
         if (!cancelled) {
           navigate(
@@ -229,34 +266,100 @@ export default function AuthCallbackPage() {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background p-6">
-        <div className="w-full max-w-md rounded-xl border bg-card p-6 shadow-sm">
-          <h1 className="text-lg font-semibold">Google арқылы кіру қатесі</h1>
+      <AuthCallbackShell>
+        <div className="overflow-hidden rounded-3xl border border-destructive-muted bg-card shadow-soft-lg">
+          <div className="border-b border-destructive-muted/70 bg-destructive-soft/80 px-5 py-5">
+            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-destructive-muted bg-card text-destructive shadow-inner-soft">
+              <AlertTriangle size={22} />
+            </div>
 
-          <p className="mt-2 text-sm text-red-600">{error}</p>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-destructive-muted bg-destructive-soft px-3 py-1 text-xs font-semibold text-destructive">
+              <AlertTriangle size={12} />
+              OAuth error
+            </div>
 
-          <button
-            type="button"
-            onClick={() => navigate('/login', { replace: true })}
-            className="mt-4 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"
-          >
-            Кіру бетіне оралу
-          </button>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">
+              Google арқылы кіру қатесі
+            </h1>
+
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Авторизацияны аяқтау мүмкін болмады.
+            </p>
+          </div>
+
+          <div className="space-y-4 p-5">
+            <div className="rounded-3xl border border-destructive-muted bg-destructive-soft/75 p-4 text-sm leading-6 text-destructive">
+              {error}
+            </div>
+
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => navigate('/login', { replace: true })}
+            >
+              Кіру бетіне оралу
+              <ArrowRight size={15} className="ml-2" />
+            </Button>
+          </div>
         </div>
-      </div>
+      </AuthCallbackShell>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-3 rounded-xl border bg-card p-6 shadow-sm">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted border-b-foreground" />
+    <AuthCallbackShell>
+      <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft-lg">
+        <div className="relative overflow-hidden border-b border-border/70 bg-card/80 px-5 py-5 text-center">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full bg-primary-soft blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 left-10 h-32 w-32 rounded-full bg-secondary-soft blur-3xl" />
 
-        <div className="text-center">
-          <p className="text-sm font-medium">Авторизация</p>
-          <p className="mt-1 text-sm text-muted-foreground">{message}</p>
+          <div className="relative">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+              <Loader2 size={26} className="animate-spin" />
+            </div>
+
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-ai-border bg-ai-soft px-3 py-1 text-xs font-semibold text-primary">
+              <Sparkles size={12} />
+              Google OAuth
+            </div>
+
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">
+              Авторизация
+            </h1>
+
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {message}
+            </p>
+          </div>
+        </div>
+
+        <div className="p-5">
+          <div className="rounded-3xl border border-ai-border bg-ai-soft/80 p-4 shadow-inner-soft">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-card text-primary shadow-inner-soft">
+                <ShieldCheck size={18} />
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  Сессия қауіпсіз тексеріліп жатыр
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Google жауап беріп болған соң, профиль, рөл және password setup
+                  күйі тексеріледі.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <KazakhOrnament variant="divider" className="my-5" />
+
+          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <GraduationCap size={13} />
+            Bilimcorp Soft Academic LMS
+          </div>
         </div>
       </div>
-    </div>
+    </AuthCallbackShell>
   );
 }
