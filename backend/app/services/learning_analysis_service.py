@@ -9,7 +9,10 @@ from app.schemas.learning_analysis import (
 )
 
 
-def _validate_request_contract(payload: LearningAiRequest) -> None:
+def _validate_request_contract(
+    payload: LearningAiRequest,
+    current_user_id: str,
+) -> None:
     prompt = payload.prompt.strip()
 
     if not prompt:
@@ -20,20 +23,6 @@ def _validate_request_contract(payload: LearningAiRequest) -> None:
 
     scope = payload.scope
 
-    if payload.mode == LearningAiMode.teacher_course_assistant:
-        if not scope or not scope.course_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Курс бойынша AI көмекші үшін courseId қажет.",
-            )
-
-    if payload.mode == LearningAiMode.teacher_student_assistant:
-        if not scope or not scope.course_id or not scope.student_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Оқушы бойынша AI көмекші үшін courseId және studentId қажет.",
-            )
-
     if payload.mode == LearningAiMode.student_tracker:
         if payload.role != "student":
             raise HTTPException(
@@ -41,24 +30,51 @@ def _validate_request_contract(payload: LearningAiRequest) -> None:
                 detail="AI Tracker тек оқушы режиміне арналған.",
             )
 
-    if payload.mode in {
-        LearningAiMode.teacher_course_assistant,
-        LearningAiMode.teacher_student_assistant,
-    }:
+        requested_student_id = scope.student_id if scope else None
+
+        if requested_student_id and requested_student_id != current_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="AI Tracker тек өз оқу деректеріңіз бойынша жұмыс істейді.",
+            )
+
+    if payload.mode == LearningAiMode.teacher_course_assistant:
         if payload.role != "teacher":
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="AI көмекші тек мұғалім режиміне арналған.",
             )
 
+        if not scope or not scope.course_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Курс бойынша AI көмекші үшін courseId қажет.",
+            )
 
-def _resolve_used_context(payload: LearningAiRequest) -> LearningAiUsedContext:
+    if payload.mode == LearningAiMode.teacher_student_assistant:
+        if payload.role != "teacher":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="AI көмекші тек мұғалім режиміне арналған.",
+            )
+
+        if not scope or not scope.course_id or not scope.student_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Оқушы бойынша AI көмекші үшін courseId және studentId қажет.",
+            )
+
+
+def _resolve_used_context(
+    payload: LearningAiRequest,
+    current_user_id: str,
+) -> LearningAiUsedContext:
     scope = payload.scope
 
     if payload.mode == LearningAiMode.student_tracker:
         return LearningAiUsedContext(
             source="student_learning_snapshot",
-            studentId=scope.student_id if scope else None,
+            studentId=current_user_id,
         )
 
     if payload.mode == LearningAiMode.teacher_course_assistant:
@@ -74,16 +90,11 @@ def _resolve_used_context(payload: LearningAiRequest) -> LearningAiUsedContext:
     )
 
 
-def _build_placeholder_answer(payload: LearningAiRequest) -> str:
-    """
-    Бұл уақытша жауап.
-    Келесі кезеңде осы жерге:
-    1. auth user тексеру
-    2. Supabase snapshot жинау
-    3. prompt builder
-    4. LLM provider call
-    қосылады.
-    """
+def _build_placeholder_answer(
+    payload: LearningAiRequest,
+    current_user_id: str,
+) -> str:
+    prompt = payload.prompt.strip()
 
     if payload.mode == LearningAiMode.student_tracker:
         return (
@@ -91,32 +102,55 @@ def _build_placeholder_answer(payload: LearningAiRequest) -> str:
             "Қазір бұл demo жауап. Келесі кезеңде backend оқушының оқу snapshot-ын "
             "жинап, progress, mini quiz, сақталған сабақтар және кейін қайталау "
             "белгілері бойынша нақты ұсыныс береді.\n\n"
-            f"Сұрақ: {payload.prompt.strip()}"
+            f"Authenticated user: {current_user_id}\n"
+            f"Сұрақ: {prompt}"
         )
 
     if payload.mode == LearningAiMode.teacher_course_assistant:
+        course_id = payload.scope.course_id if payload.scope else None
+
         return (
             "AI курс көмекшісі backend endpoint жұмыс істеп тұр.\n\n"
             "Қазір бұл demo жауап. Келесі кезеңде backend таңдалған курс бойынша "
             "course learning snapshot жинап, қиын сабақтар, mini quiz өту көрсеткіші "
             "және орташа progress бойынша мұғалімге ұсыныс береді.\n\n"
-            f"Сұрақ: {payload.prompt.strip()}"
+            f"Teacher user: {current_user_id}\n"
+            f"Course ID: {course_id}\n"
+            f"Сұрақ: {prompt}"
         )
+
+    course_id = payload.scope.course_id if payload.scope else None
+    student_id = payload.scope.student_id if payload.scope else None
 
     return (
         "AI оқушы көмекшісі backend endpoint жұмыс істеп тұр.\n\n"
         "Қазір бұл demo жауап. Келесі кезеңде backend таңдалған оқушының осы курс "
         "бойынша оқу snapshot-ын жинап, мұғалімге педагогикалық ұсыныс береді.\n\n"
-        f"Сұрақ: {payload.prompt.strip()}"
+        f"Teacher user: {current_user_id}\n"
+        f"Course ID: {course_id}\n"
+        f"Student ID: {student_id}\n"
+        f"Сұрақ: {prompt}"
     )
 
 
-async def create_learning_analysis(payload: LearningAiRequest) -> LearningAiResponse:
-    _validate_request_contract(payload)
+async def create_learning_analysis(
+    payload: LearningAiRequest,
+    current_user_id: str,
+) -> LearningAiResponse:
+    _validate_request_contract(
+        payload=payload,
+        current_user_id=current_user_id,
+    )
 
     return LearningAiResponse(
-        answer=_build_placeholder_answer(payload),
+        answer=_build_placeholder_answer(
+            payload=payload,
+            current_user_id=current_user_id,
+        ),
         generatedAt=now_iso(),
         mode=payload.mode,
-        usedContext=_resolve_used_context(payload),
+        usedContext=_resolve_used_context(
+            payload=payload,
+            current_user_id=current_user_id,
+        ),
     )
