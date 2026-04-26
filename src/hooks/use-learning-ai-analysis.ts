@@ -17,17 +17,18 @@ type LearningAiAnalysisInput = Omit<
   'prompt' | 'selectedSuggestionId'
 >;
 
-type SubmitOverride = Partial<LearningAiAnalysisInput>;
+export type LearningAiSubmitOverride = Partial<LearningAiAnalysisInput>;
 
 type MutationVariables = {
   payload: AiPromptSubmitPayload;
-  override?: SubmitOverride;
+  override?: LearningAiSubmitOverride;
   requestId: number;
   signal: AbortSignal;
 };
 
 type MutationSuccess = {
   data: LearningAiResponse;
+  request: LearningAiRequest;
   requestId: number;
 };
 
@@ -36,12 +37,33 @@ function getErrorMessage(error: unknown) {
   return 'AI сұранысын орындау кезінде белгісіз қате болды.';
 }
 
+function buildLearningAiRequest(
+  defaultInput: LearningAiAnalysisInput,
+  payload: AiPromptSubmitPayload,
+  override?: LearningAiSubmitOverride
+): LearningAiRequest {
+  return {
+    ...defaultInput,
+    ...override,
+    prompt: payload.prompt,
+    selectedSuggestionId: payload.selectedSuggestionId,
+    scope: {
+      ...(defaultInput.scope || {}),
+      ...(override?.scope || {}),
+    },
+  };
+}
+
 export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
   const { session } = useAuth();
 
   const [answer, setAnswer] = useState<string | null>(null);
   const [lastResponse, setLastResponse] = useState<LearningAiResponse | null>(null);
+  const [lastRequest, setLastRequest] = useState<LearningAiRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const defaultInputRef = useRef(defaultInput);
+  const accessTokenRef = useRef<string | null>(session?.access_token || null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const requestCounterRef = useRef(0);
@@ -49,21 +71,24 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
 
   const isConfigured = useMemo(() => isLearningAiConfigured(), []);
 
+  useEffect(() => {
+    defaultInputRef.current = defaultInput;
+  }, [defaultInput]);
+
+  useEffect(() => {
+    accessTokenRef.current = session?.access_token || null;
+  }, [session?.access_token]);
+
   const mutation = useMutation<MutationSuccess, Error, MutationVariables>({
     mutationFn: async ({ payload, override, requestId, signal }) => {
-      const request: LearningAiRequest = {
-        ...defaultInput,
-        ...override,
-        prompt: payload.prompt,
-        selectedSuggestionId: payload.selectedSuggestionId,
-        scope: {
-          ...(defaultInput.scope || {}),
-          ...(override?.scope || {}),
-        },
-      };
+      const request = buildLearningAiRequest(
+        defaultInputRef.current,
+        payload,
+        override
+      );
 
       const result = await requestLearningAiAnalysis(request, {
-        accessToken: session?.access_token || null,
+        accessToken: accessTokenRef.current,
         signal,
       });
 
@@ -73,6 +98,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
 
       return {
         data: result.data,
+        request,
         requestId,
       };
     },
@@ -82,14 +108,16 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
 
       setAnswer(null);
       setLastResponse(null);
+      setLastRequest(null);
       setError(null);
     },
 
-    onSuccess: ({ data, requestId }) => {
+    onSuccess: ({ data, request, requestId }) => {
       if (activeRequestIdRef.current !== requestId) return;
 
       setAnswer(data.answer);
       setLastResponse(data);
+      setLastRequest(request);
       setError(null);
     },
 
@@ -98,12 +126,16 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
 
       setAnswer(null);
       setLastResponse(null);
+      setLastRequest(null);
       setError(getErrorMessage(caughtError));
     },
   });
 
   const submit = useCallback(
-    async (payload: AiPromptSubmitPayload, override?: SubmitOverride) => {
+    async (
+      payload: AiPromptSubmitPayload,
+      override?: LearningAiSubmitOverride
+    ) => {
       abortControllerRef.current?.abort();
 
       const requestId = requestCounterRef.current + 1;
@@ -139,6 +171,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
 
     setAnswer(null);
     setLastResponse(null);
+    setLastRequest(null);
     setError(null);
 
     mutation.reset();
@@ -159,6 +192,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
     answer,
     error,
     lastResponse,
+    lastRequest,
 
     isConfigured,
     isSubmitting: mutation.isPending,
