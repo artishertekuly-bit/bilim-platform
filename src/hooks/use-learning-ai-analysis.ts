@@ -8,13 +8,14 @@ import {
   requestLearningAiAnalysis,
 } from '@/lib/ai/learning-ai-client';
 import type {
+  LearningAiConversationMessage,
   LearningAiRequest,
   LearningAiResponse,
 } from '@/lib/ai/learning-ai-types';
 
 type LearningAiAnalysisInput = Omit<
   LearningAiRequest,
-  'prompt' | 'selectedSuggestionId'
+  'prompt' | 'selectedSuggestionId' | 'conversationHistory'
 >;
 
 export type LearningAiSubmitOverride = Partial<LearningAiAnalysisInput>;
@@ -32,9 +33,33 @@ type MutationSuccess = {
   requestId: number;
 };
 
+const MAX_CONVERSATION_HISTORY_MESSAGES = 8;
+const MAX_CONVERSATION_MESSAGE_CHARS = 6000;
+
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   return 'AI сұранысын орындау кезінде белгісіз қате болды.';
+}
+
+function cleanConversationMessageContent(value: unknown) {
+  return String(value || '')
+    .replace(/\x00/g, ' ')
+    .trim()
+    .slice(0, MAX_CONVERSATION_MESSAGE_CHARS);
+}
+
+function normalizeConversationHistory(
+  history: AiPromptSubmitPayload['conversationHistory']
+): LearningAiConversationMessage[] {
+  if (!Array.isArray(history)) return [];
+
+  return history
+    .slice(-MAX_CONVERSATION_HISTORY_MESSAGES)
+    .map((message) => ({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: cleanConversationMessageContent(message.content),
+    }))
+    .filter((message) => message.content.length > 0);
 }
 
 function buildLearningAiRequest(
@@ -47,6 +72,7 @@ function buildLearningAiRequest(
     ...override,
     prompt: payload.prompt,
     selectedSuggestionId: payload.selectedSuggestionId,
+    conversationHistory: normalizeConversationHistory(payload.conversationHistory),
     scope: {
       ...(defaultInput.scope || {}),
       ...(override?.scope || {}),

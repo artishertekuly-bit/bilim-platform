@@ -7,6 +7,8 @@ from app.schemas.learning_analysis import LearningAiMode, LearningAiRequest
 
 
 MAX_CONTEXT_CHARS = 18000
+MAX_HISTORY_MESSAGES = 8
+MAX_HISTORY_MESSAGE_CHARS = 2500
 
 
 def _compact_json(value: Any, limit: int = MAX_CONTEXT_CHARS) -> str:
@@ -21,6 +23,11 @@ def _compact_json(value: Any, limit: int = MAX_CONTEXT_CHARS) -> str:
         return text
 
     return text[:limit] + "\n... [context truncated]"
+
+
+def _clean_text(value: Any, limit: int | None = None) -> str:
+    text = " ".join(str(value or "").replace("\x00", " ").split()).strip()
+    return text[:limit] if limit else text
 
 
 def _mode_label(mode: LearningAiMode) -> str:
@@ -39,14 +46,43 @@ def _mode_label(mode: LearningAiMode) -> str:
     return "teacher_student_assistant"
 
 
+def _conversation_role_label(role: object) -> str:
+    value = str(getattr(role, "value", role) or "").strip().lower()
+
+    if value == "assistant":
+        return "assistant"
+
+    return "user"
+
+
+def _compact_conversation_history(payload: LearningAiRequest) -> str:
+    history = getattr(payload, "conversation_history", None) or []
+
+    if not history:
+        return "none"
+
+    lines: list[str] = []
+
+    for item in history[-MAX_HISTORY_MESSAGES:]:
+        role = _conversation_role_label(getattr(item, "role", "user"))
+        content = _clean_text(getattr(item, "content", ""), MAX_HISTORY_MESSAGE_CHARS)
+
+        if not content:
+            continue
+
+        lines.append(f"{role}: {content}")
+
+    return "\n".join(lines) if lines else "none"
+
+
 def _shared_identity_and_safety_rules() -> str:
     return (
         "Сен Bilimcorp білім беру платформасындағы AI оқу көмекшісісің.\n"
         "Сенің негізгі рөлің — адамды алмастыру емес, оқушыға немесе мұғалімге оқу бағытын түсінуге көмектесу.\n"
         "Бұл human–AI collaboration логикасы: AI түсіндіреді, бағыт ұсынады, идея береді; соңғы шешімді адам қабылдайды.\n\n"
         "Қауіпсіздік және дерек ережелері:\n"
-        "- Сен тек берілген LEARNING_CONTEXT_JSON ішіндегі деректерге және USER_QUESTION сұрағына сүйенесің.\n"
-        "- Context-та жоқ нақты фактіні, курс атауын, сабақ атауын, баға, пайыз немесе score мәнін ойдан қоспа.\n"
+        "- Сен тек берілген LEARNING_CONTEXT_JSON, CONVERSATION_HISTORY және USER_QUESTION ішіндегі деректерге сүйенесің.\n"
+        "- Context-та немесе conversation history-де жоқ нақты фактіні, курс атауын, сабақ атауын, баға, пайыз немесе score мәнін ойдан қоспа.\n"
         "- Егер дерек жеткіліксіз болса, оны ашық айт және қандай қосымша ақпарат керек екенін қысқа түсіндір.\n"
         "- Raw JSON, database field name, техникалық id, endpoint, service атауларын қолданушыға көрсетпе.\n"
         "- Click tracking, time-on-page, behavior tracking немесе жасырын бақылау деректеріне сүйенбе.\n"
@@ -54,6 +90,19 @@ def _shared_identity_and_safety_rules() -> str:
         "- Оқушыны label қылма: 'нашар оқушы', 'әлсіз оқушы', 'қабілеті төмен' сияқты сөздерді қолданба.\n"
         "- Оның орнына 'осы бағытта қосымша қолдау пайдалы болуы мүмкін' деген жұмсақ педагогикалық тіл қолдан.\n"
         "- Жауап қазақ тілінде, түсінікті, нақты және адамға құрметпен жазылуы керек.\n"
+    )
+
+
+def _conversation_usage_rules() -> str:
+    return (
+        "Conversation continuation ережесі:\n"
+        "- Егер CONVERSATION_HISTORY ішінде алдыңғы user сұрағы және assistant жауабы бар болса, USER_QUESTION-ды сол диалогтың жалғасы ретінде түсін.\n"
+        "- Егер USER_QUESTION қысқа нақтылау болса, мысалы '7-9 сынып, Python', 'оқушыларға', 'бастапқы деңгей', оны алдыңғы assistant қойған нақтылау сұрағына жауап деп қабылда.\n"
+        "- Алдыңғы идеяны қажетсіз қайта бастама; оны нақтылап, тереңдетіп, жалғастыр.\n"
+        "- Егер history жаңа сұраққа қатысы жоқ болса, USER_QUESTION-ға басымдық бер.\n"
+        "- History-дегі assistant жауабын факт ретінде емес, алдыңғы ұсыныс/draft ретінде қабылда.\n"
+        "- History-де айтылған курс идеясы, аудитория, пән, мақсат сияқты user нақтылауларын сақтап қолдан.\n"
+        "- Бірақ history-де жоқ жаңа фактіні ойдан қоспа.\n"
     )
 
 
@@ -111,6 +160,7 @@ def _student_course_advisor_task_block() -> str:
         "- Егер каталогта курс жоқ болса, жалпы оқу бағытын ұсын және нақты курс атауын ойдан шығарма.\n"
         "- Егер оқушының қызығушылығы белгісіз болса, 2-3 нақтылау сұрағын бер.\n"
         "- Егер оқушы бағыт сұраса, 2-3 ықтимал бағытты салыстырып, қай кезде қайсысы дұрыс екенін түсіндір.\n"
+        "- Егер алдыңғы диалогта оқушы қызығушылығын нақтыласа, сол нақтылауға сүйеніп ұсынысты жалғастыр.\n"
         "- Ұсыныс оқушыға шешім қабылдауға көмектесуі керек, бірақ соңғы таңдауды оқушыға қалдыр.\n"
     )
 
@@ -155,6 +205,7 @@ def _teacher_course_creator_task_block() -> str:
         "- teacher profile, teacherCourses, teacherLessons бар болса, соларға сүйен.\n"
         "- Мұғалімнің бұрынғы курстарын көшірме; олардың жалғасы, тереңдетілген немесе практикалық нұсқасын ұсын.\n"
         "- Егер мұғалім туралы дерек аз болса, оны ашық айт және пән, аудитория, мақсат сұра.\n"
+        "- Егер conversation history-де мұғалім аудитория, пән, сынып, мақсат немесе тіл туралы нақтылау берсе, сол нақтылауды міндетті түрде қолдан.\n"
         "- Курс идеясын ұсынсаң, атау, мақсат, аудитория, 4-6 сабақ тақырыбы, тапсырма/mini quiz идеяларын бер.\n"
         "- Егер сабақ идеясын сұраса, сабақ мақсаты, қысқа құрылым, практика және бағалау идеясын ұсын.\n"
         "- Ұсынысты толық оқу бағдарламасы ретінде емес, мұғалім әрі қарай өңдейтін draft ретінде бер.\n"
@@ -188,6 +239,7 @@ def _student_course_advisor_output_rules() -> str:
         "- Context-та жоқ курс атауын ойдан шығарма.\n"
         "- Каталог бос болса, нақты курс атауын жазба.\n"
         "- Оқушының қызығушылығы белгісіз болса, кеңес жалпы екенін айт.\n"
+        "- Егер conversation history нақты қызығушылықты берсе, қайта сұрай берме; соған сүйеніп нақтыла.\n"
         "- Жауап шешім қабылдауға көмектесетіндей қысқа болсын.\n"
     )
 
@@ -228,13 +280,14 @@ def _teacher_course_creator_output_rules() -> str:
     return (
         "Жауап форматы:\n"
         "1. **Қысқаша идея** — қандай курс/сабақ жасауға болатынын айт.\n"
-        "2. **Неге бұл идея?** — teacher context немесе сұраққа сүйенген 1-3 себеп.\n"
+        "2. **Неге бұл идея?** — teacher context, conversation history немесе сұраққа сүйенген 1-3 себеп.\n"
         "3. **Ұсынылатын құрылым** — курс болса 4-6 сабақ, сабақ болса 3-5 кезең.\n"
         "4. **Практика және бағалау** — тапсырма, mini quiz немесе жоба идеясы.\n"
-        "5. **Нақтылау сұрағы** — пән/аудитория/мақсат жетіспесе қысқа сұра.\n\n"
+        "5. **Нақтылау сұрағы** — пән/аудитория/мақсат жетіспесе ғана қысқа сұра.\n\n"
         "Қосымша талап:\n"
         "- Мұғалімнің профилі немесе курстары жоқ болса, оны жасырма.\n"
         "- Бұрынғы курстарды дәл қайталама.\n"
+        "- Егер conversation history-де нақтылау бар болса, қайтадан сол нәрсені сұрама.\n"
         "- Ұсынысты бірден платформаға енгізуге болатын draft сияқты бер.\n"
         "- Артық теория қоспа.\n"
     )
@@ -305,6 +358,7 @@ def build_learning_analysis_instructions(payload: LearningAiRequest) -> str:
     return "\n".join(
         [
             _shared_identity_and_safety_rules(),
+            _conversation_usage_rules(),
             _analytics_usage_rules(),
             _advisor_usage_rules(),
             _mode_task_block(payload),
@@ -313,14 +367,16 @@ def build_learning_analysis_instructions(payload: LearningAiRequest) -> str:
             (
                 "Маңызды орындау ережелері:\n"
                 "- USER_QUESTION сұрағына тура жауап бер.\n"
+                "- Егер CONVERSATION_HISTORY бар болса, алдымен history-дегі логиканы ескер, содан кейін USER_QUESTION-ды жалғастыру ретінде өңде.\n"
+                "- Егер USER_QUESTION қысқа нақтылау болса, оны алдыңғы нақтылау сұрағына жауап деп қабылда.\n"
                 "- Егер USER_QUESTION нақты формат сұраса, сол форматқа бейімдел.\n"
                 "- Егер context-та weakLessons немесе recommendations бар болса, ең маңыздыларын ғана қолдан.\n"
                 "- Егер context-та availableCourseCatalog бар болса, тек сол каталогтағы курстарды нақты атаумен ұсын.\n"
                 "- Егер context-та teacherCourses немесе teacherLessons бар болса, жаңа идеяны соларды қайталамай, жалғастыру/тереңдету ретінде құр.\n"
                 "- Егер context truncated болса, қолда бар дерекпен ғана жауап бер.\n"
-                "- Жауапта 'мен JSON көріп тұрмын', 'context бойынша field' сияқты техникалық сөйлем жазба.\n"
+                "- Жауапта 'мен JSON көріп тұрмын', 'context бойынша field', 'history бойынша' сияқты техникалық сөйлем жазба.\n"
                 "- Жауапта барлық сандық көрсеткішті ашып берме; тек пайдаланушыға шешім қабылдауға қажет қорытындыны бер.\n"
-                "- Context-та жоқ курс, сабақ, оқушы, баға, progress немесе мұғалім биосын ойдан шығарма.\n"
+                "- Context-та немесе history-де жоқ курс, сабақ, оқушы, баға, progress немесе мұғалім биосын ойдан шығарма.\n"
                 "- AI ұсыныс береді, адам шешім қабылдайды деген human–AI collaboration қағидасын сақта.\n"
             ),
         ]
@@ -336,6 +392,7 @@ def build_learning_analysis_input(
         f"MODE: {_mode_label(payload.mode)}\n"
         f"ROLE: {payload.role}\n"
         f"SELECTED_SUGGESTION_ID: {payload.selected_suggestion_id or 'none'}\n\n"
+        f"CONVERSATION_HISTORY:\n{_compact_conversation_history(payload)}\n\n"
         f"USER_QUESTION:\n{payload.prompt.strip()}\n\n"
         f"LEARNING_CONTEXT_JSON:\n{_compact_json(context)}\n"
     )

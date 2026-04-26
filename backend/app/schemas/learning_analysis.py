@@ -18,12 +18,35 @@ class LearningAiRole(str, Enum):
     teacher = "teacher"
 
 
+class LearningAiConversationRole(str, Enum):
+    user = "user"
+    assistant = "assistant"
+
+
+class LearningAiConversationMessage(BaseModel):
+    role: LearningAiConversationRole
+    content: str = Field(min_length=1, max_length=6000)
+
+    @field_validator("content")
+    @classmethod
+    def normalize_content(cls, value: str) -> str:
+        normalized = " ".join(value.replace("\x00", " ").split()).strip()
+
+        if not normalized:
+            raise ValueError("Conversation message content must not be empty.")
+
+        return normalized
+
+    model_config = {
+        "populate_by_name": True,
+    }
+
+
 class LearningAiScope(BaseModel):
     course_id: Optional[str] = Field(default=None, alias="courseId")
     student_id: Optional[str] = Field(default=None, alias="studentId")
 
     # Optional advisor hints.
-    # These are not required, but can help advisor modes later.
     subject_id: Optional[str] = Field(default=None, alias="subjectId")
     subject_name: Optional[str] = Field(default=None, alias="subjectName")
     grade_level: Optional[str] = Field(default=None, alias="gradeLevel")
@@ -40,6 +63,14 @@ class LearningAiRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     selected_suggestion_id: Optional[str] = Field(default=None, alias="selectedSuggestionId")
     scope: Optional[LearningAiScope] = None
+
+    # Short chat memory for continuation / clarification logic.
+    # Frontend should send only the latest few messages, not the full infinite chat.
+    conversation_history: list[LearningAiConversationMessage] = Field(
+        default_factory=list,
+        alias="conversationHistory",
+        max_length=8,
+    )
 
     @field_validator("prompt")
     @classmethod
@@ -68,7 +99,6 @@ class LearningAiUsedContext(BaseModel):
     student_id: Optional[str] = Field(default=None, alias="studentId")
 
     # Optional metadata for frontend chat UI.
-    # Service may leave these as None.
     course_title: Optional[str] = Field(default=None, alias="courseTitle")
     student_name: Optional[str] = Field(default=None, alias="studentName")
     subject_name: Optional[str] = Field(default=None, alias="subjectName")

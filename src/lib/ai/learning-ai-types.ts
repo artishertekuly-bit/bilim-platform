@@ -37,12 +37,32 @@ export type LearningAiScope = {
   targetAudience?: string | null;
 };
 
+export type LearningAiConversationRole = 'user' | 'assistant';
+
+export type LearningAiConversationMessage = {
+  role: LearningAiConversationRole;
+  content: string;
+};
+
 export type LearningAiRequest = {
   mode: LearningAiMode;
   role: LearningAiRole;
   prompt: string;
   selectedSuggestionId?: string | null;
   scope?: LearningAiScope;
+
+  /**
+   * Short chat memory for continuation / clarification logic.
+   *
+   * Example:
+   * user: "Қандай курс жасасам болады?"
+   * assistant: "Бағдарламалау курсын ұсынуға болады. Аудитория кім?"
+   * user: "7-9 сынып, Python"
+   *
+   * The third request should include previous two messages here,
+   * so AI continues the same idea instead of starting a fresh answer.
+   */
+  conversationHistory?: LearningAiConversationMessage[];
 };
 
 export type LearningAiUsedContext = {

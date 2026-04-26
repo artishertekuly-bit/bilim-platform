@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import {
   AlertTriangle,
   Bot,
@@ -8,6 +15,7 @@ import {
   Loader2,
   Send,
   Sparkles,
+  Trash2,
   UserRound,
 } from 'lucide-react';
 
@@ -20,9 +28,19 @@ export type AiPromptSuggestion = {
   prompt: string;
 };
 
+export type AiConversationMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
 export type AiPromptSubmitPayload = {
   prompt: string;
   selectedSuggestionId: string | null;
+  conversationHistory?: AiConversationMessage[];
+};
+
+type ChatMessage = AiConversationMessage & {
+  id: string;
 };
 
 type AiPromptShellProps = {
@@ -50,6 +68,8 @@ type AiPromptShellProps = {
 
   onSubmit?: (payload: AiPromptSubmitPayload) => void | Promise<void>;
 };
+
+const MAX_CONVERSATION_HISTORY_MESSAGES = 8;
 
 function normalizeMarkdownLine(line: string) {
   return line
@@ -111,6 +131,23 @@ function renderStructuredAnswer(answer: string) {
   });
 }
 
+function buildHistory(messages: ChatMessage[]): AiConversationMessage[] {
+  return messages
+    .slice(-MAX_CONVERSATION_HISTORY_MESSAGES)
+    .map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+}
+
+function createMessage(role: ChatMessage['role'], content: string): ChatMessage {
+  return {
+    id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    role,
+    content,
+  };
+}
+
 export default function AiPromptShell({
   title,
   description,
@@ -138,13 +175,19 @@ export default function AiPromptShell({
 }: AiPromptShellProps) {
   const [prompt, setPrompt] = useState('');
   const [copied, setCopied] = useState(false);
-  const [lastPrompt, setLastPrompt] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  const renderedAnswer = useMemo(() => (answer ? renderStructuredAnswer(answer) : null), [answer]);
+  const lastAppliedAnswerRef = useRef<string | null>(null);
+  const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
 
   const hasPrompt = prompt.trim().length > 0;
   const endpointReady = Boolean(onSubmit);
   const effectiveDisabled = disabled || !endpointReady;
+
+  const latestAssistantMessage = useMemo(
+    () => [...messages].reverse().find((message) => message.role === 'assistant') || null,
+    [messages]
+  );
 
   const visibleDisabledReason =
     disabledReason ||
@@ -159,8 +202,33 @@ export default function AiPromptShell({
     return () => window.clearTimeout(timeoutId);
   }, [copied]);
 
+  useEffect(() => {
+    if (!answer?.trim()) return;
+    if (lastAppliedAnswerRef.current === answer) return;
+
+    lastAppliedAnswerRef.current = answer;
+
+    setMessages((currentMessages) => [
+      ...currentMessages,
+      createMessage('assistant', answer.trim()),
+    ]);
+  }, [answer]);
+
+  useEffect(() => {
+    scrollAnchorRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'end',
+    });
+  }, [messages.length, isSubmitting, error]);
+
   const clearPrompt = () => {
     setPrompt('');
+  };
+
+  const clearConversation = () => {
+    setPrompt('');
+    setMessages([]);
+    lastAppliedAnswerRef.current = null;
   };
 
   const submitPrompt = async () => {
@@ -169,11 +237,16 @@ export default function AiPromptShell({
     }
 
     const normalizedPrompt = prompt.trim();
-    setLastPrompt(normalizedPrompt);
+    const history = buildHistory(messages);
+    const userMessage = createMessage('user', normalizedPrompt);
+
+    setMessages((currentMessages) => [...currentMessages, userMessage]);
+    setPrompt('');
 
     await onSubmit({
       prompt: normalizedPrompt,
       selectedSuggestionId: null,
+      conversationHistory: history,
     });
   };
 
@@ -190,10 +263,12 @@ export default function AiPromptShell({
   };
 
   const handleCopy = async () => {
-    if (!answer || !navigator.clipboard) return;
+    const copyText = latestAssistantMessage?.content || answer || '';
+
+    if (!copyText || !navigator.clipboard) return;
 
     try {
-      await navigator.clipboard.writeText(answer);
+      await navigator.clipboard.writeText(copyText);
       setCopied(true);
     } catch {
       setCopied(false);
@@ -224,10 +299,26 @@ export default function AiPromptShell({
             </div>
           </div>
 
-          <span className="inline-flex w-fit items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">
-            <Sparkles size={12} className={endpointReady && !disabled ? 'text-primary' : ''} />
-            {endpointReady && !disabled ? 'AI дайын' : 'Дайын емес'}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex w-fit items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">
+              <Sparkles size={12} className={endpointReady && !disabled ? 'text-primary' : ''} />
+              {endpointReady && !disabled ? 'AI дайын' : 'Дайын емес'}
+            </span>
+
+            {messages.length > 0 ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={clearConversation}
+                disabled={isSubmitting}
+                className="h-7 px-2 text-[11px] text-muted-foreground"
+              >
+                <Trash2 size={12} className="mr-1.5" />
+                Диалогты тазалау
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         {contextDescription ? (
@@ -240,7 +331,7 @@ export default function AiPromptShell({
       <CardContent className="p-0">
         <form onSubmit={handleSubmit} className="flex min-h-[620px] flex-col">
           <div className="flex-1 space-y-4 overflow-y-auto bg-muted/10 px-4 py-5 sm:px-5">
-            {!lastPrompt && !renderedAnswer && !error && !isSubmitting ? (
+            {messages.length === 0 && !error && !isSubmitting ? (
               <div className="flex min-h-[320px] items-center justify-center">
                 <div className="max-w-md rounded-3xl border border-dashed bg-background/80 px-6 py-7 text-center">
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted/40 text-primary">
@@ -256,16 +347,63 @@ export default function AiPromptShell({
               </div>
             ) : null}
 
-            {lastPrompt ? (
-              <div className="flex items-start justify-end gap-3">
-                <div className="max-w-3xl rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm">
-                  <p className="text-sm leading-6">{lastPrompt}</p>
+            {messages.map((message) => {
+              if (message.role === 'user') {
+                return (
+                  <div key={message.id} className="flex items-start justify-end gap-3">
+                    <div className="max-w-3xl rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm">
+                      <p className="whitespace-pre-wrap text-sm leading-6">
+                        {message.content}
+                      </p>
+                    </div>
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-muted-foreground">
+                      <UserRound size={15} />
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={message.id} className="flex items-start gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-primary">
+                    <Bot size={15} />
+                  </div>
+
+                  <div className="group w-full max-w-4xl rounded-2xl border bg-background shadow-sm">
+                    <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{answerTitle}</p>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          Диалог жалғасы бойынша жауап
+                        </p>
+                      </div>
+
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(message.content);
+                          setCopied(true);
+                        }}
+                        className="h-8 px-2 text-xs"
+                      >
+                        {copied ? (
+                          <Check size={14} className="mr-1.5" />
+                        ) : (
+                          <Clipboard size={14} className="mr-1.5" />
+                        )}
+                        {copied ? 'Көшірілді' : 'Көшіру'}
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2 px-4 py-4 animate-fade-in">
+                      {renderStructuredAnswer(message.content)}
+                    </div>
+                  </div>
                 </div>
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-muted-foreground">
-                  <UserRound size={15} />
-                </div>
-              </div>
-            ) : null}
+              );
+            })}
 
             {error ? (
               <div className="flex items-start gap-3">
@@ -294,42 +432,9 @@ export default function AiPromptShell({
                   </div>
                 </div>
               </div>
-            ) : renderedAnswer ? (
-              <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-primary">
-                  <Bot size={15} />
-                </div>
-
-                <div className="group w-full max-w-4xl rounded-2xl border bg-background shadow-sm">
-                  <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">{answerTitle}</p>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        Сұраққа байланысты жауап
-                      </p>
-                    </div>
-
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleCopy}
-                      disabled={!answer}
-                      className="h-8 px-2 text-xs"
-                    >
-                      {copied ? (
-                        <Check size={14} className="mr-1.5" />
-                      ) : (
-                        <Clipboard size={14} className="mr-1.5" />
-                      )}
-                      {copied ? 'Көшірілді' : 'Көшіру'}
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2 px-4 py-4 animate-fade-in">{renderedAnswer}</div>
-                </div>
-              </div>
             ) : null}
+
+            <div ref={scrollAnchorRef} />
           </div>
 
           <div className="border-t bg-background p-4 sm:p-5">
