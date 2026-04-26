@@ -19,6 +19,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataSt
 import AiPromptShell, {
   type AiPromptSuggestion,
 } from '@/components/ai-tools/AiPromptShell';
+import { useLearningAiAnalysis } from '@/hooks/use-learning-ai-analysis';
 import { useStudentLearningSnapshot } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -129,6 +130,14 @@ export default function AiTrackerPage() {
     refetch,
   } = useStudentLearningSnapshot(user?.id || '', Boolean(user?.id));
 
+  const trackerAi = useLearningAiAnalysis({
+    mode: 'student_tracker',
+    role: 'student',
+    scope: {
+      studentId: user?.id || null,
+    },
+  });
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -146,7 +155,10 @@ export default function AiTrackerPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => void refetch()}
+              onClick={() => {
+                trackerAi.reset();
+                void refetch();
+              }}
               disabled={isFetching || !user?.id}
             >
               <RotateCcw size={15} className="mr-2" />
@@ -354,11 +366,22 @@ export default function AiTrackerPage() {
 
             <AiPromptShell
               title="AI Tracker сұрағы"
-              description="Кейін AI осы беттегі оқу snapshot-ты ғана қолданып, сізге түсінікті ұсыныс береді."
+              description="AI осы беттегі оқу snapshot-ты ғана қолданып, сізге түсінікті ұсыныс береді."
               placeholder="Мысалы: Маған бүгін қай тақырыпты қайталау керек?"
               suggestions={STUDENT_AI_TRACKER_PROMPTS}
               contextLabel="Сіздің оқу snapshot-ыңыз"
               contextDescription="Context ретінде progress, аяқталған сабақтар, mini quiz нәтижелері, сақталған сабақтар және кейін қайталау белгілері қолданылады. Click/time tracking қолданылмайды."
+              disabled={false}
+              isSubmitting={trackerAi.isSubmitting}
+              answer={trackerAi.answer}
+              error={trackerAi.error}
+              onSubmit={trackerAi.submit}
+              answerTitle="AI Tracker жауабы"
+              emptyAnswerText={
+                trackerAi.isConfigured
+                  ? 'Сұрақ жазып немесе жылдам сұрақ таңдап, AI ұсыныс алуға болады.'
+                  : 'AI backend әлі қосылмаған. Батырманы басқанда жүйе конфигурация қатесін көрсетеді. Кейін VITE_AI_API_URL қосылғанда осы жерге нақты жауап шығады.'
+              }
             />
           </>
         ) : null}

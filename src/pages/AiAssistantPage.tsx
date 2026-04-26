@@ -22,6 +22,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataSt
 import AiPromptShell, {
   type AiPromptSuggestion,
 } from '@/components/ai-tools/AiPromptShell';
+import { useLearningAiAnalysis } from '@/hooks/use-learning-ai-analysis';
 import {
   useCourseAnalyticsStudents,
   useCourseLearningSnapshot,
@@ -289,7 +290,27 @@ export default function AiAssistantPage() {
     Boolean(user?.id && selectedCourseId && selectedStudentId)
   );
 
+  const courseAi = useLearningAiAnalysis({
+    mode: 'teacher_course_assistant',
+    role: 'teacher',
+    scope: {
+      courseId: selectedCourseId || null,
+    },
+  });
+
+  const studentAi = useLearningAiAnalysis({
+    mode: 'teacher_student_assistant',
+    role: 'teacher',
+    scope: {
+      courseId: selectedCourseId || null,
+      studentId: selectedStudentId || null,
+    },
+  });
+
   const refreshAll = () => {
+    courseAi.reset();
+    studentAi.reset();
+
     void refetchWorkspace();
 
     if (selectedCourseId) {
@@ -312,20 +333,42 @@ export default function AiAssistantPage() {
     assistantMode === 'student' && selectedStudent ? (
       <AiPromptShell
         title="AI оқушы көмекшісі"
-        description="Кейін AI таңдалған оқушының осы курс бойынша оқу нәтижелерін ғана қолданып, мұғалімге педагогикалық ұсыныс береді."
+        description="AI таңдалған оқушының осы курс бойынша оқу нәтижелерін ғана қолданып, мұғалімге педагогикалық ұсыныс береді."
         placeholder="Мысалы: Осы оқушыға қандай қайталау жоспарын ұсынуға болады?"
         suggestions={TEACHER_STUDENT_ASSISTANT_PROMPTS}
         contextLabel="Оқушы бойынша оқу деректері"
         contextDescription="Context ретінде таңдалған оқушының осы курс бойынша progress, mini quiz, test, сақталған сабақтар және кейін қайталау белгілері қолданылады."
+        disabled={false}
+        isSubmitting={studentAi.isSubmitting}
+        answer={studentAi.answer}
+        error={studentAi.error}
+        onSubmit={studentAi.submit}
+        answerTitle="AI оқушы көмекшісінің жауабы"
+        emptyAnswerText={
+          studentAi.isConfigured
+            ? 'Сұрақ жазып немесе жылдам сұрақ таңдап, AI ұсыныс алуға болады.'
+            : 'AI backend әлі қосылмаған. Батырманы басқанда жүйе конфигурация қатесін көрсетеді. Кейін VITE_AI_API_URL қосылғанда осы жерге нақты жауап шығады.'
+        }
       />
     ) : selectedCourse ? (
       <AiPromptShell
         title="AI курс көмекшісі"
-        description="Кейін AI таңдалған курстың оқу нәтижелерін ғана қолданып, мұғалімге курс бойынша ұсыныс береді."
+        description="AI таңдалған курстың оқу нәтижелерін ғана қолданып, мұғалімге курс бойынша ұсыныс береді."
         placeholder="Мысалы: Осы курста қай сабақтарды қайта түсіндіру керек?"
         suggestions={TEACHER_COURSE_ASSISTANT_PROMPTS}
         contextLabel="Курс бойынша оқу деректері"
         contextDescription="Context ретінде курс progress-і, оқушы саны, қиын сабақтар, mini quiz pass rate және course-level оқу нәтижелері қолданылады."
+        disabled={false}
+        isSubmitting={courseAi.isSubmitting}
+        answer={courseAi.answer}
+        error={courseAi.error}
+        onSubmit={courseAi.submit}
+        answerTitle="AI курс көмекшісінің жауабы"
+        emptyAnswerText={
+          courseAi.isConfigured
+            ? 'Сұрақ жазып немесе жылдам сұрақ таңдап, AI ұсыныс алуға болады.'
+            : 'AI backend әлі қосылмаған. Батырманы басқанда жүйе конфигурация қатесін көрсетеді. Кейін VITE_AI_API_URL қосылғанда осы жерге нақты жауап шығады.'
+        }
       />
     ) : null;
 
@@ -439,9 +482,13 @@ export default function AiAssistantPage() {
                 <select
                   value={selectedCourseId}
                   onChange={(event) => {
-                    setSelectedCourseId(event.target.value);
+                    const nextCourseId = event.target.value;
+
+                    setSelectedCourseId(nextCourseId);
                     setSelectedStudentId('');
                     setAssistantMode('course');
+                    courseAi.reset();
+                    studentAi.reset();
                   }}
                   className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 >
@@ -589,7 +636,7 @@ export default function AiAssistantPage() {
                       Оқушы бойынша оқу деректері
                     </CardTitle>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Нақты оқушыны таңдап, оның осы курс бойынша оқу нәтижесін көріңіз.
+                      Нақты оқушыны таңдап оқу дер, оның осы курс бойынша оқу нәтижесін көріңіз.
                     </p>
                   </div>
                 </div>
@@ -646,6 +693,7 @@ export default function AiAssistantPage() {
                             onClick={() => {
                               setSelectedStudentId(student.studentId);
                               setAssistantMode('student');
+                              studentAi.reset();
                             }}
                             className={`w-full rounded-xl border p-3 text-left transition-all ${
                               selectedStudentId === student.studentId

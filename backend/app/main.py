@@ -33,6 +33,8 @@ from .ai_storage import (
     update_ai_exam_status,
 )
 
+from .api.learning_analysis_api import router as learning_analysis_router
+
 ROOT_DIR = Path(__file__).resolve().parents[2]
 ENV_FILE = ROOT_DIR / ".env"
 
@@ -70,6 +72,8 @@ app = FastAPI(
     title="Bilimcorp AI Bridge",
     version="1.6.0",
 )
+
+app.include_router(learning_analysis_router)
 
 
 def _build_allowed_origins() -> list[str]:
