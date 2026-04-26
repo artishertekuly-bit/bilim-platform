@@ -24,6 +24,7 @@ import {
   MessageCircle,
   Bookmark,
   ShieldCheck,
+  BrainCircuit,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -89,6 +90,7 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
       items: [
         { labelKey: 'nav.ai_practice', path: '/ai-practice', icon: Sparkles, matchMode: 'section' },
         { labelKey: 'nav.ai_tutor', path: '/ai-tutor', icon: Bot, matchMode: 'section' },
+        { labelKey: 'nav.ai_tracker', path: '/ai-tracker', icon: BrainCircuit, matchMode: 'section' },
       ],
     },
     {
@@ -134,6 +136,12 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
           icon: Bot,
           matchMode: 'section',
           aliases: ['/ai-exams-open'],
+        },
+        {
+          labelKey: 'nav.ai_assistant',
+          path: '/ai-assistant',
+          icon: BrainCircuit,
+          matchMode: 'section',
         },
       ],
     },

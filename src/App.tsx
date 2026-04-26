@@ -55,6 +55,8 @@ const AiQuestionBuilderPage = lazy(() => import('./pages/AiQuestionBuilderPage')
 const AiExamsPage = lazy(() => import('./pages/AiExamsPage'));
 const AiPracticePage = lazy(() => import('./pages/AiPracticePage'));
 const AiTutorPage = lazy(() => import('./pages/AiTutorPage'));
+const AiTrackerPage = lazy(() => import('./pages/AiTrackerPage'));
+const AiAssistantPage = lazy(() => import('./pages/AiAssistantPage'));
 const AiExamSessionPage = lazy(() => import('./pages/AiExamSessionPage'));
 const AiStudentExamsPage = lazy(() => import('./pages/AiStudentExamsPage'));
 
@@ -269,6 +271,7 @@ const studentRoutes: AppRouteConfig[] = [
   })),
   { path: '/ai-practice', element: <AiPracticePage />, allowedRoles: ['student'] },
   { path: '/ai-tutor', element: <AiTutorPage />, allowedRoles: ['student'] },
+  { path: '/ai-tracker', element: <AiTrackerPage />, allowedRoles: ['student'] },
   { path: '/ai-exam/:examId', element: <AiExamSessionPage />, allowedRoles: ['student'] },
   { path: '/ai-exams-open', element: <AiStudentExamsPage />, allowedRoles: ['student'] },
 ];
@@ -280,6 +283,7 @@ const teacherRoutes: AppRouteConfig[] = [
   { path: '/students', element: <TeacherStudentsPage />, allowedRoles: ['teacher'] },
   { path: '/ai-question-builder', element: <AiQuestionBuilderPage />, allowedRoles: ['teacher'] },
   { path: '/ai-exams', element: <AiExamsPage />, allowedRoles: ['teacher'] },
+  { path: '/ai-assistant', element: <AiAssistantPage />, allowedRoles: ['teacher'] },
 ];
 
 const parentRoutes: AppRouteConfig[] = parentChildPaths.map((path) => ({

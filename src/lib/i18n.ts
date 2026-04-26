@@ -2429,6 +2429,14 @@ export const translations = {
     kk: 'AI тьютор',
     ru: 'AI тьютор'
   },
+  'nav.ai_tracker': {
+    kk: 'AI Tracker',
+    ru: 'AI Tracker'
+  },
+  'nav.ai_assistant': {
+    kk: 'AI көмекші',
+    ru: 'AI помощник'
+  },
 } as const;
 
 export type TranslationKey = keyof typeof translations;
