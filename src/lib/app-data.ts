@@ -5,6 +5,7 @@ export * from './data/teacher-data';
 export * from './data/admin-data';
 
 export * from './data/course-actions';
+export * from './data/analytics-actions';
 export * from './data/test-actions';
 export * from './data/learning-space-actions';
 

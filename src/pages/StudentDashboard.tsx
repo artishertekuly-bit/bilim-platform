@@ -14,10 +14,17 @@ import {
   useDeclineParentLinkRequestMutation,
   useIncomingParentLinkRequests,
   useStudentDashboard,
+  useStudentLearningSnapshot,
 } from '@/hooks/use-platform-data';
+import type {
+  LearningRiskLevel,
+  StudentLearningSnapshot,
+} from '@/lib/app-data-types';
 import {
+  AlertTriangle,
   ArrowRight,
   BookOpen,
+  Brain,
   CheckCircle,
   CheckCircle2,
   ClipboardList,
@@ -224,10 +231,205 @@ function PanelCard({
   );
 }
 
+
+
+function getRiskLevelLabel(riskLevel: LearningRiskLevel) {
+  if (riskLevel === 'high') return 'Жоғары назар';
+  if (riskLevel === 'medium') return 'Орташа назар';
+  return 'Тұрақты';
+}
+
+function getRiskLevelTone(riskLevel: LearningRiskLevel) {
+  if (riskLevel === 'high') return 'danger';
+  if (riskLevel === 'medium') return 'warning';
+  return 'success';
+}
+
+function resolveOverallRisk(snapshot: StudentLearningSnapshot): LearningRiskLevel {
+  if (snapshot.courses.some((course) => course.riskLevel === 'high')) return 'high';
+  if (snapshot.courses.some((course) => course.riskLevel === 'medium')) return 'medium';
+  return 'low';
+}
+
+function formatNullablePercent(value: number | null | undefined) {
+  if (value === null || value === undefined) return '—';
+  return `${value}%`;
+}
+
+function LearningAnalyticsPanel({
+  snapshot,
+  isLoading,
+  hasError,
+}: {
+  snapshot: StudentLearningSnapshot | undefined;
+  isLoading: boolean;
+  hasError: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <PanelCard title="Оқу аналитикасы">
+        <div className="space-y-3">
+          <SkeletonBlock className="h-16 w-full rounded-lg" />
+          <SkeletonBlock className="h-16 w-full rounded-lg" />
+          <SkeletonBlock className="h-20 w-full rounded-lg" />
+        </div>
+      </PanelCard>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <PanelCard title="Оқу аналитикасы">
+        <ErrorState
+          text="Оқу аналитикасын жүктеу мүмкін болмады."
+          hint="Бұл бөлім тек оқу нәтижелері мен progress деректері бойынша есептеледі."
+          compact
+        />
+      </PanelCard>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <PanelCard title="Оқу аналитикасы">
+        <EmptyState
+          title="Аналитика әзірге жоқ"
+          text="Сабақ аяқталуы, mini quiz немесе тест нәтижелері пайда болғаннан кейін бұл жерде ұсыныстар көрінеді."
+          compact
+        />
+      </PanelCard>
+    );
+  }
+
+  const overallRisk = resolveOverallRisk(snapshot);
+  const primaryRecommendation = snapshot.recommendations[0] || null;
+  const weakLessons = snapshot.weakLessons.slice(0, 3);
+
+  return (
+    <PanelCard
+      title="Оқу аналитикасы"
+      action={
+        <StatusBadge tone={getRiskLevelTone(overallRisk)}>
+          {getRiskLevelLabel(overallRisk)}
+        </StatusBadge>
+      }
+    >
+      <div className="rounded-lg border bg-muted/20 p-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-card text-primary">
+            <Brain size={16} />
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-xs font-medium">Нәтижеге негізделген snapshot</p>
+            <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+              Бұл блок click/time tracking қолданбайды. Тек progress, mini quiz, тест,
+              сақталған және қайталау белгіленген сабақтар бойынша есептеледі.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-[11px] text-muted-foreground">Жалпы прогресс</p>
+          <p className="mt-1 text-lg font-semibold">{snapshot.totals.progressPct}%</p>
+        </div>
+
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-[11px] text-muted-foreground">Mini quiz орташа</p>
+          <p className="mt-1 text-lg font-semibold">
+            {formatNullablePercent(snapshot.totals.miniQuizAvgScore)}
+          </p>
+        </div>
+
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-[11px] text-muted-foreground">Қайталау керек</p>
+          <p className="mt-1 text-lg font-semibold">{snapshot.totals.reviewLaterItems}</p>
+        </div>
+
+        <div className="rounded-lg border bg-card p-3">
+          <p className="text-[11px] text-muted-foreground">Сақталған сабақ</p>
+          <p className="mt-1 text-lg font-semibold">{snapshot.totals.savedLessons}</p>
+        </div>
+      </div>
+
+      {primaryRecommendation ? (
+        <div className="rounded-lg border bg-primary/5 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <StatusBadge tone={getRiskLevelTone(primaryRecommendation.priority)}>
+              Ұсыныс
+            </StatusBadge>
+          </div>
+
+          <p className="text-sm font-medium">{primaryRecommendation.title}</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {primaryRecommendation.description}
+          </p>
+
+          {primaryRecommendation.lessonId ? (
+            <Button type="button" variant="outline" size="sm" className="mt-3" asChild>
+              <Link to={`/lessons/${primaryRecommendation.lessonId}`}>
+                Сабақты ашу
+                <ArrowRight size={13} className="ml-1.5" />
+              </Link>
+            </Button>
+          ) : primaryRecommendation.courseId ? (
+            <Button type="button" variant="outline" size="sm" className="mt-3" asChild>
+              <Link to={`/courses/${primaryRecommendation.courseId}`}>
+                Курсты ашу
+                <ArrowRight size={13} className="ml-1.5" />
+              </Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {weakLessons.length > 0 ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <AlertTriangle size={13} className="text-amber-600" />
+            Қайталауға ұсынылатын сабақтар
+          </div>
+
+          {weakLessons.map((lesson) => (
+            <Link
+              key={lesson.lessonId}
+              to={`/lessons/${lesson.lessonId}`}
+              className="block rounded-lg border p-3 text-xs transition-colors hover:bg-accent"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="line-clamp-1 font-medium">{lesson.lessonTitle}</p>
+                  <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
+                    {lesson.courseTitle}
+                  </p>
+                </div>
+
+                <StatusBadge tone={lesson.failedAttempts > 0 ? 'warning' : 'info'}>
+                  {lesson.failedAttempts > 0
+                    ? `${lesson.failedAttempts} failed`
+                    : 'review'}
+                </StatusBadge>
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </PanelCard>
+  );
+}
+
 export default function StudentDashboard() {
   const { user } = useAuth();
 
   const { data, isLoading, error } = useStudentDashboard(user?.id || '', !!user?.id);
+
+  const {
+    data: learningSnapshot,
+    isLoading: learningSnapshotLoading,
+    error: learningSnapshotError,
+  } = useStudentLearningSnapshot(user?.id || '', !!user?.id);
 
   const {
     data: incomingParentRequestsData,
@@ -550,6 +752,12 @@ export default function StudentDashboard() {
               </div>
 
               <div className="space-y-4">
+                <LearningAnalyticsPanel
+                  snapshot={learningSnapshot}
+                  isLoading={learningSnapshotLoading}
+                  hasError={Boolean(learningSnapshotError)}
+                />
+
                 <PanelCard title="Ата-ана сұраныстары">
                   {isIncomingParentRequestsLoading ? (
                     <LoadingState text="Сұраныстар жүктеліп жатыр..." compact />

@@ -66,6 +66,9 @@ import {
   updateLessonMiniQuizQuestion,
   upsertLessonMiniQuiz,
   upsertLessonNote,
+  getCourseLearningSnapshot,
+  getStudentLearningSnapshot,
+  getTeacherStudentLearningSnapshot,
 } from '@/lib/app-data';
 import type {
   CourseAccessSettingsPayload,
@@ -105,6 +108,27 @@ const testsKey = (userId?: string, locale?: Locale) =>
   ['tests', resolveLocale(locale), userId ?? 'all'] as const;
 
 export const platformKeys = {
+  studentLearningSnapshotBase: ['student-learning-snapshot'] as const,
+  studentLearningSnapshot: (studentId: string) =>
+    ['student-learning-snapshot', studentId] as const,
+
+  teacherStudentLearningSnapshotBase: ['teacher-student-learning-snapshot'] as const,
+  teacherStudentLearningSnapshot: (
+    teacherId: string,
+    studentId: string,
+    courseId?: string | null
+  ) =>
+    [
+      'teacher-student-learning-snapshot',
+      teacherId,
+      studentId,
+      courseId || 'all',
+    ] as const,
+
+  courseLearningSnapshotBase: ['course-learning-snapshot'] as const,
+  courseLearningSnapshot: (courseId: string) =>
+    ['course-learning-snapshot', courseId] as const,
+
   subjects: ['subjects'] as const,
 
   incomingParentLinkRequestsBase: ['incoming-parent-link-requests'] as const,
@@ -250,7 +274,7 @@ async function invalidateCourseAccessCaches(
       queryKey: platformKeys.coursesBase,
     }),
     queryClient.invalidateQueries({
-    queryKey: platformKeys.courseProgressBase,
+      queryKey: platformKeys.courseProgressBase,
     }),
     queryClient.invalidateQueries({
       queryKey: platformKeys.teacherCourseWorkspaceBase,
@@ -335,9 +359,68 @@ async function invalidateCourseAccessCaches(
     );
   }
 
+
+  tasks.push(
+    invalidateLearningAnalyticsCaches(queryClient, {
+      studentId: input?.userId,
+      teacherId: input?.teacherId,
+      courseId: input?.courseId,
+    })
+  );
+
   await Promise.all(tasks);
 }
 
+async function invalidateLearningAnalyticsCaches(
+  queryClient: QueryClient,
+  input?: {
+    studentId?: string;
+    teacherId?: string;
+    courseId?: string;
+  }
+) {
+  const tasks: Array<Promise<unknown>> = [
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.studentLearningSnapshotBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.teacherStudentLearningSnapshotBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.courseLearningSnapshotBase,
+    }),
+  ];
+
+  if (input?.studentId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.studentLearningSnapshot(input.studentId),
+      })
+    );
+  }
+
+  if (input?.courseId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.courseLearningSnapshot(input.courseId),
+      })
+    );
+  }
+
+  if (input?.teacherId && input?.studentId) {
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.teacherStudentLearningSnapshot(
+          input.teacherId,
+          input.studentId,
+          input.courseId
+        ),
+      })
+    );
+  }
+
+  await Promise.all(tasks);
+}
 
 async function invalidateCourseAnnouncementCaches(
   queryClient: QueryClient,
@@ -409,8 +492,8 @@ async function invalidateLearningSpaceCaches(
       queryKey: platformKeys.lessonDetailBase,
     }),
     queryClient.invalidateQueries({
-    queryKey: platformKeys.courseProgressBase,
-      }),
+      queryKey: platformKeys.courseProgressBase,
+    }),
     queryClient.invalidateQueries({
       queryKey: platformKeys.lessonsBase,
     }),
@@ -460,16 +543,16 @@ async function invalidateLearningSpaceCaches(
   }
 
   if (input?.studentId && input?.courseId) {
-  tasks.push(
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseProgress(
-        input.studentId,
-        input.courseId,
-        activeLocale
-      ),
-    })
-  );
-}
+    tasks.push(
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.courseProgress(
+          input.studentId,
+          input.courseId,
+          activeLocale
+        ),
+      })
+    );
+  }
 
   if (input?.lessonId) {
     tasks.push(
@@ -500,6 +583,15 @@ async function invalidateLearningSpaceCaches(
       })
     );
   }
+
+
+  tasks.push(
+    invalidateLearningAnalyticsCaches(queryClient, {
+      studentId: input?.studentId,
+      teacherId: input?.teacherId,
+      courseId: input?.courseId,
+    })
+  );
 
   await Promise.all(tasks);
 }
@@ -585,6 +677,15 @@ async function invalidateLessonMiniQuizCaches(
     );
   }
 
+
+  tasks.push(
+    invalidateLearningAnalyticsCaches(queryClient, {
+      studentId: input?.studentId,
+      teacherId: input?.teacherId,
+      courseId: input?.courseId,
+    })
+  );
+
   await Promise.all(tasks);
 }
 
@@ -661,6 +762,55 @@ export function useCourseProgressTimeline(
     enabled: enabled && !!studentId && !!courseId,
   });
 }
+
+/* ================= OUTCOME ANALYTICS SNAPSHOTS ================= */
+
+export function useStudentLearningSnapshot(
+  studentId: string,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: platformKeys.studentLearningSnapshot(studentId),
+    queryFn: () => getStudentLearningSnapshot(studentId),
+    enabled: enabled && !!studentId,
+  });
+}
+
+export function useTeacherStudentLearningSnapshot(
+  input: {
+    teacherId: string;
+    studentId: string;
+    courseId?: string | null;
+  },
+  enabled = true
+) {
+  return useQuery({
+    queryKey: platformKeys.teacherStudentLearningSnapshot(
+      input.teacherId,
+      input.studentId,
+      input.courseId
+    ),
+    queryFn: () =>
+      getTeacherStudentLearningSnapshot({
+        teacherId: input.teacherId,
+        studentId: input.studentId,
+        courseId: input.courseId || null,
+      }),
+    enabled: enabled && !!input.teacherId && !!input.studentId,
+  });
+}
+
+export function useCourseLearningSnapshot(
+  courseId: string,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: platformKeys.courseLearningSnapshot(courseId),
+    queryFn: () => getCourseLearningSnapshot(courseId),
+    enabled: enabled && !!courseId,
+  });
+}
+
 
 export function useLessons(userId?: string, enabled = true, locale?: Locale) {
   const activeLocale = resolveLocale(locale);

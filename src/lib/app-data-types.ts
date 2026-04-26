@@ -1286,3 +1286,142 @@ export interface DeleteCourseAssetPayload {
 export interface DeleteFileAssetPayload {
   fileAssetId: string;
 }
+
+/**
+ * Outcome-based analytics.
+ *
+ * Бұл analytics оқушыны бақыламайды.
+ * Тек оқу нәтижелері, progress, quiz/test attempts, saved/review later деректерімен жұмыс істейді.
+ */
+
+export type LearningRiskLevel =
+  | 'low'
+  | 'medium'
+  | 'high';
+
+export type LearningRecommendationType =
+  | 'review_lesson'
+  | 'retake_quiz'
+  | 'continue_course'
+  | 'ask_teacher'
+  | 'practice_more';
+
+export interface LearningRecommendationView {
+  id: string;
+  type: LearningRecommendationType;
+  title: string;
+  description: string;
+  courseId: string | null;
+  lessonId: string | null;
+  priority: LearningRiskLevel;
+}
+
+export interface StudentCourseAnalyticsView {
+  courseId: string;
+  courseTitle: string;
+  subjectName: string | null;
+
+  totalLessons: number;
+  completedLessons: number;
+  progressPct: number;
+
+  miniQuizAttempts: number;
+  miniQuizAvgScore: number | null;
+  miniQuizPassed: number;
+  miniQuizFailed: number;
+
+  testAttempts: number;
+  testAvgScore: number | null;
+
+  savedLessons: number;
+  reviewLaterItems: number;
+
+  riskLevel: LearningRiskLevel;
+}
+
+export interface StudentWeakLessonView {
+  lessonId: string;
+  courseId: string;
+  lessonTitle: string;
+  courseTitle: string;
+  subjectName: string | null;
+
+  reason: string;
+  miniQuizAvgScore: number | null;
+  failedAttempts: number;
+  reviewLater: boolean;
+}
+
+export interface StudentLearningSnapshot {
+  studentId: string;
+
+  generatedAt: string;
+
+  totals: {
+    enrolledCourses: number;
+    totalLessons: number;
+    completedLessons: number;
+    progressPct: number;
+
+    miniQuizAttempts: number;
+    miniQuizAvgScore: number | null;
+    miniQuizPassed: number;
+    miniQuizFailed: number;
+
+    testAttempts: number;
+    testAvgScore: number | null;
+
+    savedLessons: number;
+    reviewLaterItems: number;
+  };
+
+  courses: StudentCourseAnalyticsView[];
+  weakLessons: StudentWeakLessonView[];
+  recommendations: LearningRecommendationView[];
+}
+
+export interface CourseMiniQuizAnalyticsView {
+  quizId: string;
+  lessonId: string;
+  lessonTitle: string;
+
+  attempts: number;
+  avgScore: number | null;
+  passed: number;
+  failed: number;
+  passRatePct: number | null;
+}
+
+export interface CourseLearningSnapshot {
+  courseId: string;
+  courseTitle: string;
+  subjectName: string | null;
+
+  generatedAt: string;
+
+  totals: {
+    students: number;
+    lessons: number;
+    completedLessons: number;
+    avgProgressPct: number;
+
+    miniQuizAttempts: number;
+    miniQuizAvgScore: number | null;
+    miniQuizPassRatePct: number | null;
+
+    testAttempts: number;
+    testAvgScore: number | null;
+
+    savedLessons: number;
+    reviewLaterItems: number;
+  };
+
+  miniQuizzes: CourseMiniQuizAnalyticsView[];
+  difficultLessons: StudentWeakLessonView[];
+}
+
+export interface TeacherStudentLearningSnapshot extends StudentLearningSnapshot {
+  teacherId: string;
+  courseId: string | null;
+  teacherScopeNote: string;
+}
