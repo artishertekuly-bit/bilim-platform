@@ -1339,6 +1339,33 @@ export interface StudentCourseAnalyticsView {
   riskLevel: LearningRiskLevel;
 }
 
+export interface CourseAnalyticsStudentOptionView {
+  studentId: string;
+
+  fullName: string | null;
+  avatarUrl: string | null;
+
+  courseId: string;
+  courseTitle: string;
+
+  totalLessons: number;
+  completedLessons: number;
+  progressPct: number;
+
+  miniQuizAttempts: number;
+  miniQuizAvgScore: number | null;
+  miniQuizPassed: number;
+  miniQuizFailed: number;
+
+  testAttempts: number;
+  testAvgScore: number | null;
+
+  savedLessons: number;
+  reviewLaterItems: number;
+
+  riskLevel: LearningRiskLevel;
+}
+
 export interface StudentWeakLessonView {
   lessonId: string;
   courseId: string;

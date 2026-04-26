@@ -41,6 +41,7 @@ import { useCourseBuilderController } from '@/hooks/course-factor/useCourseBuild
 import { useCourseBuilderCourseMutations } from '@/hooks/course-factor/useCourseBuilderCourseMutations';
 import { useCourseBuilderSidePanels } from '@/hooks/course-factor/useCourseBuilderSidePanels';
 import { useCourseBuilderMiniQuiz } from '@/hooks/course-factor/useCourseBuilderMiniQuiz';
+import CourseAnalyticsPanel from '@/components/course-builder/CourseAnalyticsPanel';
 import {
   formatPrice,
   getAccessTypeLabel,
@@ -414,6 +415,8 @@ export default function TeacherCreateCoursePage() {
                     accessType={courseEdit.accessType}
                     selectedCoursePrice={selectedCoursePrice}
                   />
+
+                  <CourseAnalyticsPanel courseId={selectedCourse.id} teacherId={user?.id || ''}/>
 
                   <CourseAnnouncementsPanel
                     announcementForm={announcementForm}

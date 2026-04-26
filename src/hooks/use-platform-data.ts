@@ -66,6 +66,7 @@ import {
   updateLessonMiniQuizQuestion,
   upsertLessonMiniQuiz,
   upsertLessonNote,
+  getCourseAnalyticsStudents,
   getCourseLearningSnapshot,
   getStudentLearningSnapshot,
   getTeacherStudentLearningSnapshot,
@@ -128,6 +129,10 @@ export const platformKeys = {
   courseLearningSnapshotBase: ['course-learning-snapshot'] as const,
   courseLearningSnapshot: (courseId: string) =>
     ['course-learning-snapshot', courseId] as const,
+
+  courseAnalyticsStudentsBase: ['course-analytics-students'] as const,
+  courseAnalyticsStudents: (courseId: string) =>
+    ['course-analytics-students', courseId] as const,
 
   subjects: ['subjects'] as const,
 
@@ -389,6 +394,9 @@ async function invalidateLearningAnalyticsCaches(
     queryClient.invalidateQueries({
       queryKey: platformKeys.courseLearningSnapshotBase,
     }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.courseAnalyticsStudentsBase,
+    }),
   ];
 
   if (input?.studentId) {
@@ -403,6 +411,9 @@ async function invalidateLearningAnalyticsCaches(
     tasks.push(
       queryClient.invalidateQueries({
         queryKey: platformKeys.courseLearningSnapshot(input.courseId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.courseAnalyticsStudents(input.courseId),
       })
     );
   }
@@ -807,6 +818,17 @@ export function useCourseLearningSnapshot(
   return useQuery({
     queryKey: platformKeys.courseLearningSnapshot(courseId),
     queryFn: () => getCourseLearningSnapshot(courseId),
+    enabled: enabled && !!courseId,
+  });
+}
+
+export function useCourseAnalyticsStudents(
+  courseId: string,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: platformKeys.courseAnalyticsStudents(courseId),
+    queryFn: () => getCourseAnalyticsStudents(courseId),
     enabled: enabled && !!courseId,
   });
 }
