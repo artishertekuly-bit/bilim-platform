@@ -5,6 +5,7 @@ import {
   ArrowRight,
   BookOpen,
   Bookmark,
+  Filter,
   Plus,
   RotateCcw,
   Search,
@@ -31,6 +32,7 @@ import t from '@/lib/i18n';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 
 type CatalogMode = 'student' | 'teacher' | 'admin';
@@ -47,6 +49,18 @@ function buildCourseDetailPath(courseId: string) {
 
 function normalizeText(value: string | null | undefined) {
   return (value || '').toLowerCase().trim();
+}
+
+function getModeEyebrow({
+  isTeacherView,
+  isAdminView,
+}: {
+  isTeacherView: boolean;
+  isAdminView: boolean;
+}) {
+  if (isTeacherView) return 'Мұғалім кеңістігі';
+  if (isAdminView) return 'Admin басқару';
+  return 'Курс каталогы';
 }
 
 export default function CourseCatalogPage() {
@@ -337,6 +351,11 @@ export default function CourseCatalogPage() {
       ? t('page.course_catalog.empty.admin_text')
       : t('page.course_catalog.empty.student_text');
 
+  const totalCourses = data?.length || 0;
+  const filteredCourses = filtered.length;
+  const hasActiveFilters =
+    Boolean(search.trim()) || activeSubject !== 'all' || showBookmarksOnly;
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -344,11 +363,7 @@ export default function CourseCatalogPage() {
           eyebrow={
             <>
               <BookOpen size={13} />
-              {isTeacherView
-                ? 'Мұғалім кеңістігі'
-                : isAdminView
-                  ? 'Admin басқару'
-                  : 'Курс каталогы'}
+              {getModeEyebrow({ isTeacherView, isAdminView })}
             </>
           }
           icon={<BookOpen size={20} />}
@@ -389,52 +404,90 @@ export default function CourseCatalogPage() {
         ) : null}
 
         {!isLoading && !error ? (
-          <Card>
-            <CardContent className="space-y-4 pt-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="relative w-full lg:max-w-md">
-                  <Search
-                    size={16}
-                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  />
-                  <Input
-                    placeholder={t('page.course_catalog.search_placeholder')}
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9"
-                  />
+          <Card className="overflow-hidden border-border/80 bg-card/95 shadow-soft">
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-center">
+                  <div className="relative w-full lg:max-w-md">
+                    <Search
+                      size={16}
+                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    />
+                    <Input
+                      placeholder={t('page.course_catalog.search_placeholder')}
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="muted" className="text-[11px]">
+                      Барлығы: {totalCourses}
+                    </Badge>
+
+                    <Badge variant={hasActiveFilters ? 'default' : 'outline'} className="text-[11px]">
+                      Көрсетілді: {filteredCourses}
+                    </Badge>
+                  </div>
                 </div>
 
-                {isStudentView ? (
-                  <Button
-                    type="button"
-                    variant={showBookmarksOnly ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setShowBookmarksOnly((prev) => !prev)}
-                  >
-                    <Bookmark size={14} className="mr-1.5" />
-                    {showBookmarksOnly
-                      ? t('page.course_catalog.bookmarks.all')
-                      : t('page.course_catalog.bookmarks.saved')}
-                  </Button>
-                ) : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  {isStudentView ? (
+                    <Button
+                      type="button"
+                      variant={showBookmarksOnly ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setShowBookmarksOnly((prev) => !prev)}
+                    >
+                      <Bookmark size={14} className="mr-1.5" />
+                      {showBookmarksOnly
+                        ? t('page.course_catalog.bookmarks.all')
+                        : t('page.course_catalog.bookmarks.saved')}
+                    </Button>
+                  ) : null}
+
+                  {hasActiveFilters ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={resetFilters}
+                    >
+                      <RotateCcw size={14} className="mr-1.5" />
+                      Тазалау
+                    </Button>
+                  ) : null}
+                </div>
               </div>
 
-              <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-                {subjectFilters.map((subject) => (
-                  <button
-                    key={subject.value}
-                    type="button"
-                    onClick={() => setActiveSubject(subject.value)}
-                    className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
-                      activeSubject === subject.value
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border hover:bg-accent'
-                    }`}
-                  >
-                    {subject.label}
-                  </button>
-                ))}
+              <div className="rounded-3xl border border-border bg-surface-soft/60 p-3">
+                <div className="mb-2 flex items-center gap-2 px-1 text-xs font-medium text-muted-foreground">
+                  <Filter size={14} />
+                  Пән бойынша сүзгі
+                </div>
+
+                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+                  {subjectFilters.map((subject) => {
+                    const active = activeSubject === subject.value;
+
+                    return (
+                      <button
+                        key={subject.value}
+                        type="button"
+                        onClick={() => setActiveSubject(subject.value)}
+                        aria-pressed={active}
+                        className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] ${
+                          active
+                            ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
+                            : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
+                        }`}
+                      >
+                        {subject.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </CardContent>
           </Card>

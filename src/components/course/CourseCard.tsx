@@ -134,6 +134,29 @@ function canOpenCourseDetail(course: CourseView) {
   return course.access.canAccess || course.access.unlockAction === 'open_course';
 }
 
+function MetricItem({
+  icon,
+  label,
+  emphasized = false,
+}: {
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  emphasized?: boolean;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 ${
+        emphasized
+          ? 'border-accent-muted bg-accent-soft text-accent-foreground'
+          : 'border-border bg-muted/70 text-muted-foreground'
+      }`}
+    >
+      {icon}
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 export default function CourseCard({
   course,
   mode,
@@ -163,11 +186,16 @@ export default function CourseCard({
 
   const cardBody = (
     <>
-      <div className="relative flex h-28 items-center justify-center border-b border-border bg-accent">
-        <BookOpen
-          size={28}
-          className="text-muted-foreground/40 transition-transform duration-200 group-hover:scale-110"
-        />
+      <div className="relative flex h-32 items-center justify-center overflow-hidden border-b border-border bg-surface-soft">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -left-12 -top-12 h-32 w-32 rounded-full bg-primary-soft blur-2xl" />
+          <div className="absolute -right-12 top-4 h-32 w-32 rounded-full bg-secondary-soft blur-2xl" />
+          <div className="absolute bottom-0 left-1/3 h-24 w-24 rounded-full bg-accent-soft blur-2xl" />
+        </div>
+
+        <div className="relative flex h-14 w-14 items-center justify-center rounded-3xl border border-primary-muted bg-card/80 text-primary shadow-soft transition-transform duration-200 ease-soft group-hover:scale-[1.03]">
+          <BookOpen size={26} />
+        </div>
 
         <CourseAccessBadge
           accessType={getNormalizedCatalogAccessType(course)}
@@ -179,40 +207,41 @@ export default function CourseCard({
         ) : null}
       </div>
 
-      <CardContent className="space-y-3 p-4">
+      <CardContent className="space-y-4 p-4">
         <div>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            {course.subjectName}
+          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <span className="truncate">{course.subjectName || 'Жалпы курс'}</span>
           </span>
 
-          <h3 className="mt-0.5 line-clamp-2 text-sm font-semibold group-hover:underline">
+          <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground transition-colors group-hover:text-primary">
             {course.title}
           </h3>
 
-          <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+          <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
             {course.description || t('page.course_catalog.no_description')}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Users size={11} />
-            {course.students}
-          </span>
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <MetricItem
+            icon={<Users size={11} />}
+            label={course.students}
+          />
 
-          <span className="flex items-center gap-1">
-            <Clock size={11} />
-            {course.lessons} {t('course.lessons_count')}
-          </span>
+          <MetricItem
+            icon={<Clock size={11} />}
+            label={`${course.lessons} ${t('course.lessons_count')}`}
+          />
 
-          <span className="flex items-center gap-1 font-medium text-foreground">
-            <Tag size={11} />
-            {formatCoursePrice(course)}
-          </span>
+          <MetricItem
+            emphasized
+            icon={<Tag size={11} />}
+            label={formatCoursePrice(course)}
+          />
         </div>
 
         {course.access?.accessState === 'enrollment_closed' ? (
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-1.5 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-2 rounded-2xl border border-border bg-muted/70 px-3 py-2 text-[11px] text-muted-foreground">
             <Lock size={12} />
             Курсқа жазылу уақытша жабық
           </div>
@@ -233,7 +262,10 @@ export default function CourseCard({
   );
 
   return (
-    <Card className="group overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg">
+    <Card
+      interactive
+      className="group overflow-hidden border-border/80 bg-card/95"
+    >
       <div className="relative">
         {isStudentView && canOpenCourseDetail(course) ? (
           <Link to={courseDetailPath} className="block">
@@ -251,10 +283,10 @@ export default function CourseCard({
           <button
             type="button"
             disabled={pendingBookmarkCourseId === course.id}
-            className={`absolute right-3 top-3 z-10 rounded-full border p-2 transition-colors ${
+            className={`absolute right-3 top-3 z-10 rounded-2xl border p-2 shadow-soft backdrop-blur transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60 ${
               course.bookmarked
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-border bg-background/80 hover:bg-background'
+                ? 'border-primary-muted bg-primary text-primary-foreground'
+                : 'border-border bg-card/85 text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
             }`}
             onClick={(event) => {
               event.preventDefault();
@@ -274,9 +306,9 @@ export default function CourseCard({
           </button>
         ) : null}
 
-        <div className="space-y-2 px-4 pb-4">
+        <div className="space-y-3 px-4 pb-4">
           {isStudentView && course.enrolled ? (
-            <div className="space-y-2">
+            <div className="space-y-3 rounded-3xl border border-border bg-surface-soft/60 p-3">
               <ProgressBar value={course.progress} size="sm" />
 
               <Button type="button" size="sm" className="w-full text-xs" asChild>
@@ -289,9 +321,9 @@ export default function CourseCard({
           ) : isStudentView ? (
             <>
               {showInviteInput ? (
-                <div className="space-y-2 rounded-lg border border-border bg-muted/40 p-2">
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium">
-                    <KeyRound size={12} />
+                <div className="space-y-3 rounded-3xl border border-primary-muted bg-primary-soft/70 p-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+                    <KeyRound size={13} />
                     Invite code
                   </div>
 
@@ -299,7 +331,7 @@ export default function CourseCard({
                     value={inviteCode}
                     onChange={(event) => onInviteCodeChange?.(event.target.value)}
                     placeholder="Мысалы: ABC123XYZ"
-                    className="h-8 text-xs uppercase"
+                    className="h-9 text-xs uppercase"
                   />
 
                   <div className="grid grid-cols-2 gap-2">
@@ -351,13 +383,13 @@ export default function CourseCard({
               </Link>
             </Button>
           ) : isAdminView ? (
-            <div className="space-y-2 text-[11px] text-muted-foreground">
+            <div className="space-y-3 rounded-3xl border border-border bg-surface-soft/60 p-3 text-[11px] text-muted-foreground">
               <div className="flex flex-wrap items-center gap-2">
                 <CourseStatusBadge status={course.status} />
                 <CourseAccessBadge accessType={getNormalizedCatalogAccessType(course)} />
               </div>
 
-              <div>
+              <div className="rounded-2xl border border-border bg-card/70 px-3 py-2">
                 Access: {getCourseAccessLabel(course)} · {formatCoursePrice(course)}
               </div>
             </div>

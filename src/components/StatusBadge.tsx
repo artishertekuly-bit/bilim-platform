@@ -6,6 +6,25 @@ import t from '@/lib/i18n';
 
 type CourseStatus = 'draft' | 'review' | 'published' | 'archived';
 
+type CourseAccessType =
+  | 'public_free'
+  | 'private_invite'
+  | 'paid'
+  | 'subscription_only'
+  | 'school_only'
+  | string
+  | null
+  | undefined;
+
+type OrderStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'paid'
+  | 'completed'
+  | string;
+
 type StatusTone =
   | 'default'
   | 'muted'
@@ -68,6 +87,122 @@ const toneClassName: Record<StatusTone, string> = {
   ai: 'border-ai-border bg-ai-soft text-ai-foreground',
 };
 
+function normalizeAccessType(accessType: CourseAccessType) {
+  const value = String(accessType || '').trim();
+
+  if (value === 'subscription_only') return 'paid';
+  if (value === 'school_only') return 'private_invite';
+
+  return value;
+}
+
+function getAccessMeta(accessType: CourseAccessType): {
+  label: string;
+  tone: StatusTone;
+} {
+  const normalized = normalizeAccessType(accessType);
+
+  switch (normalized) {
+    case 'public_free':
+    case 'open':
+    case 'free':
+    case 'public':
+      return {
+        label: 'Ашық',
+        tone: 'success',
+      };
+
+    case 'paid':
+    case 'premium':
+      return {
+        label: 'Ақылы',
+        tone: 'important',
+      };
+
+    case 'private_invite':
+    case 'private':
+    case 'closed':
+    case 'invite_only':
+    case 'invite-only':
+      return {
+        label: 'Жабық',
+        tone: 'primary',
+      };
+
+    default:
+      return {
+        label: 'Қолжетімділік белгісіз',
+        tone: 'muted',
+      };
+  }
+}
+
+function getOrderMeta(status: OrderStatus): {
+  label: string;
+  tone: StatusTone;
+} {
+  const normalized = String(status || '').trim().toLowerCase();
+
+  switch (normalized) {
+    case 'pending':
+      return {
+        label: 'Сұраныс қаралуда',
+        tone: 'important',
+      };
+
+    case 'approved':
+    case 'paid':
+    case 'completed':
+      return {
+        label: 'Расталды',
+        tone: 'success',
+      };
+
+    case 'rejected':
+      return {
+        label: 'Қабылданбады',
+        tone: 'danger',
+      };
+
+    case 'cancelled':
+    case 'canceled':
+      return {
+        label: 'Болдырылмады',
+        tone: 'muted',
+      };
+
+    default:
+      return {
+        label: normalized || 'Статус белгісіз',
+        tone: 'muted',
+      };
+  }
+}
+
+function BaseStatusBadge({
+  tone = 'default',
+  children,
+  className,
+}: {
+  tone?: StatusTone;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold leading-none tracking-wide shadow-none',
+        'transition-all duration-200 ease-soft',
+        toneClassName[tone],
+        className
+      )}
+    >
+      {children}
+    </Badge>
+  );
+}
+
 export default function StatusBadge({
   status,
   tone,
@@ -83,16 +218,59 @@ export default function StatusBadge({
   }
 
   return (
-    <Badge
-      variant="outline"
-      className={cn(
-        'inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold leading-none tracking-wide shadow-none',
-        'transition-all duration-200 ease-soft',
-        toneClassName[resolvedTone],
-        className
-      )}
-    >
+    <BaseStatusBadge tone={resolvedTone} className={className}>
       {label}
-    </Badge>
+    </BaseStatusBadge>
+  );
+}
+
+export function CourseStatusBadge({
+  status,
+  className,
+}: {
+  status: CourseStatus;
+  className?: string;
+}) {
+  const config = statusConfig[status] || {
+    label: String(status || 'Белгісіз'),
+    tone: 'muted' as StatusTone,
+  };
+
+  return (
+    <BaseStatusBadge tone={config.tone} className={className}>
+      {config.label}
+    </BaseStatusBadge>
+  );
+}
+
+export function CourseAccessBadge({
+  accessType,
+  className,
+}: {
+  accessType: CourseAccessType;
+  className?: string;
+}) {
+  const config = getAccessMeta(accessType);
+
+  return (
+    <BaseStatusBadge tone={config.tone} className={className}>
+      {config.label}
+    </BaseStatusBadge>
+  );
+}
+
+export function OrderStatusBadge({
+  status,
+  className,
+}: {
+  status: OrderStatus;
+  className?: string;
+}) {
+  const config = getOrderMeta(status);
+
+  return (
+    <BaseStatusBadge tone={config.tone} className={className}>
+      {config.label}
+    </BaseStatusBadge>
   );
 }
