@@ -961,8 +961,6 @@ export default function LessonDetailPage() {
 
         {!isLoading && !error && data && !data.isLocked ? (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-            <div classerror && data && !data.isLocked ? (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="space-y-4">
               <Card className="overflow-hidden">
                 <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
