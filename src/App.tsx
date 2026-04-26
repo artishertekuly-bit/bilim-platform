@@ -91,8 +91,10 @@ type AppRouteConfig = {
 
 function AppLoadingScreen() {
   return (
-    <div className="p-6">
-      <LoadingState text={t('page.app.loading')} />
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-soft animate-fade-in">
+        <LoadingState text={t('page.app.loading')} />
+      </div>
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 export type AiPromptSuggestion = {
   id: string;
@@ -97,7 +98,10 @@ function renderStructuredAnswer(answer: string) {
 
     if (/^#{1,6}\s+/.test(line)) {
       return (
-        <h4 key={key} className="mt-4 first:mt-0 text-sm font-semibold text-foreground">
+        <h4
+          key={key}
+          className="mt-4 first:mt-0 text-sm font-semibold tracking-tight text-foreground"
+        >
           {normalizeMarkdownLine(line)}
         </h4>
       );
@@ -115,7 +119,7 @@ function renderStructuredAnswer(answer: string) {
     if (numbered) {
       return (
         <div key={key} className="flex gap-2 text-sm leading-7 text-foreground">
-          <span className="mt-1 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border bg-primary/10 px-1 text-[10px] font-semibold text-primary">
+          <span className="mt-1 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border border-primary-muted bg-primary-soft px-1 text-[10px] font-semibold text-primary">
             {numbered[1]}
           </span>
           <span>{normalizeMarkdownLine(numbered[2])}</span>
@@ -174,7 +178,7 @@ export default function AiPromptShell({
   onSubmit,
 }: AiPromptShellProps) {
   const [prompt, setPrompt] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const lastAppliedAnswerRef = useRef<string | null>(null);
@@ -184,23 +188,20 @@ export default function AiPromptShell({
   const endpointReady = Boolean(onSubmit);
   const effectiveDisabled = disabled || !endpointReady;
 
-  const latestAssistantMessage = useMemo(
-    () => [...messages].reverse().find((message) => message.role === 'assistant') || null,
-    [messages]
-  );
-
   const visibleDisabledReason =
     disabledReason ||
     (!endpointReady
       ? 'AI backend endpoint әлі қосылмаған.'
       : 'AI қазір уақытша өшірулі.');
 
-  useEffect(() => {
-    if (!copied) return;
+  const hasConversation = messages.length > 0;
 
-    const timeoutId = window.setTimeout(() => setCopied(false), 1400);
+  useEffect(() => {
+    if (!copiedMessageId) return;
+
+    const timeoutId = window.setTimeout(() => setCopiedMessageId(null), 1400);
     return () => window.clearTimeout(timeoutId);
-  }, [copied]);
+  }, [copiedMessageId]);
 
   useEffect(() => {
     if (!answer?.trim()) return;
@@ -229,6 +230,7 @@ export default function AiPromptShell({
     setPrompt('');
     setMessages([]);
     lastAppliedAnswerRef.current = null;
+    setCopiedMessageId(null);
   };
 
   const submitPrompt = async () => {
@@ -262,37 +264,45 @@ export default function AiPromptShell({
     }
   };
 
-  const handleCopy = async () => {
-    const copyText = latestAssistantMessage?.content || answer || '';
-
-    if (!copyText || !navigator.clipboard) return;
+  const copyMessage = async (message: ChatMessage) => {
+    if (!message.content || !navigator.clipboard) return;
 
     try {
-      await navigator.clipboard.writeText(copyText);
-      setCopied(true);
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageId(message.id);
     } catch {
-      setCopied(false);
+      setCopiedMessageId(null);
     }
   };
 
   return (
     <Card
-      className="overflow-hidden border-border/80 bg-background shadow-sm"
+      className="ai-soft-panel overflow-hidden"
       data-suggestion-count={suggestions.length}
       data-context-label={contextLabel}
       data-context-summary={contextSummary || ''}
       data-warning-count={warnings.length}
       data-follow-up-count={followUpPrompts.length}
     >
-      <CardHeader className="border-b bg-muted/20 px-4 py-4 sm:px-5">
+      <CardHeader className="border-b border-ai-border/70 bg-card/70 px-4 py-4 backdrop-blur sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border bg-background text-primary shadow-sm">
-              <Bot size={17} />
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-soft">
+              <Bot size={18} />
             </span>
 
             <div className="min-w-0">
-              <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+
+                {contextLabel ? (
+                  <span className="inline-flex max-w-[220px] items-center gap-1.5 truncate rounded-full border border-primary-muted bg-primary-soft px-2.5 py-1 text-[10px] font-semibold text-primary">
+                    <Sparkles size={11} />
+                    <span className="truncate">{contextLabel}</span>
+                  </span>
+                ) : null}
+              </div>
+
               <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
                 {description}
               </p>
@@ -300,19 +310,26 @@ export default function AiPromptShell({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex w-fit items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">
+            <span
+              className={cn(
+                'inline-flex w-fit items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold',
+                endpointReady && !disabled
+                  ? 'border-ai-border bg-ai-soft text-ai-foreground'
+                  : 'border-border bg-muted text-muted-foreground'
+              )}
+            >
               <Sparkles size={12} className={endpointReady && !disabled ? 'text-primary' : ''} />
               {endpointReady && !disabled ? 'AI дайын' : 'Дайын емес'}
             </span>
 
-            {messages.length > 0 ? (
+            {hasConversation ? (
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
                 onClick={clearConversation}
                 disabled={isSubmitting}
-                className="h-7 px-2 text-[11px] text-muted-foreground"
+                className="h-8 px-2 text-[11px] text-muted-foreground"
               >
                 <Trash2 size={12} className="mr-1.5" />
                 Диалогты тазалау
@@ -322,19 +339,19 @@ export default function AiPromptShell({
         </div>
 
         {contextDescription ? (
-          <p className="mt-3 text-xs leading-5 text-muted-foreground">
+          <p className="mt-3 rounded-2xl border border-border/70 bg-card/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
             {contextDescription}
           </p>
         ) : null}
       </CardHeader>
 
       <CardContent className="p-0">
-        <form onSubmit={handleSubmit} className="flex min-h-[620px] flex-col">
-          <div className="flex-1 space-y-4 overflow-y-auto bg-muted/10 px-4 py-5 sm:px-5">
-            {messages.length === 0 && !error && !isSubmitting ? (
-              <div className="flex min-h-[320px] items-center justify-center">
-                <div className="max-w-md rounded-3xl border border-dashed bg-background/80 px-6 py-7 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border bg-muted/40 text-primary">
+        <form onSubmit={handleSubmit} className="flex min-h-[640px] flex-col">
+          <div className="flex-1 space-y-4 overflow-y-auto bg-surface-soft/40 px-4 py-5 sm:px-5">
+            {!hasConversation && !error && !isSubmitting ? (
+              <div className="flex min-h-[340px] items-center justify-center">
+                <div className="max-w-md rounded-3xl border border-dashed border-ai-border bg-card/80 px-6 py-7 text-center shadow-soft backdrop-blur">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
                     <Sparkles size={18} />
                   </div>
                   <p className="mt-3 text-sm font-semibold text-foreground">
@@ -350,27 +367,36 @@ export default function AiPromptShell({
             {messages.map((message) => {
               if (message.role === 'user') {
                 return (
-                  <div key={message.id} className="flex items-start justify-end gap-3">
-                    <div className="max-w-3xl rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-sm">
+                  <div
+                    key={message.id}
+                    className="flex items-start justify-end gap-3 animate-fade-in-soft"
+                  >
+                    <div className="max-w-3xl rounded-[1.35rem] rounded-tr-md bg-primary px-4 py-3 text-primary-foreground shadow-soft">
                       <p className="whitespace-pre-wrap text-sm leading-6">
                         {message.content}
                       </p>
                     </div>
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-muted-foreground">
+
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-soft">
                       <UserRound size={15} />
                     </div>
                   </div>
                 );
               }
 
+              const isCopied = copiedMessageId === message.id;
+
               return (
-                <div key={message.id} className="flex items-start gap-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-primary">
+                <div
+                  key={message.id}
+                  className="flex items-start gap-3 animate-fade-in-soft"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-soft">
                     <Bot size={15} />
                   </div>
 
-                  <div className="group w-full max-w-4xl rounded-2xl border bg-background shadow-sm">
-                    <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+                  <div className="group w-full max-w-4xl overflow-hidden rounded-3xl border border-border bg-card/95 shadow-soft">
+                    <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-card/80 px-4 py-3">
                       <div>
                         <p className="text-sm font-semibold text-foreground">{answerTitle}</p>
                         <p className="mt-0.5 text-[11px] text-muted-foreground">
@@ -382,22 +408,19 @@ export default function AiPromptShell({
                         type="button"
                         size="sm"
                         variant="ghost"
-                        onClick={() => {
-                          void navigator.clipboard?.writeText(message.content);
-                          setCopied(true);
-                        }}
+                        onClick={() => void copyMessage(message)}
                         className="h-8 px-2 text-xs"
                       >
-                        {copied ? (
+                        {isCopied ? (
                           <Check size={14} className="mr-1.5" />
                         ) : (
                           <Clipboard size={14} className="mr-1.5" />
                         )}
-                        {copied ? 'Көшірілді' : 'Көшіру'}
+                        {isCopied ? 'Көшірілді' : 'Көшіру'}
                       </Button>
                     </div>
 
-                    <div className="space-y-2 px-4 py-4 animate-fade-in">
+                    <div className="space-y-2 px-4 py-4">
                       {renderStructuredAnswer(message.content)}
                     </div>
                   </div>
@@ -406,11 +429,11 @@ export default function AiPromptShell({
             })}
 
             {error ? (
-              <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-destructive">
+              <div className="flex items-start gap-3 animate-fade-in-soft">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-destructive-muted bg-destructive-soft text-destructive shadow-soft">
                   <AlertTriangle size={15} />
                 </div>
-                <div className="max-w-3xl rounded-2xl border border-destructive/30 bg-destructive/5 px-4 py-3">
+                <div className="max-w-3xl rounded-3xl border border-destructive-muted bg-destructive-soft px-4 py-3 shadow-soft">
                   <p className="text-sm font-semibold text-destructive">
                     AI жауабын алу мүмкін болмады
                   </p>
@@ -420,11 +443,11 @@ export default function AiPromptShell({
             ) : null}
 
             {isSubmitting ? (
-              <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-background text-primary">
+              <div className="flex items-start gap-3 animate-fade-in-soft">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-soft">
                   <Loader2 size={15} className="animate-spin" />
                 </div>
-                <div className="w-full max-w-3xl rounded-2xl border bg-background px-4 py-4 shadow-sm">
+                <div className="w-full max-w-3xl rounded-3xl border border-border bg-card/90 px-4 py-4 shadow-soft">
                   <div className="space-y-3 animate-pulse">
                     <div className="h-3 w-2/3 rounded-full bg-muted" />
                     <div className="h-3 w-full rounded-full bg-muted" />
@@ -437,29 +460,29 @@ export default function AiPromptShell({
             <div ref={scrollAnchorRef} />
           </div>
 
-          <div className="border-t bg-background p-4 sm:p-5">
+          <div className="border-t border-ai-border/70 bg-card/80 p-4 backdrop-blur sm:p-5">
             {effectiveDisabled ? (
-              <div className="mb-3 rounded-2xl border bg-muted/30 px-4 py-3">
+              <div className="mb-3 rounded-2xl border border-border bg-muted/70 px-4 py-3">
                 <p className="text-xs leading-5 text-muted-foreground">{visibleDisabledReason}</p>
               </div>
             ) : null}
 
-            <div className="rounded-3xl border bg-background px-3 py-3 shadow-sm focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/10">
+            <div className="rounded-3xl border border-border bg-card px-3 py-3 shadow-inner-soft transition-all duration-200 ease-soft focus-within:border-primary-muted focus-within:ring-2 focus-within:ring-ring/25">
               <textarea
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={handleTextareaKeyDown}
                 placeholder={placeholder}
                 rows={3}
-                className="min-h-[88px] w-full resize-none border-0 bg-transparent px-1 text-sm leading-6 outline-none placeholder:text-muted-foreground"
+                className="min-h-[88px] w-full resize-none border-0 bg-transparent px-1 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
               />
 
-              <div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-3 flex flex-col gap-3 border-t border-border/70 pt-3 sm:flex-row sm:items-center sm:justify-between">
                 <button
                   type="button"
                   onClick={clearPrompt}
                   disabled={!hasPrompt || isSubmitting}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-xl px-2 py-1 text-xs font-medium text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary disabled:pointer-events-none disabled:opacity-50"
                 >
                   <Eraser size={13} />
                   Тазалау
@@ -467,6 +490,7 @@ export default function AiPromptShell({
 
                 <Button
                   type="submit"
+                  variant="ai"
                   disabled={effectiveDisabled || isSubmitting || !hasPrompt}
                   className="sm:min-w-[150px]"
                 >

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { AlertTriangle, Inbox, Loader2 } from 'lucide-react';
 
 type Align = 'left' | 'center';
-type StateTone = 'default' | 'warning' | 'danger';
+type StateTone = 'default' | 'warning' | 'danger' | 'ai';
 type StateSize = 'sm' | 'md';
 
 type BaseStateProps = {
@@ -20,6 +20,35 @@ type BaseStateProps = {
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ');
+}
+
+function getToneClasses(tone: StateTone) {
+  const map: Record<
+    StateTone,
+    {
+      card: string;
+      icon: string;
+    }
+  > = {
+    default: {
+      card: 'border-border bg-card text-card-foreground shadow-soft',
+      icon: 'border-border bg-muted text-muted-foreground',
+    },
+    warning: {
+      card: 'border-warning-muted bg-warning-soft text-warning-foreground shadow-soft',
+      icon: 'border-warning-muted bg-card/75 text-warning-foreground',
+    },
+    danger: {
+      card: 'border-destructive-muted bg-destructive-soft text-destructive shadow-soft',
+      icon: 'border-destructive-muted bg-card/75 text-destructive',
+    },
+    ai: {
+      card: 'border-ai-border bg-ai-soft text-ai-foreground shadow-soft',
+      icon: 'border-ai-border bg-card/75 text-primary',
+    },
+  };
+
+  return map[tone];
 }
 
 function StateCard({
@@ -42,33 +71,40 @@ function StateCard({
 }) {
   const isCentered = align === 'center';
   const isSmall = size === 'sm' || compact;
+  const toneClasses = getToneClasses(tone);
 
   return (
     <div
       role={role}
       className={cx(
-        'rounded-xl border',
-        isSmall ? 'p-4' : 'p-6',
-        tone === 'danger' && 'border-destructive/30 bg-destructive/5',
-        tone === 'warning' && 'border-amber-500/20 bg-amber-500/5',
-        tone === 'default' && 'border-border bg-card',
+        'relative overflow-hidden rounded-3xl border transition-all duration-200 ease-soft',
+        isSmall ? 'p-4' : 'p-5 sm:p-6',
+        toneClasses.card,
         className
       )}
     >
       <div
         className={cx(
-          'flex gap-4',
+          'pointer-events-none absolute inset-0 opacity-60',
+          tone === 'ai' && 'bg-[radial-gradient(circle_at_20%_0%,hsl(var(--primary-soft)/0.8),transparent_34%),radial-gradient(circle_at_100%_15%,hsl(var(--secondary-soft)/0.65),transparent_32%)]',
+          tone === 'default' && 'bg-[radial-gradient(circle_at_100%_0%,hsl(var(--surface-soft)/0.72),transparent_30%)]',
+          tone === 'warning' && 'bg-[radial-gradient(circle_at_100%_0%,hsl(var(--accent-muted)/0.45),transparent_30%)]',
+          tone === 'danger' && 'bg-[radial-gradient(circle_at_100%_0%,hsl(var(--destructive-muted)/0.40),transparent_30%)]'
+        )}
+      />
+
+      <div
+        className={cx(
+          'relative flex gap-4',
           isCentered && 'flex-col items-center text-center',
           isSmall && 'gap-3'
         )}
       >
         <div
           className={cx(
-            'flex shrink-0 items-center justify-center rounded-full',
-            isSmall ? 'h-9 w-9' : 'h-10 w-10',
-            tone === 'danger' && 'bg-destructive/10 text-destructive',
-            tone === 'warning' && 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-            tone === 'default' && 'bg-muted text-muted-foreground'
+            'flex shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            isSmall ? 'h-10 w-10' : 'h-11 w-11',
+            toneClasses.icon
           )}
         >
           {icon}
@@ -76,7 +112,7 @@ function StateCard({
 
         <div className={cx('min-w-0 flex-1', isCentered && 'flex flex-col items-center')}>
           {title ? (
-            <p className={cx('font-semibold text-foreground', isSmall ? 'text-sm' : 'text-sm')}>
+            <p className={cx('font-semibold text-foreground', isSmall ? 'text-sm' : 'text-base')}>
               {title}
             </p>
           ) : null}
@@ -85,7 +121,7 @@ function StateCard({
             <p
               className={cx(
                 'mt-1 text-muted-foreground',
-                isSmall ? 'text-xs leading-5' : 'text-sm leading-6'
+                isSmall ? 'text-xs leading-5' : 'max-w-2xl text-sm leading-6'
               )}
             >
               {text}
@@ -93,7 +129,7 @@ function StateCard({
           ) : null}
 
           {hint ? (
-            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+            <p className="mt-3 max-w-2xl text-xs leading-5 text-muted-foreground">
               {hint}
             </p>
           ) : null}
@@ -140,7 +176,7 @@ export function LoadingState({
       tone="default"
       align={align}
       className={className}
-      icon={<Loader2 size={18} className="animate-spin" />}
+      icon={<Loader2 size={18} className="animate-spin text-primary" />}
       title={title}
       text={text}
       hint={hint}
@@ -204,6 +240,7 @@ type EmptyStateProps = {
   align?: Align;
   compact?: boolean;
   size?: StateSize;
+  tone?: StateTone;
 };
 
 export function EmptyState({
@@ -217,10 +254,11 @@ export function EmptyState({
   align = 'center',
   compact = false,
   size = 'md',
+  tone = 'default',
 }: EmptyStateProps) {
   return (
     <StateCard
-      tone="default"
+      tone={tone}
       align={align}
       className={cx('border-dashed', className)}
       icon={icon || <Inbox size={18} />}

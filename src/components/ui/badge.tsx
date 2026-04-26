@@ -1,29 +1,77 @@
-import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
+import * as React from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
 
-import { cn } from "@/lib/utils";
+import { cn } from '@/lib/utils';
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  [
+    'inline-flex items-center gap-1.5 rounded-full border',
+    'px-2.5 py-1 text-xs font-semibold leading-none',
+    'transition-all duration-200 ease-soft',
+    'focus:outline-none focus:ring-2 focus:ring-ring/35 focus:ring-offset-2 focus:ring-offset-background',
+  ].join(' '),
   {
     variants: {
       variant: {
-        default: "border-transparent bg-primary text-primary-foreground hover:bg-primary/80",
-        secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        destructive: "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
-        outline: "text-foreground",
+        default: [
+          'border-primary-muted bg-primary-soft text-primary',
+          'hover:border-primary hover:bg-primary-muted',
+        ].join(' '),
+
+        secondary: [
+          'border-secondary-muted bg-secondary-soft text-secondary-foreground',
+          'hover:border-secondary hover:bg-secondary-muted',
+        ].join(' '),
+
+        destructive: [
+          'border-destructive-muted bg-destructive-soft text-destructive',
+          'hover:border-destructive hover:bg-destructive-muted',
+        ].join(' '),
+
+        outline: [
+          'border-border bg-card text-foreground',
+          'hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+        ].join(' '),
+
+        muted: [
+          'border-border bg-muted text-muted-foreground',
+          'hover:bg-muted/80',
+        ].join(' '),
+
+        success: [
+          'border-success-muted bg-success-soft text-success-foreground',
+          'hover:border-success hover:bg-success-muted',
+        ].join(' '),
+
+        warning: [
+          'border-warning-muted bg-warning-soft text-warning-foreground',
+          'hover:border-warning hover:bg-warning-muted',
+        ].join(' '),
+
+        ai: [
+          'border-ai-border bg-ai-soft text-ai-foreground',
+          'hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+        ].join(' '),
       },
     },
+
     defaultVariants: {
-      variant: "default",
+      variant: 'default',
     },
-  },
+  }
 );
 
-export interface BadgeProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}
+export interface BadgeProps
+  extends React.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof badgeVariants> {}
 
 function Badge({ className, variant, ...props }: BadgeProps) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />;
+  return (
+    <div
+      className={cn(badgeVariants({ variant }), className)}
+      {...props}
+    />
+  );
 }
 
 export { Badge, badgeVariants };

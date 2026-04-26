@@ -25,10 +25,14 @@ import {
   Bookmark,
   ShieldCheck,
   BrainCircuit,
+  Sun,
+  Moon,
+  Monitor,
   type LucideIcon,
 } from 'lucide-react';
 
 import { useAuth, type UserRole } from '@/lib/auth-context';
+import { useTheme } from '@/components/theme/ThemeProvider';
 import t, { type TranslationKey } from '@/lib/i18n';
 import KazakhOrnament from '@/components/KazakhOrnament';
 import UserAvatar from '@/components/UserAvatar';
@@ -245,6 +249,62 @@ function flattenGroups(groups: NavGroupConfig[]) {
   return groups.flatMap((group) => group.items);
 }
 
+function ThemeToggle() {
+  const { theme, resolvedTheme, setTheme } = useTheme();
+
+  const items = [
+    {
+      value: 'light' as const,
+      label: 'Light',
+      icon: Sun,
+    },
+    {
+      value: 'dark' as const,
+      label: 'Dark',
+      icon: Moon,
+    },
+    {
+      value: 'system' as const,
+      label: 'System',
+      icon: Monitor,
+    },
+  ];
+
+  return (
+    <div
+      className="flex items-center rounded-2xl border border-border bg-card/80 p-1 shadow-soft"
+      title={`Theme: ${theme} · active ${resolvedTheme}`}
+    >
+      {items.map((item) => {
+        const Icon = item.icon;
+        const active = theme === item.value;
+
+        return (
+          <button
+            key={item.value}
+            type="button"
+            onClick={() => setTheme(item.value)}
+            className={`
+              inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground
+              transition-all duration-200 ease-soft
+              hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary
+              active:translate-y-0 active:scale-[0.98]
+              ${
+                active
+                  ? 'bg-primary-soft text-primary shadow-sm ring-1 ring-primary-muted'
+                  : ''
+              }
+            `}
+            aria-label={item.label}
+          >
+            <Icon size={14} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function SidebarSection({
   group,
   pathname,
@@ -256,8 +316,8 @@ function SidebarSection({
 }) {
   return (
     <div className="space-y-1">
-      <div className="px-3 pb-1 pt-3">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <div className="px-3 pb-1 pt-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           {group.title}
         </p>
       </div>
@@ -273,28 +333,39 @@ function SidebarSection({
             to={item.path}
             onClick={onNavigate}
             className={`
-              group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors
+              group relative flex items-center gap-3 overflow-hidden rounded-2xl px-3 py-2.5 text-sm
+              transition-all duration-200 ease-soft
+              hover:-translate-y-0.5 hover:shadow-soft
+              active:translate-y-0 active:scale-[0.99]
               ${
                 isActive
-                  ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-sm'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent/60'
+                  ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-soft ring-1 ring-sidebar-border'
+                  : 'text-sidebar-foreground hover:bg-sidebar-accent/70 hover:text-foreground'
               }
             `}
             aria-current={isActive ? 'page' : undefined}
           >
-            <Icon
-              size={18}
-              className={
-                isActive
-                  ? 'text-primary'
-                  : 'text-muted-foreground transition-colors group-hover:text-sidebar-foreground'
-              }
-            />
+            {isActive ? (
+              <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" />
+            ) : null}
+
+            <span
+              className={`
+                flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 ease-soft
+                ${
+                  isActive
+                    ? 'border-primary-muted bg-card text-primary shadow-sm'
+                    : 'border-transparent bg-card/40 text-muted-foreground group-hover:border-primary-muted group-hover:bg-card group-hover:text-primary'
+                }
+              `}
+            >
+              <Icon size={16} />
+            </span>
 
             <span className="min-w-0 flex-1 truncate">{label}</span>
 
             {isActive ? (
-              <ChevronRight size={14} className="text-muted-foreground" />
+              <ChevronRight size={14} className="shrink-0 text-primary" />
             ) : null}
           </Link>
         );
@@ -375,10 +446,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen bg-background text-foreground">
       {sidebarOpen ? (
         <div
-          className="fixed inset-0 z-40 bg-foreground/10 backdrop-blur-[1px] lg:hidden"
+          className="fixed inset-0 z-40 bg-foreground/15 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -386,22 +457,26 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       <aside
         className={`
-          fixed left-0 top-0 z-50 flex h-screen w-64 flex-col border-r border-sidebar-border bg-sidebar
-          transition-transform duration-200 lg:sticky
+          fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-sidebar-border
+          bg-sidebar/95 shadow-soft-lg backdrop-blur-xl
+          transition-transform duration-200 ease-soft lg:sticky lg:shadow-none
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
       >
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
-          <Link to="/dashboard" className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary shadow-sm">
-              <GraduationCap size={16} className="text-primary-foreground" />
+          <Link
+            to="/dashboard"
+            className="flex min-w-0 items-center gap-3 rounded-2xl transition-all duration-200 ease-soft hover:-translate-y-0.5"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
+              <GraduationCap size={18} />
             </div>
 
             <div className="min-w-0">
-              <span className="block text-sm font-semibold tracking-tight">
+              <span className="block truncate text-sm font-semibold tracking-tight">
                 Bilimcorp
               </span>
-              <span className="block text-[10px] text-muted-foreground">
+              <span className="block truncate text-[10px] font-medium text-muted-foreground">
                 Human-centered LMS
               </span>
             </div>
@@ -410,23 +485,28 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            className="rounded p-1 hover:bg-sidebar-accent lg:hidden"
+            className="rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-sidebar-accent hover:text-foreground lg:hidden"
             aria-label={t('common.close')}
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="px-5 py-3">
-          <div className="flex items-center gap-2 rounded-xl border bg-card/60 px-3 py-2">
-            <ShieldCheck size={15} className="text-primary" />
-            <div className="min-w-0">
-              <span className="block text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Рөл
-              </span>
-              <span className="block truncate text-xs font-semibold">
-                {t(roleTitleKeys[user.role])}
-              </span>
+        <div className="px-5 py-4">
+          <div className="rounded-3xl border border-sidebar-border bg-card/70 p-3 shadow-soft">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-secondary-soft text-secondary-foreground">
+                <ShieldCheck size={16} />
+              </div>
+
+              <div className="min-w-0">
+                <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  Рөл
+                </span>
+                <span className="block truncate text-sm font-semibold">
+                  {t(roleTitleKeys[user.role])}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -442,25 +522,34 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="flex justify-center px-5 py-2">
-          <KazakhOrnament variant="divider" />
+        <div className="px-5 py-2">
+          <div className="flex justify-center opacity-70">
+            <KazakhOrnament variant="divider" />
+          </div>
         </div>
 
-        <div className="border-t border-sidebar-border px-4 py-3">
-          <div className="flex items-center gap-2">
+        <div className="border-t border-sidebar-border px-4 py-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-[11px] font-medium text-muted-foreground">
+              Тақырып
+            </span>
+            <ThemeToggle />
+          </div>
+
+          <div className="flex items-center gap-2 rounded-3xl border border-sidebar-border bg-card/70 p-2 shadow-soft">
             <Link
               to="/profile"
-              className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-accent"
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-1.5 transition-all duration-200 ease-soft hover:bg-primary-soft"
             >
               <UserAvatar
                 name={displayName}
                 avatarUrl={user.avatarUrl}
-                className="h-8 w-8"
-                fallbackClassName="bg-accent text-xs font-medium"
+                className="h-9 w-9"
+                fallbackClassName="bg-primary-soft text-xs font-semibold text-primary"
               />
 
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{displayName}</p>
+                <p className="truncate text-sm font-semibold">{displayName}</p>
                 <p className="truncate text-[11px] text-muted-foreground">{user.email}</p>
               </div>
             </Link>
@@ -468,34 +557,45 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={handleLogout}
-              className="shrink-0 rounded-lg p-1.5 hover:bg-accent"
+              className="shrink-0 rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-destructive-soft hover:text-destructive"
               title={t('nav.logout')}
               aria-label={t('nav.logout')}
             >
-              <LogOut size={15} className="text-muted-foreground" />
+              <LogOut size={16} />
             </button>
           </div>
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center border-b border-border bg-background/95 px-4 backdrop-blur lg:px-6">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 flex h-16 items-center border-b border-border bg-background/82 px-4 backdrop-blur-xl lg:px-6">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="-ml-2 mr-3 rounded-lg p-2 hover:bg-accent lg:hidden"
+            className="-ml-2 mr-3 rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary lg:hidden"
             aria-label={t('common.open_menu')}
           >
-            <Menu size={18} />
+            <Menu size={19} />
           </button>
 
-          <h1 className="truncate text-sm font-medium">
-            {activeItem ? getNavLabel(activeItem) : t('nav.dashboard')}
-          </h1>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold">
+              {activeItem ? getNavLabel(activeItem) : t('nav.dashboard')}
+            </p>
+            <p className="hidden truncate text-[11px] text-muted-foreground sm:block">
+              Soft academic workspace
+            </p>
+          </div>
+
+          <div className="hidden lg:block">
+            <ThemeToggle />
+          </div>
         </header>
 
         <main className="kazakh-ornament-bg flex-1 p-4 lg:p-6">
-          {children}
+          <div className="mx-auto w-full max-w-[1480px] animate-fade-in">
+            {children}
+          </div>
         </main>
       </div>
     </div>
