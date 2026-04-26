@@ -26,6 +26,9 @@ SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
 APP_ENV = os.getenv("APP_ENV", os.getenv("ENV", "development")).strip().lower()
 
 MAX_COURSES_RETURNED = 20
+MAX_PUBLIC_COURSES_RETURNED = 18
+MAX_TEACHER_COURSES_RETURNED = 16
+MAX_TEACHER_LESSONS_RETURNED = 40
 MAX_WEAK_LESSONS_RETURNED = 8
 MAX_RECOMMENDATIONS_RETURNED = 6
 
@@ -76,6 +79,9 @@ def _clean_text(value: Any, limit: int | None = None) -> str:
 
 def _to_number(value: Any) -> float | None:
     if value is None:
+        return None
+
+    if isinstance(value, bool):
         return None
 
     try:
@@ -211,8 +217,200 @@ def _course_title(course: dict[str, Any] | None) -> str:
     return (
         _clean_text(course.get("title"), 240)
         or _clean_text(course.get("name"), 240)
+        or _clean_text(course.get("course_title"), 240)
+        or _clean_text(course.get("courseTitle"), 240)
         or "Курс"
     )
+
+
+def _course_description(course: dict[str, Any] | None, limit: int = 500) -> str:
+    if not course:
+        return ""
+
+    return (
+        _clean_text(course.get("description"), limit)
+        or _clean_text(course.get("summary"), limit)
+        or _clean_text(course.get("short_description"), limit)
+        or _clean_text(course.get("shortDescription"), limit)
+        or ""
+    )
+
+
+def _course_subject_name(course: dict[str, Any] | None) -> str | None:
+    if not course:
+        return None
+
+    value = _get_row_value(
+        course,
+        [
+            "subject_name",
+            "subjectName",
+            "subject",
+            "category",
+            "category_name",
+            "categoryName",
+        ],
+    )
+
+    text = _clean_text(value, 180)
+    return text or None
+
+
+def _course_grade_level(course: dict[str, Any] | None) -> str | None:
+    if not course:
+        return None
+
+    value = _get_row_value(
+        course,
+        [
+            "grade_level",
+            "gradeLevel",
+            "grade",
+            "class_level",
+            "classLevel",
+            "audience",
+            "target_audience",
+            "targetAudience",
+        ],
+    )
+
+    text = _clean_text(value, 120)
+    return text or None
+
+
+def _course_access_value(course: dict[str, Any] | None) -> str:
+    if not course:
+        return ""
+
+    value = _get_row_value(
+        course,
+        [
+            "access_type",
+            "accessType",
+            "course_type",
+            "courseType",
+            "visibility",
+            "enrollment_type",
+            "enrollmentType",
+            "type",
+        ],
+    )
+
+    return _clean_text(value, 80).lower()
+
+
+def _is_course_archived(course: dict[str, Any]) -> bool:
+    if course.get("archived") is True or course.get("is_archived") is True:
+        return True
+
+    status_value = _clean_text(course.get("status"), 80).lower()
+    return status_value in {"archived", "archive", "deleted", "removed"}
+
+
+def _is_course_published(course: dict[str, Any]) -> bool:
+    if course.get("published") is True or course.get("is_published") is True:
+        return True
+
+    if course.get("published_at") or course.get("publishedAt"):
+        return True
+
+    status_value = _clean_text(course.get("status"), 80).lower()
+    publication_status = _clean_text(
+        course.get("publication_status") or course.get("publicationStatus"),
+        80,
+    ).lower()
+
+    return status_value in {"published", "active"} or publication_status == "published"
+
+
+def _is_course_closed(course: dict[str, Any]) -> bool:
+    access_value = _course_access_value(course)
+
+    if course.get("is_private") is True or course.get("private") is True:
+        return True
+
+    closed_markers = {
+        "closed",
+        "private",
+        "invite",
+        "invite_only",
+        "invite-only",
+        "by_invite",
+        "hidden",
+        "жабық",
+    }
+
+    return any(marker in access_value for marker in closed_markers)
+
+
+def _is_course_paid(course: dict[str, Any]) -> bool:
+    access_value = _course_access_value(course)
+
+    if course.get("is_paid") is True or course.get("paid") is True:
+        return True
+
+    paid_markers = {"paid", "premium", "subscription", "ақылы"}
+    return any(marker in access_value for marker in paid_markers)
+
+
+def _is_course_open(course: dict[str, Any]) -> bool:
+    access_value = _course_access_value(course)
+
+    if course.get("is_public") is True or course.get("public") is True:
+        return True
+
+    open_markers = {"open", "free", "public", "ашық"}
+    return any(marker in access_value for marker in open_markers)
+
+
+def _is_publicly_recommendable_course(course: dict[str, Any]) -> bool:
+    if _is_course_archived(course):
+        return False
+
+    if _is_course_closed(course):
+        return False
+
+    if not _is_course_published(course):
+        return False
+
+    return _is_course_open(course) or _is_course_paid(course)
+
+
+def _course_access_label(course: dict[str, Any]) -> str:
+    if _is_course_paid(course):
+        return "Ақылы"
+
+    if _is_course_open(course):
+        return "Ашық"
+
+    return "Қолжетімді"
+
+
+def _course_price_payload(course: dict[str, Any]) -> dict[str, Any] | None:
+    if not _is_course_paid(course):
+        return None
+
+    amount = _first_number(
+        course.get("price"),
+        course.get("amount"),
+        course.get("cost"),
+        course.get("price_amount"),
+        course.get("priceAmount"),
+    )
+    currency = (
+        _clean_text(course.get("currency"), 20)
+        or _clean_text(course.get("price_currency"), 20)
+        or _clean_text(course.get("priceCurrency"), 20)
+        or None
+    )
+
+    if amount is None and not currency:
+        return None
+
+    return {
+        "amount": amount,
+        "currency": currency,
+    }
 
 
 def _lesson_title(lesson: dict[str, Any] | None) -> str:
@@ -236,6 +434,54 @@ def _student_name(profile: dict[str, Any] | None, student_id: str) -> str:
         or _clean_text(profile.get("name"), 180)
         or f"Оқушы {student_id[:8]}"
     )
+
+
+def _profile_display_name(profile: dict[str, Any] | None, fallback_id: str) -> str:
+    if not profile:
+        return f"Пайдаланушы {fallback_id[:8]}"
+
+    return (
+        _clean_text(profile.get("full_name"), 180)
+        or _clean_text(profile.get("fullName"), 180)
+        or _clean_text(profile.get("name"), 180)
+        or _clean_text(profile.get("display_name"), 180)
+        or _clean_text(profile.get("displayName"), 180)
+        or f"Пайдаланушы {fallback_id[:8]}"
+    )
+
+
+def _profile_bio(profile: dict[str, Any] | None) -> str:
+    if not profile:
+        return ""
+
+    return (
+        _clean_text(profile.get("bio"), 1200)
+        or _clean_text(profile.get("about"), 1200)
+        or _clean_text(profile.get("description"), 1200)
+        or _clean_text(profile.get("teacher_bio"), 1200)
+        or _clean_text(profile.get("teacherBio"), 1200)
+        or ""
+    )
+
+
+def _profile_subject_name(profile: dict[str, Any] | None) -> str | None:
+    if not profile:
+        return None
+
+    value = _get_row_value(
+        profile,
+        [
+            "subject_name",
+            "subjectName",
+            "subject",
+            "specialization",
+            "speciality",
+            "department",
+        ],
+    )
+
+    text = _clean_text(value, 180)
+    return text or None
 
 
 def _is_completed_progress(row: dict[str, Any]) -> bool:
@@ -380,6 +626,180 @@ def _load_profile(user_id: str) -> dict[str, Any] | None:
     )
 
     return rows[0] if rows else None
+
+
+def _load_public_course_catalog(limit: int = MAX_PUBLIC_COURSES_RETURNED) -> list[dict[str, Any]]:
+    rows = _rows(
+        "courses",
+        limit=1000,
+        optional=True,
+    )
+
+    visible_courses = [
+        course
+        for course in rows
+        if _is_publicly_recommendable_course(course)
+    ]
+
+    result: list[dict[str, Any]] = []
+
+    for course in visible_courses[:limit]:
+        result.append(
+            {
+                "id": _clean_text(course.get("id"), 140),
+                "title": _course_title(course),
+                "description": _course_description(course, 500),
+                "subjectName": _course_subject_name(course),
+                "gradeLevel": _course_grade_level(course),
+                "accessType": _course_access_label(course),
+                "price": _course_price_payload(course),
+                "published": True,
+                "closedCourseExcluded": False,
+            }
+        )
+
+    return result
+
+
+def _load_teacher_courses(
+    *,
+    teacher_id: str,
+    limit: int = MAX_TEACHER_COURSES_RETURNED,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+
+    for column in [
+        "teacher_id",
+        "owner_id",
+        "created_by",
+        "instructor_id",
+        "user_id",
+    ]:
+        candidates.extend(
+            _rows(
+                "courses",
+                eq={column: teacher_id},
+                limit=200,
+                optional=True,
+            )
+        )
+
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+
+    for course in candidates:
+        course_id = _clean_text(course.get("id"), 140)
+
+        if not course_id or course_id in seen:
+            continue
+
+        seen.add(course_id)
+        result.append(course)
+
+        if len(result) >= limit:
+            break
+
+    return result
+
+
+def _load_lessons_for_courses(
+    course_ids: list[str],
+    limit: int = MAX_TEACHER_LESSONS_RETURNED,
+) -> list[dict[str, Any]]:
+    if not course_ids:
+        return []
+
+    rows = _rows(
+        "lessons",
+        in_={"course_id": course_ids},
+        limit=2000,
+        optional=True,
+    )
+
+    return rows[:limit]
+
+
+def _compact_teacher_course(course: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": _clean_text(course.get("id"), 140),
+        "title": _course_title(course),
+        "description": _course_description(course, 500),
+        "subjectName": _course_subject_name(course),
+        "gradeLevel": _course_grade_level(course),
+        "status": _clean_text(course.get("status"), 80) or None,
+        "published": _is_course_published(course),
+        "archived": _is_course_archived(course),
+        "accessType": _course_access_label(course),
+    }
+
+
+def _compact_public_course(course: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": _clean_text(course.get("id"), 140),
+        "title": _course_title(course),
+        "description": _course_description(course, 500),
+        "subjectName": course.get("subjectName"),
+        "gradeLevel": course.get("gradeLevel"),
+        "accessType": course.get("accessType"),
+        "price": course.get("price"),
+    }
+
+
+def _build_catalog_signals(public_courses: list[dict[str, Any]]) -> dict[str, Any]:
+    subjects = _unique(course.get("subjectName") for course in public_courses)
+    grades = _unique(course.get("gradeLevel") for course in public_courses)
+    access_types = _unique(course.get("accessType") for course in public_courses)
+
+    if public_courses:
+        primary_focus = (
+            "Платформада қолжетімді курстар бар. AI ұсынысты сол каталог пен пайдаланушы сұрағына сүйеніп бере алады."
+        )
+    else:
+        primary_focus = (
+            "Платформада ұсынылатын ашық немесе ақылы курстар табылмады. AI жалпы оқу бағыты бойынша ғана кеңес бере алады."
+        )
+
+    return {
+        "primaryFocus": primary_focus,
+        "availableSubjects": subjects[:12],
+        "availableGradeLevels": grades[:12],
+        "availableAccessTypes": access_types[:4],
+        "catalogCourseCount": len(public_courses),
+    }
+
+
+def _build_teacher_creator_signals(
+    *,
+    profile: dict[str, Any] | None,
+    teacher_courses: list[dict[str, Any]],
+    teacher_lessons: list[dict[str, Any]],
+    public_courses: list[dict[str, Any]],
+) -> dict[str, Any]:
+    profile_subject = _profile_subject_name(profile)
+    own_subjects = _unique(_course_subject_name(course) for course in teacher_courses)
+    lesson_titles = _unique(_lesson_title(lesson) for lesson in teacher_lessons)
+
+    if teacher_courses:
+        primary_focus = (
+            "Мұғалімнің бұрынғы курстары бар. AI жаңа курс немесе сабақ идеясын сол тәжірибеге сүйеніп ұсына алады."
+        )
+    elif profile_subject:
+        primary_focus = (
+            "Мұғалім профилінде пән/бағыт белгісі бар. AI курс идеясын осы бағытқа сүйеніп ұсына алады."
+        )
+    else:
+        primary_focus = (
+            "Мұғалім туралы дерек аз. AI жалпы курс идеяларын ұсына алады, бірақ нақтылау үшін пән, аудитория және мақсат сұрауы керек."
+        )
+
+    return {
+        "primaryFocus": primary_focus,
+        "profileSubject": profile_subject,
+        "ownCourseSubjects": own_subjects[:12],
+        "existingLessonThemes": lesson_titles[:20],
+        "ownCourseCount": len(teacher_courses),
+        "publicCatalogCourseCount": len(public_courses),
+    }
 
 
 def _assert_teacher_can_access_course(
@@ -535,13 +955,9 @@ def _build_weak_lessons(
             {
                 "lessonId": lesson_id,
                 "lessonTitle": _lesson_title(lesson),
-
-                # Numeric values are kept for internal AI reasoning only.
-                # Prompt rules instruct the model not to list all metrics back to the user.
                 "avgScore": avg_score,
                 "failedAttempts": failed,
                 "reviewLater": review_later,
-
                 "scoreBand": score_band,
                 "priority": priority,
                 "reason": "; ".join(reasons),
@@ -643,6 +1059,26 @@ def _build_assistant_policy() -> dict[str, Any]:
         "displayGuidance": (
             "Use numeric metrics internally to infer learning signals, but do not list all "
             "numbers back to the user. Return a concise explanation and next actions."
+        ),
+    }
+
+
+def _build_advisor_policy() -> dict[str, Any]:
+    return {
+        "humanAiCollaboration": True,
+        "aiRole": "suggest_options_generate_ideas_and_ask_clarifying_questions",
+        "humanRole": "choose_goal_context_and_final_direction",
+        "advisorMode": True,
+        "analysisDataRequired": False,
+        "avoidInventingUnavailableCourses": True,
+        "onlyRecommendVisibleCoursesFromCatalog": True,
+        "closedCoursesExcluded": True,
+        "numbersAreForInternalReasoningOnly": True,
+        "avoidRawAnalyticsInFinalAnswer": True,
+        "displayGuidance": (
+            "Advisor modes may work without learning progress data. "
+            "Use available user profile, teacher courses, public catalog, and the user question. "
+            "If context is thin, say that recommendations are general and ask for the missing details."
         ),
     }
 
@@ -905,7 +1341,6 @@ def collect_student_learning_context(
             "name": _student_name(_load_profile(current_user_id), current_user_id),
         },
         "totals": {
-            # Kept for internal model reasoning. Prompt prevents raw analytics dumping.
             "enrolledCourses": len(course_ids),
             "totalLessons": len(lesson_ids),
             "completedLessons": len(completed_lesson_ids),
@@ -929,6 +1364,8 @@ def collect_student_learning_context(
             {
                 "id": _clean_text(course.get("id"), 140),
                 "title": _course_title(course),
+                "subjectName": _course_subject_name(course),
+                "gradeLevel": _course_grade_level(course),
             }
             for course in courses[:MAX_COURSES_RETURNED]
         ],
@@ -939,6 +1376,57 @@ def collect_student_learning_context(
             "maxCoursesReturned": MAX_COURSES_RETURNED,
             "maxWeakLessonsReturned": MAX_WEAK_LESSONS_RETURNED,
             "maxRecommendationsReturned": MAX_RECOMMENDATIONS_RETURNED,
+            "behaviorTrackingUsed": False,
+        },
+    }
+
+
+def collect_student_course_advisor_context(
+    *,
+    current_user_id: str,
+) -> dict[str, Any]:
+    profile = _load_profile(current_user_id)
+    learning_snapshot = collect_student_learning_context(
+        current_user_id=current_user_id,
+    )
+    public_courses = _load_public_course_catalog()
+
+    enrolled_course_ids = {
+        _clean_text(course.get("id"), 140)
+        for course in learning_snapshot.get("courses", [])
+        if isinstance(course, dict)
+    }
+
+    recommendable_courses = [
+        course
+        for course in public_courses
+        if course.get("id") and course.get("id") not in enrolled_course_ids
+    ]
+
+    return {
+        "kind": "student_course_advisor_context",
+        "student": {
+            "id": current_user_id,
+            "name": _student_name(profile, current_user_id),
+            "subjectName": _profile_subject_name(profile),
+            "bio": _profile_bio(profile),
+        },
+        "learningSnapshot": learning_snapshot,
+        "availableCourseCatalog": [
+            _compact_public_course(course)
+            for course in recommendable_courses[:MAX_PUBLIC_COURSES_RETURNED]
+        ],
+        "alreadyEnrolledCourses": learning_snapshot.get("courses", []),
+        "signals": {
+            **_build_catalog_signals(recommendable_courses),
+            "advisorFocus": (
+                "Оқушы болашақта қандай курс оқу керегін сұраса, AI платформадағы ашық/ақылы жарияланған курстарды және оқушының сұрағын қолданады."
+            ),
+        },
+        "advisorPolicy": _build_advisor_policy(),
+        "limits": {
+            "maxPublicCoursesReturned": MAX_PUBLIC_COURSES_RETURNED,
+            "closedCoursesExcluded": True,
             "behaviorTrackingUsed": False,
         },
     }
@@ -1088,9 +1576,11 @@ def collect_course_learning_context(
         "course": {
             "id": course_id,
             "title": _course_title(course),
+            "subjectName": _course_subject_name(course),
+            "gradeLevel": _course_grade_level(course),
+            "description": _course_description(course, 500),
         },
         "totals": {
-            # Kept for internal model reasoning. Final answer should not dump all metrics.
             "students": len(student_ids),
             "lessons": len(lesson_ids),
             "completedLessonRecords": len(completed_pairs),
@@ -1283,7 +1773,6 @@ def collect_teacher_student_learning_context(
             "name": _student_name(_load_profile(student_id), student_id),
         },
         "totals": {
-            # Kept for internal model reasoning. Final answer should be summarized.
             "totalLessons": len(lesson_ids),
             "completedLessons": len(completed_lesson_ids),
             "progressPct": progress_pct,
@@ -1314,6 +1803,73 @@ def collect_teacher_student_learning_context(
     }
 
 
+def collect_teacher_course_creator_context(
+    *,
+    current_user_id: str,
+) -> dict[str, Any]:
+    profile = _load_profile(current_user_id)
+    teacher_courses_raw = _load_teacher_courses(
+        teacher_id=current_user_id,
+    )
+    teacher_course_ids = [
+        _clean_text(course.get("id"), 140)
+        for course in teacher_courses_raw
+        if _clean_text(course.get("id"), 140)
+    ]
+    teacher_lessons = _load_lessons_for_courses(teacher_course_ids)
+    public_courses = _load_public_course_catalog()
+
+    compact_teacher_courses = [
+        _compact_teacher_course(course)
+        for course in teacher_courses_raw[:MAX_TEACHER_COURSES_RETURNED]
+    ]
+
+    compact_teacher_lessons = [
+        {
+            "id": _clean_text(lesson.get("id"), 140),
+            "courseId": _course_id_from_row(lesson),
+            "title": _lesson_title(lesson),
+            "description": _clean_text(
+                lesson.get("description") or lesson.get("summary"),
+                500,
+            ),
+        }
+        for lesson in teacher_lessons[:MAX_TEACHER_LESSONS_RETURNED]
+    ]
+
+    compact_public_courses = [
+        _compact_public_course(course)
+        for course in public_courses[:MAX_PUBLIC_COURSES_RETURNED]
+    ]
+
+    return {
+        "kind": "teacher_course_creator_context",
+        "teacher": {
+            "id": current_user_id,
+            "name": _profile_display_name(profile, current_user_id),
+            "subjectName": _profile_subject_name(profile),
+            "bio": _profile_bio(profile),
+        },
+        "teacherCourses": compact_teacher_courses,
+        "teacherLessons": compact_teacher_lessons,
+        "publicCourseCatalogSignals": compact_public_courses,
+        "signals": _build_teacher_creator_signals(
+            profile=profile,
+            teacher_courses=teacher_courses_raw,
+            teacher_lessons=teacher_lessons,
+            public_courses=public_courses,
+        ),
+        "advisorPolicy": _build_advisor_policy(),
+        "limits": {
+            "maxTeacherCoursesReturned": MAX_TEACHER_COURSES_RETURNED,
+            "maxTeacherLessonsReturned": MAX_TEACHER_LESSONS_RETURNED,
+            "maxPublicCoursesReturned": MAX_PUBLIC_COURSES_RETURNED,
+            "closedCoursesExcludedFromPublicCatalog": True,
+            "behaviorTrackingUsed": False,
+        },
+    }
+
+
 async def collect_learning_analysis_context(
     *,
     payload: LearningAiRequest,
@@ -1326,12 +1882,22 @@ async def collect_learning_analysis_context(
             current_user_id=current_user_id,
         )
 
+    if payload.mode == LearningAiMode.student_course_advisor:
+        return collect_student_course_advisor_context(
+            current_user_id=current_user_id,
+        )
+
     if payload.mode == LearningAiMode.teacher_course_assistant:
         if not scope or not scope.course_id:
             raise _http_error("courseId қажет.", 400)
 
         return collect_course_learning_context(
             course_id=scope.course_id,
+            current_user_id=current_user_id,
+        )
+
+    if payload.mode == LearningAiMode.teacher_course_creator_advisor:
+        return collect_teacher_course_creator_context(
             current_user_id=current_user_id,
         )
 

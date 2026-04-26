@@ -87,11 +87,24 @@ def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
-def _format_value(value: Any) -> str:
-    if value is None:
-        return "—"
+def _to_number(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0
 
-    return str(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    if isinstance(value, str) and value.strip():
+        try:
+            return float(value)
+        except ValueError:
+            return 0
+
+    return 0
+
+
+def _clean_text(value: Any) -> str:
+    return " ".join(str(value or "").replace("\x00", " ").split()).strip()
 
 
 def _get_course(context: dict[str, Any]) -> dict[str, Any]:
@@ -104,6 +117,10 @@ def _get_student(context: dict[str, Any]) -> dict[str, Any]:
 
 def _get_totals(context: dict[str, Any]) -> dict[str, Any]:
     return _as_dict(context.get("totals"))
+
+
+def _get_signals(context: dict[str, Any]) -> dict[str, Any]:
+    return _as_dict(context.get("signals"))
 
 
 def _get_recommendations(context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -139,14 +156,16 @@ def _extract_course_title(context: dict[str, Any]) -> str | None:
     course = _get_course(context)
     value = course.get("title") or course.get("courseTitle")
 
-    return str(value).strip() if value else None
+    text = _clean_text(value)
+    return text or None
 
 
 def _extract_student_name(context: dict[str, Any]) -> str | None:
     student = _get_student(context)
     value = student.get("name") or student.get("fullName") or student.get("studentName")
 
-    return str(value).strip() if value else None
+    text = _clean_text(value)
+    return text or None
 
 
 def _extract_snapshot_generated_at(context: dict[str, Any]) -> str | None:
@@ -156,7 +175,8 @@ def _extract_snapshot_generated_at(context: dict[str, Any]) -> str | None:
         or context.get("updatedAt")
     )
 
-    return str(value).strip() if value else None
+    text = _clean_text(value)
+    return text or None
 
 
 def _resolve_used_context(
@@ -195,61 +215,133 @@ def _resolve_used_context(
     )
 
 
-def _build_context_summary(
+def _has_meaningful_text_items(items: list[dict[str, Any]]) -> bool:
+    for item in items:
+        title = _clean_text(item.get("title") or item.get("lessonTitle"))
+        description = _clean_text(item.get("description") or item.get("reason"))
+
+        if title or description:
+            return True
+
+    return False
+
+
+def _has_usable_learning_context(
     *,
     payload: LearningAiRequest,
     context: dict[str, Any],
-) -> str:
-    totals = _get_totals(context)
-    course_title = _extract_course_title(context)
-    student_name = _extract_student_name(context)
-    weak_lessons = _get_weak_lessons(context)
-    recommendations = _get_recommendations(context)
-
-    if payload.mode == LearningAiMode.student_tracker:
-        return (
-            f"Оқушы snapshot: progress={_format_value(totals.get('progressPct'))}%, "
-            f"miniQuizAvg={_format_value(totals.get('miniQuizAvgScore'))}%, "
-            f"weakLessons={len(weak_lessons)}, "
-            f"recommendations={len(recommendations)}."
-        )
-
-    if payload.mode == LearningAiMode.teacher_course_assistant:
-        return (
-            f"Курс snapshot: course={_format_value(course_title)}, "
-            f"students={_format_value(totals.get('students'))}, "
-            f"avgProgress={_format_value(totals.get('avgProgressPct'))}%, "
-            f"miniQuizPassRate={_format_value(totals.get('miniQuizPassRatePct'))}%, "
-            f"difficultLessons={len(weak_lessons)}."
-        )
-
-    return (
-        f"Оқушы-course snapshot: course={_format_value(course_title)}, "
-        f"student={_format_value(student_name)}, "
-        f"progress={_format_value(totals.get('progressPct'))}%, "
-        f"miniQuizAvg={_format_value(totals.get('miniQuizAvgScore'))}%, "
-        f"weakLessons={len(weak_lessons)}."
-    )
-
-
-def _estimate_confidence(context: dict[str, Any]) -> str:
+) -> bool:
     totals = _get_totals(context)
     weak_lessons = _get_weak_lessons(context)
     recommendations = _get_recommendations(context)
     mini_quizzes = _get_mini_quizzes(context)
+    signals = _get_signals(context)
+
+    if _has_meaningful_text_items(weak_lessons):
+        return True
+
+    meaningful_recommendations = [
+        item
+        for item in recommendations
+        if _clean_text(item.get("reason")) != "no strong risk signal found"
+    ]
+    if _has_meaningful_text_items(meaningful_recommendations):
+        return True
+
+    supporting_signals = [
+        _clean_text(item)
+        for item in _as_list(signals.get("supportingSignals"))
+        if _clean_text(item)
+    ]
+    if supporting_signals:
+        return True
+
+    if payload.mode == LearningAiMode.student_tracker:
+        numeric_keys = [
+            "enrolledCourses",
+            "totalLessons",
+            "completedLessons",
+            "miniQuizAttempts",
+            "testAttempts",
+            "savedLessons",
+            "reviewLaterItems",
+        ]
+
+        return any(_to_number(totals.get(key)) > 0 for key in numeric_keys)
+
+    if payload.mode == LearningAiMode.teacher_course_assistant:
+        numeric_keys = [
+            "students",
+            "lessons",
+            "completedLessonRecords",
+            "miniQuizAttempts",
+            "testAttempts",
+            "savedLessons",
+            "reviewLaterItems",
+        ]
+
+        return any(_to_number(totals.get(key)) > 0 for key in numeric_keys)
+
+    numeric_keys = [
+        "totalLessons",
+        "completedLessons",
+        "miniQuizAttempts",
+        "testAttempts",
+        "savedLessons",
+        "reviewLaterItems",
+    ]
+
+    return any(_to_number(totals.get(key)) > 0 for key in numeric_keys)
+
+
+def _build_safe_context_summary(
+    *,
+    payload: LearningAiRequest,
+    context: dict[str, Any],
+) -> str | None:
+    signals = _get_signals(context)
+    primary_focus = _clean_text(signals.get("primaryFocus"))
+
+    if primary_focus:
+        return primary_focus
+
+    if not _has_usable_learning_context(payload=payload, context=context):
+        return None
+
+    if payload.mode == LearningAiMode.student_tracker:
+        return "Оқу context табылды, бірақ оны пайдаланушыға сандық есеп ретінде емес, қысқа ұсыныс ретінде түсіндіру керек."
+
+    if payload.mode == LearningAiMode.teacher_course_assistant:
+        return "Курс context табылды, бірақ мұғалімге толық analytics емес, педагогикалық ұсыныс берілуі керек."
+
+    return "Оқушы context табылды, бірақ жауап оқушыға үкім шығармай, қолдау бағыты ретінде берілуі керек."
+
+
+def _estimate_confidence(
+    *,
+    payload: LearningAiRequest,
+    context: dict[str, Any],
+) -> str:
+    if not _has_usable_learning_context(payload=payload, context=context):
+        return "low"
+
+    weak_lessons = _get_weak_lessons(context)
+    recommendations = _get_recommendations(context)
+    mini_quizzes = _get_mini_quizzes(context)
+    signals = _get_signals(context)
 
     signal_count = 0
 
-    if totals:
+    if _has_meaningful_text_items(weak_lessons):
         signal_count += 1
 
-    if weak_lessons:
-        signal_count += 1
-
-    if recommendations:
+    if _has_meaningful_text_items(recommendations):
         signal_count += 1
 
     if mini_quizzes:
+        signal_count += 1
+
+    if signals:
         signal_count += 1
 
     if signal_count >= 3:
@@ -268,39 +360,50 @@ def _build_warnings(
     llm_error: str | None = None,
 ) -> list[str]:
     warnings: list[str] = [
-        "AI жауабы оқу нәтижелеріне сүйенеді; соңғы педагогикалық шешімді мұғалім немесе оқушы өзі қабылдайды.",
+        "AI ұсыныс береді, соңғы шешімді адам қабылдайды.",
     ]
 
     if payload.mode == LearningAiMode.student_tracker:
         warnings.append(
             "AI Tracker жасырын click tracking немесе бетте отырған уақыт деректерін қолданбайды."
         )
-
-    if _estimate_confidence(context) == "low":
+    else:
         warnings.append(
-            "Context дерегі аз болғандықтан, жауап жалпы ұсыныс сипатында болуы мүмкін."
+            "AI оқушыға үкім шығармайды; жауап тек педагогикалық талқылауға арналған."
+        )
+
+    if not _has_usable_learning_context(payload=payload, context=context):
+        warnings.append(
+            "Оқу context жеткіліксіз болғандықтан, жеке талдау жасалмады."
         )
 
     if llm_error:
         warnings.append(
-            "LLM уақытша жауап бере алмады; deterministic fallback analysis қолданылды."
+            "AI model уақытша жауап бере алмады; қауіпсіз fallback жауап қолданылды."
         )
 
     return warnings
 
 
-def _build_follow_up_prompts(payload: LearningAiRequest) -> list[str]:
+def _build_follow_up_prompts(
+    *,
+    payload: LearningAiRequest,
+    context: dict[str, Any],
+) -> list[str]:
+    if not _has_usable_learning_context(payload=payload, context=context):
+        return []
+
     if payload.mode == LearningAiMode.student_tracker:
         return [
-            "Осыны 3 күндік жоспарға айналдыр.",
-            "Маған ең бірінші қай тақырыптан бастау керек екенін айт.",
+            "Осыны қысқа оқу жоспарына айналдыр.",
+            "Бірінші қай тақырыптан бастайтынымды түсіндір.",
             "Қиын тақырыпты жеңіл тілмен түсіндір.",
         ]
 
     if payload.mode == LearningAiMode.teacher_course_assistant:
         return [
             "Осыны бір апталық қайталау жоспарына айналдыр.",
-            "Қиын сабақтарды қайта түсіндіру стратегиясын ұсын.",
+            "Қиын бағытты қайта түсіндіру стратегиясын ұсын.",
             "Оқушылармен талқылайтын сұрақтар дайында.",
         ]
 
@@ -311,98 +414,140 @@ def _build_follow_up_prompts(payload: LearningAiRequest) -> list[str]:
     ]
 
 
+def _build_no_data_answer(payload: LearningAiRequest) -> str:
+    if payload.mode == LearningAiMode.student_tracker:
+        return "\n".join(
+            [
+                "Қазір жеке AI талдау жасауға жеткілікті оқу дерегі табылмады.",
+                "",
+                "Бұл аккаунтта курсқа тіркелу, сабақ progress-і, mini quiz немесе тест нәтижесі көрінбейді. Сондықтан мен нақты оқу жоспарын ойдан құра алмаймын.",
+                "",
+                "Не істеуге болады:",
+                "1. Алдымен бір курсқа тіркеліңіз немесе сабақты бастаңыз.",
+                "2. Бірнеше сабақ өтіп, mini quiz немесе тест нәтижесі пайда болғаннан кейін қайта сұраңыз.",
+                "3. Сол кезде мен нақты оқу context бойынша қай тақырыпқа назар аудару керегін түсіндіре аламын.",
+            ]
+        )
+
+    if payload.mode == LearningAiMode.teacher_course_assistant:
+        return "\n".join(
+            [
+                "Бұл курс бойынша жеке педагогикалық талдау жасауға жеткілікті оқу дерегі табылмады.",
+                "",
+                "Курс таңдалғанымен, оқушы әрекеті, сабақ progress-і, mini quiz немесе тест нәтижесі жоқ сияқты. Сондықтан AI нақты қайталау жоспарын немесе қиын сабақтар талдауын ойдан шығармайды.",
+                "",
+                "Не істеуге болады:",
+                "1. Курсқа сабақтар мен тапсырмалар қосылғанын тексеріңіз.",
+                "2. Оқушылар курс материалымен жұмыс істегеннен кейін қайта сұраңыз.",
+                "3. Дерек пайда болған соң AI course context бойынша нақты педагогикалық ұсыныс береді.",
+            ]
+        )
+
+    return "\n".join(
+        [
+            "Бұл оқушы бойынша жеке қолдау ұсынысын жасауға жеткілікті оқу дерегі табылмады.",
+            "",
+            "Оқушы таңдалғанымен, осы курс бойынша progress, mini quiz, тест немесе қайталау белгісі көрінбейді. Сондықтан AI оқушы туралы қорытындыны ойдан шығармайды.",
+            "",
+            "Не істеуге болады:",
+            "1. Оқушының осы курсқа нақты тіркелгенін тексеріңіз.",
+            "2. Оқушы бірнеше сабақ өтіп немесе mini quiz тапсырғаннан кейін қайта сұраңыз.",
+            "3. Дерек пайда болған кезде AI жеке қолдау бағытын жұмсақ әрі нақты ұсынады.",
+        ]
+    )
+
+
 def _build_context_based_fallback_answer(
     *,
     payload: LearningAiRequest,
     context: dict[str, Any],
     llm_error: str | None = None,
 ) -> str:
-    totals = _get_totals(context)
+    if not _has_usable_learning_context(payload=payload, context=context):
+        return _build_no_data_answer(payload)
+
     recommendations = _get_recommendations(context)
     weak_lessons = _get_weak_lessons(context)
+    signals = _get_signals(context)
+    primary_focus = _clean_text(signals.get("primaryFocus"))
     prompt = payload.prompt.strip()
 
+    lines: list[str] = []
+
     if payload.mode == LearningAiMode.student_tracker:
-        student = _get_student(context)
-
-        lines = [
-            "Қысқаша қорытынды:",
-            "AI Tracker оқу нәтижелеріңізге сүйеніп, келесі оқу қадамын ұсынады.",
-            "",
-            "Негізгі context:",
-            f"- Оқушы: {_format_value(student.get('name'))}",
-            f"- Жалпы progress: {_format_value(totals.get('progressPct'))}%",
-            f"- Аяқталған сабақтар: {_format_value(totals.get('completedLessons'))}/{_format_value(totals.get('totalLessons'))}",
-            f"- Mini quiz орташа нәтиже: {_format_value(totals.get('miniQuizAvgScore'))}%",
-            f"- Кейін қайталау саны: {_format_value(totals.get('reviewLaterItems'))}",
-            "",
-            "Ұсынылатын әрекет:",
-        ]
-
+        lines.extend(
+            [
+                "Қысқаша жауап:",
+                primary_focus
+                or "Оқу context бойынша бірінші кезекте нақты бір бағытты таңдап, қысқа жоспармен жұмыс істеген дұрыс.",
+                "",
+                "Неге бұлай?",
+            ]
+        )
     elif payload.mode == LearningAiMode.teacher_course_assistant:
-        course = _get_course(context)
-
-        lines = [
-            "Қысқаша қорытынды:",
-            "AI курс көмекшісі курс нәтижелеріне сүйеніп, мұғалімге нақты педагогикалық әрекет ұсынады.",
-            "",
-            "Негізгі context:",
-            f"- Курс: {_format_value(course.get('title'))}",
-            f"- Оқушы саны: {_format_value(totals.get('students'))}",
-            f"- Орташа progress: {_format_value(totals.get('avgProgressPct'))}%",
-            f"- Mini quiz өту көрсеткіші: {_format_value(totals.get('miniQuizPassRatePct'))}%",
-            f"- Қиын сабақтар саны: {len(weak_lessons)}",
-            "",
-            "Ұсынылатын әрекет:",
-        ]
-
+        lines.extend(
+            [
+                "Қысқаша қорытынды:",
+                primary_focus
+                or "Курс context бойынша мұғалімге сабақты жоспарлау және қайталау жұмысын нақтылау пайдалы.",
+                "",
+                "Негізгі сигнал:",
+            ]
+        )
     else:
-        course = _get_course(context)
-        student = _get_student(context)
+        lines.extend(
+            [
+                "Қысқаша қорытынды:",
+                primary_focus
+                or "Оқушы context бойынша жеке қолдау бағытын жұмсақ түрде нақтылау пайдалы.",
+                "",
+                "Негізгі сигнал:",
+            ]
+        )
 
-        lines = [
-            "Қысқаша қорытынды:",
-            "AI оқушы көмекшісі нақты курс пен оқушы нәтижелеріне сүйеніп, жеке қолдау бағытын ұсынады.",
-            "",
-            "Негізгі context:",
-            f"- Курс: {_format_value(course.get('title'))}",
-            f"- Оқушы: {_format_value(student.get('name'))}",
-            f"- Progress: {_format_value(totals.get('progressPct'))}%",
-            f"- Аяқталған сабақтар: {_format_value(totals.get('completedLessons'))}/{_format_value(totals.get('totalLessons'))}",
-            f"- Mini quiz орташа нәтиже: {_format_value(totals.get('miniQuizAvgScore'))}%",
-            f"- Кейін қайталау саны: {_format_value(totals.get('reviewLaterItems'))}",
-            "",
-            "Ұсынылатын әрекет:",
-        ]
+    supporting_signals = [
+        _clean_text(item)
+        for item in _as_list(signals.get("supportingSignals"))
+        if _clean_text(item)
+    ]
+
+    if supporting_signals:
+        for signal in supporting_signals[:3]:
+            lines.append(f"- {signal}")
+    elif weak_lessons:
+        for lesson in weak_lessons[:2]:
+            title = _clean_text(lesson.get("lessonTitle")) or "Қайталау қажет сабақ"
+            reason = _clean_text(lesson.get("reason")) or "Қосымша бекіту пайдалы болуы мүмкін"
+            lines.append(f"- {title}: {reason}")
+    elif recommendations:
+        for item in recommendations[:2]:
+            title = _clean_text(item.get("title")) or "Ұсыныс"
+            description = _clean_text(item.get("description")) or "Оқу бағытын нақтылау пайдалы"
+            lines.append(f"- {title}: {description}")
+    else:
+        lines.append("- Context шектеулі, сондықтан ұсыныс жалпы бағыт ретінде беріледі.")
+
+    lines.extend(["", "Келесі әрекет:"])
 
     if recommendations:
-        for index, item in enumerate(recommendations[:5], start=1):
-            title = _format_value(item.get("title"))
-            description = _format_value(item.get("description"))
-            lines.append(f"{index}. {title} — {description}")
+        for index, item in enumerate(recommendations[:3], start=1):
+            description = _clean_text(item.get("description")) or _clean_text(item.get("title"))
+            if description:
+                lines.append(f"{index}. {description}")
     else:
-        lines.append("1. Қазір нақты ұсыныс жасауға жеткілікті дерек аз. Негізгі progress пен mini quiz нәтижелерін бақылап, қысқа қайталаудан бастаңыз.")
-
-    if weak_lessons:
-        lines.extend(["", "Қайталау керек сабақтар:"])
-
-        for index, lesson in enumerate(weak_lessons[:5], start=1):
-            title = _format_value(lesson.get("lessonTitle"))
-            reason = _format_value(lesson.get("reason"))
-            lines.append(f"{index}. {title}: {reason}")
+        lines.extend(
+            [
+                "1. Бір ғана оқу бағытын таңдаңыз.",
+                "2. Сол бағыт бойынша қысқа қайталау жасаңыз.",
+                "3. Нәтижені шағын тапсырма арқылы тексеріңіз.",
+            ]
+        )
 
     lines.extend(
         [
             "",
-            "Келесі қадам:",
-            "1. Бірінші әлсіз тақырыпты таңдаңыз.",
-            "2. Сол тақырып бойынша қысқа қайталау жасаңыз.",
-            "3. Mini quiz немесе шағын тапсырма арқылы нәтижені қайта тексеріңіз.",
-            "",
-            "Педагогикалық ескерту:",
-            "Бұл жауап оқу нәтижелеріне ғана сүйенеді. Соңғы шешімді мұғалім немесе оқушы өзі қабылдайды.",
-            "",
-            f"Сұрақ: {prompt}",
+            "Ескерту:",
+            "Бұл жауап оқу context-іне сүйенген көмекші ұсыныс. Соңғы шешімді адам қабылдайды.",
         ]
     )
 
@@ -411,9 +556,12 @@ def _build_context_based_fallback_answer(
             [
                 "",
                 "Техникалық ескерту:",
-                "AI model уақытша жауап бере алмады, сондықтан жүйе оқу деректерінен deterministic analysis көрсетті.",
+                "AI model уақытша жауап бере алмады, сондықтан қауіпсіз fallback жауап қолданылды.",
             ]
         )
+
+    if prompt:
+        lines.extend(["", f"Сұрақ: {prompt}"])
 
     return "\n".join(lines)
 
@@ -423,6 +571,9 @@ async def _build_answer(
     payload: LearningAiRequest,
     context: dict[str, Any],
 ) -> tuple[str, str | None]:
+    if not _has_usable_learning_context(payload=payload, context=context):
+        return _build_no_data_answer(payload), None
+
     if not is_learning_analysis_llm_configured():
         llm_error = "OpenAI API key configured емес."
 
@@ -471,6 +622,11 @@ async def create_learning_analysis(
         current_user_id=current_user_id,
     )
 
+    has_learning_context = _has_usable_learning_context(
+        payload=payload,
+        context=context,
+    )
+
     answer, llm_error = await _build_answer(
         payload=payload,
         context=context,
@@ -485,15 +641,19 @@ async def create_learning_analysis(
             current_user_id=current_user_id,
             context=context,
         ),
-        contextSummary=_build_context_summary(
-            payload=payload,
-            context=context,
+        contextSummary=(
+            _build_safe_context_summary(payload=payload, context=context)
+            if has_learning_context
+            else None
         ),
-        confidence=_estimate_confidence(context),
+        confidence=_estimate_confidence(payload=payload, context=context),
         warnings=_build_warnings(
             payload=payload,
             context=context,
             llm_error=llm_error,
         ),
-        followUpPrompts=_build_follow_up_prompts(payload),
+        followUpPrompts=_build_follow_up_prompts(
+            payload=payload,
+            context=context,
+        ),
     )
