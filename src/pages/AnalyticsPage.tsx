@@ -1,25 +1,11 @@
 import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import DashboardLayout from '@/components/DashboardLayout';
-import StatCard from '@/components/StatCard';
-import ProgressBar from '@/components/ProgressBar';
-import PageHeader from '@/components/common/PageHeader';
-import StatusBadge from '@/components/common/StatusBadge';
-import { EmptyState, ErrorState } from '@/components/common/DataState';
-import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
-import {
-  useAdminDashboard,
-  useAnalytics,
-  useParentDashboard,
-  useTeacherDashboard,
-} from '@/hooks/use-platform-data';
-import { useAuth } from '@/lib/auth-context';
-import t, { getLocale } from '@/lib/i18n';
 import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
   BookOpen,
+  CheckCircle2,
   ClipboardList,
   Flame,
   GraduationCap,
@@ -30,10 +16,27 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react';
+
+import DashboardLayout from '@/components/DashboardLayout';
+import ProgressBar from '@/components/ProgressBar';
+import StatCard from '@/components/StatCard';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import { EmptyState, ErrorState } from '@/components/common/DataState';
+import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  useAdminDashboard,
+  useAnalytics,
+  useParentDashboard,
+  useTeacherDashboard,
+} from '@/hooks/use-platform-data';
+import { useAuth } from '@/lib/auth-context';
+import t, { getLocale } from '@/lib/i18n';
 
 type AnalyticsMode = 'student' | 'parent' | 'teacher' | 'admin';
+type ScoreTone = 'success' | 'warning' | 'danger';
 
 type SubjectPerformanceItem = {
   name: string;
@@ -66,6 +69,16 @@ type DisplayAnalyticsData = {
     courses: number;
     streak: number;
   };
+};
+
+type TeacherCourseProgressItem = {
+  courseId: string;
+  courseTitle: string;
+  subjectName: string;
+  students: number;
+  lessons: number;
+  avgProgress: number;
+  completionPct: number;
 };
 
 type ParentAttempt = {
@@ -104,6 +117,19 @@ type ParentActivityDraft = {
   score: string | null;
 };
 
+const EMPTY_DISPLAY_ANALYTICS: DisplayAnalyticsData = {
+  subjectPerformance: [],
+  weakTopics: [],
+  recentActivity: [],
+  stats: {
+    avgScore: 0,
+    testsTaken: 0,
+    lessonsCompleted: 0,
+    courses: 0,
+    streak: 0,
+  },
+};
+
 function getMode(role?: string): AnalyticsMode {
   if (role === 'teacher') return 'teacher';
   if (role === 'parent') return 'parent';
@@ -111,7 +137,18 @@ function getMode(role?: string): AnalyticsMode {
   return 'student';
 }
 
-function formatDate(value: string) {
+function toNumber(value: unknown, fallback = 0) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function clampPercent(value: unknown) {
+  return Math.max(0, Math.min(100, Math.round(toNumber(value))));
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return t('page.analytics.not_available');
+
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return t('page.analytics.not_available');
 
@@ -119,7 +156,7 @@ function formatDate(value: string) {
   return parsed.toLocaleDateString(locale);
 }
 
-function getScoreTone(score: number) {
+function getScoreTone(score: number): ScoreTone {
   if (score >= 80) return 'success';
   if (score >= 50) return 'warning';
   return 'danger';
@@ -131,7 +168,30 @@ function getScoreBadgeLabel(score: number) {
   return 'Назар қажет';
 }
 
-function buildParentAnalytics(children: ParentChildItem[] | undefined): DisplayAnalyticsData | null {
+function normalizeDisplayAnalyticsData(
+  input?: Partial<DisplayAnalyticsData> | null
+): DisplayAnalyticsData | null {
+  if (!input) return null;
+
+  return {
+    subjectPerformance: input.subjectPerformance || [],
+    weakTopics: input.weakTopics || [],
+    recentActivity: input.recentActivity || [],
+    stats: {
+      ...EMPTY_DISPLAY_ANALYTICS.stats,
+      ...(input.stats || {}),
+      avgScore: clampPercent(input.stats?.avgScore),
+      testsTaken: toNumber(input.stats?.testsTaken),
+      lessonsCompleted: toNumber(input.stats?.lessonsCompleted),
+      courses: toNumber(input.stats?.courses),
+      streak: toNumber(input.stats?.streak),
+    },
+  };
+}
+
+function buildParentAnalytics(
+  children: ParentChildItem[] | undefined
+): DisplayAnalyticsData | null {
   if (!children || children.length === 0) return null;
 
   const validChildren = children.filter((child) => child?.summary?.stats);
@@ -151,7 +211,10 @@ function buildParentAnalytics(children: ParentChildItem[] | undefined): DisplayA
     const subjectName = attempt.subjectName || t('page.analytics.not_available');
     const score = Number(attempt.score);
 
-    const current = subjectMap.get(subjectName) || { totalScore: 0, tests: 0 };
+    const current = subjectMap.get(subjectName) || {
+      totalScore: 0,
+      tests: 0,
+    };
 
     subjectMap.set(subjectName, {
       totalScore: current.totalScore + score,
@@ -159,13 +222,13 @@ function buildParentAnalytics(children: ParentChildItem[] | undefined): DisplayA
     });
   });
 
-  const subjectPerformance: SubjectPerformanceItem[] = Array.from(subjectMap.entries()).map(
-    ([name, value]) => ({
-      name,
-      score: value.tests > 0 ? Math.round(value.totalScore / value.tests) : 0,
-      tests: value.tests,
-    })
-  );
+  const subjectPerformance: SubjectPerformanceItem[] = Array.from(
+    subjectMap.entries()
+  ).map(([name, value]) => ({
+    name,
+    score: value.tests > 0 ? Math.round(value.totalScore / value.tests) : 0,
+    tests: value.tests,
+  }));
 
   const weakCounts = new Map<string, number>();
 
@@ -193,7 +256,10 @@ function buildParentAnalytics(children: ParentChildItem[] | undefined): DisplayA
     action: t('page.analytics.parent_recent_test_action'),
     detail: attempt.title,
     rawDate: attempt.completedAt,
-    score: attempt.score !== null && attempt.score !== undefined ? `${attempt.score}%` : null,
+    score:
+      attempt.score !== null && attempt.score !== undefined
+        ? `${attempt.score}%`
+        : null,
   }));
 
   const recentActivity: RecentActivityItem[] = recentActivityDraft
@@ -205,7 +271,7 @@ function buildParentAnalytics(children: ParentChildItem[] | undefined): DisplayA
     .map((item) => ({
       action: item.action,
       detail: item.detail,
-      date: item.rawDate ? formatDate(item.rawDate) : t('page.analytics.not_available'),
+      date: formatDate(item.rawDate),
       score: item.score,
     }))
     .slice(0, 5);
@@ -255,9 +321,12 @@ function AnalyticsSkeleton() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {Array.from({ length: 5 }).map((_, index) => (
-          <div key={index} className="rounded-xl border bg-card p-5">
+          <div
+            key={index}
+            className="rounded-3xl border border-border bg-card p-5 shadow-soft"
+          >
             <div className="flex items-center gap-3">
-              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+              <SkeletonBlock className="h-11 w-11 rounded-2xl" />
               <div className="space-y-2">
                 <SkeletonBlock className="h-3 w-20" />
                 <SkeletonBlock className="h-6 w-12" />
@@ -269,7 +338,7 @@ function AnalyticsSkeleton() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <div className="rounded-xl border bg-card p-5">
+          <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
             <SkeletonBlock className="h-5 w-48" />
 
             <div className="mt-5 space-y-4">
@@ -285,12 +354,15 @@ function AnalyticsSkeleton() {
             </div>
           </div>
 
-          <div className="rounded-xl border bg-card p-5">
+          <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
             <SkeletonBlock className="h-5 w-40" />
 
             <div className="mt-5 space-y-3">
               {Array.from({ length: 4 }).map((_, index) => (
-                <div key={index} className="flex items-center justify-between gap-3">
+                <div
+                  key={index}
+                  className="flex items-center justify-between gap-3"
+                >
                   <div className="space-y-2">
                     <SkeletonBlock className="h-4 w-36" />
                     <SkeletonBlock className="h-3 w-56" />
@@ -302,7 +374,7 @@ function AnalyticsSkeleton() {
           </div>
         </div>
 
-        <div className="rounded-xl border bg-card p-5">
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
           <SkeletonBlock className="h-5 w-36" />
 
           <div className="mt-5 space-y-4">
@@ -335,28 +407,28 @@ function AnalyticsPanel({
   children: ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
         <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-          {icon}
+          {icon ? (
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+              {icon}
+            </span>
+          ) : null}
           {title}
         </CardTitle>
 
         {description ? (
-          <p className="text-xs text-muted-foreground">{description}</p>
+          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
         ) : null}
       </CardHeader>
 
-      <CardContent className="space-y-4">{children}</CardContent>
+      <CardContent className="space-y-4 p-5">{children}</CardContent>
     </Card>
   );
 }
 
-function SubjectPerformanceList({
-  items,
-}: {
-  items: SubjectPerformanceItem[];
-}) {
+function SubjectPerformanceList({ items }: { items: SubjectPerformanceItem[] }) {
   if (items.length === 0) {
     return (
       <EmptyState
@@ -370,16 +442,27 @@ function SubjectPerformanceList({
   return (
     <div className="space-y-4">
       {items.map((subject) => (
-        <div key={subject.name} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+        <div
+          key={subject.name}
+          className="space-y-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
+        >
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{subject.name}</span>
+                <span className="truncate text-sm font-semibold text-foreground">
+                  {subject.name}
+                </span>
 
                 {subject.trend === 'up' ? (
-                  <TrendingUp size={13} className="shrink-0 text-emerald-600" />
+                  <TrendingUp
+                    size={13}
+                    className="shrink-0 text-success-foreground"
+                  />
                 ) : subject.trend === 'down' ? (
-                  <TrendingDown size={13} className="shrink-0 text-amber-600" />
+                  <TrendingDown
+                    size={13}
+                    className="shrink-0 text-warning-foreground"
+                  />
                 ) : null}
               </div>
 
@@ -388,10 +471,8 @@ function SubjectPerformanceList({
               </p>
             </div>
 
-            <StatusBadge
-              tone={getScoreTone(subject.score)}
-              icon={<Target size={12} />}
-            >
+            <StatusBadge tone={getScoreTone(subject.score)}>
+              <Target size={12} />
               {subject.score}%
             </StatusBadge>
           </div>
@@ -403,11 +484,7 @@ function SubjectPerformanceList({
   );
 }
 
-function WeakTopicsList({
-  items,
-}: {
-  items: WeakTopicItem[];
-}) {
+function WeakTopicsList({ items }: { items: WeakTopicItem[] }) {
   if (items.length === 0) {
     return (
       <EmptyState
@@ -421,16 +498,24 @@ function WeakTopicsList({
   return (
     <div className="space-y-3">
       {items.map((topic, index) => (
-        <div key={`${topic.subject}-${index}`} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+        <div
+          key={`${topic.subject}-${index}`}
+          className="space-y-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
+        >
           <div className="flex items-center justify-between gap-3">
-            <span className="truncate text-xs font-medium">{topic.subject}</span>
+            <span className="truncate text-xs font-semibold text-foreground">
+              {topic.subject}
+            </span>
 
             <StatusBadge tone={getScoreTone(topic.score)}>
               {topic.score}%
             </StatusBadge>
           </div>
 
-          <p className="text-[11px] leading-5 text-muted-foreground">{topic.topic}</p>
+          <p className="text-[11px] leading-5 text-muted-foreground">
+            {topic.topic}
+          </p>
+
           <ProgressBar value={topic.score} size="sm" />
         </div>
       ))}
@@ -438,11 +523,7 @@ function WeakTopicsList({
   );
 }
 
-function RecentActivityList({
-  items,
-}: {
-  items: RecentActivityItem[];
-}) {
+function RecentActivityList({ items }: { items: RecentActivityItem[] }) {
   if (items.length === 0) {
     return (
       <EmptyState
@@ -458,16 +539,16 @@ function RecentActivityList({
       {items.map((item, index) => (
         <div
           key={`${item.detail}-${index}`}
-          className="flex items-start justify-between gap-3 rounded-lg border bg-muted/20 p-3"
+          className="flex items-start justify-between gap-3 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
         >
           <div className="min-w-0">
-            <p className="text-sm font-medium">{item.action}</p>
+            <p className="text-sm font-semibold text-foreground">{item.action}</p>
             <p className="mt-0.5 text-[11px] leading-5 text-muted-foreground">
               {item.detail}
             </p>
           </div>
 
-          <span className="shrink-0 text-xs text-muted-foreground">
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
             {item.score || item.date || t('page.analytics.not_available')}
           </span>
         </div>
@@ -480,15 +561,7 @@ function TeacherCourseProgressList({
   courses,
   metric,
 }: {
-  courses: Array<{
-    courseId: string;
-    courseTitle: string;
-    subjectName: string;
-    students: number;
-    lessons: number;
-    avgProgress: number;
-    completionPct: number;
-  }>;
+  courses: TeacherCourseProgressItem[];
   metric: 'avgProgress' | 'completionPct';
 }) {
   if (courses.length === 0) {
@@ -512,19 +585,27 @@ function TeacherCourseProgressList({
   return (
     <div className="space-y-4">
       {courses.map((course) => {
-        const value = metric === 'avgProgress' ? course.avgProgress : course.completionPct;
+        const value =
+          metric === 'avgProgress'
+            ? clampPercent(course.avgProgress)
+            : clampPercent(course.completionPct);
 
         return (
-          <div key={course.courseId} className="space-y-2 rounded-lg border bg-muted/20 p-3">
+          <div
+            key={course.courseId}
+            className="space-y-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <span className="line-clamp-1 text-sm font-medium">{course.courseTitle}</span>
+                <span className="line-clamp-1 text-sm font-semibold text-foreground">
+                  {course.courseTitle}
+                </span>
 
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {[
                     course.subjectName,
-                    `${course.students} ${t('page.analytics.students_short')}`,
-                    `${course.lessons} ${t('course.lessons_count')}`,
+                    `${toNumber(course.students)} ${t('page.analytics.students_short')}`,
+                    `${toNumber(course.lessons)} ${t('course.lessons_count')}`,
                   ]
                     .filter(Boolean)
                     .join(' · ')}
@@ -564,30 +645,52 @@ function AdminSubjectStatsList({
 
   return (
     <div className="space-y-4">
-      {subjects.map((subject) => (
-        <div key={subject.name} className="space-y-2 rounded-lg border bg-muted/20 p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <span className="line-clamp-1 text-sm font-medium">{subject.name}</span>
+      {subjects.map((subject) => {
+        const avgScore = clampPercent(subject.avgScore);
 
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {[
-                  `${subject.courses} ${t('dashboard.total_courses')}`,
-                  `${subject.lessons} ${t('course.lessons_count')}`,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </p>
+        return (
+          <div
+            key={subject.name}
+            className="space-y-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <span className="line-clamp-1 text-sm font-semibold text-foreground">
+                  {subject.name}
+                </span>
+
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {[
+                    `${toNumber(subject.courses)} ${t('dashboard.total_courses')}`,
+                    `${toNumber(subject.lessons)} ${t('course.lessons_count')}`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              </div>
+
+              <StatusBadge tone={getScoreTone(avgScore)}>{avgScore}%</StatusBadge>
             </div>
 
-            <StatusBadge tone={getScoreTone(subject.avgScore)}>
-              {subject.avgScore}%
-            </StatusBadge>
+            <ProgressBar value={avgScore} size="sm" />
           </div>
+        );
+      })}
+    </div>
+  );
+}
 
-          <ProgressBar value={subject.avgScore} size="sm" />
-        </div>
-      ))}
+function SummaryRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 px-3 py-2.5 shadow-inner-soft">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm font-semibold text-foreground">{value}</span>
     </div>
   );
 }
@@ -637,7 +740,67 @@ export default function AnalyticsPage() {
   const teacher = useTeacherDashboard(user?.id || '', !!user?.id && mode === 'teacher');
   const admin = useAdminDashboard(!!user?.id && mode === 'admin');
 
-  const parentAnalytics = useMemo(() => buildParentAnalytics(parent.data), [parent.data]);
+  const parentAnalytics = useMemo(
+    () => buildParentAnalytics(parent.data as ParentChildItem[] | undefined),
+    [parent.data]
+  );
+
+  const studentAnalytics = useMemo(
+    () =>
+      normalizeDisplayAnalyticsData(
+        analytics.data as Partial<DisplayAnalyticsData> | null | undefined
+      ),
+    [analytics.data]
+  );
+
+  const teacherStats = useMemo(
+    () => ({
+      totalCourses: toNumber(teacher.data?.stats?.totalCourses),
+      totalStudents: toNumber(teacher.data?.stats?.totalStudents),
+      totalTests: toNumber(teacher.data?.stats?.totalTests),
+      avgCourseProgress: clampPercent(teacher.data?.stats?.avgCourseProgress),
+      completedLessons: toNumber(teacher.data?.stats?.completedLessons),
+    }),
+    [teacher.data]
+  );
+
+  const teacherCourseProgress = useMemo<TeacherCourseProgressItem[]>(
+    () =>
+      ((teacher.data?.courseProgress || []) as TeacherCourseProgressItem[]).map(
+        (course) => ({
+          courseId: course.courseId,
+          courseTitle: course.courseTitle || 'Курс',
+          subjectName: course.subjectName || t('page.analytics.not_available'),
+          students: toNumber(course.students),
+          lessons: toNumber(course.lessons),
+          avgProgress: clampPercent(course.avgProgress),
+          completionPct: clampPercent(course.completionPct),
+        })
+      ),
+    [teacher.data]
+  );
+
+  const adminStats = useMemo(
+    () => ({
+      totalStudents: toNumber(admin.data?.stats?.totalStudents),
+      totalCourses: toNumber(admin.data?.stats?.totalCourses),
+      totalLessons: toNumber(admin.data?.stats?.totalLessons),
+      totalTests: toNumber(admin.data?.stats?.totalTests),
+      published: toNumber(admin.data?.contentStatus?.published),
+    }),
+    [admin.data]
+  );
+
+  const adminSubjectStats = useMemo(
+    () =>
+      (admin.data?.subjectStats || []).map((subject) => ({
+        name: subject.name || t('page.analytics.not_available'),
+        courses: toNumber(subject.courses),
+        lessons: toNumber(subject.lessons),
+        avgScore: clampPercent(subject.avgScore),
+      })),
+    [admin.data]
+  );
 
   if (mode === 'teacher') {
     return (
@@ -665,34 +828,33 @@ export default function AnalyticsPage() {
 
           {teacher.isLoading ? <AnalyticsSkeleton /> : null}
           {!teacher.isLoading && teacher.error ? <PageErrorState /> : null}
-          {!teacher.isLoading && !teacher.error && !teacher.data ? <PageEmptyState /> : null}
 
-          {!teacher.isLoading && !teacher.error && teacher.data ? (
+          {!teacher.isLoading && !teacher.error ? (
             <>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
                 <StatCard
                   label={t('dashboard.total_courses')}
-                  value={teacher.data.stats.totalCourses}
+                  value={teacherStats.totalCourses}
                   icon={<BookOpen size={16} />}
                 />
                 <StatCard
                   label={t('dashboard.total_students')}
-                  value={teacher.data.stats.totalStudents}
+                  value={teacherStats.totalStudents}
                   icon={<Users size={16} />}
                 />
                 <StatCard
                   label={t('dashboard.total_tests')}
-                  value={teacher.data.stats.totalTests}
+                  value={teacherStats.totalTests}
                   icon={<ClipboardList size={16} />}
                 />
                 <StatCard
                   label={t('page.analytics.avg_course_progress')}
-                  value={`${teacher.data.stats.avgCourseProgress}%`}
+                  value={`${teacherStats.avgCourseProgress}%`}
                   icon={<Target size={16} />}
                 />
                 <StatCard
                   label={t('page.analytics.completed_lessons')}
-                  value={teacher.data.stats.completedLessons}
+                  value={teacherStats.completedLessons}
                   icon={<Flame size={16} />}
                 />
               </div>
@@ -705,7 +867,7 @@ export default function AnalyticsPage() {
                     icon={<TrendingUp size={15} />}
                   >
                     <TeacherCourseProgressList
-                      courses={teacher.data.courseProgress}
+                      courses={teacherCourseProgress}
                       metric="avgProgress"
                     />
                   </AnalyticsPanel>
@@ -718,7 +880,7 @@ export default function AnalyticsPage() {
                     icon={<CheckCircle2 size={15} />}
                   >
                     <TeacherCourseProgressList
-                      courses={teacher.data.courseProgress}
+                      courses={teacherCourseProgress}
                       metric="completionPct"
                     />
                   </AnalyticsPanel>
@@ -757,34 +919,33 @@ export default function AnalyticsPage() {
 
           {admin.isLoading ? <AnalyticsSkeleton /> : null}
           {!admin.isLoading && admin.error ? <PageErrorState /> : null}
-          {!admin.isLoading && !admin.error && !admin.data ? <PageEmptyState /> : null}
 
-          {!admin.isLoading && !admin.error && admin.data ? (
+          {!admin.isLoading && !admin.error ? (
             <>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
                 <StatCard
                   label={t('dashboard.total_students')}
-                  value={admin.data.stats.totalStudents}
+                  value={adminStats.totalStudents}
                   icon={<Users size={16} />}
                 />
                 <StatCard
                   label={t('dashboard.total_courses')}
-                  value={admin.data.stats.totalCourses}
+                  value={adminStats.totalCourses}
                   icon={<BookOpen size={16} />}
                 />
                 <StatCard
                   label={t('page.analytics.completed_lessons')}
-                  value={admin.data.stats.totalLessons}
+                  value={adminStats.totalLessons}
                   icon={<BookOpen size={16} />}
                 />
                 <StatCard
                   label={t('dashboard.total_tests')}
-                  value={admin.data.stats.totalTests}
+                  value={adminStats.totalTests}
                   icon={<ClipboardList size={16} />}
                 />
                 <StatCard
                   label={t('course.status.published')}
-                  value={admin.data.contentStatus.published}
+                  value={adminStats.published}
                   icon={<Target size={16} />}
                 />
               </div>
@@ -796,7 +957,7 @@ export default function AnalyticsPage() {
                     description="Пәндер бойынша курс, сабақ және орташа нәтиже."
                     icon={<GraduationCap size={15} />}
                   >
-                    <AdminSubjectStatsList subjects={admin.data.subjectStats} />
+                    <AdminSubjectStatsList subjects={adminSubjectStats} />
                   </AnalyticsPanel>
                 </div>
 
@@ -806,7 +967,7 @@ export default function AnalyticsPage() {
                     description="Орташа көрсеткіші төмен пәндер."
                     icon={<AlertTriangle size={15} />}
                   >
-                    {admin.data.subjectStats.length === 0 ? (
+                    {adminSubjectStats.length === 0 ? (
                       <EmptyState
                         title={t('page.analytics.weak_topics_empty.title')}
                         text={t('page.analytics.weak_topics_empty.text')}
@@ -814,7 +975,7 @@ export default function AnalyticsPage() {
                       />
                     ) : (
                       <WeakTopicsList
-                        items={[...admin.data.subjectStats]
+                        items={[...adminSubjectStats]
                           .sort((a, b) => a.avgScore - b.avgScore)
                           .slice(0, 3)
                           .map((subject) => ({
@@ -834,14 +995,12 @@ export default function AnalyticsPage() {
     );
   }
 
-  const data = mode === 'parent' ? parentAnalytics : analytics.data;
+  const data = mode === 'parent' ? parentAnalytics : studentAnalytics;
   const isLoading = mode === 'parent' ? parent.isLoading : analytics.isLoading;
   const error = mode === 'parent' ? parent.error : analytics.error;
 
   const pageTitle =
-    mode === 'parent'
-      ? t('page.analytics.title.parent')
-      : t('nav.analytics');
+    mode === 'parent' ? t('page.analytics.title.parent') : t('nav.analytics');
 
   const pageDescription =
     mode === 'parent'
@@ -948,24 +1107,24 @@ export default function AnalyticsPage() {
                   icon={<Target size={15} />}
                 >
                   <div className="space-y-3 text-sm">
-                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
-                      <span className="text-muted-foreground">Орташа нәтиже</span>
-                      <StatusBadge tone={getScoreTone(data.stats.avgScore)}>
-                        {getScoreBadgeLabel(data.stats.avgScore)}
-                      </StatusBadge>
-                    </div>
+                    <SummaryRow
+                      label="Орташа нәтиже"
+                      value={
+                        <StatusBadge tone={getScoreTone(data.stats.avgScore)}>
+                          {getScoreBadgeLabel(data.stats.avgScore)}
+                        </StatusBadge>
+                      }
+                    />
 
-                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
-                      <span className="text-muted-foreground">Аяқталған сабақ</span>
-                      <span className="font-medium">{data.stats.lessonsCompleted}</span>
-                    </div>
+                    <SummaryRow
+                      label="Аяқталған сабақ"
+                      value={data.stats.lessonsCompleted}
+                    />
 
-                    <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
-                      <span className="text-muted-foreground">Оқу streak</span>
-                      <span className="font-medium">
-                        {data.stats.streak} {t('common.days')}
-                      </span>
-                    </div>
+                    <SummaryRow
+                      label="Оқу streak"
+                      value={`${data.stats.streak} ${t('common.days')}`}
+                    />
                   </div>
                 </AnalyticsPanel>
               </div>

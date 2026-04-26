@@ -7,8 +7,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
+
 import { supabase } from '@/integrations/supabase/client';
-import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
 export type UserRole = 'student' | 'teacher' | 'parent' | 'admin';
 
@@ -17,7 +18,14 @@ export interface User {
   email: string;
   fullName: string;
   role: UserRole;
+
+  /**
+   * Маңызды:
+   * Бұл avatar тек public.profiles.avatar_url ішінен ғана келеді.
+   * Google metadata.picture / avatar_url fallback ретінде қолданылмайды.
+   */
   avatarUrl?: string;
+
   bio?: string;
 }
 
@@ -62,8 +70,27 @@ function normalizeFullName(value: string) {
   return value.trim();
 }
 
+function normalizeOptionalText(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  return trimmed || undefined;
+}
+
 function isRegisterableRole(value: unknown): value is Exclude<UserRole, 'admin'> {
   return value === 'student' || value === 'teacher' || value === 'parent';
+}
+
+function isUserRole(value: unknown): value is UserRole {
+  return (
+    value === 'student' ||
+    value === 'teacher' ||
+    value === 'parent' ||
+    value === 'admin'
+  );
 }
 
 function getPendingOAuthRole(): UserRole | null {
@@ -85,6 +112,15 @@ function clearPendingOAuthRole() {
   window.localStorage.removeItem(PENDING_OAUTH_ROLE_KEY);
 }
 
+function getSupabaseMetadataName(supabaseUser: SupabaseUser) {
+  return (
+    normalizeOptionalText(supabaseUser.user_metadata?.full_name) ||
+    normalizeOptionalText(supabaseUser.user_metadata?.name) ||
+    normalizeOptionalText(supabaseUser.email?.split('@')[0]) ||
+    ''
+  );
+}
+
 async function fetchUserRoleRecord(userId: string) {
   const { data, error } = await supabase
     .from('user_roles')
@@ -102,7 +138,9 @@ async function fetchUserRoleRecord(userId: string) {
 
 async function fetchUserRole(userId: string): Promise<UserRole> {
   const data = await fetchUserRoleRecord(userId);
-  return (data?.role as UserRole) || 'student';
+  const role = data?.role;
+
+  return isUserRole(role) ? role : 'student';
 }
 
 async function fetchProfile(userId: string) {
@@ -162,26 +200,37 @@ async function buildUser(supabaseUser: SupabaseUser): Promise<User> {
     fetchProfile(supabaseUser.id),
   ]);
 
+  const profileFullName = normalizeOptionalText(profile?.full_name);
+  const profileAvatarUrl = normalizeOptionalText(profile?.avatar_url);
+  const profileBio = normalizeOptionalText(profile?.bio);
+
   return {
     id: supabaseUser.id,
     email: supabaseUser.email || '',
-    fullName:
-      profile?.full_name ||
-      supabaseUser.user_metadata?.full_name ||
-      supabaseUser.user_metadata?.name ||
-      supabaseUser.email?.split('@')[0] ||
-      '',
+    fullName: profileFullName || getSupabaseMetadataName(supabaseUser),
     role,
-    avatarUrl: profile?.avatar_url || undefined,
-    bio: profile?.bio || '',
+
+    /**
+     * Google avatar fallback әдейі жоқ.
+     * Егер profiles.avatar_url null болса, UserAvatar initials fallback көрсетеді.
+     */
+    avatarUrl: profileAvatarUrl,
+
+    bio: profileBio || '',
   };
 }
 
-async function buildUserWithRetry(supabaseUser: SupabaseUser, retries = 6): Promise<User> {
+async function buildUserWithRetry(
+  supabaseUser: SupabaseUser,
+  retries = 6
+): Promise<User> {
   for (let attempt = 0; attempt < retries; attempt += 1) {
     try {
       const appUser = await buildUser(supabaseUser);
-      if (appUser.fullName && appUser.role) return appUser;
+
+      if (appUser.fullName && appUser.role) {
+        return appUser;
+      }
     } catch {
       // role/profile propagation delay болуы мүмкін
     }
@@ -211,6 +260,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const appUser = await buildUserWithRetry(nextSession.user);
       setUser(appUser);
+
       return appUser;
     } catch (error) {
       setUser(null);
@@ -226,14 +276,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const bootstrapAuth = async () => {
       try {
-        /*
-          Mobile reload fix:
-          Алдымен persisted session-ды localStorage-тан оқимыз.
-          Содан кейін ғана auth listener қосамыз.
-
-          Бұрын listener бірінші қосылып, mobile reload кезінде INITIAL_SESSION/null ерте келіп,
-          ProtectedRoute user-ді /login-ге лақтырып жіберуі мүмкін еді.
-        */
         const {
           data: { session: initialSession },
           error,
@@ -252,10 +294,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const {
           data: { subscription: authSubscription },
         } = supabase.auth.onAuthStateChange((event, nextSession) => {
-          /*
-            INITIAL_SESSION-ды bootstrapAuth already өңдеді.
-            Қалған нақты auth event-терді ғана қабылдаймыз.
-          */
           if (event === 'INITIAL_SESSION') return;
 
           void hydrateSession(nextSession).catch((authError) => {
@@ -450,6 +488,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     const { error } = await supabase.auth.signOut();
+
     if (error) throw new Error(error.message);
 
     clearPendingOAuthRole();
@@ -457,7 +496,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
   }, []);
 
-  const isAuthenticated = !!session && !!user;
+  const isAuthenticated = Boolean(session && user);
 
   const value = useMemo<AuthContextType>(
     () => ({
@@ -496,7 +535,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be inside AuthProvider');
-  return ctx;
+  const context = useContext(AuthContext);
+
+  if (!context) {
+    throw new Error('useAuth must be inside AuthProvider');
+  }
+
+  return context;
 }

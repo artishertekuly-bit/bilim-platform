@@ -350,14 +350,20 @@
   }
 
   .kazakh-ornament-bg {
-    position: relative;
-    overflow: hidden;
+  position: relative;
+  isolation: isolate;
+  }
+
+  .kazakh-ornament-bg > * {
+  position: relative;
+  z-index: 1;
   }
 
   .kazakh-ornament-bg::before {
     content: '';
     position: absolute;
     inset: 0;
+    z-index: 0;
     pointer-events: none;
     opacity: var(--ornament-opacity);
     background-image:
@@ -406,20 +412,69 @@
     text-wrap: pretty;
   }
 
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+
+  .shadow-soft-md {
+    box-shadow: var(--shadow-soft-md);
+  }
+
+  .shadow-soft-lg {
+    box-shadow: var(--shadow-soft-lg);
+  }
+
+  .shadow-inner-soft {
+    box-shadow: var(--shadow-inner-soft);
+  }
+
+  .ease-soft {
+    transition-timing-function: var(--soft-motion);
+  }
+
   .progress-fill {
     transition: width 600ms var(--soft-motion);
   }
 
   .stat-card {
-    @apply transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md;
+    transition:
+      transform 200ms var(--soft-motion),
+      box-shadow 200ms var(--soft-motion),
+      border-color 200ms var(--soft-motion),
+      background-color 200ms var(--soft-motion);
+  }
+
+  .stat-card:hover {
+    transform: translateY(-0.125rem);
+    box-shadow: var(--shadow-soft-md);
   }
 
   .soft-hover-lift {
-    @apply transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:scale-[1.01] active:translate-y-0 active:scale-[0.99];
+    transition:
+      transform 200ms var(--soft-motion),
+      box-shadow 200ms var(--soft-motion),
+      border-color 200ms var(--soft-motion),
+      background-color 200ms var(--soft-motion);
+  }
+
+  .soft-hover-lift:hover {
+    transform: translateY(-0.125rem) scale(1.01);
+  }
+
+  .soft-hover-lift:active {
+    transform: translateY(0) scale(0.99);
+  }
+
+  .animate-fade-in {
+    animation: fade-in-soft 220ms var(--soft-motion) both;
   }
 
   .animate-fade-in-soft {
     animation: fade-in-soft 220ms var(--soft-motion) both;
+  }
+
+  .animate-slide-up {
+    animation: slide-up-soft 260ms var(--soft-motion) both;
   }
 
   .animate-slide-up-soft {

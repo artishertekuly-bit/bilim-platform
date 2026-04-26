@@ -157,7 +157,7 @@ export default {
       },
 
       transitionTimingFunction: {
-        soft: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        soft: 'var(--soft-motion)',
       },
 
       keyframes: {
