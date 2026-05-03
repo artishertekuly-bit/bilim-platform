@@ -101,6 +101,243 @@ function assertMaxStudents(maxStudents: number | null | undefined) {
   }
 }
 
+async function getCurrentUserId() {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!user?.id) {
+    throw new Error('Авторизация қажет.');
+  }
+
+  return user.id;
+}
+
+async function assertCourseOwner(courseId: string) {
+  const trimmedCourseId = courseId.trim();
+
+  if (!trimmedCourseId) {
+    throw new Error('Course ID бос болмауы керек.');
+  }
+
+  const userId = await getCurrentUserId();
+
+  const { data, error } = await supabase
+    .from('courses')
+    .select('id, teacher_id')
+    .eq('id', trimmedCourseId)
+    .eq('teacher_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Бұл курсты өңдеуге рұқсатыңыз жоқ.');
+  }
+
+  return {
+    userId,
+    courseId: data.id,
+  };
+}
+
+async function assertModuleOwner(moduleId: string) {
+  const trimmedModuleId = moduleId.trim();
+
+  if (!trimmedModuleId) {
+    throw new Error('Module ID бос болмауы керек.');
+  }
+
+  const userId = await getCurrentUserId();
+
+  const { data, error } = await supabase
+    .from('modules')
+    .select('id, course_id, courses!inner(id, teacher_id)')
+    .eq('id', trimmedModuleId)
+    .eq('courses.teacher_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Бұл модульді өңдеуге рұқсатыңыз жоқ.');
+  }
+
+  return {
+    userId,
+    moduleId: (data as any).id as string,
+    courseId: (data as any).course_id as string,
+  };
+}
+
+async function assertLessonOwner(lessonId: string) {
+  const trimmedLessonId = lessonId.trim();
+
+  if (!trimmedLessonId) {
+    throw new Error('Lesson ID бос болмауы керек.');
+  }
+
+  const userId = await getCurrentUserId();
+
+  const { data, error } = await supabase
+    .from('lessons')
+    .select('id, module_id, modules!inner(id, course_id, courses!inner(id, teacher_id))')
+    .eq('id', trimmedLessonId)
+    .eq('modules.courses.teacher_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Бұл сабақты өңдеуге рұқсатыңыз жоқ.');
+  }
+
+  const row = data as any;
+
+  return {
+    userId,
+    lessonId: row.id as string,
+    moduleId: row.module_id as string,
+    courseId: row.modules?.course_id as string,
+  };
+}
+
+async function assertCourseAnnouncementOwner(announcementId: string) {
+  const trimmedAnnouncementId = announcementId.trim();
+
+  if (!trimmedAnnouncementId) {
+    throw new Error('Announcement ID бос болмауы керек.');
+  }
+
+  const { data, error } = await supabase
+    .from('course_announcements' as never)
+    .select('id, course_id')
+    .eq('id', trimmedAnnouncementId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Хабарландыру табылмады.');
+  }
+
+  const row = data as unknown as {
+    id: string;
+    course_id: string;
+  };
+
+  await assertCourseOwner(row.course_id);
+
+  return row;
+}
+
+async function assertCourseInviteOwner(inviteId: string) {
+  const trimmedInviteId = inviteId.trim();
+
+  if (!trimmedInviteId) {
+    throw new Error('Invite ID бос болмауы керек.');
+  }
+
+  const { data, error } = await supabase
+    .from('course_invites' as never)
+    .select('id, course_id')
+    .eq('id', trimmedInviteId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Invite табылмады.');
+  }
+
+  const row = data as unknown as {
+    id: string;
+    course_id: string;
+  };
+
+  await assertCourseOwner(row.course_id);
+
+  return row;
+}
+
+async function assertLessonMiniQuizOwner(quizId: string) {
+  const trimmedQuizId = quizId.trim();
+
+  if (!trimmedQuizId) {
+    throw new Error('Quiz ID бос болмауы керек.');
+  }
+
+  const { data, error } = await supabase
+    .from('lesson_mini_quizzes' as never)
+    .select('id, lesson_id, course_id')
+    .eq('id', trimmedQuizId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Mini quiz табылмады.');
+  }
+
+  const row = data as unknown as {
+    id: string;
+    lesson_id: string;
+    course_id: string;
+  };
+
+  await assertCourseOwner(row.course_id);
+
+  return row;
+}
+
+async function assertLessonMiniQuizQuestionOwner(questionId: string) {
+  const trimmedQuestionId = questionId.trim();
+
+  if (!trimmedQuestionId) {
+    throw new Error('Question ID бос болмауы керек.');
+  }
+
+  const { data, error } = await supabase
+    .from('lesson_mini_quiz_questions' as never)
+    .select('id, quiz_id')
+    .eq('id', trimmedQuestionId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Mini quiz сұрағы табылмады.');
+  }
+
+  const row = data as unknown as {
+    id: string;
+    quiz_id: string;
+  };
+
+  await assertLessonMiniQuizOwner(row.quiz_id);
+
+  return row;
+}
+
 function normalizeAccessSettings(input: CourseAccessSettingsPayload) {
   const accessType = input.accessType;
   const visibility = input.visibility;
@@ -384,11 +621,6 @@ export async function updateCourse(input: {
   subjectId?: string | null;
   thumbnailUrl?: string | null;
   status?: CourseStatus;
-
-  /**
-   * MVP 1 access fields.
-   * Бұлар optional, сондықтан бұрынғы updateCourse қолданылған жерлер бұзылмайды.
-   */
   accessType?: CourseAccessType;
   visibility?: CourseVisibility;
   price?: number;
@@ -396,6 +628,8 @@ export async function updateCourse(input: {
   enrollmentOpen?: boolean;
   maxStudents?: number | null;
 }) {
+  const { userId } = await assertCourseOwner(input.courseId);
+
   const patch: CoursePatch = {};
 
   if (input.title !== undefined) patch.title = input.title;
@@ -413,18 +647,22 @@ export async function updateCourse(input: {
 
   if (input.accessType !== undefined) patch.access_type = input.accessType;
   if (input.visibility !== undefined) patch.visibility = input.visibility;
+
   if (input.price !== undefined) {
     assertNonNegativePrice(input.price);
     patch.price = input.price;
   }
+
   if (input.currency !== undefined) {
     const currency = normalizeCurrency(input.currency);
     assertCurrency(currency);
     patch.currency = currency;
   }
+
   if (input.enrollmentOpen !== undefined) {
     patch.enrollment_open = input.enrollmentOpen;
   }
+
   if (input.maxStudents !== undefined) {
     assertMaxStudents(input.maxStudents);
     patch.max_students = input.maxStudents;
@@ -433,7 +671,8 @@ export async function updateCourse(input: {
   const { error } = await supabase
     .from('courses')
     .update(patch as never)
-    .eq('id', input.courseId);
+    .eq('id', input.courseId)
+    .eq('teacher_id', userId);
 
   if (error) throw new Error(error.message);
 }
@@ -443,6 +682,7 @@ export async function updateCourseAccessSettings(
     courseId: string;
   }
 ) {
+  const { userId } = await assertCourseOwner(input.courseId);
   const settings = normalizeAccessSettings(input);
 
   return queryOrThrow(
@@ -457,6 +697,7 @@ export async function updateCourseAccessSettings(
         max_students: settings.maxStudents,
       } as never)
       .eq('id', input.courseId)
+      .eq('teacher_id', userId)
       .select('*')
       .single()
   ) as Promise<Tables<'courses'>>;
@@ -467,6 +708,8 @@ export async function updateModule(input: {
   title?: string;
   sortOrder?: number;
 }) {
+  await assertModuleOwner(input.moduleId);
+
   const patch: Partial<Tables<'modules'>> = {};
 
   if (input.title !== undefined) patch.title = input.title;
@@ -489,6 +732,8 @@ export async function updateLesson(input: {
   sortOrder?: number;
   isPublished?: boolean;
 }) {
+  await assertLessonOwner(input.lessonId);
+
   const patch: Partial<Tables<'lessons'>> = {};
 
   if (input.title !== undefined) patch.title = input.title;
@@ -514,11 +759,6 @@ export async function createCourse(input: {
   subjectId?: string;
   teacherId: string;
   status?: CourseStatus;
-
-  /**
-   * MVP 1 defaults:
-   * Жаңа курс әдепкіде тегін, public, enrollment ашық болып құрылады.
-   */
   accessType?: CourseAccessType;
   visibility?: CourseVisibility;
   price?: number;
@@ -526,6 +766,8 @@ export async function createCourse(input: {
   enrollmentOpen?: boolean;
   maxStudents?: number | null;
 }) {
+  const teacherId = await getCurrentUserId();
+
   const currency = normalizeCurrency(input.currency);
   const price = Number(input.price ?? 0);
   const maxStudents = input.maxStudents ?? null;
@@ -548,7 +790,7 @@ export async function createCourse(input: {
     title: input.title,
     description: input.description || null,
     subject_id: input.subjectId || null,
-    teacher_id: input.teacherId,
+    teacher_id: teacherId,
     status: input.status || 'draft',
     access_type: input.accessType || 'public_free',
     visibility: input.visibility || 'public',
@@ -572,6 +814,8 @@ export async function createModule(input: {
   title: string;
   sortOrder?: number;
 }) {
+  await assertCourseOwner(input.courseId);
+
   return queryOrThrow(
     supabase
       .from('modules')
@@ -595,6 +839,8 @@ export async function createLesson(input: {
   practiceContent?: string;
   mediaUrl?: string;
 }) {
+  await assertModuleOwner(input.moduleId);
+
   return queryOrThrow(
     supabase
       .from('lessons')
@@ -636,6 +882,8 @@ export async function createSubject(input: {
 /* ================= STATUS ================= */
 
 export async function updateCourseStatus(courseId: string, status: CourseStatus) {
+  const { userId } = await assertCourseOwner(courseId);
+
   const patch: CoursePatch = { status };
 
   if (status === 'published') {
@@ -645,7 +893,8 @@ export async function updateCourseStatus(courseId: string, status: CourseStatus)
   const { error } = await supabase
     .from('courses')
     .update(patch as never)
-    .eq('id', courseId);
+    .eq('id', courseId)
+    .eq('teacher_id', userId);
 
   if (error) throw new Error(error.message);
 }
@@ -754,6 +1003,8 @@ export async function getCourseAnnouncements(input: {
 export async function createCourseAnnouncement(
   input: CreateCourseAnnouncementPayload
 ) {
+  await assertCourseOwner(input.courseId);
+
   const title = input.title.trim();
   const body = input.body.trim();
 
@@ -780,6 +1031,8 @@ export async function createCourseAnnouncement(
 export async function updateCourseAnnouncement(
   input: UpdateCourseAnnouncementPayload
 ) {
+  await assertCourseAnnouncementOwner(input.announcementId);
+
   const title = input.title.trim();
   const body = input.body.trim();
 
@@ -808,6 +1061,8 @@ export async function deleteCourseAnnouncement(
   const announcementId =
     typeof input === 'string' ? input : input.announcementId;
 
+  await assertCourseAnnouncementOwner(announcementId);
+
   await execOrThrow(
     supabase
       .from('course_announcements' as never)
@@ -830,6 +1085,10 @@ export async function getLessonMiniQuiz(input: {
       quiz: null,
       latestAttempt: null,
     };
+  }
+
+  if (input.includeUnpublished) {
+    await assertLessonOwner(lessonId);
   }
 
   let quizQuery = supabase
@@ -892,6 +1151,12 @@ export async function getLessonMiniQuiz(input: {
 }
 
 export async function upsertLessonMiniQuiz(input: UpsertLessonMiniQuizPayload) {
+  const lessonOwner = await assertLessonOwner(input.lessonId);
+
+  if (lessonOwner.courseId !== input.courseId) {
+    throw new Error('Mini quiz courseId lesson-ға сәйкес емес.');
+  }
+
   const title = input.title.trim();
 
   assertMiniQuizBase({
@@ -906,7 +1171,7 @@ export async function upsertLessonMiniQuiz(input: UpsertLessonMiniQuizPayload) {
         {
           lesson_id: input.lessonId,
           course_id: input.courseId,
-          created_by: input.createdBy,
+          created_by: lessonOwner.userId,
           title,
           description: input.description?.trim() || null,
           is_published: input.isPublished,
@@ -924,6 +1189,8 @@ export async function upsertLessonMiniQuiz(input: UpsertLessonMiniQuizPayload) {
 export async function deleteLessonMiniQuiz(input: DeleteLessonMiniQuizPayload | string) {
   const quizId = typeof input === 'string' ? input : input.quizId;
 
+  await assertLessonMiniQuizOwner(quizId);
+
   await execOrThrow(
     supabase
       .from('lesson_mini_quizzes' as never)
@@ -935,6 +1202,8 @@ export async function deleteLessonMiniQuiz(input: DeleteLessonMiniQuizPayload | 
 export async function createLessonMiniQuizQuestion(
   input: CreateLessonMiniQuizQuestionPayload
 ) {
+  await assertLessonMiniQuizOwner(input.quizId);
+
   const options = input.options.map((item) => item.trim()).filter(Boolean);
   const correctAnswer = normalizeNumberArray(input.correctAnswer);
 
@@ -965,6 +1234,8 @@ export async function createLessonMiniQuizQuestion(
 export async function updateLessonMiniQuizQuestion(
   input: UpdateLessonMiniQuizQuestionPayload
 ) {
+  await assertLessonMiniQuizQuestionOwner(input.questionId);
+
   const options = input.options.map((item) => item.trim()).filter(Boolean);
   const correctAnswer = normalizeNumberArray(input.correctAnswer);
 
@@ -997,6 +1268,8 @@ export async function deleteLessonMiniQuizQuestion(
 ) {
   const questionId = typeof input === 'string' ? input : input.questionId;
 
+  await assertLessonMiniQuizQuestionOwner(questionId);
+
   await execOrThrow(
     supabase
       .from('lesson_mini_quiz_questions' as never)
@@ -1008,6 +1281,8 @@ export async function deleteLessonMiniQuizQuestion(
 export async function reorderLessonMiniQuizQuestions(
   input: ReorderLessonMiniQuizQuestionsPayload
 ) {
+  await assertLessonMiniQuizOwner(input.quizId);
+
   const rows = (await queryOrThrow(
     supabase
       .from('lesson_mini_quiz_questions' as never)
@@ -1113,6 +1388,8 @@ export async function submitLessonMiniQuiz(
 /* ================= COURSE INVITES ================= */
 
 export async function createCourseInvite(input: CreateCourseInvitePayload) {
+  await assertCourseOwner(input.courseId);
+
   if (input.maxUses !== undefined && input.maxUses !== null) {
     if (!Number.isInteger(input.maxUses) || input.maxUses <= 0) {
       throw new Error(
@@ -1148,6 +1425,8 @@ export async function redeemCourseInvite(
 }
 
 export async function getCourseInvites(courseId: string) {
+  await assertCourseOwner(courseId);
+
   return queryOrThrow(
     supabase
       .from('course_invites' as never)
@@ -1161,6 +1440,8 @@ export async function setCourseInviteActive(input: {
   inviteId: string;
   isActive: boolean;
 }) {
+  await assertCourseInviteOwner(input.inviteId);
+
   return queryOrThrow(
     supabase
       .from('course_invites' as never)
@@ -1197,6 +1478,8 @@ export async function requestPaidCourseAccess(
 export async function manualGrantCourseAccess(
   input: ManualGrantCourseAccessPayload
 ) {
+  await assertCourseOwner(input.courseId);
+
   return queryOrThrow(
     supabase.rpc('manual_grant_course_access' as never, {
       p_user_id: input.userId,
@@ -1236,6 +1519,8 @@ export async function getPendingOrdersForAdmin() {
 /* ================= DELETE ================= */
 
 export async function deleteLesson(lessonId: string) {
+  await assertLessonOwner(lessonId);
+
   await execOrThrow(
     supabase.rpc('delete_lesson_deep' as never, {
       p_lesson_id: lessonId,
@@ -1244,6 +1529,8 @@ export async function deleteLesson(lessonId: string) {
 }
 
 export async function deleteModule(moduleId: string) {
+  await assertModuleOwner(moduleId);
+
   await execOrThrow(
     supabase.rpc('delete_module_deep' as never, {
       p_module_id: moduleId,
@@ -1252,13 +1539,11 @@ export async function deleteModule(moduleId: string) {
 }
 
 export async function deleteCourse(courseId: string) {
-  console.log('[deleteCourse] start', courseId);
+  await assertCourseOwner(courseId);
 
   const result = await supabase.rpc('delete_course_deep' as never, {
     p_course_id: courseId,
   } as never);
-
-  console.log('[deleteCourse] rpc result', result);
 
   await execOrThrow(Promise.resolve(result));
 }
@@ -1266,12 +1551,14 @@ export async function deleteCourse(courseId: string) {
 /* ================= REORDER ================= */
 
 export async function reorderModules(courseId: string, orderedModuleIds: string[]) {
+  await assertCourseOwner(courseId);
+
   const modules = await queryOrThrow(
     supabase.from('modules').select('id, course_id').in('id', orderedModuleIds)
   );
 
   const validIds = new Set(
-    modules.filter((m) => m.course_id === courseId).map((m) => m.id)
+    modules.filter((module) => module.course_id === courseId).map((module) => module.id)
   );
 
   if (validIds.size !== orderedModuleIds.length) {
@@ -1279,19 +1566,21 @@ export async function reorderModules(courseId: string, orderedModuleIds: string[
   }
 
   await Promise.all(
-    orderedModuleIds.map((id, i) =>
-      updateModule({ moduleId: id, sortOrder: i + 1 })
+    orderedModuleIds.map((id, index) =>
+      updateModule({ moduleId: id, sortOrder: index + 1 })
     )
   );
 }
 
 export async function reorderLessons(moduleId: string, orderedLessonIds: string[]) {
+  await assertModuleOwner(moduleId);
+
   const lessons = await queryOrThrow(
     supabase.from('lessons').select('id, module_id').in('id', orderedLessonIds)
   );
 
   const validIds = new Set(
-    lessons.filter((l) => l.module_id === moduleId).map((l) => l.id)
+    lessons.filter((lesson) => lesson.module_id === moduleId).map((lesson) => lesson.id)
   );
 
   if (validIds.size !== orderedLessonIds.length) {
@@ -1299,8 +1588,8 @@ export async function reorderLessons(moduleId: string, orderedLessonIds: string[
   }
 
   await Promise.all(
-    orderedLessonIds.map((id, i) =>
-      updateLesson({ lessonId: id, sortOrder: i + 1 })
+    orderedLessonIds.map((id, index) =>
+      updateLesson({ lessonId: id, sortOrder: index + 1 })
     )
   );
 }

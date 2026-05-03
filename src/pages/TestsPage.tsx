@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   ClipboardList,
   Clock,
-  FileText,
   HelpCircle,
   RotateCcw,
   Search,
@@ -23,7 +22,7 @@ import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, ErrorState } from '@/components/common/DataState';
 import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import TestCard, { type TestCardData } from '@/components/test/TestCard';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTests, platformKeys } from '@/hooks/use-platform-data';
@@ -94,12 +93,17 @@ function getResultTone(score: number) {
   return 'danger';
 }
 
+function isTestVisibleToCurrentStudent(tests: TestCardData[], testId: string | null) {
+  if (!testId) return false;
+  return tests.some((test) => test.id === testId);
+}
+
 function TestListSkeleton() {
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border bg-card p-5">
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <SkeletonBlock className="h-10 w-full lg:max-w-md" />
+          <SkeletonBlock className="h-10 w-full rounded-2xl lg:max-w-md" />
           <div className="flex gap-2">
             <SkeletonBlock className="h-9 w-24 rounded-full" />
             <SkeletonBlock className="h-9 w-28 rounded-full" />
@@ -119,8 +123,11 @@ function TestListSkeleton() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {Array.from({ length: 6 }).map((_, index) => (
-          <div key={index} className="overflow-hidden rounded-xl border bg-card">
-            <div className="relative h-24 border-b bg-accent">
+          <div
+            key={index}
+            className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
+          >
+            <div className="relative h-24 border-b border-border bg-surface-soft">
               <SkeletonBlock className="absolute left-3 top-3 h-6 w-20 rounded-full" />
               <SkeletonBlock className="absolute bottom-3 left-3 h-6 w-24 rounded-full" />
             </div>
@@ -132,8 +139,8 @@ function TestListSkeleton() {
                 <SkeletonBlock className="h-3 w-20" />
                 <SkeletonBlock className="h-3 w-16" />
               </div>
-              <SkeletonBlock className="h-14 w-full rounded-lg" />
-              <SkeletonBlock className="h-9 w-full" />
+              <SkeletonBlock className="h-14 w-full rounded-2xl" />
+              <SkeletonBlock className="h-9 w-full rounded-2xl" />
             </div>
           </div>
         ))}
@@ -148,7 +155,7 @@ function ScoreProgress({ value }: { value: number }) {
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
       <div
-        className="h-full rounded-full bg-primary transition-all"
+        className="h-full rounded-full bg-primary transition-all duration-500 ease-soft"
         style={{ width: `${normalized}%` }}
       />
     </div>
@@ -180,12 +187,12 @@ function QuestionNavigation({
             key={index}
             type="button"
             onClick={() => onSelect(index)}
-            className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs transition-colors ${
+            className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs transition-all duration-200 ease-soft ${
               active
-                ? 'border-primary bg-primary text-primary-foreground'
+                ? 'border-primary bg-primary text-primary-foreground shadow-soft'
                 : answered
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-border hover:bg-accent'
+                  ? 'border-success-muted bg-success-soft text-success-foreground'
+                  : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
             }`}
           >
             {index + 1}
@@ -201,6 +208,7 @@ export default function TestsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
   const isStudent = user?.role === 'student';
 
   const [view, setView] = useState<ViewState>('list');
@@ -210,6 +218,7 @@ export default function TestsPage() {
   const [activeStatus, setActiveStatus] = useState<TestStatusFilter>('all');
   const [search, setSearch] = useState('');
   const [activeTestId, setActiveTestId] = useState<string | null>(null);
+  const [startingTestId, setStartingTestId] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Tables<'test_questions'>[]>([]);
   const [result, setResult] = useState<{
     score: number;
@@ -233,7 +242,7 @@ export default function TestsPage() {
   const subjects = useMemo(
     () => [
       'all',
-      ...Array.from(new Set(tests.map((tc) => tc.subjectName).filter(Boolean))),
+      ...Array.from(new Set(tests.map((test) => test.subjectName).filter(Boolean))),
     ],
     [tests]
   );
@@ -241,18 +250,18 @@ export default function TestsPage() {
   const filtered = useMemo(() => {
     const query = normalizeText(search);
 
-    return tests.filter((tc) => {
+    return tests.filter((test) => {
       const matchesSubject =
-        activeSubject === 'all' || tc.subjectName === activeSubject;
+        activeSubject === 'all' || test.subjectName === activeSubject;
 
       const matchesStatus =
-        activeStatus === 'all' || getTestStatus(tc) === activeStatus;
+        activeStatus === 'all' || getTestStatus(test) === activeStatus;
 
       const matchesSearch =
         !query ||
-        normalizeText(tc.title).includes(query) ||
-        normalizeText(tc.topic).includes(query) ||
-        normalizeText(tc.subjectName).includes(query);
+        normalizeText(test.title).includes(query) ||
+        normalizeText(test.topic).includes(query) ||
+        normalizeText(test.subjectName).includes(query);
 
       return matchesSubject && matchesStatus && matchesSearch;
     });
@@ -298,12 +307,25 @@ export default function TestsPage() {
     setCurrentQ(0);
     setAnswers({});
     setActiveTestId(null);
+    setStartingTestId(null);
     setQuestions([]);
     setResult({ score: 0, correctCount: 0, attemptId: null, breakdown: [] });
   };
 
   const startMutation = useMutation({
-    mutationFn: async (testId: string) => getTestQuestions(testId),
+    mutationFn: async (testId: string) => {
+      if (!user?.id || user.role !== 'student') {
+        throw new Error('Бұл тестті тек оқушы аккаунтымен тапсыруға болады.');
+      }
+
+      if (!isTestVisibleToCurrentStudent(tests, testId)) {
+        throw new Error('Бұл тест сізге қолжетімді емес немесе сіз бұл курсқа тіркелмегенсіз.');
+      }
+
+      setStartingTestId(testId);
+
+      return getTestQuestions(testId);
+    },
     onSuccess: (loadedQuestions, testId) => {
       if (!isStudent) return;
 
@@ -316,22 +338,32 @@ export default function TestsPage() {
       setResult({ score: 0, correctCount: 0, attemptId: null, breakdown: [] });
       setView('taking');
     },
-    onError: () =>
+    onError: (startError) =>
       toast({
         title: t('page.tests.toast.start_error_title'),
-        description: t('page.tests.toast.start_error_text'),
+        description:
+          startError instanceof Error
+            ? startError.message
+            : t('page.tests.toast.start_error_text'),
         variant: 'destructive',
       }),
+    onSettled: () => {
+      setStartingTestId(null);
+    },
   });
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      if (!user?.id) {
-        throw new Error('User not found');
+      if (!user?.id || user.role !== 'student') {
+        throw new Error('Бұл тестті тапсыру үшін оқушы аккаунты қажет.');
       }
 
       if (!activeTestId) {
-        throw new Error('Test not selected');
+        throw new Error('Тест таңдалмаған.');
+      }
+
+      if (!isTestVisibleToCurrentStudent(tests, activeTestId)) {
+        throw new Error('Бұл тест сізге қолжетімді емес немесе сіз бұл курсқа тіркелмегенсіз.');
       }
 
       return submitTestAttempt(user.id, activeTestId, answers);
@@ -378,10 +410,13 @@ export default function TestsPage() {
         }),
       ]);
     },
-    onError: () =>
+    onError: (submitError) =>
       toast({
         title: t('page.tests.toast.submit_error_title'),
-        description: t('page.tests.toast.submit_error_text'),
+        description:
+          submitError instanceof Error
+            ? submitError.message
+            : t('page.tests.toast.submit_error_text'),
         variant: 'destructive',
       }),
   });
@@ -489,7 +524,7 @@ export default function TestsPage() {
 
                   <div className="h-2 overflow-hidden rounded-full bg-secondary">
                     <div
-                      className="h-full rounded-full bg-primary transition-all"
+                      className="h-full rounded-full bg-primary transition-all duration-500 ease-soft"
                       style={{
                         width: `${((currentQ + 1) / questions.length) * 100}%`,
                       }}
@@ -513,24 +548,28 @@ export default function TestsPage() {
                   </div>
 
                   <div className="space-y-2">
-                    {options.map((opt, i) => {
-                      const selected = (answers[q.id] || []).includes(i);
+                    {options.map((opt, index) => {
+                      const selected = (answers[q.id] || []).includes(index);
 
                       return (
                         <button
-                          key={i}
+                          key={index}
                           type="button"
                           onClick={() =>
-                            handleAnswer(q.id, i, q.question_type === 'multiple_choice')
+                            handleAnswer(
+                              q.id,
+                              index,
+                              q.question_type === 'multiple_choice'
+                            )
                           }
-                          className={`w-full rounded-xl border p-3.5 text-left text-sm transition-colors ${
+                          className={`w-full rounded-2xl border p-3.5 text-left text-sm transition-all duration-200 ease-soft ${
                             selected
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'border-border hover:bg-accent'
+                              ? 'border-primary bg-primary text-primary-foreground shadow-soft'
+                              : 'border-border bg-card text-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
                           }`}
                         >
                           <span className="mr-2 font-semibold">
-                            {String.fromCharCode(65 + i)}.
+                            {String.fromCharCode(65 + index)}.
                           </span>
                           {String(opt)}
                         </button>
@@ -610,7 +649,7 @@ export default function TestsPage() {
                   </p>
                 </div>
 
-                <div className="flex h-24 w-24 items-center justify-center rounded-full border bg-card text-2xl font-bold">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full border border-border bg-card text-2xl font-bold shadow-inner-soft">
                   {result.score}%
                 </div>
               </div>
@@ -623,14 +662,24 @@ export default function TestsPage() {
             {result.breakdown.map((item, index) => (
               <Card
                 key={item.questionId}
-                className={item.isCorrect ? 'border-emerald-300/60' : 'border-red-300/60'}
+                className={
+                  item.isCorrect
+                    ? 'border-success-muted'
+                    : 'border-destructive-muted'
+                }
               >
                 <CardContent className="space-y-3 p-4">
                   <div className="flex items-start gap-3">
                     {item.isCorrect ? (
-                      <CheckCircle size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+                      <CheckCircle
+                        size={18}
+                        className="mt-0.5 shrink-0 text-success-foreground"
+                      />
                     ) : (
-                      <XCircle size={18} className="mt-0.5 shrink-0 text-red-600" />
+                      <XCircle
+                        size={18}
+                        className="mt-0.5 shrink-0 text-destructive"
+                      />
                     )}
 
                     <div className="min-w-0 flex-1 space-y-2">
@@ -645,19 +694,19 @@ export default function TestsPage() {
                       </div>
 
                       <div className="grid gap-2 text-xs md:grid-cols-2">
-                        <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
                           <span className="font-medium">{t('page.tests.your_answer')}:</span>{' '}
                           {formatAnswer(item.options, item.selectedAnswer)}
                         </div>
 
-                        <div className="rounded-lg border bg-muted/20 p-3">
+                        <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
                           <span className="font-medium">{t('page.tests.correct_answer')}:</span>{' '}
                           {formatAnswer(item.options, item.correctAnswer)}
                         </div>
                       </div>
 
                       {item.explanation ? (
-                        <div className="rounded-lg bg-accent p-3 text-xs text-muted-foreground">
+                        <div className="rounded-2xl border border-ai-border bg-ai-soft p-3 text-xs text-muted-foreground">
                           <span className="font-medium text-foreground">
                             {t('page.tests.explanation')}:
                           </span>{' '}
@@ -672,27 +721,35 @@ export default function TestsPage() {
 
             {result.breakdown.length === 0 ? (
               <div className="space-y-2">
-                {questions.map((q, index) => {
-                  const selected = answers[q.id] || [];
-                  const correct = normalizeAnswerIndexes(q.correct_answer);
+                {questions.map((question, index) => {
+                  const selected = answers[question.id] || [];
+                  const correct = normalizeAnswerIndexes(question.correct_answer);
                   const ok =
                     JSON.stringify([...selected].sort()) ===
                     JSON.stringify([...correct].sort());
-                  const options = Array.isArray(q.options)
-                    ? q.options.map((item) => String(item))
+                  const options = Array.isArray(question.options)
+                    ? question.options.map((item) => String(item))
                     : [];
 
                   return (
                     <Card
-                      key={q.id}
-                      className={ok ? 'border-emerald-300/60' : 'border-red-300/60'}
+                      key={question.id}
+                      className={
+                        ok ? 'border-success-muted' : 'border-destructive-muted'
+                      }
                     >
                       <CardContent className="space-y-2 p-4 text-sm">
                         <div className="flex items-start gap-3">
                           {ok ? (
-                            <CheckCircle size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+                            <CheckCircle
+                              size={18}
+                              className="mt-0.5 shrink-0 text-success-foreground"
+                            />
                           ) : (
-                            <XCircle size={18} className="mt-0.5 shrink-0 text-red-600" />
+                            <XCircle
+                              size={18}
+                              className="mt-0.5 shrink-0 text-destructive"
+                            />
                           )}
 
                           <div className="space-y-2">
@@ -700,7 +757,7 @@ export default function TestsPage() {
                               {t('page.tests.question_number', { number: index + 1 })}
                             </div>
 
-                            <div className="font-medium">{q.question_text}</div>
+                            <div className="font-medium">{question.question_text}</div>
 
                             <div className="text-xs">
                               <span className="font-medium">{t('page.tests.your_answer')}:</span>{' '}
@@ -714,12 +771,12 @@ export default function TestsPage() {
                               {formatAnswer(options, correct)}
                             </div>
 
-                            {q.explanation ? (
-                              <div className="rounded-lg bg-accent p-3 text-xs text-muted-foreground">
+                            {question.explanation ? (
+                              <div className="rounded-2xl border border-ai-border bg-ai-soft p-3 text-xs text-muted-foreground">
                                 <span className="font-medium text-foreground">
                                   {t('page.tests.explanation')}:
                                 </span>{' '}
-                                {q.explanation}
+                                {question.explanation}
                               </div>
                             ) : null}
                           </div>
@@ -736,10 +793,14 @@ export default function TestsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => activeTestId && startMutation.mutate(activeTestId)}
+              onClick={() => {
+                if (!activeTestId) return;
+                startMutation.mutate(activeTestId);
+              }}
+              disabled={!activeTestId || startMutation.isPending}
             >
               <RotateCcw size={13} className="mr-1.5" />
-              {t('test.retake')}
+              {startMutation.isPending ? t('common.loading') : t('test.retake')}
             </Button>
 
             <Button size="sm" onClick={resetSession}>
@@ -779,7 +840,7 @@ export default function TestsPage() {
         />
 
         {isStudent ? (
-          <Card className="border-primary/20 bg-primary/5">
+          <Card className="border-ai-border bg-ai-soft/70">
             <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-semibold">
@@ -900,10 +961,10 @@ export default function TestsPage() {
                       key={subject}
                       type="button"
                       onClick={() => setActiveSubject(subject)}
-                      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+                      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-all duration-200 ease-soft ${
                         activeSubject === subject
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-border hover:bg-accent'
+                          ? 'border-primary bg-primary text-primary-foreground shadow-soft'
+                          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
                       }`}
                     >
                       {subject === 'all' ? t('common.all') : subject}
@@ -917,7 +978,11 @@ export default function TestsPage() {
               <EmptyState
                 icon={<ClipboardList size={18} />}
                 title={t('page.tests.empty.title')}
-                text={t('page.tests.empty.text')}
+                text={
+                  isStudent
+                    ? 'Сіз тіркелген курстарда жарияланған тесттер әзірге жоқ.'
+                    : t('page.tests.empty.text')
+                }
               />
             ) : null}
 
@@ -937,13 +1002,13 @@ export default function TestsPage() {
 
             {filtered.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((tc) => (
+                {filtered.map((test) => (
                   <TestCard
-                    key={tc.id}
-                    test={tc}
+                    key={test.id}
+                    test={test}
                     isStudent={isStudent}
-                    isStarting={startMutation.isPending && activeTestId === tc.id}
-                    onStart={(test) => startMutation.mutate(test.id)}
+                    isStarting={startMutation.isPending && startingTestId === test.id}
+                    onStart={(selectedTest) => startMutation.mutate(selectedTest.id)}
                   />
                 ))}
               </div>

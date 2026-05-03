@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -551,8 +551,6 @@ export default function LessonDetailPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const autoCompletedRef = useRef(false);
-
   const isStudent = user?.role === 'student';
 
   const [noteDraft, setNoteDraft] = useState('');
@@ -603,6 +601,15 @@ export default function LessonDetailPage() {
   const miniQuiz = miniQuizData?.quiz || data?.miniQuiz || null;
   const latestMiniQuizAttempt =
     miniQuizData?.latestAttempt || data?.latestMiniQuizAttempt || null;
+
+  const miniQuizPassed =
+    !miniQuiz ||
+    miniQuiz.questions.length === 0 ||
+    miniQuizResult?.attempt.passed === true ||
+    latestMiniQuizAttempt?.passed === true;
+
+  const canCompleteLesson =
+    isStudent && Boolean(data) && !data?.isCompleted && !data?.isLocked && miniQuizPassed;
 
   const courseId = learningState?.courseId || data?.courseId || miniQuiz?.courseId || '';
   const lessonAttachments = learningState?.attachments || data?.attachments || [];
@@ -661,10 +668,6 @@ export default function LessonDetailPage() {
   });
 
   useEffect(() => {
-    autoCompletedRef.current = false;
-  }, [lessonId]);
-
-  useEffect(() => {
     setMiniQuizAnswers({});
     setMiniQuizResult(null);
   }, [lessonId, miniQuiz?.id]);
@@ -677,26 +680,6 @@ export default function LessonDetailPage() {
     setNoteDraft(learningState.noteContent || '');
     setNoteSeededForLessonId(lessonId);
   }, [learningState, lessonId, noteSeededForLessonId]);
-
-  useEffect(() => {
-    if (!isStudent) return;
-    if (!user?.id) return;
-    if (!lessonId) return;
-    if (!data) return;
-    if (data.isLocked) return;
-    if (data.isCompleted) return;
-    if (completeMutation.isPending) return;
-    if (autoCompletedRef.current) return;
-
-    const timer = window.setTimeout(() => {
-      autoCompletedRef.current = true;
-      completeMutation.mutate();
-    }, 20000);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [isStudent, user?.id, lessonId, data, completeMutation.isPending]);
 
   const handleSaveNote = async () => {
     if (!user?.id || !lessonId || !courseId) {
@@ -1139,11 +1122,13 @@ export default function LessonDetailPage() {
                       <Button
                         type="button"
                         onClick={() => completeMutation.mutate()}
-                        disabled={completeMutation.isPending}
+                        disabled={!canCompleteLesson || completeMutation.isPending}
                       >
                         {completeMutation.isPending
                           ? t('common.loading')
-                          : t('lesson.action.complete')}
+                          : !miniQuizPassed
+                            ? 'Алдымен mini quiz тапсырыңыз'
+                            : t('lesson.action.complete')}
                       </Button>
                     ) : (
                       <Button type="button" variant="outline" disabled>
@@ -1194,11 +1179,13 @@ export default function LessonDetailPage() {
                       type="button"
                       className="w-full"
                       onClick={() => completeMutation.mutate()}
-                      disabled={completeMutation.isPending}
+                      disabled={!canCompleteLesson || completeMutation.isPending}
                     >
                       {completeMutation.isPending
                         ? t('common.loading')
-                        : t('lesson.action.complete')}
+                        : !miniQuizPassed
+                          ? 'Алдымен mini quiz тапсырыңыз'
+                          : t('lesson.action.complete')}
                     </Button>
                   ) : !isStudent ? (
                     <div className="rounded-2xl border border-border bg-surface-soft/60 p-3 text-xs text-muted-foreground">
