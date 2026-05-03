@@ -610,21 +610,26 @@ export async function getStudentDashboard(
     .map((lesson) => {
       const completed = lessonProgressMap.get(lesson.id)?.is_completed || false;
       const module = moduleMap.get(lesson.module_id);
+      const course = module ? courseMap.get(module.course_id) : null;
       const siblings = (lessonsByModuleId.get(lesson.module_id) || [])
         .slice()
         .sort((a, b) => a.sort_order - b.sort_order);
-      const previous = siblings.find((item) => item.sort_order === lesson.sort_order - 1);
+      const lessonIndex = siblings.findIndex((item) => item.id === lesson.id);
+      const previous = lessonIndex > 0 ? siblings[lessonIndex - 1] : null;
       const isLocked = Boolean(previous && !lessonProgressMap.get(previous.id)?.is_completed);
 
       return {
         id: lesson.id,
+        courseId: course?.id,
+        moduleId: module?.id,
+        subjectId: lesson.subject_id,
         title: lesson.title,
         subjectName: subjectLabel(
           lesson.subject_id ? subjectMap[lesson.subject_id] : null,
           locale
         ),
         moduleTitle: module?.title || '—',
-        courseTitle: module ? courseMap.get(module.course_id)?.title || '—' : '—',
+        courseTitle: course?.title || '—',
         sortOrder: lesson.sort_order,
         isCompleted: completed,
         isLocked,
@@ -1176,7 +1181,7 @@ export async function getLessonDetail(
     queryOrThrow(
       supabase
         .from('lessons')
-        .select('id, module_id, sort_order')
+        .select('id, module_id, sort_order, is_published')
         .eq('is_published', true)
     ),
     studentId
@@ -1203,35 +1208,72 @@ export async function getLessonDetail(
       .map((row) => row.lesson_id)
   );
 
-  const siblings = lessons
+  const siblings = (lessons as Array<{
+    id: string;
+    module_id: string;
+    sort_order: number;
+    is_published: boolean | null;
+  }>)
     .filter((row) => row.module_id === lesson.module_id)
+    .slice()
     .sort((a, b) => a.sort_order - b.sort_order);
-  const previous = siblings.find((row) => row.sort_order === lesson.sort_order - 1);
 
+  /**
+   * sort_order мәндері 1,2,3 болып келмеуі мүмкін.
+   * Сондықтан previous lesson index арқылы табылады.
+   */
+  const lessonIndex = siblings.findIndex((row) => row.id === lesson.id);
+  const previous = lessonIndex > 0 ? siblings[lessonIndex - 1] : null;
   const previousLessonLocked = Boolean(previous && !progressSet.has(previous.id));
 
   let courseAccessLocked = false;
 
   if (studentId && course) {
-    const rpcAccess = await canAccessCourseByRpc(course.id, studentId);
+    const [rpcAccess, enrollmentRows, hasEntitlement] = await Promise.all([
+      canAccessCourseByRpc(course.id, studentId),
+      queryOrThrow(
+        supabase
+          .from('course_enrollments')
+          .select('id')
+          .eq('student_id', studentId)
+          .eq('course_id', course.id)
+          .limit(1)
+      ),
+      userHasCourseEntitlementSafe(studentId, course.id),
+    ]);
+
+    const isEnrolled = enrollmentRows.length > 0;
 
     const canAccess =
-  rpcAccess ??
-  (getCourseAccessType(course) === 'public_free' ||
-    (await userHasCourseEntitlementSafe(studentId, course.id)));
+      rpcAccess ??
+      (isEnrolled ||
+        getCourseAccessType(course) === 'public_free' ||
+        hasEntitlement);
 
     courseAccessLocked = !canAccess;
   }
 
-  const isLocked = courseAccessLocked || previousLessonLocked;
+  /**
+   * Direct URL арқылы unpublished lesson ашылып кетпеуі керек.
+   */
+  const lessonUnpublishedLocked = !lesson.is_published;
+
+  const isLocked =
+    courseAccessLocked || lessonUnpublishedLocked || previousLessonLocked;
+
   const lockedReason = courseAccessLocked
     ? 'course_access_required'
-    : previousLessonLocked
-      ? 'previous_lesson_required'
-      : 'none';
+    : lessonUnpublishedLocked
+      ? 'lesson_unpublished'
+      : previousLessonLocked
+        ? 'previous_lesson_required'
+        : 'none';
 
   return {
     id: lesson.id,
+    courseId: course?.id,
+    moduleId: module?.id,
+    subjectId: lesson.subject_id,
     title: lesson.title,
     subjectName: subjectLabel(
       lesson.subject_id ? subjectMap[lesson.subject_id] : null,
@@ -1255,6 +1297,7 @@ export async function getLessonDetail(
     lockedReason,
   };
 }
+
 
 export async function getLessonsForStudent(
   studentId?: string,
@@ -1313,7 +1356,8 @@ export async function getLessonsForStudent(
       const siblings = (lessonsByModuleId.get(lesson.module_id) || [])
         .slice()
         .sort((a, b) => a.sort_order - b.sort_order);
-      const previous = siblings.find((row) => row.sort_order === lesson.sort_order - 1);
+      const lessonIndex = siblings.findIndex((row) => row.id === lesson.id);
+      const previous = lessonIndex > 0 ? siblings[lessonIndex - 1] : null;
 
       const previousLessonLocked = Boolean(previous && !progressSet.has(previous.id));
       const courseAccessLocked = Boolean(
@@ -1327,6 +1371,9 @@ export async function getLessonsForStudent(
 
       return {
         id: lesson.id,
+        courseId: course?.id,
+        moduleId: module?.id,
+        subjectId: lesson.subject_id,
         title: lesson.title,
         subjectName: subjectLabel(
           lesson.subject_id ? subjectMap[lesson.subject_id] : null,

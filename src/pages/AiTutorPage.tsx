@@ -1,14 +1,22 @@
-import { useMemo, useState } from 'react';
-import DashboardLayout from '@/components/DashboardLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
-import t from '@/lib/i18n';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '@/lib/auth-context';
+import {
+  Bot,
+  BookOpen,
+  CheckCircle2,
+  Loader2,
+  MessageSquare,
+  RefreshCcw,
+  Send,
+} from 'lucide-react';
+
+import DashboardLayout from '@/components/DashboardLayout';
+import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import {
   createTutorSession,
@@ -16,14 +24,86 @@ import {
   type TutorMessage,
   type TutorSession,
 } from '@/lib/ai-api';
-import {
-  Bot,
-  BookOpen,
-  MessageSquare,
-  RefreshCcw,
-  Send,
-  CheckCircle2,
-} from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
+import t from '@/lib/i18n';
+
+const MAX_SUBJECT_CHARS = 120;
+const MAX_TOPIC_CHARS = 200;
+const MAX_CONTEXT_CHARS = 4000;
+const MAX_MESSAGE_CHARS = 4000;
+const MAX_VISIBLE_MESSAGES = 80;
+const REQUEST_TIMEOUT_MS = 120_000;
+
+type TutorContextPayload = {
+  subject?: string;
+  topic?: string;
+  passage?: string;
+};
+
+function cleanText(value: string, limit: number) {
+  return value.replace(/\x00/g, ' ').trim().slice(0, limit);
+}
+
+function createLocalMessage(role: 'user' | 'assistant', content: string): TutorMessage {
+  return {
+    id: `local-${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    role,
+    content,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function normalizeTutorMessage(message: TutorMessage, fallbackIndex: number): TutorMessage | null {
+  const content = cleanText(String(message.content || ''), 12_000);
+  if (!content) return null;
+
+  return {
+    id: String(message.id || `message-${fallbackIndex + 1}`),
+    role: message.role === 'assistant' ? 'assistant' : 'user',
+    content,
+    createdAt: message.createdAt,
+  };
+}
+
+function normalizeTutorMessages(messages: TutorMessage[]) {
+  return messages
+    .map((message, index) => normalizeTutorMessage(message, index))
+    .filter((message): message is TutorMessage => Boolean(message))
+    .slice(-MAX_VISIBLE_MESSAGES);
+}
+
+function createTimeoutSignal(externalSignal: AbortSignal, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  const abortFromExternal = () => controller.abort();
+  const cleanup = () => {
+    window.clearTimeout(timeoutId);
+    externalSignal.removeEventListener('abort', abortFromExternal);
+  };
+
+  controller.signal.addEventListener('abort', cleanup, { once: true });
+
+  if (externalSignal.aborted) {
+    controller.abort();
+  } else {
+    externalSignal.addEventListener('abort', abortFromExternal, { once: true });
+  }
+
+  return controller.signal;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return 'AI Tutor сұранысы тоқтатылды немесе уақытынан асып кетті.';
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return fallback;
+}
 
 export default function AiTutorPage() {
   const { user, session } = useAuth();
@@ -41,23 +121,63 @@ export default function AiTutorPage() {
   const [isSending, setIsSending] = useState(false);
   const [errorText, setErrorText] = useState('');
 
-  const accessToken = session?.access_token;
-  const isBusy = isCreatingSession || isSending;
+  const requestCounterRef = useRef(0);
+  const activeRequestIdRef = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
 
-  const canSendMessage = useMemo(
-    () => !!accessToken && !!user && !isBusy && messageInput.trim().length > 0,
-    [accessToken, user, isBusy, messageInput]
+  const accessToken = session?.access_token?.trim();
+  const isStudent = user?.role === 'student';
+  const isBusy = isCreatingSession || isSending;
+  const hasMessages = messages.length > 0;
+  const isAuthMissing = !accessToken;
+
+  const normalizedSubject = useMemo(
+    () => cleanText(subject, MAX_SUBJECT_CHARS),
+    [subject]
+  );
+  const normalizedTopic = useMemo(() => cleanText(topic, MAX_TOPIC_CHARS), [topic]);
+  const normalizedContext = useMemo(
+    () => cleanText(context, MAX_CONTEXT_CHARS),
+    [context]
+  );
+  const normalizedMessage = useMemo(
+    () => cleanText(messageInput, MAX_MESSAGE_CHARS),
+    [messageInput]
   );
 
-  const hasMessages = messages.length > 0;
+  const canSendMessage = Boolean(
+    accessToken && user && isStudent && !isBusy && normalizedMessage.length > 0
+  );
 
-  const clearError = () => {
+  useEffect(() => {
+    scrollAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages.length, isCreatingSession, isSending, errorText]);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      activeRequestIdRef.current = null;
+    };
+  }, []);
+
+  const clearError = useCallback(() => {
     if (errorText) {
       setErrorText('');
     }
-  };
+  }, [errorText]);
 
-  const handleReset = () => {
+  const resetActiveRequest = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    activeRequestIdRef.current = null;
+    setIsCreatingSession(false);
+    setIsSending(false);
+  }, []);
+
+  const handleReset = useCallback(() => {
+    resetActiveRequest();
     setSubject('');
     setTopic('');
     setContext('');
@@ -65,128 +185,176 @@ export default function AiTutorPage() {
     setTutorSession(null);
     setMessages([]);
     setErrorText('');
-  };
+  }, [resetActiveRequest]);
 
-  const buildTutorContext = () => {
-    const trimmedSubject = subject.trim();
-    const trimmedTopic = topic.trim();
-    const trimmedContext = context.trim();
+  const buildTutorContext = useCallback((): TutorContextPayload => {
+    return {
+      subject: normalizedSubject || undefined,
+      topic: normalizedTopic || undefined,
+      passage: normalizedContext || undefined,
+    };
+  }, [normalizedContext, normalizedSubject, normalizedTopic]);
+
+  const startRequest = useCallback(() => {
+    abortControllerRef.current?.abort();
+
+    const requestId = requestCounterRef.current + 1;
+    requestCounterRef.current = requestId;
+    activeRequestIdRef.current = requestId;
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     return {
-      subject: trimmedSubject || undefined,
-      topic: trimmedTopic || undefined,
-      passage: trimmedContext || undefined,
+      requestId,
+      controller,
+      signal: createTimeoutSignal(controller.signal, REQUEST_TIMEOUT_MS),
     };
-  };
+  }, []);
 
-  const ensureSession = async (): Promise<TutorSession> => {
-    if (tutorSession) {
-      return tutorSession;
-    }
-
-    if (!accessToken) {
-      throw new Error('AI Tutor пайдалану үшін белсенді сессия қажет.');
-    }
-
-    setIsCreatingSession(true);
-
-    try {
-      const response = await createTutorSession(
-        {
-          subject: subject.trim() || undefined,
-          topic: topic.trim() || undefined,
-          initialContext: context.trim() || undefined,
-        },
-        {
-          accessToken,
-        }
-      );
-
-      setTutorSession(response.session);
-
-      if (response.messages?.length) {
-        setMessages(response.messages);
+  const ensureSession = useCallback(
+    async ({
+      accessTokenValue,
+      signal,
+      requestId,
+    }: {
+      accessTokenValue: string;
+      signal: AbortSignal;
+      requestId: number;
+    }): Promise<TutorSession> => {
+      if (tutorSession) {
+        return tutorSession;
       }
 
-      return response.session;
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Tutor session ашу мүмкін болмады.';
-      setErrorText(message);
-      throw new Error(message);
-    } finally {
-      setIsCreatingSession(false);
-    }
-  };
+      setIsCreatingSession(true);
 
-  const handleSendMessage = async () => {
-    const trimmedMessage = messageInput.trim();
+      try {
+        const response = await createTutorSession(
+          {
+            subject: normalizedSubject || undefined,
+            topic: normalizedTopic || undefined,
+            initialContext: normalizedContext || undefined,
+          },
+          {
+            accessToken: accessTokenValue,
+            signal,
+            timeoutMs: REQUEST_TIMEOUT_MS,
+          }
+        );
 
-    if (!trimmedMessage) {
+        if (activeRequestIdRef.current !== requestId) {
+          throw new DOMException('Stale tutor session request', 'AbortError');
+        }
+
+        setTutorSession(response.session);
+
+        if (response.messages?.length) {
+          setMessages(normalizeTutorMessages(response.messages));
+        }
+
+        return response.session;
+      } finally {
+        if (activeRequestIdRef.current === requestId) {
+          setIsCreatingSession(false);
+        }
+      }
+    },
+    [normalizedContext, normalizedSubject, normalizedTopic, tutorSession]
+  );
+
+  const handleSendMessage = useCallback(async () => {
+    if (!normalizedMessage) {
       setErrorText('Алдымен хабар немесе сұрақ жазыңыз.');
       return;
     }
 
-    if (!accessToken) {
-      const message = 'AI Tutor пайдалану үшін жүйеге кіріп, белсенді сессиямен жұмыс істеу керек.';
+    if (!user) {
+      const message = 'AI Tutor пайдалану үшін жүйеге кіру керек.';
       setErrorText(message);
-
-      toast({
-        title: 'Қате',
-        description: message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Қате', description: message, variant: 'destructive' });
       return;
     }
 
+    if (!isStudent) {
+      const message = 'AI Tutor тек оқушы аккаунты үшін қолжетімді.';
+      setErrorText(message);
+      toast({ title: 'Қате', description: message, variant: 'destructive' });
+      return;
+    }
+
+    if (!accessToken) {
+      const message = 'AI Tutor пайдалану үшін белсенді авторизация сессиясы қажет.';
+      setErrorText(message);
+      toast({ title: 'Қате', description: message, variant: 'destructive' });
+      return;
+    }
+
+    const { requestId, controller, signal } = startRequest();
+    const optimisticUserMessage = createLocalMessage('user', normalizedMessage);
+
     setErrorText('');
     setIsSending(true);
-
-    const optimisticUserMessage: TutorMessage = {
-      id: `local-user-${Date.now()}`,
-      role: 'user',
-      content: trimmedMessage,
-      createdAt: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, optimisticUserMessage]);
+    setMessages((prev) => normalizeTutorMessages([...prev, optimisticUserMessage]));
     setMessageInput('');
 
     try {
-      const activeSession = await ensureSession();
+      const activeSession = await ensureSession({
+        accessTokenValue: accessToken,
+        signal,
+        requestId,
+      });
 
       const response = await sendTutorMessage(
         {
           sessionId: activeSession.id,
-          message: trimmedMessage,
-          subject: subject.trim() || undefined,
-          topic: topic.trim() || undefined,
+          message: normalizedMessage,
+          subject: normalizedSubject || undefined,
+          topic: normalizedTopic || undefined,
           context: buildTutorContext(),
         },
         {
           accessToken,
+          signal,
+          timeoutMs: REQUEST_TIMEOUT_MS,
         }
       );
+
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
 
       setTutorSession((prev) => prev ?? activeSession);
 
       if (response.messages?.length) {
-        setMessages(response.messages);
+        setMessages(normalizeTutorMessages(response.messages));
       } else {
-        setMessages((prev) => [
-          ...prev.filter((item) => item.id !== optimisticUserMessage.id),
-          optimisticUserMessage,
-          response.reply,
-        ]);
+        setMessages((prev) => {
+          const withoutOptimistic = prev.filter(
+            (item) => item.id !== optimisticUserMessage.id
+          );
+
+          return normalizeTutorMessages([
+            ...withoutOptimistic,
+            optimisticUserMessage,
+            normalizeTutorMessage(response.reply, withoutOptimistic.length + 1) ||
+              createLocalMessage('assistant', 'AI Tutor бос жауап қайтарды.'),
+          ]);
+        });
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Tutor-ға хабар жіберу мүмкін болмады.';
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const message = getErrorMessage(
+        error,
+        'Tutor-ға хабар жіберу мүмкін болмады.'
+      );
 
       setMessages((prev) =>
         prev.filter((item) => item.id !== optimisticUserMessage.id)
       );
-      setMessageInput(trimmedMessage);
+      setMessageInput(normalizedMessage);
       setErrorText(message);
 
       toast({
@@ -195,9 +363,36 @@ export default function AiTutorPage() {
         variant: 'destructive',
       });
     } finally {
-      setIsSending(false);
+      if (activeRequestIdRef.current === requestId) {
+        setIsSending(false);
+        abortControllerRef.current = null;
+        activeRequestIdRef.current = null;
+      }
+
+      controller.abort();
     }
-  };
+  }, [
+    accessToken,
+    buildTutorContext,
+    ensureSession,
+    isStudent,
+    normalizedMessage,
+    normalizedSubject,
+    normalizedTopic,
+    startRequest,
+    toast,
+    user,
+  ]);
+
+  const handleMessageKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault();
+        void handleSendMessage();
+      }
+    },
+    [handleSendMessage]
+  );
 
   return (
     <DashboardLayout>
@@ -211,168 +406,240 @@ export default function AiTutorPage() {
           </div>
 
           <div className="flex gap-2">
-            <Link to="/lessons">
-              <Button variant="outline" size="sm">
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/lessons">
                 <BookOpen size={14} className="mr-2" />
                 Сабақтарға қайту
-              </Button>
-            </Link>
+              </Link>
+            </Button>
 
-            <Button variant="outline" size="sm" onClick={handleReset}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              disabled={isBusy}
+            >
               <RefreshCcw size={14} className="mr-2" />
               Жаңа session
             </Button>
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-semibold">Tutor параметрлері</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="subject">Пән</Label>
-                <Input
-                  id="subject"
-                  value={subject}
-                  onChange={(e) => {
-                    setSubject(e.target.value);
-                    clearError();
-                  }}
-                  placeholder="Мысалы: Математика"
-                />
-              </div>
+        {!user ? (
+          <EmptyState
+            title="Авторизация қажет"
+            text="AI Tutor пайдалану үшін алдымен жүйеге кіріңіз."
+          />
+        ) : null}
 
-              <div className="space-y-1.5">
-                <Label htmlFor="topic">Тақырып</Label>
-                <Input
-                  id="topic"
-                  value={topic}
-                  onChange={(e) => {
-                    setTopic(e.target.value);
-                    clearError();
-                  }}
-                  placeholder="Мысалы: Квадрат теңдеулер"
-                />
-              </div>
+        {user && !isStudent ? (
+          <EmptyState
+            title="Оқушы аккаунты қажет"
+            text="AI Tutor оқушыға арналған құрал. Мұғалім үшін AI көмекші бетін қолданыңыз."
+          />
+        ) : null}
 
-              <div className="space-y-1.5">
-                <Label htmlFor="context">Қосымша контекст</Label>
-                <Textarea
-                  id="context"
-                  value={context}
-                  onChange={(e) => {
-                    setContext(e.target.value);
-                    clearError();
-                  }}
-                  placeholder="Қай жерде қиналып тұрғаныңызды немесе қай бөлікті түсіндіру керек екенін жазыңыз..."
-                  rows={5}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <div className="space-y-4">
-            <Card className="min-h-[420px]">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">Tutor chat</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {isCreatingSession ? (
-                  <LoadingState text="Tutor session ашылып жатыр..." />
-                ) : null}
-
-                {errorText ? <ErrorState text={errorText} /> : null}
-
-                {!accessToken && !isCreatingSession ? (
-                  <EmptyState
-                    title="Авторизация қажет"
-                    text="AI Tutor пайдалану үшін алдымен жүйеге кіріңіз."
-                  />
-                ) : null}
-
-                {accessToken && !isCreatingSession && !hasMessages ? (
-                  <EmptyState
-                    title="Сұхбат әлі басталмады"
-                    text="Төмендегі өріске сұрағыңызды жазыңыз. Бірінші хабар жіберілгенде tutor session автоматты түрде ашылады."
-                  />
-                ) : null}
-
-                {hasMessages ? (
-                  <div className="space-y-3">
-                    {messages.map((message) => {
-                      const isAssistant = message.role === 'assistant';
-
-                      return (
-                        <div
-                          key={message.id}
-                          className={`rounded-lg border p-4 text-sm ${
-                            isAssistant ? 'border-primary/20 bg-primary/5' : ''
-                          }`}
-                        >
-                          <div className="mb-2 flex items-center gap-2">
-                            {isAssistant ? (
-                              <Bot size={15} className="text-primary" />
-                            ) : (
-                              <MessageSquare size={15} className="text-muted-foreground" />
-                            )}
-                            <span className="text-xs font-medium">
-                              {isAssistant ? 'AI Tutor' : 'Сіз'}
-                            </span>
-                          </div>
-
-                          <p className="whitespace-pre-wrap leading-7 text-muted-foreground">
-                            {message.content}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-
+        {user && isStudent ? (
+          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base font-semibold">Хабар жіберу</CardTitle>
+                <CardTitle className="text-base font-semibold">
+                  Tutor параметрлері
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Textarea
-                  value={messageInput}
-                  onChange={(e) => {
-                    setMessageInput(e.target.value);
-                    clearError();
-                  }}
-                  placeholder="Сұрағыңызды жазыңыз. Мысалы: осы тақырыпты қарапайым тілмен түсіндіріп бер."
-                  rows={5}
-                />
-
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-xs text-muted-foreground">
-                    {tutorSession ? (
-                      <span className="inline-flex items-center gap-1">
-                        <CheckCircle2 size={13} className="text-primary" />
-                        Session белсенді
-                      </span>
-                    ) : (
-                      <span>
-                        {accessToken
-                          ? 'Session бірінші хабармен ашылады'
-                          : 'Session ашу үшін авторизация қажет'}
-                      </span>
-                    )}
-                  </div>
-
-                  <Button onClick={handleSendMessage} disabled={!canSendMessage}>
-                    <Send size={14} className="mr-2" />
-                    {isBusy ? 'Жіберілуде...' : 'Жіберу'}
-                  </Button>
+                <div className="space-y-1.5">
+                  <Label htmlFor="subject">Пән</Label>
+                  <Input
+                    id="subject"
+                    value={subject}
+                    maxLength={MAX_SUBJECT_CHARS}
+                    disabled={isBusy}
+                    onChange={(event) => {
+                      setSubject(event.target.value.slice(0, MAX_SUBJECT_CHARS));
+                      clearError();
+                    }}
+                    placeholder="Мысалы: Математика"
+                  />
                 </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="topic">Тақырып</Label>
+                  <Input
+                    id="topic"
+                    value={topic}
+                    maxLength={MAX_TOPIC_CHARS}
+                    disabled={isBusy}
+                    onChange={(event) => {
+                      setTopic(event.target.value.slice(0, MAX_TOPIC_CHARS));
+                      clearError();
+                    }}
+                    placeholder="Мысалы: Квадрат теңдеулер"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="context">Қосымша контекст</Label>
+                    <span className="text-[11px] text-muted-foreground">
+                      {normalizedContext.length}/{MAX_CONTEXT_CHARS}
+                    </span>
+                  </div>
+                  <Textarea
+                    id="context"
+                    value={context}
+                    maxLength={MAX_CONTEXT_CHARS}
+                    disabled={isBusy}
+                    onChange={(event) => {
+                      setContext(event.target.value.slice(0, MAX_CONTEXT_CHARS));
+                      clearError();
+                    }}
+                    placeholder="Қай жерде қиналып тұрғаныңызды немесе қай бөлікті түсіндіру керек екенін жазыңыз..."
+                    rows={5}
+                  />
+                </div>
+
+                {tutorSession ? (
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                      <CheckCircle2 size={13} className="text-primary" />
+                      Session белсенді
+                    </span>
+                    <p className="mt-1">
+                      Пән/тақырыпты өзгертсеңіз, жаңа контекст келесі хабарға ғана қолданылады. Толық жаңа диалог үшін “Жаңа session” басыңыз.
+                    </p>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
+
+            <div className="space-y-4">
+              <Card className="min-h-[420px]">
+                <CardHeader>
+                  <CardTitle className="text-base font-semibold">Tutor chat</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {isCreatingSession ? (
+                    <LoadingState text="Tutor session ашылып жатыр..." />
+                  ) : null}
+
+                  {errorText ? <ErrorState text={errorText} /> : null}
+
+                  {isAuthMissing && !isCreatingSession ? (
+                    <EmptyState
+                      title="Авторизация қажет"
+                      text="AI Tutor пайдалану үшін белсенді сессия access token қажет."
+                    />
+                  ) : null}
+
+                  {!isAuthMissing && !isCreatingSession && !hasMessages ? (
+                    <EmptyState
+                      title="Сұхбат әлі басталмады"
+                      text="Төмендегі өріске сұрағыңызды жазыңыз. Бірінші хабар жіберілгенде tutor session автоматты түрде ашылады."
+                    />
+                  ) : null}
+
+                  {hasMessages ? (
+                    <div className="max-h-[560px] space-y-3 overflow-y-auto pr-1">
+                      {messages.map((message) => {
+                        const isAssistant = message.role === 'assistant';
+
+                        return (
+                          <div
+                            key={message.id}
+                            className={`rounded-2xl border p-4 text-sm ${
+                              isAssistant
+                                ? 'border-primary/20 bg-primary/5'
+                                : 'bg-card'
+                            }`}
+                          >
+                            <div className="mb-2 flex items-center gap-2">
+                              {isAssistant ? (
+                                <Bot size={15} className="text-primary" />
+                              ) : (
+                                <MessageSquare
+                                  size={15}
+                                  className="text-muted-foreground"
+                                />
+                              )}
+                              <span className="text-xs font-medium">
+                                {isAssistant ? 'AI Tutor' : 'Сіз'}
+                              </span>
+                            </div>
+
+                            <p className="whitespace-pre-wrap leading-7 text-muted-foreground">
+                              {message.content}
+                            </p>
+                          </div>
+                        );
+                      })}
+
+                      <div ref={scrollAnchorRef} />
+                    </div>
+                  ) : (
+                    <div ref={scrollAnchorRef} />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base font-semibold">Хабар жіберу</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <Label htmlFor="tutor-message">Хабар</Label>
+                      <span className="text-[11px] text-muted-foreground">
+                        {normalizedMessage.length}/{MAX_MESSAGE_CHARS}
+                      </span>
+                    </div>
+                    <Textarea
+                      id="tutor-message"
+                      value={messageInput}
+                      maxLength={MAX_MESSAGE_CHARS}
+                      disabled={isBusy || !accessToken}
+                      onChange={(event) => {
+                        setMessageInput(event.target.value.slice(0, MAX_MESSAGE_CHARS));
+                        clearError();
+                      }}
+                      onKeyDown={handleMessageKeyDown}
+                      placeholder="Сұрағыңызды жазыңыз. Мысалы: осы тақырыпты қарапайым тілмен түсіндіріп бер."
+                      rows={5}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs text-muted-foreground">
+                      {tutorSession ? (
+                        <span className="inline-flex items-center gap-1">
+                          <CheckCircle2 size={13} className="text-primary" />
+                          Session белсенді
+                        </span>
+                      ) : (
+                        <span>
+                          {accessToken
+                            ? 'Session бірінші хабармен ашылады'
+                            : 'Session ашу үшін авторизация қажет'}
+                        </span>
+                      )}
+                      <p className="mt-1">Жылдам жіберу: Ctrl/⌘ + Enter.</p>
+                    </div>
+
+                    <Button onClick={handleSendMessage} disabled={!canSendMessage}>
+                      {isBusy ? (
+                        <Loader2 size={14} className="mr-2 animate-spin" />
+                      ) : (
+                        <Send size={14} className="mr-2" />
+                      )}
+                      {isBusy ? 'Жіберілуде...' : 'Жіберу'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
     </DashboardLayout>
   );

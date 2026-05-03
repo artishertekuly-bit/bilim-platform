@@ -1,18 +1,36 @@
-export type LearningAiMode =
-  | 'student_tracker'
-  | 'student_course_advisor'
-  | 'teacher_course_assistant'
-  | 'teacher_student_assistant'
-  | 'teacher_course_creator_advisor';
+export const LEARNING_AI_MODES = [
+  'student_tracker',
+  'student_course_advisor',
+  'teacher_course_assistant',
+  'teacher_student_assistant',
+  'teacher_course_creator_advisor',
+] as const;
 
-export type LearningAiRole = 'student' | 'teacher';
+export type LearningAiMode = (typeof LEARNING_AI_MODES)[number];
+
+export const LEARNING_AI_ROLES = ['student', 'teacher'] as const;
+
+export type LearningAiRole = (typeof LEARNING_AI_ROLES)[number];
+
+export const LEARNING_AI_CONTEXT_SOURCES = [
+  'student_learning_snapshot',
+  'student_course_advisor_context',
+  'course_learning_snapshot',
+  'teacher_student_learning_snapshot',
+  'teacher_course_creator_context',
+] as const;
 
 export type LearningAiContextSource =
-  | 'student_learning_snapshot'
-  | 'student_course_advisor_context'
-  | 'course_learning_snapshot'
-  | 'teacher_student_learning_snapshot'
-  | 'teacher_course_creator_context';
+  (typeof LEARNING_AI_CONTEXT_SOURCES)[number];
+
+export const LEARNING_AI_CONFIDENCE_VALUES = [
+  'low',
+  'medium',
+  'high',
+] as const;
+
+export type LearningAiConfidence =
+  (typeof LEARNING_AI_CONFIDENCE_VALUES)[number];
 
 export type LearningAiScope = {
   /**
@@ -29,7 +47,7 @@ export type LearningAiScope = {
 
   /**
    * Optional advisor hints.
-   * These are not required, but can be used later if the UI adds filters.
+   * These are not required, but can be used by UI filters later.
    */
   subjectId?: string | null;
   subjectName?: string | null;
@@ -37,7 +55,13 @@ export type LearningAiScope = {
   targetAudience?: string | null;
 };
 
-export type LearningAiConversationRole = 'user' | 'assistant';
+export const LEARNING_AI_CONVERSATION_ROLES = [
+  'user',
+  'assistant',
+] as const;
+
+export type LearningAiConversationRole =
+  (typeof LEARNING_AI_CONVERSATION_ROLES)[number];
 
 export type LearningAiConversationMessage = {
   role: LearningAiConversationRole;
@@ -54,13 +78,7 @@ export type LearningAiRequest = {
   /**
    * Short chat memory for continuation / clarification logic.
    *
-   * Example:
-   * user: "Қандай курс жасасам болады?"
-   * assistant: "Бағдарламалау курсын ұсынуға болады. Аудитория кім?"
-   * user: "7-9 сынып, Python"
-   *
-   * The third request should include previous two messages here,
-   * so AI continues the same idea instead of starting a fresh answer.
+   * Frontend should send only the latest few messages, not the full infinite chat.
    */
   conversationHistory?: LearningAiConversationMessage[];
 };
@@ -71,16 +89,13 @@ export type LearningAiUsedContext = {
   studentId?: string | null;
 
   /**
-   * Optional frontend-friendly metadata.
-   * Backend may return these later without breaking current UI.
+   * Frontend-friendly metadata returned by backend when available.
    */
   courseTitle?: string | null;
   studentName?: string | null;
   subjectName?: string | null;
   snapshotGeneratedAt?: string | null;
 };
-
-export type LearningAiConfidence = 'low' | 'medium' | 'high';
 
 export type LearningAiResponse = {
   answer: string;
@@ -89,8 +104,8 @@ export type LearningAiResponse = {
   usedContext: LearningAiUsedContext;
 
   /**
-   * Optional fields for chat-first UI.
-   * Do not show contextSummary directly if it contains numeric analytics.
+   * Optional chat UI metadata.
+   * Do not render contextSummary as a raw analytics report.
    */
   contextSummary?: string | null;
   confidence?: LearningAiConfidence | null;
@@ -98,12 +113,68 @@ export type LearningAiResponse = {
   followUpPrompts?: string[];
 };
 
+export type LearningAiClientSuccess = {
+  ok: true;
+  data: LearningAiResponse;
+};
+
+export type LearningAiClientFailure = {
+  ok: false;
+  error: string;
+  status?: number;
+  payload?: unknown;
+};
+
 export type LearningAiClientResult =
-  | {
-      ok: true;
-      data: LearningAiResponse;
-    }
-  | {
-      ok: false;
-      error: string;
-    };
+  | LearningAiClientSuccess
+  | LearningAiClientFailure;
+
+export function isLearningAiMode(value: unknown): value is LearningAiMode {
+  return (
+    typeof value === 'string' &&
+    (LEARNING_AI_MODES as readonly string[]).includes(value)
+  );
+}
+
+export function isLearningAiRole(value: unknown): value is LearningAiRole {
+  return (
+    typeof value === 'string' &&
+    (LEARNING_AI_ROLES as readonly string[]).includes(value)
+  );
+}
+
+export function isLearningAiContextSource(
+  value: unknown
+): value is LearningAiContextSource {
+  return (
+    typeof value === 'string' &&
+    (LEARNING_AI_CONTEXT_SOURCES as readonly string[]).includes(value)
+  );
+}
+
+export function isLearningAiConfidence(
+  value: unknown
+): value is LearningAiConfidence {
+  return (
+    typeof value === 'string' &&
+    (LEARNING_AI_CONFIDENCE_VALUES as readonly string[]).includes(value)
+  );
+}
+
+export function isStudentLearningAiMode(mode: LearningAiMode): boolean {
+  return mode === 'student_tracker' || mode === 'student_course_advisor';
+}
+
+export function isTeacherLearningAiMode(mode: LearningAiMode): boolean {
+  return (
+    mode === 'teacher_course_assistant' ||
+    mode === 'teacher_student_assistant' ||
+    mode === 'teacher_course_creator_advisor'
+  );
+}
+
+export function getRequiredLearningAiRole(
+  mode: LearningAiMode
+): LearningAiRole {
+  return isStudentLearningAiMode(mode) ? 'student' : 'teacher';
+}

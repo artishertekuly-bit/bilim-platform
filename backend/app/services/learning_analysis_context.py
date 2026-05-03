@@ -539,6 +539,45 @@ def _course_id_from_row(row: dict[str, Any]) -> str | None:
     return text or None
 
 
+def _module_id_from_row(row: dict[str, Any]) -> str | None:
+    value = _get_row_value(row, ["module_id", "moduleId"])
+    text = _clean_text(value, 140)
+    return text or None
+
+
+def _with_course_id(row: dict[str, Any], course_id: str | None) -> dict[str, Any]:
+    if not course_id:
+        return row
+
+    if _course_id_from_row(row):
+        return row
+
+    return {
+        **row,
+        "course_id": course_id,
+    }
+
+
+def _dedupe_rows_by_id(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+
+    for row in rows:
+        row_id = _clean_text(row.get("id"), 140)
+
+        if not row_id:
+            result.append(row)
+            continue
+
+        if row_id in seen:
+            continue
+
+        seen.add(row_id)
+        result.append(row)
+
+    return result
+
+
 def _student_id_from_row(row: dict[str, Any]) -> str | None:
     value = _get_row_value(row, ["student_id", "studentId", "user_id", "userId"])
     text = _clean_text(value, 140)
@@ -590,12 +629,39 @@ def _filter_rows_for_courses(
 
 
 def _load_course_lessons(course_id: str) -> list[dict[str, Any]]:
-    return _rows(
+    direct_rows = _rows(
         "lessons",
         eq={"course_id": course_id},
         limit=1000,
         optional=True,
     )
+
+    if direct_rows:
+        return [_with_course_id(row, course_id) for row in direct_rows]
+
+    modules = _rows(
+        "modules",
+        eq={"course_id": course_id},
+        limit=1000,
+        optional=True,
+    )
+    module_ids = [
+        _clean_text(module.get("id"), 140)
+        for module in modules
+        if _clean_text(module.get("id"), 140)
+    ]
+
+    if not module_ids:
+        return []
+
+    module_lessons = _rows(
+        "lessons",
+        in_={"module_id": module_ids},
+        limit=2000,
+        optional=True,
+    )
+
+    return [_with_course_id(row, course_id) for row in module_lessons]
 
 
 def _load_course_enrollments(course_id: str) -> list[dict[str, Any]]:
@@ -709,14 +775,44 @@ def _load_lessons_for_courses(
     if not course_ids:
         return []
 
-    rows = _rows(
-        "lessons",
+    direct_rows = [
+        _with_course_id(row, _course_id_from_row(row))
+        for row in _rows(
+            "lessons",
+            in_={"course_id": course_ids},
+            limit=2000,
+            optional=True,
+        )
+    ]
+
+    modules = _rows(
+        "modules",
         in_={"course_id": course_ids},
         limit=2000,
         optional=True,
     )
+    module_course_map = {
+        _clean_text(module.get("id"), 140): _clean_text(module.get("course_id"), 140)
+        for module in modules
+        if _clean_text(module.get("id"), 140)
+        and _clean_text(module.get("course_id"), 140)
+    }
 
-    return rows[:limit]
+    module_rows: list[dict[str, Any]] = []
+
+    if module_course_map:
+        raw_module_rows = _rows(
+            "lessons",
+            in_={"module_id": list(module_course_map.keys())},
+            limit=4000,
+            optional=True,
+        )
+        module_rows = [
+            _with_course_id(row, module_course_map.get(_module_id_from_row(row) or ""))
+            for row in raw_module_rows
+        ]
+
+    return _dedupe_rows_by_id([*direct_rows, *module_rows])[:limit]
 
 
 def _compact_teacher_course(course: dict[str, Any]) -> dict[str, Any]:
@@ -813,14 +909,18 @@ def _assert_teacher_can_access_course(
 
     owner_id = _course_owner_id(course)
 
-    if owner_id and owner_id != current_user_id:
-        raise _http_error("Бұл курс бойынша AI көмекші қолдануға рұқсат жоқ.", 403)
-
     if not owner_id:
-        logger.warning(
-            "Course owner field not found for course_id=%s. Permission check is weak.",
+        logger.error(
+            "Course owner field not found for course_id=%s. AI access check is blocked.",
             course_id,
         )
+        raise _http_error(
+            "Курс иесін анықтау мүмкін болмады. AI көмекші қауіпсіздік мақсатында тоқтатылды.",
+            500,
+        )
+
+    if owner_id != current_user_id:
+        raise _http_error("Бұл курс бойынша AI көмекші қолдануға рұқсат жоқ.", 403)
 
     return course
 
@@ -1188,12 +1288,7 @@ def collect_student_learning_context(
     )
 
     lessons = (
-        _rows(
-            "lessons",
-            in_={"course_id": course_ids},
-            limit=2000,
-            optional=True,
-        )
+        _load_lessons_for_courses(course_ids, limit=2000)
         if course_ids
         else []
     )

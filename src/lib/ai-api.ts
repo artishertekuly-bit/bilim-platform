@@ -112,7 +112,7 @@ export interface TutorSession {
 
 export interface TutorMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant';
   content: string;
   createdAt?: string;
 }
@@ -248,10 +248,71 @@ export interface ListAiExamAttemptsResponse {
   raw?: unknown;
 }
 
-const DEFAULT_TIMEOUT_MS = 360_000;
+export type LearningAiMode =
+  | 'student_tracker'
+  | 'student_course_advisor'
+  | 'teacher_course_assistant'
+  | 'teacher_student_assistant'
+  | 'teacher_course_creator_advisor';
+
+export type LearningAiRole = 'student' | 'teacher';
+
+export interface LearningAiConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface LearningAiScope {
+  courseId?: string | null;
+  studentId?: string | null;
+  subjectId?: string | null;
+  subjectName?: string | null;
+  gradeLevel?: string | null;
+  targetAudience?: string | null;
+}
+
+export interface LearningAiRequest {
+  mode: LearningAiMode;
+  role: LearningAiRole;
+  prompt: string;
+  selectedSuggestionId?: string | null;
+  scope?: LearningAiScope | null;
+  conversationHistory?: LearningAiConversationMessage[];
+}
+
+export interface LearningAiUsedContext {
+  source:
+    | 'student_learning_snapshot'
+    | 'student_course_advisor_context'
+    | 'course_learning_snapshot'
+    | 'teacher_student_learning_snapshot'
+    | 'teacher_course_creator_context';
+  courseId?: string | null;
+  studentId?: string | null;
+  courseTitle?: string | null;
+  studentName?: string | null;
+  subjectName?: string | null;
+  snapshotGeneratedAt?: string | null;
+}
+
+export interface LearningAiResponse {
+  answer: string;
+  generatedAt: string;
+  mode: LearningAiMode;
+  usedContext: LearningAiUsedContext;
+  contextSummary?: string | null;
+  confidence?: 'low' | 'medium' | 'high' | null;
+  warnings: string[];
+  followUpPrompts: string[];
+  raw?: unknown;
+}
+
+const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_TIMEOUT_MS = 600_000;
+const MAX_ERROR_MESSAGE_LENGTH = 1_000;
 
 function getEnv(): Record<string, unknown> {
-  return ((import.meta as ImportMeta & { env?: Record<string, unknown> }).env ?? {});
+  return (import.meta as ImportMeta & { env?: Record<string, unknown> }).env ?? {};
 }
 
 function getAiApiBaseUrl(): string {
@@ -292,12 +353,21 @@ function toNumber(value: unknown, fallback?: number): number | undefined {
   return fallback;
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 function toOptionalQuestionKind(value: unknown): AiQuestionKind | undefined {
   return value === 'multiple_choice' || value === 'short_answer' || value === 'mixed'
     ? value
     : undefined;
-} 
+}
 
+function toExamStatus(value: unknown): 'draft' | 'published' | 'archived' | undefined {
+  return value === 'draft' || value === 'published' || value === 'archived'
+    ? value
+    : undefined;
+}
 
 function isDevMode(): boolean {
   const env = getEnv();
@@ -312,6 +382,7 @@ function shouldSendDebugUserIdHeader(): boolean {
 
 function buildHeaders(auth?: AiAuthOptions, initHeaders?: HeadersInit): Headers {
   const headers = new Headers(initHeaders);
+  headers.set('Accept', 'application/json');
   headers.set('Content-Type', 'application/json');
 
   const accessToken = auth?.accessToken?.trim();
@@ -342,29 +413,62 @@ function buildJsonBody(payload: Record<string, unknown>): string {
   return JSON.stringify(payload);
 }
 
+function truncateErrorMessage(value: string): string {
+  return value.length > MAX_ERROR_MESSAGE_LENGTH
+    ? `${value.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
+    : value;
+}
+
+function extractFastApiValidationMessage(detail: unknown): string | undefined {
+  if (!Array.isArray(detail)) return undefined;
+
+  const messages = detail
+    .map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (!isRecord(item)) return '';
+
+      const msg = toNonEmptyString(item.msg) ?? toNonEmptyString(item.message);
+      const loc = Array.isArray(item.loc)
+        ? item.loc.map((part) => String(part)).join('.')
+        : undefined;
+
+      return msg ? (loc ? `${loc}: ${msg}` : msg) : '';
+    })
+    .filter(Boolean);
+
+  return messages.length ? messages.join('; ') : undefined;
+}
+
 function extractErrorMessage(body: unknown, status: number): string {
   if (isRecord(body)) {
     if (typeof body.detail === 'string' && body.detail.trim()) {
-      return body.detail.trim();
+      return truncateErrorMessage(body.detail.trim());
+    }
+
+    const validationMessage = extractFastApiValidationMessage(body.detail);
+    if (validationMessage) {
+      return truncateErrorMessage(validationMessage);
     }
 
     if (typeof body.message === 'string' && body.message.trim()) {
-      return body.message.trim();
+      return truncateErrorMessage(body.message.trim());
     }
 
     if (typeof body.error === 'string' && body.error.trim()) {
-      return body.error.trim();
+      return truncateErrorMessage(body.error.trim());
     }
   }
 
   if (typeof body === 'string' && body.trim()) {
-    return body.trim();
+    return truncateErrorMessage(body.trim());
   }
 
   return `AI API қате қайтарды (${status})`;
 }
 
 async function parseResponseBody(response: Response): Promise<unknown> {
+  if (response.status === 204) return null;
+
   const contentType = response.headers.get('content-type') || '';
 
   if (contentType.includes('application/json')) {
@@ -379,16 +483,19 @@ async function parseResponseBody(response: Response): Promise<unknown> {
   return text || null;
 }
 
-function createTimeoutSignal(
+function createAbortControllerWithTimeout(
   externalSignal?: AbortSignal,
   timeoutMs: number = DEFAULT_TIMEOUT_MS
-): AbortSignal {
+): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  const normalizedTimeout = clampNumber(
+    Number.isFinite(timeoutMs) ? timeoutMs : DEFAULT_TIMEOUT_MS,
+    1_000,
+    MAX_TIMEOUT_MS
+  );
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), normalizedTimeout);
 
-  const abortFromExternal = () => {
-    controller.abort();
-  };
+  const abortFromExternal = () => controller.abort();
 
   const cleanup = () => {
     globalThis.clearTimeout(timeoutId);
@@ -405,7 +512,15 @@ function createTimeoutSignal(
     }
   }
 
-  return controller.signal;
+  return { signal: controller.signal, cleanup };
+}
+
+function encodePathSegment(value: string): string {
+  const cleaned = value.trim();
+  if (!cleaned) {
+    throw new AiApiError('AI API path үшін бос id берілді.');
+  }
+  return encodeURIComponent(cleaned);
 }
 
 async function aiFetch<T>(
@@ -416,7 +531,10 @@ async function aiFetch<T>(
   ensureRequiredAuth(options);
 
   const url = `${getAiApiBaseUrl()}${path}`;
-  const signal = createTimeoutSignal(options?.signal, options?.timeoutMs);
+  const { signal, cleanup } = createAbortControllerWithTimeout(
+    options?.signal,
+    options?.timeoutMs
+  );
 
   let response: Response;
   try {
@@ -436,6 +554,8 @@ async function aiFetch<T>(
         : 'AI API-ге қосылу сәтсіз аяқталды.';
 
     throw new AiApiError(message);
+  } finally {
+    cleanup();
   }
 
   const body = await parseResponseBody(response);
@@ -455,18 +575,25 @@ function normalizeGeneratedQuestionOption(
   option: unknown,
   optionIndex: number
 ): GeneratedQuestionOption {
-  if (typeof option === 'string') {
+  if (typeof option === 'string' || typeof option === 'number') {
     return {
       id: `option-${optionIndex + 1}`,
-      text: option.trim(),
+      text: String(option).trim(),
     };
   }
 
   const row = isRecord(option) ? option : {};
+  const text =
+    toNonEmptyString(row.text) ??
+    toNonEmptyString(row.label) ??
+    toNonEmptyString(row.value) ??
+    toNonEmptyString(row.answer) ??
+    toNonEmptyString(row.content) ??
+    '';
 
   return {
     id: String(row.id ?? `option-${optionIndex + 1}`),
-    text: String(row.text ?? row.label ?? '').trim(),
+    text,
     isCorrect:
       typeof row.isCorrect === 'boolean'
         ? row.isCorrect
@@ -474,6 +601,35 @@ function normalizeGeneratedQuestionOption(
           ? row.is_correct
           : undefined,
   };
+}
+
+function normalizeCorrectAnswer(value: unknown, options?: GeneratedQuestionOption[]): string | undefined {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+
+  if (typeof value === 'number' && Number.isInteger(value)) {
+    const option = options?.[value];
+    return option?.text || String(value);
+  }
+
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => normalizeCorrectAnswer(item, options))
+      .filter((item): item is string => Boolean(item));
+    return parts.length ? parts.join(', ') : undefined;
+  }
+
+  if (isRecord(value)) {
+    return (
+      toNonEmptyString(value.text) ??
+      toNonEmptyString(value.label) ??
+      toNonEmptyString(value.value) ??
+      toNonEmptyString(value.answer)
+    );
+  }
+
+  return undefined;
 }
 
 function normalizeGeneratedQuestion(
@@ -490,28 +646,35 @@ function normalizeGeneratedQuestion(
         .filter((option) => Boolean(option.text))
     : undefined;
 
-  return {
-    id: String(row.id ?? row.question_id ?? `generated-${index + 1}`),
-    type:
-      row.type === 'short_answer' || row.type === 'multiple_choice'
-        ? row.type
+  const answerFormat = toNonEmptyString(row.answer_format ?? row.answerFormat);
+  const type =
+    row.type === 'short_answer' || row.type === 'multiple_choice'
+      ? row.type
+      : answerFormat === 'mcq'
+        ? 'multiple_choice'
         : options?.length
           ? 'multiple_choice'
-          : 'short_answer',
-    question: String(row.question ?? row.text ?? '').trim(),
+          : 'short_answer';
+
+  const correctAnswer = normalizeCorrectAnswer(
+    row.correctAnswer ?? row.correct_answer,
+    options
+  );
+
+  return {
+    id: String(row.id ?? row.question_id ?? row.questionId ?? `generated-${index + 1}`),
+    type,
+    question: String(row.question ?? row.text ?? row.questionText ?? '').trim(),
     options: options?.length ? options : undefined,
-    correctAnswer:
-      typeof row.correctAnswer === 'string'
-        ? row.correctAnswer.trim()
-        : typeof row.correct_answer === 'string'
-          ? row.correct_answer.trim()
-          : undefined,
+    correctAnswer,
     explanation:
       typeof row.explanation === 'string'
         ? row.explanation.trim()
         : typeof row.reference_answer === 'string'
           ? row.reference_answer.trim()
-          : undefined,
+          : typeof row.referenceAnswer === 'string'
+            ? row.referenceAnswer.trim()
+            : undefined,
     difficulty: typeof row.difficulty === 'string' ? row.difficulty : undefined,
     topic: typeof row.topic === 'string' ? row.topic : undefined,
   };
@@ -556,10 +719,7 @@ function normalizeGeneratedQuestions(payload: unknown): GenerateQuestionsRespons
 function normalizeTutorMessage(message: unknown, fallbackId: string): TutorMessage {
   const row = isRecord(message) ? message : {};
 
-  const role =
-    row.role === 'user' || row.role === 'assistant' || row.role === 'system'
-      ? row.role
-      : 'assistant';
+  const role = row.role === 'user' ? 'user' : 'assistant';
 
   return {
     id: String(row.id ?? fallbackId),
@@ -589,10 +749,7 @@ function normalizeAiExamSummary(
     title: String(row.title ?? fallback.title ?? 'AI Exam').trim(),
     subject: row.subject === null ? null : toNonEmptyString(row.subject) ?? null,
     topic: row.topic === null ? null : toNonEmptyString(row.topic) ?? null,
-    status:
-      row.status === 'draft' || row.status === 'published' || row.status === 'archived'
-        ? row.status
-        : fallback.status,
+    status: toExamStatus(row.status) ?? fallback.status,
     durationMinutes:
       row.duration_minutes !== undefined
         ? toNumber(row.duration_minutes) ?? null
@@ -641,28 +798,33 @@ function normalizeAiExamQuestion(item: unknown, index: number): AiExamQuestion {
         .filter((option) => Boolean(option.text))
     : undefined;
 
+  const answerFormat = toNonEmptyString(row.answer_format ?? row.answerFormat);
   const type =
     row.type === 'short_answer' || row.type === 'multiple_choice'
       ? row.type
       : row.questionType === 'single_choice' || row.questionType === 'multiple_choice'
         ? 'multiple_choice'
-        : options?.length
+        : answerFormat === 'mcq'
           ? 'multiple_choice'
-          : 'short_answer';
+          : options?.length
+            ? 'multiple_choice'
+            : 'short_answer';
 
   return {
-    id: String(row.id ?? `exam-question-${index + 1}`),
+    id: String(row.id ?? row.question_id ?? row.questionId ?? `exam-question-${index + 1}`),
     type,
-    question: String(row.question ?? row.questionText ?? '').trim(),
+    question: String(row.question ?? row.questionText ?? row.text ?? '').trim(),
     options: options?.length ? options : undefined,
     points: toNumber(row.points),
-    correctAnswer:
-      typeof row.correctAnswer === 'string'
-        ? row.correctAnswer.trim()
-        : typeof row.correct_answer === 'string'
-          ? row.correct_answer.trim()
-          : undefined,
-    explanation: typeof row.explanation === 'string' ? row.explanation.trim() : undefined,
+    correctAnswer: normalizeCorrectAnswer(row.correctAnswer ?? row.correct_answer, options),
+    explanation:
+      typeof row.explanation === 'string'
+        ? row.explanation.trim()
+        : typeof row.reference_answer === 'string'
+          ? row.reference_answer.trim()
+          : typeof row.referenceAnswer === 'string'
+            ? row.referenceAnswer.trim()
+            : undefined,
     difficulty: typeof row.difficulty === 'string' ? row.difficulty : undefined,
     topic: typeof row.topic === 'string' ? row.topic : undefined,
   };
@@ -686,7 +848,7 @@ function normalizeSubmitAiExamResponse(payload: unknown): SubmitAiExamResponse {
         : typeof row.attemptId === 'string'
           ? row.attemptId
           : undefined,
-    score: Number(row.score ?? 0),
+    score: toNumber(row.score, 0) ?? 0,
     maxScore:
       row.max_score !== undefined
         ? toNumber(row.max_score)
@@ -696,26 +858,28 @@ function normalizeSubmitAiExamResponse(payload: unknown): SubmitAiExamResponse {
     percentage: row.percentage !== undefined ? toNumber(row.percentage) : undefined,
     feedback: typeof row.feedback === 'string' ? row.feedback.trim() : undefined,
     breakdown: Array.isArray(row.breakdown)
-      ? row.breakdown.map((item) => {
-          const part = isRecord(item) ? item : {};
-          return {
-            questionId: String(part.question_id ?? part.questionId ?? ''),
-            score: Number(part.score ?? 0),
-            maxScore:
-              part.max_score !== undefined
-                ? toNumber(part.max_score)
-                : part.maxScore !== undefined
-                  ? toNumber(part.maxScore)
-                  : undefined,
-            isCorrect:
-              typeof part.is_correct === 'boolean'
-                ? part.is_correct
-                : typeof part.isCorrect === 'boolean'
-                  ? part.isCorrect
-                  : undefined,
-            feedback: typeof part.feedback === 'string' ? part.feedback.trim() : undefined,
-          };
-        })
+      ? row.breakdown
+          .map((item) => {
+            const part = isRecord(item) ? item : {};
+            return {
+              questionId: String(part.question_id ?? part.questionId ?? '').trim(),
+              score: toNumber(part.score, 0) ?? 0,
+              maxScore:
+                part.max_score !== undefined
+                  ? toNumber(part.max_score)
+                  : part.maxScore !== undefined
+                    ? toNumber(part.maxScore)
+                    : undefined,
+              isCorrect:
+                typeof part.is_correct === 'boolean'
+                  ? part.is_correct
+                  : typeof part.isCorrect === 'boolean'
+                    ? part.isCorrect
+                    : undefined,
+              feedback: typeof part.feedback === 'string' ? part.feedback.trim() : undefined,
+            };
+          })
+          .filter((item) => Boolean(item.questionId))
       : undefined,
     raw: payload,
   };
@@ -749,7 +913,9 @@ function normalizeAiExamAttempt(item: unknown): AiExamAttempt {
     examId: toNonEmptyString(row.exam_id ?? row.examId),
     userId: toNonEmptyString(row.user_id ?? row.userId),
     answers: Array.isArray(row.answers)
-      ? row.answers.map((answerRow) => normalizeAiExamAttemptAnswer(answerRow))
+      ? row.answers
+          .map((answerRow) => normalizeAiExamAttemptAnswer(answerRow))
+          .filter((answer) => Boolean(answer.questionId))
       : [],
     result: isRecord(row.result) ? normalizeSubmitAiExamResponse(row.result) : null,
     createdAt:
@@ -771,6 +937,64 @@ function normalizeAiExamAttempt(item: unknown): AiExamAttempt {
           ? row.submittedAt
           : undefined,
     raw: item,
+  };
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .map((item) => String(item ?? '').trim())
+        .filter(Boolean)
+    : [];
+}
+
+function normalizeLearningUsedContext(value: unknown): LearningAiUsedContext {
+  const row = isRecord(value) ? value : {};
+
+  return {
+    source: String(row.source ?? 'student_learning_snapshot') as LearningAiUsedContext['source'],
+    courseId: row.course_id === null ? null : toNonEmptyString(row.course_id ?? row.courseId) ?? null,
+    studentId: row.student_id === null ? null : toNonEmptyString(row.student_id ?? row.studentId) ?? null,
+    courseTitle: row.course_title === null ? null : toNonEmptyString(row.course_title ?? row.courseTitle) ?? null,
+    studentName: row.student_name === null ? null : toNonEmptyString(row.student_name ?? row.studentName) ?? null,
+    subjectName: row.subject_name === null ? null : toNonEmptyString(row.subject_name ?? row.subjectName) ?? null,
+    snapshotGeneratedAt:
+      row.snapshot_generated_at === null
+        ? null
+        : toNonEmptyString(row.snapshot_generated_at ?? row.snapshotGeneratedAt) ?? null,
+  };
+}
+
+function normalizeLearningAnalysisResponse(
+  payload: unknown,
+  fallbackMode: LearningAiMode
+): LearningAiResponse {
+  const row = isRecord(payload) ? payload : {};
+
+  return {
+    answer: String(row.answer ?? '').trim(),
+    generatedAt:
+      toNonEmptyString(row.generated_at ?? row.generatedAt) ?? new Date().toISOString(),
+    mode:
+      row.mode === 'student_tracker' ||
+      row.mode === 'student_course_advisor' ||
+      row.mode === 'teacher_course_assistant' ||
+      row.mode === 'teacher_student_assistant' ||
+      row.mode === 'teacher_course_creator_advisor'
+        ? row.mode
+        : fallbackMode,
+    usedContext: normalizeLearningUsedContext(row.used_context ?? row.usedContext),
+    contextSummary:
+      row.context_summary === null
+        ? null
+        : toNonEmptyString(row.context_summary ?? row.contextSummary) ?? null,
+    confidence:
+      row.confidence === 'low' || row.confidence === 'medium' || row.confidence === 'high'
+        ? row.confidence
+        : null,
+    warnings: normalizeStringArray(row.warnings),
+    followUpPrompts: normalizeStringArray(row.follow_up_prompts ?? row.followUpPrompts),
+    raw: payload,
   };
 }
 
@@ -796,7 +1020,7 @@ export async function generateQuestions(
   input: GenerateQuestionsRequest,
   options?: RequestOptions
 ): Promise<GenerateQuestionsResponse> {
-  const requestedCount = input.count ?? input.questionCount ?? 5;
+  const requestedCount = clampNumber(input.count ?? input.questionCount ?? 5, 1, 50);
 
   const payload = await aiFetch<unknown>(
     '/api/ai/generate-questions',
@@ -845,7 +1069,7 @@ export async function evaluateAnswer(
   const row = isRecord(payload) ? payload : {};
 
   return {
-    score: Number(row.score ?? 0),
+    score: toNumber(row.score, 0) ?? 0,
     maxScore:
       row.max_score !== undefined
         ? toNumber(row.max_score)
@@ -899,7 +1123,7 @@ export async function createTutorSession(
       lessonId:
         session.lesson_id === null
           ? null
-          : toNonEmptyString(session.lesson_id ?? row.lesson_id) ?? null,
+          : toNonEmptyString(session.lesson_id ?? session.lessonId ?? row.lesson_id ?? row.lessonId) ?? null,
       subject:
         session.subject === null
           ? null
@@ -911,9 +1135,11 @@ export async function createTutorSession(
       createdAt:
         typeof session.created_at === 'string'
           ? session.created_at
-          : typeof row.created_at === 'string'
-            ? row.created_at
-            : undefined,
+          : typeof session.createdAt === 'string'
+            ? session.createdAt
+            : typeof row.created_at === 'string'
+              ? row.created_at
+              : undefined,
     },
     messages: Array.isArray(row.messages)
       ? row.messages
@@ -954,7 +1180,7 @@ export async function sendTutorMessage(
   const row = isRecord(payload) ? payload : {};
 
   return {
-    sessionId: String(row.session_id ?? input.sessionId),
+    sessionId: String(row.session_id ?? row.sessionId ?? input.sessionId),
     reply: normalizeTutorMessage(row.reply ?? { content: '' }, 'assistant-reply'),
     messages: Array.isArray(row.messages)
       ? row.messages
@@ -981,7 +1207,7 @@ export async function createAiExam(
         difficulty: input.difficulty,
         kind: input.kind,
         exam_mode: input.examMode,
-        question_count: input.questionCount ?? 10,
+        question_count: clampNumber(input.questionCount ?? 10, 1, 50),
         duration_minutes: input.durationMinutes,
       }),
     },
@@ -1005,7 +1231,11 @@ export async function getAiExamSession(
   examId: string,
   options?: RequestOptions
 ): Promise<AiExamSession> {
-  const payload = await aiFetch<unknown>(`/api/ai/exams/${examId}`, {}, options);
+  const payload = await aiFetch<unknown>(
+    `/api/ai/exams/${encodePathSegment(examId)}`,
+    {},
+    options
+  );
   const row = isRecord(payload) ? payload : {};
 
   const latestAnswersRaw = row.latest_answers ?? row.latestAnswers;
@@ -1035,7 +1265,9 @@ export async function getAiExamSession(
       ? normalizeSubmitAiExamResponse(latestResultRaw)
       : null,
     latestAnswers: Array.isArray(latestAnswersRaw)
-      ? latestAnswersRaw.map((answerRow) => normalizeAiExamAttemptAnswer(answerRow))
+      ? latestAnswersRaw
+          .map((answerRow) => normalizeAiExamAttemptAnswer(answerRow))
+          .filter((answer) => Boolean(answer.questionId))
       : [],
     latestSubmittedAt:
       row.latest_submitted_at === null
@@ -1052,14 +1284,7 @@ export async function getAiExamSession(
 export async function listPublishedAiExams(
   options?: RequestOptions
 ): Promise<ListAiExamsResponse> {
-  const payload = await aiFetch<unknown>(
-    '/api/ai/exams/published',
-    {},
-    {
-      ...options,
-      requireAuth: options?.requireAuth ?? false,
-    }
-  );
+  const payload = await aiFetch<unknown>('/api/ai/exams/published', {}, options);
 
   const exams =
     isRecord(payload) && Array.isArray(payload.exams)
@@ -1078,7 +1303,11 @@ export async function listAiExamAttempts(
   examId: string,
   options?: RequestOptions
 ): Promise<ListAiExamAttemptsResponse> {
-  const payload = await aiFetch<unknown>(`/api/ai/exams/${examId}/attempts`, {}, options);
+  const payload = await aiFetch<unknown>(
+    `/api/ai/exams/${encodePathSegment(examId)}/attempts`,
+    {},
+    options
+  );
   const row = isRecord(payload) ? payload : {};
 
   const attempts = Array.isArray(row.attempts)
@@ -1100,7 +1329,7 @@ export async function updateAiExamStatus(
   options?: RequestOptions
 ): Promise<CreateAiExamResponse> {
   const payload = await aiFetch<unknown>(
-    `/api/ai/exams/${examId}/status`,
+    `/api/ai/exams/${encodePathSegment(examId)}/status`,
     {
       method: 'PATCH',
       body: buildJsonBody({ status }),
@@ -1129,7 +1358,7 @@ export async function submitAiExam(
   options?: RequestOptions
 ): Promise<SubmitAiExamResponse> {
   const payload = await aiFetch<unknown>(
-    `/api/ai/exams/${examId}/submit`,
+    `/api/ai/exams/${encodePathSegment(examId)}/submit`,
     {
       method: 'POST',
       body: buildJsonBody({
@@ -1143,4 +1372,27 @@ export async function submitAiExam(
   );
 
   return normalizeSubmitAiExamResponse(payload);
+}
+
+export async function createLearningAnalysis(
+  input: LearningAiRequest,
+  options?: RequestOptions
+): Promise<LearningAiResponse> {
+  const payload = await aiFetch<unknown>(
+    '/api/learning-analysis',
+    {
+      method: 'POST',
+      body: buildJsonBody({
+        mode: input.mode,
+        role: input.role,
+        prompt: input.prompt,
+        selectedSuggestionId: input.selectedSuggestionId,
+        scope: input.scope,
+        conversationHistory: input.conversationHistory ?? [],
+      }),
+    },
+    options
+  );
+
+  return normalizeLearningAnalysisResponse(payload, input.mode);
 }

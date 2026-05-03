@@ -17,6 +17,14 @@ import {
 import type { CourseAnalyticsStudentOptionView } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 
+// AI Assistant supports three teacher-facing modes:
+// 1) no course selected  -> course creator advisor
+// 2) course selected     -> course-level assistant
+// 3) course + student    -> student-in-course assistant
+//
+// The prompt classifier below only changes the mode when the intent is clear.
+// It avoids sending course/student analysis questions to the creator-advisor mode.
+
 type CourseOption = {
   id: string;
   title: string;
@@ -29,7 +37,11 @@ type AssistantMode =
   | 'teacher_student_assistant';
 
 function normalizeCourseOptions(workspace: unknown): CourseOption[] {
-  const raw = workspace as any;
+  const raw = workspace as {
+    courses?: unknown[];
+    items?: unknown[];
+    teacherCourses?: unknown[];
+  };
 
   const source =
     (Array.isArray(raw?.courses) && raw.courses) ||
@@ -39,12 +51,21 @@ function normalizeCourseOptions(workspace: unknown): CourseOption[] {
     [];
 
   return source
-    .map((item: any) => ({
-      id: String(item.id || item.courseId || ''),
-      title: String(item.title || item.courseTitle || 'Курс'),
-      subjectName: item.subjectName || item.subject_name || null,
-    }))
-    .filter((item: CourseOption) => Boolean(item.id));
+    .map((item) => {
+      const row = item as Record<string, unknown>;
+
+      return {
+        id: String(row.id || row.courseId || '').trim(),
+        title: String(row.title || row.courseTitle || 'Курс').trim(),
+        subjectName:
+          typeof row.subjectName === 'string'
+            ? row.subjectName
+            : typeof row.subject_name === 'string'
+              ? row.subject_name
+              : null,
+      };
+    })
+    .filter((item): item is CourseOption => Boolean(item.id));
 }
 
 function getStudentName(student: CourseAnalyticsStudentOptionView) {
@@ -63,8 +84,64 @@ function includesAny(value: string, keywords: string[]) {
   return keywords.some((keyword) => value.includes(keyword));
 }
 
-function shouldUseTeacherCourseCreatorAdvisor(prompt: string) {
+function hasCourseContextReference(prompt: string) {
   const normalized = normalizePrompt(prompt);
+
+  return includesAny(normalized, [
+    'осы курс',
+    'таңдалған курс',
+    'бұл курс',
+    'курс бойынша',
+    'курсқа',
+    'осы оқушы',
+    'таңдалған оқушы',
+    'бұл оқушы',
+    'оқушы бойынша',
+    'оқушыға',
+    'осы сабақ',
+    'сабақ бойынша',
+  ]);
+}
+
+function hasCourseOrStudentAnalysisIntent(prompt: string) {
+  const normalized = normalizePrompt(prompt);
+
+  return includesAny(normalized, [
+    'нәтиже',
+    'progress',
+    'прогресс',
+    'аналитика',
+    'талда',
+    'талдау',
+    'қайталау',
+    'қиындық',
+    'әлсіз',
+    'үлгерім',
+    'оқу жағдайы',
+    'оқушы',
+    'сынып',
+    'интервенция',
+    'қолдау',
+    'қай тақырып',
+    'қай сабақ',
+    'mini quiz нәтижесі',
+    'мини quiz нәтижесі',
+  ]);
+}
+
+function shouldUseTeacherCourseCreatorAdvisor(
+  prompt: string,
+  hasSelectedCourse: boolean
+) {
+  const normalized = normalizePrompt(prompt);
+
+  if (!hasSelectedCourse) {
+    return true;
+  }
+
+  if (hasCourseContextReference(normalized) || hasCourseOrStudentAnalysisIntent(normalized)) {
+    return false;
+  }
 
   const creatorPhrases = [
     'қандай курс',
@@ -77,13 +154,10 @@ function shouldUseTeacherCourseCreatorAdvisor(prompt: string) {
     'жаңа курс',
     'курстың идеясын',
     'курс идея',
-    'қандай сабақ',
-    'қай сабақ',
+    'қандай сабақ жасасам',
     'сабақ жасасам',
-    'сабақ жасай',
-    'сабақ құру',
-    'сабақ құр',
-    'сабақ тақырыбы',
+    'жаңа сабақ',
+    'сабақ тақырыбы ұсын',
     'тақырып ұсын',
     'тақырыптар ұсын',
     'модуль ұсын',
@@ -124,23 +198,6 @@ function shouldUseTeacherCourseCreatorAdvisor(prompt: string) {
     'құрастыр',
   ]);
 
-  const strongAnalysisIntent = includesAny(normalized, [
-    'осы курс',
-    'осы оқушы',
-    'нәтиже',
-    'progress',
-    'прогресс',
-    'аналитика',
-    'талда',
-    'қайталау',
-    'қиындық',
-    'әлсіз',
-  ]);
-
-  if (strongAnalysisIntent && !creatorIntent) {
-    return false;
-  }
-
   return creatorIntent && actionIntent;
 }
 
@@ -164,14 +221,62 @@ function getChatDescription({
   selectedStudent: CourseAnalyticsStudentOptionView | null;
 }) {
   if (selectedCourse && selectedStudent) {
-    return 'Оқушыға жеке педагогикалық қолдау, қайталау бағыты немесе курс ішіндегі қиындықтар туралы сұраңыз.';
+    return 'Таңдалған оқушыға жеке педагогикалық қолдау, қайталау бағыты немесе курс ішіндегі қиындықтар туралы сұраңыз.';
   }
 
   if (selectedCourse) {
-    return 'Таңдалған курс бойынша анализ, сабақ, тапсырма немесе жақсарту ұсынысын сұраңыз.';
+    return 'Таңдалған курс бойынша анализ, сабақ, тапсырма, mini quiz немесе жақсарту ұсынысын сұраңыз.';
   }
 
   return 'Жаңа курс, сабақ, модуль, тапсырма немесе оқу жоспары бойынша идея сұраңыз.';
+}
+
+function getPlaceholder({
+  selectedCourse,
+  selectedStudent,
+}: {
+  selectedCourse: CourseOption | null;
+  selectedStudent: CourseAnalyticsStudentOptionView | null;
+}) {
+  if (selectedCourse && selectedStudent) {
+    return 'Мысалы: Осы оқушыға келесі сабақта қандай қолдау берген дұрыс?';
+  }
+
+  if (selectedCourse) {
+    return 'Мысалы: Осы курс бойынша қай тақырыптарды қайталау керек?';
+  }
+
+  return 'Мысалы: 7-сыныпқа Python бойынша қандай курс құрсам болады?';
+}
+
+function getSuggestions({
+  selectedCourse,
+  selectedStudent,
+}: {
+  selectedCourse: CourseOption | null;
+  selectedStudent: CourseAnalyticsStudentOptionView | null;
+}) {
+  if (selectedCourse && selectedStudent) {
+    return [
+      'Осы оқушыға жеке қолдау жоспарын жаса.',
+      'Осы оқушыға қай тақырыпты қайталау керек?',
+      'Ата-анаға жұмсақ түсіндіретін қысқа мәтін дайында.',
+    ];
+  }
+
+  if (selectedCourse) {
+    return [
+      'Осы курс бойынша бір апталық қайталау жоспарын жаса.',
+      'Курста қай сабақтарды қайта түсіндіру керек?',
+      'Осы курсқа practice және mini quiz жақсарту идеясын ұсын.',
+    ];
+  }
+
+  return [
+    'Жаңа курс идеясын ұсын.',
+    '6 сабақтан тұратын курс құрылымын жаса.',
+    'Курсқа practice және mini quiz идеяларын қос.',
+  ];
 }
 
 export default function AiAssistantPage() {
@@ -183,11 +288,14 @@ export default function AiAssistantPage() {
     'teacher_course_creator_advisor'
   );
 
+  const isTeacher = user?.role === 'teacher';
+  const canUseAssistant = Boolean(user?.id && isTeacher);
+
   const {
     data: workspace,
     isFetching: workspaceFetching,
     refetch: refetchWorkspace,
-  } = useTeacherCourseWorkspace(user?.id || '', Boolean(user?.id));
+  } = useTeacherCourseWorkspace(user?.id || '', canUseAssistant);
 
   const courses = useMemo(() => normalizeCourseOptions(workspace), [workspace]);
 
@@ -212,7 +320,10 @@ export default function AiAssistantPage() {
     data: students = [],
     isFetching: studentsFetching,
     refetch: refetchStudents,
-  } = useCourseAnalyticsStudents(selectedCourseId, Boolean(selectedCourseId));
+  } = useCourseAnalyticsStudents(
+    selectedCourseId,
+    canUseAssistant && Boolean(selectedCourseId)
+  );
 
   useEffect(() => {
     if (!selectedStudentId) return;
@@ -223,8 +334,9 @@ export default function AiAssistantPage() {
 
     if (!exists) {
       setSelectedStudentId('');
+      setActiveMode(selectedCourseId ? 'teacher_course_assistant' : 'teacher_course_creator_advisor');
     }
-  }, [students, selectedStudentId]);
+  }, [selectedCourseId, selectedStudentId, students]);
 
   const selectedStudent = useMemo(
     () =>
@@ -240,17 +352,26 @@ export default function AiAssistantPage() {
 
   const refreshAll = useCallback(() => {
     teacherAi.reset();
-    void refetchWorkspace();
 
-    if (selectedCourseId) {
+    if (canUseAssistant) {
+      void refetchWorkspace();
+    }
+
+    if (canUseAssistant && selectedCourseId) {
       void refetchStudents();
     }
-  }, [refetchStudents, refetchWorkspace, selectedCourseId, teacherAi]);
+  }, [canUseAssistant, refetchStudents, refetchWorkspace, selectedCourseId, teacherAi]);
 
   const handleSubmit = useCallback(
     async (payload: AiPromptSubmitPayload) => {
-      const useCreatorAdvisor =
-        !selectedCourseId || shouldUseTeacherCourseCreatorAdvisor(payload.prompt);
+      if (!canUseAssistant) {
+        return;
+      }
+
+      const useCreatorAdvisor = shouldUseTeacherCourseCreatorAdvisor(
+        payload.prompt,
+        Boolean(selectedCourseId)
+      );
 
       if (useCreatorAdvisor) {
         setActiveMode('teacher_course_creator_advisor');
@@ -279,20 +400,38 @@ export default function AiAssistantPage() {
         return;
       }
 
-      setActiveMode('teacher_course_assistant');
+      if (selectedCourseId) {
+        setActiveMode('teacher_course_assistant');
+
+        await teacherAi.submit(payload, {
+          mode: 'teacher_course_assistant',
+          role: 'teacher',
+          scope: {
+            courseId: selectedCourseId,
+          },
+        });
+
+        return;
+      }
+
+      setActiveMode('teacher_course_creator_advisor');
 
       await teacherAi.submit(payload, {
-        mode: 'teacher_course_assistant',
+        mode: 'teacher_course_creator_advisor',
         role: 'teacher',
-        scope: {
-          courseId: selectedCourseId,
-        },
+        scope: {},
       });
     },
-    [selectedCourseId, selectedStudentId, teacherAi]
+    [canUseAssistant, selectedCourseId, selectedStudentId, teacherAi]
   );
 
   const isFetching = workspaceFetching || studentsFetching;
+
+  const disabledReason = !teacherAi.isConfigured
+    ? 'AI backend endpoint әлі қосылмаған.'
+    : !canUseAssistant
+      ? 'AI көмекші тек мұғалім аккаунты үшін қолжетімді.'
+      : undefined;
 
   return (
     <DashboardLayout>
@@ -312,7 +451,7 @@ export default function AiAssistantPage() {
               type="button"
               variant="outline"
               onClick={refreshAll}
-              disabled={isFetching || !user?.id || teacherAi.isSubmitting}
+              disabled={isFetching || !canUseAssistant || teacherAi.isSubmitting}
             >
               <RotateCcw size={15} className="mr-2" />
               {isFetching ? 'Жаңартылуда...' : 'Тазалау'}
@@ -328,7 +467,15 @@ export default function AiAssistantPage() {
           />
         ) : null}
 
-        {user ? (
+        {user && !isTeacher ? (
+          <EmptyState
+            title="Бұл бөлім мұғалімге арналған"
+            text="AI көмекші курс, сабақ және оқушыға педагогикалық қолдау ұсыну үшін мұғалім аккаунтында жұмыс істейді."
+            tone="ai"
+          />
+        ) : null}
+
+        {canUseAssistant ? (
           <>
             <Card className="overflow-hidden">
               <CardContent className="grid gap-4 p-4 sm:p-5 lg:grid-cols-2">
@@ -340,10 +487,12 @@ export default function AiAssistantPage() {
                   <select
                     value={selectedCourseId}
                     onChange={(event) => {
-                      setSelectedCourseId(event.target.value);
+                      const nextCourseId = event.target.value;
+
+                      setSelectedCourseId(nextCourseId);
                       setSelectedStudentId('');
                       setActiveMode(
-                        event.target.value
+                        nextCourseId
                           ? 'teacher_course_assistant'
                           : 'teacher_course_creator_advisor'
                       );
@@ -371,9 +520,11 @@ export default function AiAssistantPage() {
                   <select
                     value={selectedStudentId}
                     onChange={(event) => {
-                      setSelectedStudentId(event.target.value);
+                      const nextStudentId = event.target.value;
+
+                      setSelectedStudentId(nextStudentId);
                       setActiveMode(
-                        event.target.value
+                        nextStudentId
                           ? 'teacher_student_assistant'
                           : selectedCourseId
                             ? 'teacher_course_assistant'
@@ -410,21 +561,33 @@ export default function AiAssistantPage() {
                 selectedCourse,
                 selectedStudent,
               })}
-              placeholder="Мысалы: 7-сыныпқа Қазақстан тарихынан қандай курс құрсам болады?"
-              suggestions={[]}
-              contextLabel=""
-              contextDescription=""
-              disabled={!teacherAi.isConfigured}
-              disabledReason="AI backend endpoint әлі қосылмаған."
+              placeholder={getPlaceholder({ selectedCourse, selectedStudent })}
+              suggestions={getSuggestions({ selectedCourse, selectedStudent })}
+              contextLabel={
+                selectedStudent
+                  ? 'Оқушы context'
+                  : selectedCourse
+                    ? 'Курс context'
+                    : 'Курс құру context'
+              }
+              contextDescription={
+                selectedStudent
+                  ? `${selectedCourse?.title || 'Курс'} · ${getStudentName(selectedStudent)}`
+                  : selectedCourse
+                    ? selectedCourse.title
+                    : 'Мұғалім профилі және бұрынғы курстар негізінде кеңес беріледі.'
+              }
+              disabled={!teacherAi.isConfigured || !canUseAssistant}
+              disabledReason={disabledReason}
               isSubmitting={teacherAi.isSubmitting}
               answer={teacherAi.answer}
               error={teacherAi.error}
               onSubmit={handleSubmit}
               answerTitle={getAnswerTitle(activeMode)}
               emptyAnswerText="Курс анализі, оқушыға қолдау немесе жаңа курс/сабақ идеясы туралы нақты сұрағыңызды жазыңыз."
-              contextSummary={null}
-              warnings={[]}
-              followUpPrompts={[]}
+              contextSummary={teacherAi.contextSummary}
+              warnings={teacherAi.warnings}
+              followUpPrompts={teacherAi.followUpPrompts}
             />
           </>
         ) : null}

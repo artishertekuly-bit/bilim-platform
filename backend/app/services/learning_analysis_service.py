@@ -42,7 +42,7 @@ def _validate_request_contract(
     payload: LearningAiRequest,
     current_user_id: str,
 ) -> None:
-    prompt = payload.prompt.strip()
+    prompt = _clean_text(getattr(payload, "prompt", ""))
 
     if not prompt:
         raise HTTPException(
@@ -332,6 +332,31 @@ def _has_meaningful_text_items(items: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _meaningful_recommendations(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if _clean_text(item.get("reason")) != "no strong risk signal found"
+    ]
+
+
+def _has_real_learning_activity(totals: dict[str, Any]) -> bool:
+    """
+    Counts only learner-generated signals. Static structure such as course/lesson
+    existence is not enough for a personal learning analysis.
+    """
+    activity_keys = [
+        "completedLessons",
+        "completedLessonRecords",
+        "miniQuizAttempts",
+        "testAttempts",
+        "savedLessons",
+        "reviewLaterItems",
+    ]
+
+    return any(_to_number(totals.get(key)) > 0 for key in activity_keys)
+
+
 def _has_usable_learning_context(
     *,
     payload: LearningAiRequest,
@@ -349,11 +374,7 @@ def _has_usable_learning_context(
     if _has_meaningful_text_items(weak_lessons):
         return True
 
-    meaningful_recommendations = [
-        item
-        for item in recommendations
-        if _clean_text(item.get("reason")) != "no strong risk signal found"
-    ]
+    meaningful_recommendations = _meaningful_recommendations(recommendations)
     if _has_meaningful_text_items(meaningful_recommendations):
         return True
 
@@ -362,45 +383,10 @@ def _has_usable_learning_context(
         for item in _as_list(signals.get("supportingSignals"))
         if _clean_text(item)
     ]
-    if supporting_signals:
+    if supporting_signals and _has_real_learning_activity(totals):
         return True
 
-    if payload.mode == LearningAiMode.student_tracker:
-        numeric_keys = [
-            "enrolledCourses",
-            "totalLessons",
-            "completedLessons",
-            "miniQuizAttempts",
-            "testAttempts",
-            "savedLessons",
-            "reviewLaterItems",
-        ]
-
-        return any(_to_number(totals.get(key)) > 0 for key in numeric_keys)
-
-    if payload.mode == LearningAiMode.teacher_course_assistant:
-        numeric_keys = [
-            "students",
-            "lessons",
-            "completedLessonRecords",
-            "miniQuizAttempts",
-            "testAttempts",
-            "savedLessons",
-            "reviewLaterItems",
-        ]
-
-        return any(_to_number(totals.get(key)) > 0 for key in numeric_keys)
-
-    numeric_keys = [
-        "totalLessons",
-        "completedLessons",
-        "miniQuizAttempts",
-        "testAttempts",
-        "savedLessons",
-        "reviewLaterItems",
-    ]
-
-    return any(_to_number(totals.get(key)) > 0 for key in numeric_keys)
+    return _has_real_learning_activity(totals)
 
 
 def _advisor_context_strength(
@@ -503,7 +489,9 @@ def _estimate_confidence(
     if _has_meaningful_text_items(weak_lessons):
         signal_count += 1
 
-    if _has_meaningful_text_items(recommendations):
+    meaningful_recommendations = _meaningful_recommendations(recommendations)
+
+    if _has_meaningful_text_items(meaningful_recommendations):
         signal_count += 1
 
     if mini_quizzes:
@@ -831,7 +819,7 @@ def _build_context_based_fallback_answer(
         weak_lessons = _get_weak_lessons(context)
         signals = _get_signals(context)
         primary_focus = _clean_text(signals.get("primaryFocus"))
-        prompt = payload.prompt.strip()
+        prompt = _clean_text(getattr(payload, "prompt", ""))
 
         lines: list[str] = []
 
@@ -958,6 +946,19 @@ async def _build_answer(
             payload=payload,
             context=context,
         )
+
+        cleaned_answer = _clean_text(answer)
+
+        if not cleaned_answer:
+            llm_error = "LLM бос жауап қайтарды."
+            return (
+                _build_context_based_fallback_answer(
+                    payload=payload,
+                    context=context,
+                    llm_error=llm_error,
+                ),
+                llm_error,
+            )
 
         return answer, None
     except LearningAnalysisLlmError as exc:

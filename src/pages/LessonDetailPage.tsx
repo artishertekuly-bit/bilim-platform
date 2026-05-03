@@ -267,6 +267,7 @@ function MiniQuizCard({
   disabled,
   onToggleAnswer,
   onSubmit,
+  onRetry,
 }: {
   quiz: {
     id: string;
@@ -291,6 +292,7 @@ function MiniQuizCard({
   disabled: boolean;
   onToggleAnswer: (question: LessonMiniQuizQuestionView, optionIndex: number) => void;
   onSubmit: () => void;
+  onRetry: () => void;
 }) {
   if (isLoading) {
     return (
@@ -332,6 +334,9 @@ function MiniQuizCard({
   const allQuestionsAnswered =
     quiz.questions.length > 0 &&
     quiz.questions.every((question) => (answers[question.id] || []).length > 0);
+  const quizAlreadyPassed =
+    latestResult?.attempt.passed === true || latestAttempt?.passed === true;
+  const currentResultFailed = latestResult?.attempt.passed === false;
 
   return (
     <Card id="mini-quiz" className="ai-soft-panel">
@@ -427,7 +432,7 @@ function MiniQuizCard({
                       <button
                         key={`${question.id}-${optionIndex}`}
                         type="button"
-                        disabled={disabled || Boolean(latestResult)}
+                        disabled={disabled || Boolean(latestResult) || quizAlreadyPassed}
                         onClick={() => onToggleAnswer(question, optionIndex)}
                         className={`rounded-2xl border px-3 py-2.5 text-left text-sm transition-all duration-200 ease-soft ${
                           correct
@@ -437,7 +442,7 @@ function MiniQuizCard({
                               : active
                                 ? 'border-primary-muted bg-primary-soft text-primary'
                                 : 'border-border bg-background hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
-                        } ${disabled || latestResult ? 'cursor-default' : ''}`}
+                        } ${disabled || latestResult || quizAlreadyPassed ? 'cursor-default' : ''}`}
                       >
                         <span className="mr-2 text-xs text-muted-foreground">
                           {String.fromCharCode(65 + optionIndex)}.
@@ -483,14 +488,29 @@ function MiniQuizCard({
                 </p>
               </div>
 
-              <StatusBadge tone={latestResult.attempt.passed ? 'success' : 'warning'}>
-                {latestResult.attempt.passed ? (
-                  <CheckCircle2 size={12} />
-                ) : (
-                  <RotateCcw size={12} />
-                )}
-                {latestResult.attempt.passed ? 'Өтті' : 'Қайталау керек'}
-              </StatusBadge>
+              <div className="flex flex-col gap-2 sm:items-end">
+                <StatusBadge tone={latestResult.attempt.passed ? 'success' : 'warning'}>
+                  {latestResult.attempt.passed ? (
+                    <CheckCircle2 size={12} />
+                  ) : (
+                    <RotateCcw size={12} />
+                  )}
+                  {latestResult.attempt.passed ? 'Өтті' : 'Қайталау керек'}
+                </StatusBadge>
+
+                {currentResultFailed ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={onRetry}
+                    disabled={disabled || submitting}
+                  >
+                    <RotateCcw size={14} className="mr-1.5" />
+                    Қайта тапсыру
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
         ) : latestAttempt ? (
@@ -515,10 +535,15 @@ function MiniQuizCard({
               submitting ||
               quiz.questions.length === 0 ||
               !allQuestionsAnswered ||
-              Boolean(latestResult)
+              Boolean(latestResult) ||
+              quizAlreadyPassed
             }
           >
-            {submitting ? 'Тексерілуде...' : 'Mini quiz тапсыру'}
+            {quizAlreadyPassed
+              ? 'Mini quiz өтті'
+              : submitting
+                ? 'Тексерілуде...'
+                : 'Mini quiz тапсыру'}
           </Button>
         ) : (
           <div className="rounded-2xl border border-border bg-card/70 p-3 text-xs text-muted-foreground">
@@ -611,7 +636,8 @@ export default function LessonDetailPage() {
   const canCompleteLesson =
     isStudent && Boolean(data) && !data?.isCompleted && !data?.isLocked && miniQuizPassed;
 
-  const courseId = learningState?.courseId || data?.courseId || miniQuiz?.courseId || '';
+  const lessonCourseId = (data as { courseId?: string } | undefined)?.courseId || '';
+  const courseId = learningState?.courseId || lessonCourseId || miniQuiz?.courseId || '';
   const lessonAttachments = learningState?.attachments || data?.attachments || [];
   const courseAssets = learningState?.courseAssets || data?.courseAssets || [];
 
@@ -634,6 +660,14 @@ export default function LessonDetailPage() {
 
       if (!lessonId) {
         throw new Error('Lesson not found');
+      }
+
+      if (!canCompleteLesson) {
+        throw new Error(
+          !miniQuizPassed
+            ? 'Алдымен mini quiz тапсырыңыз.'
+            : 'Бұл сабақты қазір аяқтау мүмкін емес.'
+        );
       }
 
       return markLessonComplete(user.id, lessonId);
@@ -659,10 +693,13 @@ export default function LessonDetailPage() {
         description: t('lesson.toast.complete_text'),
       });
     },
-    onError: () =>
+    onError: (completeError) =>
       toast({
         title: t('lesson.toast.error_title'),
-        description: t('lesson.toast.error_text'),
+        description:
+          completeError instanceof Error
+            ? completeError.message
+            : t('lesson.toast.error_text'),
         variant: 'destructive',
       }),
   });
@@ -839,6 +876,18 @@ export default function LessonDetailPage() {
     });
   };
 
+  const handleRetryMiniQuiz = () => {
+    setMiniQuizAnswers({});
+    setMiniQuizResult(null);
+
+    window.requestAnimationFrame(() => {
+      document.getElementById('mini-quiz')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  };
+
   const handleSubmitMiniQuiz = async () => {
     if (!user?.id || !lessonId || !courseId || !miniQuiz) {
       toast({
@@ -872,6 +921,12 @@ export default function LessonDetailPage() {
       });
 
       setMiniQuizResult(result);
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['lesson-mini-quiz'] }),
+        queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
+        queryClient.invalidateQueries({ queryKey: ['lesson-learning-state'] }),
+      ]);
 
       toast({
         title: result.attempt.passed
@@ -1097,6 +1152,7 @@ export default function LessonDetailPage() {
                 disabled={!isStudent || !user?.id || !courseId || Boolean(data.isLocked)}
                 onToggleAnswer={handleToggleMiniQuizAnswer}
                 onSubmit={handleSubmitMiniQuiz}
+                onRetry={handleRetryMiniQuiz}
               />
 
               <Card className="overflow-hidden">
@@ -1112,7 +1168,7 @@ export default function LessonDetailPage() {
 
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button type="button" variant="outline" asChild>
-                      <Link to={`/courses/${courseId || data.courseId || ''}`}>
+                      <Link to={`/courses/${courseId}`}>
                         Курс roadmap
                         <ArrowRight size={15} className="ml-2" />
                       </Link>

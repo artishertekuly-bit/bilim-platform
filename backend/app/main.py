@@ -60,17 +60,18 @@ APP_ENV = os.getenv("APP_ENV", os.getenv("ENV", "development")).strip().lower()
 ALLOW_DEBUG_USER_ID_FALLBACK = _is_truthy(
     os.getenv("ALLOW_DEBUG_USER_ID_FALLBACK", "false")
 )
-DEBUG_USER_ID_FALLBACK_ENABLED = ALLOW_DEBUG_USER_ID_FALLBACK and APP_ENV in {
-    "local",
-    "dev",
-    "development",
-    "test",
-}
+DEV_ENVS = {"local", "dev", "development", "test"}
+
+DEBUG_USER_ID_FALLBACK_ENABLED = ALLOW_DEBUG_USER_ID_FALLBACK and APP_ENV in DEV_ENVS
+
+
+def _is_development_env() -> bool:
+    return APP_ENV in DEV_ENVS
 
 
 def _build_allowed_origins() -> list[str]:
     configured = [
-        origin.strip()
+        origin.strip().rstrip("/")
         for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
         if origin.strip()
     ]
@@ -78,16 +79,31 @@ def _build_allowed_origins() -> list[str]:
     if configured:
         return configured
 
-    return [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ]
+    if _is_development_env():
+        return [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:4173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ]
+
+    logger.warning(
+        "ALLOWED_ORIGINS is empty while APP_ENV=%s. "
+        "Browser CORS requests will be rejected until production origins are configured.",
+        APP_ENV,
+    )
+    return []
+
+
+def _build_allow_origin_regex() -> str | None:
+    if _is_development_env():
+        return r"http://(localhost|127\.0\.0\.1)(:\d+)?"
+
+    return None
 
 
 app = FastAPI(
@@ -102,7 +118,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_build_allowed_origins(),
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_origin_regex=_build_allow_origin_regex(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -226,6 +242,8 @@ def healthcheck():
         "env": APP_ENV,
         "env_file_present": ENV_FILE.exists(),
         "allowed_origins": _build_allowed_origins(),
+        "allow_origin_regex": _build_allow_origin_regex(),
+        "cors_localhost_enabled": _is_development_env(),
         "supabase_auth_configured": bool(SUPABASE_URL and SUPABASE_ANON_KEY),
         "learning_analysis_enabled": True,
         "learning_analysis_endpoint": "/api/learning-analysis",

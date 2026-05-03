@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
 from copy import deepcopy
 from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from dotenv import load_dotenv
 
@@ -22,7 +23,11 @@ except Exception:  # pragma: no cover
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT_DIR / ".env")
+ENV_FILE = ROOT_DIR / ".env"
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
+
+logger = logging.getLogger("bilimcorp.ai.storage")
 
 AI_EXAMS_TABLE = "ai_exams"
 AI_ATTEMPTS_TABLE = "ai_exam_attempts"
@@ -30,20 +35,110 @@ AI_TUTOR_SESSIONS_TABLE = "ai_tutor_sessions"
 AI_TUTOR_MESSAGES_TABLE = "ai_tutor_messages"
 
 VALID_AI_EXAM_STATUSES = {"draft", "published", "archived"}
-VALID_TUTOR_ROLES = {"user", "assistant", "system"}
+PUBLIC_AI_EXAM_STATUSES = {"published"}
+
+# Do not persist client-provided system/developer messages. Storage is for user-visible tutor chat only.
+VALID_TUTOR_ROLES = {"user", "assistant"}
+
+MAX_TEXT_TITLE = 200
+MAX_TEXT_SUBJECT = 120
+MAX_TEXT_TOPIC = 200
+MAX_TEXT_CONTEXT = 4000
+MAX_TUTOR_MESSAGE_CHARS = 12000
+MAX_TUTOR_MESSAGES_PER_BATCH = 20
+MAX_STORED_EXAM_QUESTIONS = 80
+MAX_STORED_ANSWERS = 120
+MAX_STORED_JSON_CHARS = 250_000
+MAX_PUBLIC_EXAMS_RETURNED = 200
+MAX_USER_EXAMS_RETURNED = 500
+MAX_ATTEMPTS_RETURNED = 200
+MAX_TUTOR_SESSIONS_RETURNED = 300
+MAX_TUTOR_MESSAGES_RETURNED = 500
 
 
 def _utc_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _app_env() -> str:
+    return (os.getenv("APP_ENV") or os.getenv("ENV") or "development").strip().lower()
+
+
+def _is_local_like_env() -> bool:
+    return _app_env() in {"local", "dev", "development", "test"}
+
+
+def _is_truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _clean_text(value: Any, limit: int | None = None) -> str:
-    text = " ".join(str(value or "").replace("\x00", " ").split())
+    text = " ".join(str(value or "").replace("\x00", " ").split()).strip()
     return text[:limit] if limit else text
+
+
+def _is_uuid(value: Any) -> bool:
+    text = _clean_text(value, 140)
+    if not text:
+        return False
+
+    try:
+        UUID(text)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _require_uuid(value: Any, field_name: str) -> str:
+    text = _clean_text(value, 140)
+    if not _is_uuid(text):
+        raise ValueError(f"{field_name} UUID форматында болуы керек")
+    return text
+
+
+def _safe_id(value: Any, fallback_prefix: str, limit: int = 120) -> str:
+    """
+    AI exam/session IDs in this project are string IDs such as draft-* or tutor-*.
+    Keep them string-based but reject whitespace/control-heavy values.
+    """
+    text = _clean_text(value, limit)
+    if not text:
+        return f"{fallback_prefix}-{uuid4().hex}"
+
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-:")
+    if any(ch not in allowed for ch in text):
+        return f"{fallback_prefix}-{uuid4().hex}"
+
+    return text
 
 
 def _deep_clone(value: Any) -> Any:
     return deepcopy(value)
+
+
+def _json_safe(value: Any, *, max_chars: int = MAX_STORED_JSON_CHARS) -> Any:
+    """
+    Supabase JSON columns should receive serializable, bounded payloads.
+    If a payload is too large or not serializable, fail before DB insert.
+    """
+    cloned = _deep_clone(value)
+
+    try:
+        encoded = os.fsdecode(
+            __import__("json").dumps(
+                cloned,
+                ensure_ascii=False,
+                default=str,
+                separators=(",", ":"),
+            )
+        )
+    except Exception as exc:
+        raise ValueError("JSON payload сақтау үшін жарамсыз") from exc
+
+    if len(encoded) > max_chars:
+        raise ValueError("JSON payload тым үлкен")
+
+    return cloned
 
 
 def _normalize_status(status: Any) -> str:
@@ -63,25 +158,53 @@ def _pick_first(*values: Any) -> Any:
 def _to_positive_int_or_none(value: Any) -> int | None:
     if value is None or value == "":
         return None
+
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         return None
+
     return parsed if parsed >= 0 else None
+
+
+def _normalize_questions(questions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+
+    for index, row in enumerate((questions or [])[:MAX_STORED_EXAM_QUESTIONS], start=1):
+        if not isinstance(row, dict):
+            continue
+
+        question = _clean_text(row.get("question") or row.get("questionText"), 4000)
+        if not question:
+            continue
+
+        item = _deep_clone(row)
+        item["id"] = _clean_text(item.get("id"), 120) or f"Q{index}"
+        item["question"] = question
+        normalized.append(item)
+
+    return _json_safe(normalized)
+
+
+def _normalize_answers(answers: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+
+    for row in (answers or [])[:MAX_STORED_ANSWERS]:
+        if not isinstance(row, dict):
+            continue
+
+        item = _deep_clone(row)
+        if "answer" in item:
+            item["answer"] = _clean_text(item.get("answer"), 8000)
+        normalized.append(item)
+
+    return _json_safe(normalized)
 
 
 @lru_cache(maxsize=1)
 def _get_supabase() -> SupabaseClient:
-    url = (
-        os.getenv("SUPABASE_URL")
-        or os.getenv("VITE_SUPABASE_URL")
-        or ""
-    ).strip()
-    key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or os.getenv("SUPABASE_SECRET_KEY")
-        or ""
-    ).strip()
+    url = (os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL") or "").strip()
+    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SECRET_KEY") or "").strip()
 
     if not url:
         raise RuntimeError("SUPABASE_URL немесе VITE_SUPABASE_URL табылмады")
@@ -163,10 +286,18 @@ def _delete_rows(
     *,
     filters: dict[str, Any] | None = None,
 ) -> None:
+    if not filters:
+        raise RuntimeError("Unscoped delete is disabled. Use _delete_all_rows_for_reset().")
+
     query = _get_supabase().table(table_name).delete()
-    for key, value in (filters or {}).items():
+    for key, value in filters.items():
         query = query.eq(key, value)
     query.execute()
+
+
+def _delete_all_rows_for_reset(table_name: str) -> None:
+    # Supabase/postgrest delete usually needs a filter; neq with a non-null id scopes all generated rows.
+    _get_supabase().table(table_name).delete().neq("id", "__never__").execute()
 
 
 def _normalize_exam_row(
@@ -177,17 +308,15 @@ def _normalize_exam_row(
     test_import_payload: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    clean_owner_id = _clean_text(owner_id, 120)
-    if not clean_owner_id:
-        raise ValueError("owner_id қажет")
+    clean_owner_id = _require_uuid(owner_id, "owner_id")
 
     now = _utc_iso()
-    exam_id = _clean_text(exam.get("id"), 120) or f"draft-{uuid4().hex}"
+    exam_id = _safe_id(exam.get("id"), "draft")
     created_at = _clean_text(exam.get("created_at"), 64) or now
-    status = _normalize_status(exam.get("status"))
+    status_value = _normalize_status(exam.get("status"))
     published_at = _clean_text(exam.get("published_at"), 64) or None
 
-    if status == "published" and not published_at:
+    if status_value == "published" and not published_at:
         published_at = now
 
     duration_minutes = _to_positive_int_or_none(
@@ -196,30 +325,29 @@ def _normalize_exam_row(
     question_count = _to_positive_int_or_none(
         _pick_first(exam.get("question_count"), exam.get("questionCount"))
     )
-    normalized_questions = _deep_clone(questions or [])
+    normalized_questions = _normalize_questions(questions)
 
     return {
         "id": exam_id,
         "owner_id": clean_owner_id,
-        "title": _clean_text(exam.get("title"), 200) or "AI Exam",
-        "subject": _clean_text(exam.get("subject"), 120) or None,
-        "topic": _clean_text(exam.get("topic"), 200) or None,
-        "status": status,
+        "title": _clean_text(exam.get("title"), MAX_TEXT_TITLE) or "AI Exam",
+        "subject": _clean_text(exam.get("subject"), MAX_TEXT_SUBJECT) or None,
+        "topic": _clean_text(exam.get("topic"), MAX_TEXT_TOPIC) or None,
+        "status": status_value,
         "duration_minutes": duration_minutes,
         "question_count": question_count if question_count is not None else len(normalized_questions),
         "questions": normalized_questions,
-        "test_import_payload": _deep_clone(test_import_payload or {}),
-        "meta": _deep_clone(meta or {}),
+        "test_import_payload": _json_safe(test_import_payload or {}),
+        "meta": _json_safe(meta or {}),
         "created_at": created_at,
         "updated_at": now,
         "published_at": published_at,
     }
 
 
-def _exam_summary_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _exam_summary_from_row(row: dict[str, Any], *, include_owner: bool = True) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "id": row.get("id"),
-        "owner_id": row.get("owner_id"),
         "title": row.get("title"),
         "subject": row.get("subject"),
         "topic": row.get("topic"),
@@ -231,10 +359,15 @@ def _exam_summary_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "published_at": row.get("published_at"),
     }
 
+    if include_owner:
+        payload["owner_id"] = row.get("owner_id")
 
-def _clone_exam_record_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return payload
+
+
+def _clone_exam_record_from_row(row: dict[str, Any], *, include_owner: bool = True) -> dict[str, Any]:
     return {
-        "exam": _deep_clone(_exam_summary_from_row(row)),
+        "exam": _deep_clone(_exam_summary_from_row(row, include_owner=include_owner)),
         "questions": _deep_clone(row.get("questions") or []),
         "test_import_payload": _deep_clone(row.get("test_import_payload") or {}),
         "meta": _deep_clone(row.get("meta") or {}),
@@ -295,7 +428,7 @@ def create_ai_exam_record(
 
     _insert_row(AI_EXAMS_TABLE, row)
 
-    stored = _select_one(AI_EXAMS_TABLE, filters={"id": row["id"]})
+    stored = _select_one(AI_EXAMS_TABLE, filters={"id": row["id"], "owner_id": row["owner_id"]})
     if not stored:
         raise RuntimeError("AI exam сақталғаннан кейін табылмады")
 
@@ -303,17 +436,16 @@ def create_ai_exam_record(
 
 
 def list_ai_exams_for_user(owner_id: str) -> list[dict[str, Any]]:
-    clean_owner_id = _clean_text(owner_id, 120)
-    if not clean_owner_id:
-        return []
+    clean_owner_id = _require_uuid(owner_id, "owner_id")
 
     rows = _select_rows(
         AI_EXAMS_TABLE,
         filters={"owner_id": clean_owner_id},
         order_by="created_at",
         descending=True,
+        limit=MAX_USER_EXAMS_RETURNED,
     )
-    return [_deep_clone(_exam_summary_from_row(row)) for row in rows]
+    return [_deep_clone(_exam_summary_from_row(row, include_owner=True)) for row in rows]
 
 
 def list_published_ai_exams() -> list[dict[str, Any]]:
@@ -322,8 +454,9 @@ def list_published_ai_exams() -> list[dict[str, Any]]:
         filters={"status": "published"},
         order_by="published_at",
         descending=True,
+        limit=MAX_PUBLIC_EXAMS_RETURNED,
     )
-    return [_deep_clone(_exam_summary_from_row(row)) for row in rows]
+    return [_deep_clone(_exam_summary_from_row(row, include_owner=False)) for row in rows]
 
 
 def get_ai_exam_record(exam_id: str) -> dict[str, Any] | None:
@@ -344,8 +477,8 @@ def get_ai_exam_for_user(
     allow_published_read: bool = True,
 ) -> dict[str, Any] | None:
     clean_exam_id = _clean_text(exam_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
-    if not clean_exam_id or not clean_user_id:
+    clean_user_id = _require_uuid(user_id, "user_id")
+    if not clean_exam_id:
         return None
 
     row = _select_one(AI_EXAMS_TABLE, filters={"id": clean_exam_id})
@@ -353,10 +486,10 @@ def get_ai_exam_for_user(
         return None
 
     if row.get("owner_id") == clean_user_id:
-        return _clone_exam_record_from_row(row)
+        return _clone_exam_record_from_row(row, include_owner=True)
 
-    if allow_published_read and row.get("status") == "published":
-        return _clone_exam_record_from_row(row)
+    if allow_published_read and row.get("status") in PUBLIC_AI_EXAM_STATUSES:
+        return _clone_exam_record_from_row(row, include_owner=False)
 
     return None
 
@@ -368,16 +501,14 @@ def update_ai_exam_status(
     status: str,
 ) -> dict[str, Any] | None:
     clean_exam_id = _clean_text(exam_id, 120)
-    clean_owner_id = _clean_text(owner_id, 120)
+    clean_owner_id = _require_uuid(owner_id, "owner_id")
     clean_status = _normalize_status(status)
 
-    if not clean_exam_id or not clean_owner_id:
+    if not clean_exam_id:
         return None
 
-    row = _select_one(AI_EXAMS_TABLE, filters={"id": clean_exam_id})
+    row = _select_one(AI_EXAMS_TABLE, filters={"id": clean_exam_id, "owner_id": clean_owner_id})
     if not row:
-        return None
-    if row.get("owner_id") != clean_owner_id:
         return None
 
     now = _utc_iso()
@@ -389,13 +520,16 @@ def update_ai_exam_status(
     if clean_status == "published" and not row.get("published_at"):
         payload["published_at"] = now
 
+    if clean_status != "published":
+        payload["published_at"] = None
+
     _update_rows(
         AI_EXAMS_TABLE,
         filters={"id": clean_exam_id, "owner_id": clean_owner_id},
         payload=payload,
     )
 
-    updated = _select_one(AI_EXAMS_TABLE, filters={"id": clean_exam_id})
+    updated = _select_one(AI_EXAMS_TABLE, filters={"id": clean_exam_id, "owner_id": clean_owner_id})
     if not updated:
         return None
 
@@ -435,12 +569,17 @@ def create_ai_exam_attempt(
     result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     clean_exam_id = _clean_text(exam_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
+    clean_user_id = _require_uuid(user_id, "user_id")
 
     if not clean_exam_id:
         raise ValueError("exam_id қажет")
-    if not clean_user_id:
-        raise ValueError("user_id қажет")
+
+    # Prevent attempts for missing or non-published exams.
+    exam = _select_one(AI_EXAMS_TABLE, filters={"id": clean_exam_id})
+    if not exam:
+        raise ValueError("AI exam табылмады")
+    if exam.get("status") != "published":
+        raise ValueError("Жарияланбаған AI exam үшін attempt сақталмайды")
 
     now = _utc_iso()
     attempt_id = f"attempt-{uuid4().hex}"
@@ -449,8 +588,8 @@ def create_ai_exam_attempt(
         "id": attempt_id,
         "exam_id": clean_exam_id,
         "user_id": clean_user_id,
-        "answers": _deep_clone(answers or []),
-        "result": _deep_clone(result or {}),
+        "answers": _normalize_answers(answers),
+        "result": _json_safe(result or {}),
         "created_at": now,
         "updated_at": now,
         "submitted_at": now,
@@ -458,7 +597,7 @@ def create_ai_exam_attempt(
 
     _insert_row(AI_ATTEMPTS_TABLE, row)
 
-    stored = _select_one(AI_ATTEMPTS_TABLE, filters={"id": attempt_id})
+    stored = _select_one(AI_ATTEMPTS_TABLE, filters={"id": attempt_id, "user_id": clean_user_id})
     if not stored:
         raise RuntimeError("AI attempt сақталғаннан кейін табылмады")
 
@@ -471,8 +610,8 @@ def get_ai_exam_attempt_for_user(
     user_id: str,
 ) -> dict[str, Any] | None:
     clean_attempt_id = _clean_text(attempt_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
-    if not clean_attempt_id or not clean_user_id:
+    clean_user_id = _require_uuid(user_id, "user_id")
+    if not clean_attempt_id:
         return None
 
     row = _select_one(
@@ -494,8 +633,8 @@ def list_ai_exam_attempts_for_user(
     user_id: str,
 ) -> list[dict[str, Any]]:
     clean_exam_id = _clean_text(exam_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
-    if not clean_exam_id or not clean_user_id:
+    clean_user_id = _require_uuid(user_id, "user_id")
+    if not clean_exam_id:
         return []
 
     rows = _select_rows(
@@ -506,6 +645,7 @@ def list_ai_exam_attempts_for_user(
         },
         order_by="submitted_at",
         descending=True,
+        limit=MAX_ATTEMPTS_RETURNED,
     )
 
     return [_clone_attempt_from_row(row) for row in rows]
@@ -517,8 +657,8 @@ def get_latest_ai_exam_attempt_for_user(
     user_id: str,
 ) -> dict[str, Any] | None:
     clean_exam_id = _clean_text(exam_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
-    if not clean_exam_id or not clean_user_id:
+    clean_user_id = _require_uuid(user_id, "user_id")
+    if not clean_exam_id:
         return None
 
     rows = _select_rows(
@@ -548,9 +688,7 @@ def create_tutor_session_record(
     topic: str | None = None,
     initial_context: str | None = None,
 ) -> dict[str, Any]:
-    clean_user_id = _clean_text(user_id, 120)
-    if not clean_user_id:
-        raise ValueError("user_id қажет")
+    clean_user_id = _require_uuid(user_id, "user_id")
 
     session_id = f"tutor-{uuid4().hex}"
     now = _utc_iso()
@@ -558,18 +696,18 @@ def create_tutor_session_record(
     row = {
         "id": session_id,
         "user_id": clean_user_id,
-        "title": _clean_text(title, 200) or "AI Tutor Session",
+        "title": _clean_text(title, MAX_TEXT_TITLE) or "AI Tutor Session",
         "lesson_id": _clean_text(lesson_id, 120) or None,
-        "subject": _clean_text(subject, 120) or None,
-        "topic": _clean_text(topic, 200) or None,
-        "initial_context": _clean_text(initial_context, 4000) or None,
+        "subject": _clean_text(subject, MAX_TEXT_SUBJECT) or None,
+        "topic": _clean_text(topic, MAX_TEXT_TOPIC) or None,
+        "initial_context": _clean_text(initial_context, MAX_TEXT_CONTEXT) or None,
         "created_at": now,
         "updated_at": now,
     }
 
     _insert_row(AI_TUTOR_SESSIONS_TABLE, row)
 
-    stored = _select_one(AI_TUTOR_SESSIONS_TABLE, filters={"id": session_id})
+    stored = _select_one(AI_TUTOR_SESSIONS_TABLE, filters={"id": session_id, "user_id": clean_user_id})
     if not stored:
         raise RuntimeError("Tutor session сақталғаннан кейін табылмады")
 
@@ -598,8 +736,8 @@ def get_tutor_session_for_user(
     user_id: str,
 ) -> dict[str, Any] | None:
     clean_session_id = _clean_text(session_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
-    if not clean_session_id or not clean_user_id:
+    clean_user_id = _require_uuid(user_id, "user_id")
+    if not clean_session_id:
         return None
 
     row = _select_one(
@@ -617,15 +755,14 @@ def get_tutor_session_for_user(
 
 
 def list_tutor_sessions_for_user(user_id: str) -> list[dict[str, Any]]:
-    clean_user_id = _clean_text(user_id, 120)
-    if not clean_user_id:
-        return []
+    clean_user_id = _require_uuid(user_id, "user_id")
 
     rows = _select_rows(
         AI_TUTOR_SESSIONS_TABLE,
         filters={"user_id": clean_user_id},
         order_by="updated_at",
         descending=True,
+        limit=MAX_TUTOR_SESSIONS_RETURNED,
     )
 
     return [
@@ -648,8 +785,8 @@ def list_tutor_messages(
     user_id: str,
 ) -> list[dict[str, Any]]:
     clean_session_id = _clean_text(session_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
-    if not clean_session_id or not clean_user_id:
+    clean_user_id = _require_uuid(user_id, "user_id")
+    if not clean_session_id:
         return []
 
     rows = _select_rows(
@@ -660,6 +797,7 @@ def list_tutor_messages(
         },
         order_by="created_at",
         descending=False,
+        limit=MAX_TUTOR_MESSAGES_RETURNED,
     )
 
     return [
@@ -670,6 +808,7 @@ def list_tutor_messages(
             "created_at": row.get("created_at"),
         }
         for row in rows
+        if row.get("role") in VALID_TUTOR_ROLES
     ]
 
 
@@ -681,14 +820,12 @@ def append_tutor_message(
     content: str,
 ) -> dict[str, Any]:
     clean_session_id = _clean_text(session_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
+    clean_user_id = _require_uuid(user_id, "user_id")
     clean_role = _clean_text(role, 20).lower()
-    message_content = _clean_text(content, 12000)
+    message_content = _clean_text(content, MAX_TUTOR_MESSAGE_CHARS)
 
     if not clean_session_id:
         raise ValueError("session_id қажет")
-    if not clean_user_id:
-        raise ValueError("user_id қажет")
     if clean_role not in VALID_TUTOR_ROLES:
         raise ValueError("Tutor role дұрыс емес")
     if not message_content:
@@ -738,12 +875,10 @@ def append_tutor_message_batch(
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     clean_session_id = _clean_text(session_id, 120)
-    clean_user_id = _clean_text(user_id, 120)
+    clean_user_id = _require_uuid(user_id, "user_id")
 
     if not clean_session_id:
         raise ValueError("session_id қажет")
-    if not clean_user_id:
-        raise ValueError("user_id қажет")
 
     session = _select_one(
         AI_TUTOR_SESSIONS_TABLE,
@@ -759,12 +894,12 @@ def append_tutor_message_batch(
     payloads: list[dict[str, Any]] = []
     created: list[dict[str, Any]] = []
 
-    for row in messages:
+    for row in messages[:MAX_TUTOR_MESSAGES_PER_BATCH]:
         if not isinstance(row, dict):
             continue
 
         clean_role = _clean_text(row.get("role", "user"), 20).lower()
-        clean_content = _clean_text(row.get("content", ""), 12000)
+        clean_content = _clean_text(row.get("content", ""), MAX_TUTOR_MESSAGE_CHARS)
 
         if clean_role not in VALID_TUTOR_ROLES or not clean_content:
             continue
@@ -803,10 +938,18 @@ def append_tutor_message_batch(
 # DEBUG / RESET
 # -----------------------------
 def reset_ai_memory_store() -> None:
-    if os.getenv("ALLOW_AI_STORAGE_RESET", "").strip().lower() != "true":
+    """
+    Dangerous helper for local/dev/test only.
+    Never run global wipe in production or staging.
+    """
+    if not _is_truthy(os.getenv("ALLOW_AI_STORAGE_RESET")):
         return
 
-    _delete_rows(AI_TUTOR_MESSAGES_TABLE)
-    _delete_rows(AI_TUTOR_SESSIONS_TABLE)
-    _delete_rows(AI_ATTEMPTS_TABLE)
-    _delete_rows(AI_EXAMS_TABLE)
+    if not _is_local_like_env():
+        logger.warning("AI storage reset ignored outside local/dev/test. env=%s", _app_env())
+        return
+
+    _delete_all_rows_for_reset(AI_TUTOR_MESSAGES_TABLE)
+    _delete_all_rows_for_reset(AI_TUTOR_SESSIONS_TABLE)
+    _delete_all_rows_for_reset(AI_ATTEMPTS_TABLE)
+    _delete_all_rows_for_reset(AI_EXAMS_TABLE)

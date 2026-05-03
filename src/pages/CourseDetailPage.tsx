@@ -47,13 +47,6 @@ function getStatusDotClass(status: CourseProgressLessonStatus) {
   return 'bg-secondary';
 }
 
-function getProgressTone(status: CourseProgressLessonStatus) {
-  if (status === 'completed') return 'success' as const;
-  if (status === 'current') return 'primary' as const;
-  if (status === 'locked') return 'warning' as const;
-  return 'secondary' as const;
-}
-
 function getLockedReasonText(reason: CourseProgressLessonView['lockedReason']) {
   if (reason === 'course_access_required') {
     return 'Бұл сабаққа кіру үшін курсқа access қажет.';
@@ -627,10 +620,73 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
   );
 }
 
+function TeacherAdminCourseNotice({
+  role,
+  courseId,
+}: {
+  role: string | undefined;
+  courseId: string;
+}) {
+  const isAdmin = role === 'admin';
+  const manageHref = isAdmin ? '/manage-courses' : '/create-course';
+  const listHref = isAdmin ? '/manage-courses' : '/my-courses';
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+            <GraduationCap size={16} />
+          </span>
+          {isAdmin ? 'Әкімші режимі' : 'Мұғалім режимі'}
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-4 p-5">
+        <div className="rounded-3xl border border-border bg-surface-soft/70 p-4 text-sm leading-6 text-muted-foreground">
+          Бұл бет оқушының course roadmap/progress режиміне арналған. Мұғалім немесе
+          әкімші ретінде бұл жерде оқушының жеке progress timeline дерегі
+          қолданылмайды. Курстың модульдері, сабақтары, access баптаулары және
+          материалдары курс басқару бетінде өңделеді.
+        </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button type="button" asChild>
+            <Link to={manageHref}>
+              Курсты басқару
+              <ArrowRight size={15} className="ml-2" />
+            </Link>
+          </Button>
+
+          <Button type="button" variant="outline" asChild>
+            <Link to={listHref}>
+              Курстар тізімі
+            </Link>
+          </Button>
+
+          {courseId ? (
+            <Button type="button" variant="ghost" asChild>
+              <Link to="/dashboard">Dashboard</Link>
+            </Button>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function CourseDetailPage() {
   const { courseId = '' } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  const isStudent = user?.role === 'student';
+  const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin';
+  const backHref = user?.role === 'teacher'
+    ? '/my-courses'
+    : user?.role === 'admin'
+      ? '/manage-courses'
+      : '/courses';
 
   const {
     data: timeline,
@@ -639,14 +695,14 @@ export default function CourseDetailPage() {
   } = useCourseProgressTimeline(
     user?.id || '',
     courseId,
-    Boolean(user?.id && courseId)
+    Boolean(isStudent && user?.id && courseId)
   );
 
   const {
     data: announcements = [],
     isLoading: announcementsLoading,
     error: announcementsError,
-  } = useCourseAnnouncements(courseId, Boolean(courseId && !error));
+  } = useCourseAnnouncements(courseId, Boolean(courseId));
 
   const nextLesson = timeline
     ? findNextLesson(timeline.modules, timeline.nextLessonId || null)
@@ -662,12 +718,12 @@ export default function CourseDetailPage() {
         <PageHeader
           backAction={{
             label: 'Курстарға қайту',
-            onClick: () => navigate('/courses'),
+            onClick: () => navigate(backHref),
           }}
           eyebrow={
             <>
               <GraduationCap size={13} />
-              Курс прогресі
+              {isStudent ? 'Курс прогресі' : 'Курс режимі'}
             </>
           }
           icon={<GraduationCap size={20} />}
@@ -675,13 +731,22 @@ export default function CourseDetailPage() {
           description={
             timeline
               ? `${timeline.subjectName} · ${timeline.teacherName}`
-              : 'Курс roadmap жүктелуде...'
+              : isTeacherOrAdmin
+                ? 'Мұғалім/әкімші үшін оқушы progress timeline бөлек қолданылмайды.'
+                : 'Курс roadmap жүктелуде...'
           }
           actions={
-            nextLesson && !nextLesson.isLocked ? (
+            isStudent && nextLesson && !nextLesson.isLocked ? (
               <Button type="button" asChild>
                 <Link to={`/lessons/${nextLesson.id}`}>
                   Оқуды жалғастыру
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            ) : isTeacherOrAdmin ? (
+              <Button type="button" variant="outline" asChild>
+                <Link to={user?.role === 'admin' ? '/manage-courses' : '/create-course'}>
+                  Курсты басқару
                   <ArrowRight size={15} className="ml-2" />
                 </Link>
               </Button>
@@ -689,9 +754,9 @@ export default function CourseDetailPage() {
           }
         />
 
-        {isLoading ? <CourseTimelineSkeleton /> : null}
+        {isStudent && isLoading ? <CourseTimelineSkeleton /> : null}
 
-        {!isLoading && error ? (
+        {isStudent && !isLoading && error ? (
           <ErrorState
             text="Курс прогресін жүктеу мүмкін болмады."
             action={
@@ -717,7 +782,19 @@ export default function CourseDetailPage() {
           />
         ) : null}
 
-        {!isLoading && !error && !timeline ? (
+        {isTeacherOrAdmin ? (
+          <>
+            <TeacherAdminCourseNotice role={user?.role} courseId={courseId} />
+
+            <CourseAnnouncementsPanel
+              announcements={announcements}
+              isLoading={announcementsLoading}
+              hasError={Boolean(announcementsError)}
+            />
+          </>
+        ) : null}
+
+        {isStudent && !isLoading && !error && !timeline ? (
           <EmptyState
             title="Курс табылмады"
             text="Курс өшірілген немесе сізде оған кіру рұқсаты жоқ болуы мүмкін."
@@ -732,7 +809,7 @@ export default function CourseDetailPage() {
           />
         ) : null}
 
-        {!isLoading && !error && timeline ? (
+        {isStudent && !isLoading && !error && timeline ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <CourseStatCard

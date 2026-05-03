@@ -9,14 +9,25 @@ import {
 import StatusBadge, { LessonStatusBadge } from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import type { LessonView } from '@/lib/app-data-types';
-import t from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type LessonCardProps = {
   lesson: LessonView;
+  /**
+   * Kept for backward compatibility with LessonsPage.
+   * Lesson completion must happen only inside LessonDetailPage after the mini quiz rules are checked.
+   */
   isStudent?: boolean;
+  /**
+   * Deprecated: ignored intentionally.
+   * Completing a lesson from the list bypasses theory/practice/mini quiz validation.
+   */
   isCompleting?: boolean;
   onOpen?: (lesson: LessonView) => void;
+  /**
+   * Deprecated: ignored intentionally.
+   * Do not complete lessons from the card/list level.
+   */
   onComplete?: (lesson: LessonView) => void;
 };
 
@@ -50,16 +61,14 @@ function getIconToneClassName(lesson: LessonView) {
   return 'border-primary-muted bg-primary-soft text-primary';
 }
 
-export default function LessonCard({
-  lesson,
-  isStudent = false,
-  isCompleting = false,
-  onOpen,
-  onComplete,
-}: LessonCardProps) {
+function getOpenButtonLabel(lesson: LessonView) {
+  if (lesson.isCompleted) return 'Қайта қарау';
+  return 'Сабақты ашу';
+}
+
+export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
   const status = getLessonStatus(lesson);
   const canOpen = !lesson.isLocked;
-  const canComplete = isStudent && !lesson.isCompleted && !lesson.isLocked;
 
   const handleOpen = () => {
     if (!canOpen) return;
@@ -80,6 +89,7 @@ export default function LessonCard({
       role={canOpen ? 'button' : undefined}
       tabIndex={canOpen ? 0 : undefined}
       aria-disabled={!canOpen}
+      aria-label={canOpen ? `${lesson.title} сабағын ашу` : `${lesson.title} сабағы жабық`}
       onKeyDown={(event) => {
         if (!canOpen) return;
 
@@ -125,24 +135,16 @@ export default function LessonCard({
               Бұл сабаққа кіру үшін алдыңғы шарттарды орындау қажет.
             </p>
           ) : null}
+
+          {!lesson.isLocked && !lesson.isCompleted ? (
+            <p className="rounded-2xl border border-primary-muted/70 bg-primary-soft/45 px-3 py-2 text-xs leading-5 text-primary">
+              Сабақты аяқтау үшін сабақты ашып, теорияны оқып, практика мен mini quiz
+              шарттарын орындаңыз.
+            </p>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 flex-col gap-2 sm:min-w-[130px]">
-          {canComplete ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={isCompleting}
-              onClick={(event) => {
-                event.stopPropagation();
-                onComplete?.(lesson);
-              }}
-            >
-              {isCompleting ? t('common.loading') : t('lesson.action.complete')}
-            </Button>
-          ) : null}
-
           {canOpen ? (
             <Button
               type="button"
@@ -153,7 +155,7 @@ export default function LessonCard({
                 onOpen?.(lesson);
               }}
             >
-              {lesson.isCompleted ? 'Қайта қарау' : 'Сабақты ашу'}
+              {getOpenButtonLabel(lesson)}
               <ArrowRight size={14} className="ml-1.5" />
             </Button>
           ) : (

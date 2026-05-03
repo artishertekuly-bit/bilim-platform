@@ -288,7 +288,7 @@ const sharedContentRoutes: AppRouteConfig[] = [
   {
     path: '/lessons/:lessonId',
     element: <LessonDetailPage />,
-    allowedRoles: ['student', 'admin'],
+    allowedRoles: ['student', 'teacher', 'admin'],
   },
   {
     path: '/analytics',

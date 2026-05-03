@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
   BookOpen,
@@ -22,9 +21,7 @@ import LessonCard from '@/components/lesson/LessonCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { platformKeys, useLessons } from '@/hooks/use-platform-data';
-import { useToast } from '@/hooks/use-toast';
-import { markLessonComplete } from '@/lib/app-data';
+import { useLessons } from '@/hooks/use-platform-data';
 import type { LessonView } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
@@ -187,16 +184,11 @@ function FilterChip({
 
 export default function LessonsPage() {
   const { user } = useAuth();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   const [activeSubject, setActiveSubject] = useState('all');
   const [activeStatus, setActiveStatus] = useState<LessonStatusFilter>('all');
   const [search, setSearch] = useState('');
-  const [pendingCompleteLessonId, setPendingCompleteLessonId] = useState<
-    string | null
-  >(null);
 
   const isStudent = user?.role === 'student';
 
@@ -204,59 +196,6 @@ export default function LessonsPage() {
     isStudent ? user?.id : undefined,
     !!user
   );
-
-  const completeMutation = useMutation({
-    mutationFn: async (lessonId: string) => {
-      if (!user?.id) {
-        throw new Error('User not found');
-      }
-
-      setPendingCompleteLessonId(lessonId);
-
-      return markLessonComplete(user.id, lessonId);
-    },
-    onSuccess: async () => {
-      if (!user?.id) return;
-
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['lessons'] }),
-        queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
-        queryClient.invalidateQueries({ queryKey: ['lesson-learning-state'] }),
-        queryClient.invalidateQueries({ queryKey: ['courses'] }),
-        queryClient.invalidateQueries({ queryKey: ['course-progress'] }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.studentDashboard(user.id),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.analytics(user.id),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.achievements(user.id),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.leaderboard,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ['parent-dashboard'],
-        }),
-      ]);
-
-      toast({
-        title: t('lesson.toast.complete_title'),
-        description: t('lesson.toast.complete_text'),
-      });
-    },
-    onError: () => {
-      toast({
-        title: t('lesson.toast.error_title'),
-        description: t('lesson.toast.error_text'),
-        variant: 'destructive',
-      });
-    },
-    onSettled: () => {
-      setPendingCompleteLessonId(null);
-    },
-  });
 
   const lessons = data || [];
 
@@ -294,7 +233,8 @@ export default function LessonsPage() {
         activeSubject === 'all' || lesson.subjectName === activeSubject;
 
       const lessonStatus = getLessonStatusFilter(lesson);
-      const matchesStatus = activeStatus === 'all' || lessonStatus === activeStatus;
+      const matchesStatus =
+        activeStatus === 'all' || lessonStatus === activeStatus;
 
       const matchesSearch =
         !query ||
@@ -319,11 +259,6 @@ export default function LessonsPage() {
   const handleOpenLesson = (lesson: LessonView) => {
     if (lesson.isLocked) return;
     navigate(`/lessons/${lesson.id}`);
-  };
-
-  const handleCompleteLesson = (lesson: LessonView) => {
-    if (!isStudent || lesson.isCompleted || lesson.isLocked) return;
-    completeMutation.mutate(lesson.id);
   };
 
   const pageTitle = isStudent
@@ -398,18 +333,21 @@ export default function LessonsPage() {
                 icon={BookOpen}
                 tone="primary"
               />
+
               <LessonStatCard
                 label="Ашық"
                 value={stats.available}
                 icon={PlayCircle}
                 tone="warning"
               />
+
               <LessonStatCard
                 label="Аяқталған"
                 value={stats.completed}
                 icon={CheckCircle2}
                 tone="success"
               />
+
               <LessonStatCard
                 label="Құлыпталған"
                 value={stats.locked}
@@ -426,6 +364,7 @@ export default function LessonsPage() {
                       size={16}
                       className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
                     />
+
                     <Input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
@@ -435,19 +374,19 @@ export default function LessonsPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {(['all', 'available', 'completed', 'locked'] as LessonStatusFilter[]).map(
-                      (status) => (
-                        <Button
-                          key={status}
-                          type="button"
-                          size="sm"
-                          variant={activeStatus === status ? 'default' : 'outline'}
-                          onClick={() => setActiveStatus(status)}
-                        >
-                          {getStatusFilterLabel(status)}
-                        </Button>
-                      )
-                    )}
+                    {(
+                      ['all', 'available', 'completed', 'locked'] as LessonStatusFilter[]
+                    ).map((status) => (
+                      <Button
+                        key={status}
+                        type="button"
+                        size="sm"
+                        variant={activeStatus === status ? 'default' : 'outline'}
+                        onClick={() => setActiveStatus(status)}
+                      >
+                        {getStatusFilterLabel(status)}
+                      </Button>
+                    ))}
 
                     {hasActiveFilters ? (
                       <Button
@@ -519,6 +458,7 @@ export default function LessonsPage() {
                       <p className="text-sm font-semibold text-foreground">
                         {listTitle}
                       </p>
+
                       <p className="mt-1 text-xs text-muted-foreground">
                         {filtered.length} сабақ көрсетіліп тұр
                       </p>
@@ -532,7 +472,7 @@ export default function LessonsPage() {
                         onClick={resetFilters}
                       >
                         <RotateCcw size={14} className="mr-1.5" />
-                        Reset
+                        Тазалау
                       </Button>
                     ) : null}
                   </div>
@@ -543,9 +483,7 @@ export default function LessonsPage() {
                         key={lesson.id}
                         lesson={lesson}
                         isStudent={isStudent}
-                        isCompleting={pendingCompleteLessonId === lesson.id}
                         onOpen={handleOpenLesson}
-                        onComplete={handleCompleteLesson}
                       />
                     ))}
                   </div>

@@ -634,10 +634,22 @@ async function invalidateLessonMiniQuizCaches(
       queryKey: platformKeys.courseProgressBase,
     }),
     queryClient.invalidateQueries({
+      queryKey: platformKeys.lessonsBase,
+    }),
+    queryClient.invalidateQueries({
       queryKey: platformKeys.teacherCourseWorkspaceBase,
     }),
     queryClient.invalidateQueries({
       queryKey: platformKeys.studentDashboardBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.analyticsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.achievementsBase,
+    }),
+    queryClient.invalidateQueries({
+      queryKey: platformKeys.leaderboard,
     }),
   ];
 
@@ -648,6 +660,9 @@ async function invalidateLessonMiniQuizCaches(
       }),
       queryClient.invalidateQueries({
         queryKey: platformKeys.lessonMiniQuiz(input.lessonId, input.teacherId, true),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.lessonMiniQuiz(input.lessonId, undefined, true),
       }),
       queryClient.invalidateQueries({
         queryKey: platformKeys.lessonAttachments(input.lessonId),
@@ -877,12 +892,19 @@ export function useLessonMiniQuiz(
   enabled = true,
   includeUnpublished = false
 ) {
+  /**
+   * includeUnpublished=true teacher/admin preview үшін қолданылады.
+   * Бұл режимде userId мәнін studentId ретінде жібермейміз, әйтпесе
+   * мұғалім/admin id-і "student latest attempt" ретінде қате қолданылуы мүмкін.
+   */
+  const studentIdForAttempt = includeUnpublished ? undefined : userId;
+
   return useQuery({
     queryKey: platformKeys.lessonMiniQuiz(lessonId, userId, includeUnpublished),
     queryFn: () =>
       getLessonMiniQuiz({
         lessonId,
-        studentId: userId,
+        studentId: studentIdForAttempt,
         includeUnpublished,
       }),
     enabled: enabled && !!lessonId,
