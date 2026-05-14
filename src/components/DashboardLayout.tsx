@@ -1,587 +1,296 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Award,
   BarChart3,
   BookOpen,
-  Bookmark,
   Bot,
-  BrainCircuit,
+  ChevronLeft,
   ChevronRight,
   ClipboardList,
-  Eye,
   FileText,
-  FolderOpen,
-  Gamepad2,
   GraduationCap,
   LayoutDashboard,
   LogOut,
   Menu,
   MessageCircle,
-  Monitor,
-  Moon,
   Plus,
+  Search,
   Settings,
   ShieldCheck,
   Sparkles,
-  Sun,
-  Trophy,
   Users,
   X,
   type LucideIcon,
 } from 'lucide-react';
 
-import KazakhOrnament from '@/components/KazakhOrnament';
 import UserAvatar from '@/components/UserAvatar';
 import { useTheme } from '@/components/theme/ThemeProvider';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { useAuth, type UserRole } from '@/lib/auth-context';
-import t, { type TranslationKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
 type NavItemConfig = {
-  labelKey?: TranslationKey;
-  label?: string;
+  label: string;
   path: string;
   icon: LucideIcon;
   matchMode?: 'exact' | 'section';
   aliases?: string[];
   tone?: 'default' | 'ai' | 'create';
+  keywords?: string[];
 };
 
-type NavGroupConfig = {
-  title: string;
-  items: NavItemConfig[];
+type QuickAction = NavItemConfig & {
+  actionLabel: string;
 };
 
 const SIDEBAR_ID = 'dashboard-sidebar';
 
-const roleTitleKeys: Record<UserRole, TranslationKey> = {
-  student: 'role.student',
-  teacher: 'role.teacher',
-  parent: 'role.parent',
-  admin: 'role.admin',
+const roleLabels: Record<UserRole, string> = {
+  student: 'Оқушы',
+  teacher: 'Мұғалім',
+  parent: 'Ата-ана',
+  admin: 'Әкімшілік',
 };
 
-const chatNavItem: NavItemConfig = {
-  label: 'Чат',
-  path: '/chat',
-  icon: MessageCircle,
-  matchMode: 'section',
+const roleSubtitles: Record<UserRole, string> = {
+  student: 'Оқу кабинеті',
+  teacher: 'Мұғалім кабинеті',
+  parent: 'Ата-ана бақылауы',
+  admin: 'Басқару консолі',
 };
 
-const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
+const roleNavItems: Record<UserRole, NavItemConfig[]> = {
   student: [
-    {
-      title: 'Негізгі',
-      items: [
-        {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        {
-          labelKey: 'nav.dashboard',
-          path: '/dashboard',
-          icon: LayoutDashboard,
-          matchMode: 'exact',
-        },
-        chatNavItem,
-      ],
-    },
-    {
-      title: 'Оқу',
-      items: [
-        {
-          labelKey: 'nav.courses',
-          path: '/courses',
-          icon: BookOpen,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.lessons',
-          path: '/lessons',
-          icon: FileText,
-          matchMode: 'section',
-        },
-        {
-          label: 'Сақталған сабақтар',
-          path: '/saved-lessons',
-          icon: Bookmark,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.tests',
-          path: '/tests',
-          icon: ClipboardList,
-          matchMode: 'section',
-        },
-      ],
-    },
-    {
-      title: 'AI құралдар',
-      items: [
-        {
-          labelKey: 'nav.ai_practice',
-          path: '/ai-practice',
-          icon: Sparkles,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-        {
-          labelKey: 'nav.ai_tutor',
-          path: '/ai-tutor',
-          icon: Bot,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-        {
-          labelKey: 'nav.ai_tracker',
-          path: '/ai-tracker',
-          icon: BrainCircuit,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-      ],
-    },
-    {
-      title: 'Нәтиже',
-      items: [
-        {
-          labelKey: 'nav.analytics',
-          path: '/analytics',
-          icon: BarChart3,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.gamification',
-          path: '/games',
-          icon: Gamepad2,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.leaderboard',
-          path: '/leaderboard',
-          icon: Trophy,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.achievements',
-          path: '/achievements',
-          icon: Award,
-          matchMode: 'section',
-        },
-      ],
-    },
+    { label: 'Басты бет', path: '/dashboard', icon: LayoutDashboard, matchMode: 'exact' },
+    { label: 'Курстарым', path: '/courses', icon: BookOpen, matchMode: 'section' },
+    { label: 'Сабақтар', path: '/lessons', icon: FileText, matchMode: 'section' },
+    { label: 'Тесттер', path: '/tests', icon: ClipboardList, matchMode: 'section' },
+    { label: 'Нәтижелер', path: '/analytics', icon: BarChart3, matchMode: 'section' },
+    { label: 'ЖИ көмекші', path: '/ai-tutor', icon: Bot, matchMode: 'section', aliases: ['/ai-practice', '/ai-tracker'], tone: 'ai' },
+    { label: 'Қосымша', path: '/saved-lessons', icon: Sparkles, matchMode: 'section', aliases: ['/leaderboard', '/games', '/achievements'] },
   ],
-
   teacher: [
-    {
-      title: 'Негізгі',
-      items: [
-        {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        {
-          labelKey: 'nav.dashboard',
-          path: '/dashboard',
-          icon: LayoutDashboard,
-          matchMode: 'exact',
-        },
-        chatNavItem,
-      ],
-    },
-    {
-      title: 'Курстар',
-      items: [
-        {
-          labelKey: 'nav.my_courses',
-          path: '/my-courses',
-          icon: BookOpen,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.create_course',
-          path: '/create-course',
-          icon: Plus,
-          matchMode: 'section',
-          tone: 'create',
-        },
-        {
-          labelKey: 'nav.create_test',
-          path: '/create-test',
-          icon: ClipboardList,
-          matchMode: 'section',
-          tone: 'create',
-        },
-      ],
-    },
-    {
-      title: 'AI және емтихан',
-      items: [
-        {
-          labelKey: 'nav.ai_question_builder',
-          path: '/ai-question-builder',
-          icon: Sparkles,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-        {
-          labelKey: 'nav.ai_exams',
-          path: '/ai-exams',
-          icon: Bot,
-          matchMode: 'section',
-          aliases: ['/ai-exams-open'],
-          tone: 'ai',
-        },
-        {
-          labelKey: 'nav.ai_assistant',
-          path: '/ai-assistant',
-          icon: BrainCircuit,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-      ],
-    },
-    {
-      title: 'Бақылау',
-      items: [
-        {
-          labelKey: 'nav.students',
-          path: '/students',
-          icon: Users,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.analytics',
-          path: '/analytics',
-          icon: BarChart3,
-          matchMode: 'section',
-        },
-      ],
-    },
+    { label: 'Басты бет', path: '/dashboard', icon: LayoutDashboard, matchMode: 'exact' },
+    { label: 'Курстарым', path: '/my-courses', icon: BookOpen, matchMode: 'section' },
+    { label: 'Курс құру', path: '/create-course', icon: Plus, matchMode: 'section', tone: 'create' },
+    { label: 'Тесттер', path: '/create-test', icon: ClipboardList, matchMode: 'section' },
+    { label: 'Оқушылар', path: '/students', icon: Users, matchMode: 'section' },
+    { label: 'Аналитика', path: '/analytics', icon: BarChart3, matchMode: 'section' },
+    { label: 'ЖИ құралдары', path: '/ai-question-builder', icon: Bot, matchMode: 'section', aliases: ['/ai-exams', '/ai-assistant'], tone: 'ai' },
   ],
-
   parent: [
-    {
-      title: 'Негізгі',
-      items: [
-        {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        {
-          labelKey: 'nav.dashboard',
-          path: '/dashboard',
-          icon: LayoutDashboard,
-          matchMode: 'exact',
-        },
-        chatNavItem,
-      ],
-    },
-    {
-      title: 'Бала бақылауы',
-      items: [
-        {
-          labelKey: 'nav.children',
-          path: '/children',
-          icon: Users,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.child_progress',
-          path: '/child-progress',
-          icon: BarChart3,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.child_tests',
-          path: '/child-tests',
-          icon: ClipboardList,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.child_achievements',
-          path: '/child-achievements',
-          icon: Award,
-          matchMode: 'section',
-        },
-      ],
-    },
+    { label: 'Басты бет', path: '/dashboard', icon: LayoutDashboard, matchMode: 'exact' },
+    { label: 'Балаларым', path: '/children', icon: Users, matchMode: 'section' },
+    { label: 'Нәтижелер', path: '/child-progress', icon: BarChart3, matchMode: 'section' },
+    { label: 'Хабарламалар', path: '/chat', icon: MessageCircle, matchMode: 'section' },
   ],
-
   admin: [
-    {
-      title: 'Негізгі',
-      items: [
-        {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        {
-          labelKey: 'nav.dashboard',
-          path: '/dashboard',
-          icon: LayoutDashboard,
-          matchMode: 'exact',
-        },
-        chatNavItem,
-      ],
-    },
-    {
-      title: 'Контент',
-      items: [
-        {
-          labelKey: 'nav.subjects',
-          path: '/subjects',
-          icon: GraduationCap,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.manage_lessons',
-          path: '/manage-lessons',
-          icon: FileText,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.manage_courses',
-          path: '/manage-courses',
-          icon: BookOpen,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.manage_tests',
-          path: '/manage-tests',
-          icon: ClipboardList,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.cms',
-          path: '/cms',
-          icon: FolderOpen,
-          matchMode: 'section',
-        },
-      ],
-    },
-    {
-      title: 'Басқару',
-      items: [
-        {
-          labelKey: 'nav.moderation',
-          path: '/moderation',
-          icon: Eye,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.analytics',
-          path: '/admin-analytics',
-          icon: BarChart3,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.users',
-          path: '/manage-users',
-          icon: Users,
-          matchMode: 'section',
-        },
-      ],
-    },
+    { label: 'Басты бет', path: '/dashboard', icon: LayoutDashboard, matchMode: 'exact' },
+    { label: 'Пайдаланушылар', path: '/manage-users', icon: Users, matchMode: 'section' },
+    { label: 'Курстар', path: '/manage-courses', icon: BookOpen, matchMode: 'section' },
+    { label: 'Өтінімдер', path: '/moderation', icon: ClipboardList, matchMode: 'section' },
+    { label: 'Төлемдер/қолжетімділік', path: '/cms', icon: ShieldCheck, matchMode: 'section' },
+    { label: 'Аналитика', path: '/admin-analytics', icon: BarChart3, matchMode: 'section' },
+    { label: 'Баптаулар', path: '/subjects', icon: Settings, matchMode: 'section' },
   ],
 };
 
-function getNavLabel(item: NavItemConfig) {
-  if (item.label) return item.label;
-  if (item.labelKey) return t(item.labelKey);
-  return '';
-}
-
-function matchesPath(
-  pathname: string,
-  path: string,
-  matchMode: NavItemConfig['matchMode'] = 'section'
-) {
-  if (matchMode === 'exact') {
-    return pathname === path;
-  }
-
-  return pathname === path || pathname.startsWith(`${path}/`);
-}
+const quickActions: Record<UserRole, QuickAction[]> = {
+  student: [
+    { label: 'Сабаққа өту', actionLabel: 'Сабаққа өту', path: '/lessons', icon: FileText, keywords: ['lesson', 'сабақ'] },
+    { label: 'Тест тапсыру', actionLabel: 'Тесттерді ашу', path: '/tests', icon: ClipboardList, keywords: ['test', 'тест'] },
+    { label: 'ЖИ көмекші', actionLabel: 'Көмек сұрау', path: '/ai-tutor', icon: Bot, tone: 'ai', keywords: ['ai', 'жи'] },
+  ],
+  teacher: [
+    { label: 'Курс құру', actionLabel: 'Жаңа курс', path: '/create-course', icon: Plus, tone: 'create', keywords: ['course', 'курс'] },
+    { label: 'Тест құру', actionLabel: 'Жаңа тест', path: '/create-test', icon: ClipboardList, keywords: ['test', 'тест'] },
+    { label: 'Оқушыны табу', actionLabel: 'Оқушылар', path: '/students', icon: Users, keywords: ['student', 'оқушы'] },
+    { label: 'ЖИ құралдары', actionLabel: 'ЖИ құралын ашу', path: '/ai-question-builder', icon: Bot, tone: 'ai', keywords: ['ai', 'жи'] },
+  ],
+  parent: [
+    { label: 'Баланы көру', actionLabel: 'Балаларым', path: '/children', icon: Users, keywords: ['бала'] },
+    { label: 'Нәтижені тексеру', actionLabel: 'Нәтижелер', path: '/child-progress', icon: BarChart3, keywords: ['progress', 'нәтиже'] },
+  ],
+  admin: [
+    { label: 'Пайдаланушыны табу', actionLabel: 'Пайдаланушылар', path: '/manage-users', icon: Users, keywords: ['user', 'пайдаланушы'] },
+    { label: 'Курстарды тексеру', actionLabel: 'Курстар', path: '/manage-courses', icon: BookOpen, keywords: ['course', 'курс'] },
+    { label: 'Өтінімдерді қарау', actionLabel: 'Өтінімдер', path: '/moderation', icon: ClipboardList, keywords: ['review', 'өтінім'] },
+  ],
+};
 
 function isPathActive(pathname: string, item: NavItemConfig) {
-  if (matchesPath(pathname, item.path, item.matchMode)) {
-    return true;
-  }
+  const paths = [item.path, ...(item.aliases || [])];
 
-  return (item.aliases || []).some((alias) =>
-    matchesPath(pathname, alias, item.matchMode)
-  );
+  return paths.some((path) => {
+    if (item.matchMode === 'exact') return pathname === path;
+    return pathname === path || pathname.startsWith(`${path}/`);
+  });
 }
 
-function getDisplayName(user?: {
-  fullName?: string | null;
-  email?: string | null;
-} | null) {
-  if (!user) return '';
-  if (user.fullName?.trim()) return user.fullName;
-  return user.email?.split('@')[0] || 'User';
-}
-
-function flattenGroups(groups: NavGroupConfig[]) {
-  return groups.flatMap((group) => group.items);
-}
-
-function getIconToneClass(item: NavItemConfig, isActive: boolean) {
-  if (isActive) {
-    if (item.tone === 'ai') {
-      return 'border-ai-border bg-ai-soft text-primary shadow-soft';
-    }
-
-    if (item.tone === 'create') {
-      return 'border-accent-muted bg-accent-soft text-accent-foreground shadow-soft';
-    }
-
-    return 'border-primary-muted bg-card text-primary shadow-soft';
-  }
-
-  if (item.tone === 'ai') {
-    return 'border-ai-border/60 bg-ai-soft/55 text-primary group-hover:bg-card';
-  }
-
-  if (item.tone === 'create') {
-    return 'border-accent-muted/60 bg-accent-soft/55 text-accent-foreground group-hover:bg-card';
-  }
-
-  return 'border-transparent bg-card/40 text-muted-foreground group-hover:border-primary-muted group-hover:bg-card group-hover:text-primary';
+function getDisplayName(user: ReturnType<typeof useAuth>['user']) {
+  if (!user) return 'Пайдаланушы';
+  return user.fullName || user.email?.split('@')[0] || 'Пайдаланушы';
 }
 
 function ThemeToggle() {
-  const { theme, resolvedTheme, setTheme } = useTheme();
-
-  const items = [
-    {
-      value: 'light' as const,
-      label: 'Light',
-      icon: Sun,
-    },
-    {
-      value: 'dark' as const,
-      label: 'Dark',
-      icon: Moon,
-    },
-    {
-      value: 'system' as const,
-      label: 'System',
-      icon: Monitor,
-    },
-  ];
+  const { resolvedTheme, setTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
   return (
-    <div
-      className="flex items-center rounded-2xl border border-border bg-card/80 p-1 shadow-soft"
-      title={`Theme: ${theme} · active ${resolvedTheme}`}
-      aria-label="Theme switcher"
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      aria-label="Тақырыпты ауыстыру"
+      className="h-9"
     >
-      {items.map((item) => {
-        const Icon = item.icon;
-        const active = theme === item.value;
-
-        return (
-          <button
-            key={item.value}
-            type="button"
-            onClick={() => setTheme(item.value)}
-            aria-label={item.label}
-            aria-pressed={active}
-            className={cn(
-              'inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground',
-              'transition-all duration-200 ease-soft',
-              'hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary',
-              'active:translate-y-0 active:scale-[0.98]',
-              active && 'bg-primary-soft text-primary shadow-soft ring-1 ring-primary-muted'
-            )}
-          >
-            <Icon size={14} />
-          </button>
-        );
-      })}
-    </div>
+      {isDark ? 'Күндізгі' : 'Түнгі'}
+    </Button>
   );
 }
 
-function SidebarSection({
-  group,
-  pathname,
+function NavigationLink({
+  item,
+  active,
+  collapsed,
   onNavigate,
 }: {
-  group: NavGroupConfig;
-  pathname: string;
+  item: NavItemConfig;
+  active: boolean;
+  collapsed: boolean;
   onNavigate: () => void;
 }) {
+  const Icon = item.icon;
+
   return (
-    <div className="space-y-1">
-      <div className="px-3 pb-1 pt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          {group.title}
-        </p>
-      </div>
+    <Link
+      to={item.path}
+      onClick={onNavigate}
+      title={collapsed ? item.label : undefined}
+      className={cn(
+        'group relative flex min-h-11 items-center gap-3 rounded-2xl border px-3 py-2.5 text-sm font-medium outline-none transition-all duration-200 ease-soft',
+        'focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        active
+          ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
+          : 'border-transparent text-muted-foreground hover:border-border hover:bg-card hover:text-foreground hover:shadow-soft',
+        collapsed && 'justify-center px-2'
+      )}
+      aria-current={active ? 'page' : undefined}
+    >
+      {active ? <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" /> : null}
+      <span
+        className={cn(
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors',
+          active
+            ? 'border-primary-muted bg-card text-primary'
+            : item.tone === 'ai'
+              ? 'border-ai-border bg-ai-soft text-ai-foreground'
+              : item.tone === 'create'
+                ? 'border-success-muted bg-success-soft text-success-foreground'
+                : 'border-border bg-surface-soft text-muted-foreground group-hover:text-foreground'
+        )}
+      >
+        <Icon size={16} />
+      </span>
+      {!collapsed ? <span className="min-w-0 flex-1 truncate">{item.label}</span> : null}
+      {!collapsed && active ? <ChevronRight size={15} className="shrink-0" /> : null}
+    </Link>
+  );
+}
 
-      {group.items.map((item) => {
-        const Icon = item.icon;
-        const isActive = isPathActive(pathname, item);
-        const label = getNavLabel(item);
+function CommandPalette({
+  open,
+  onOpenChange,
+  items,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  items: QuickAction[];
+}) {
+  const [query, setQuery] = useState('');
+  const navigate = useNavigate();
 
-        return (
-          <Link
-            key={item.path}
-            to={item.path}
-            onClick={onNavigate}
-            aria-current={isActive ? 'page' : undefined}
-            className={cn(
-              'group relative flex items-center gap-3 overflow-hidden rounded-2xl px-3 py-2.5 text-sm',
-              'transition-all duration-200 ease-soft',
-              'hover:-translate-y-0.5 hover:shadow-soft',
-              'active:translate-y-0 active:scale-[0.99]',
-              isActive
-                ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-soft ring-1 ring-sidebar-border'
-                : 'text-sidebar-foreground hover:bg-sidebar-accent/75 hover:text-foreground'
+  const filtered = useMemo(() => {
+    const normalized = query.toLowerCase().trim();
+    if (!normalized) return items;
+
+    return items.filter((item) => {
+      const haystack = [item.label, item.actionLabel, ...(item.keywords || [])]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalized);
+    });
+  }, [items, query]);
+
+  useEffect(() => {
+    if (open) setQuery('');
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[calc(100%-2rem)] max-w-2xl rounded-3xl border-border bg-card p-0 shadow-soft-lg">
+        <DialogHeader className="border-b border-border px-5 py-4 text-left">
+          <DialogTitle>Жылдам іздеу</DialogTitle>
+          <DialogDescription>
+            Ctrl+K немесе Cmd+K арқылы курс, тест, сабақ және ЖИ құралдарына тез өтіңіз.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="p-4">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Мысалы: курс құру, тест, сабақ..."
+              className="h-11 rounded-2xl pl-10"
+            />
+          </div>
+
+          <div className="mt-4 max-h-[360px] space-y-2 overflow-y-auto pr-1">
+            {filtered.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border bg-surface-soft p-5 text-sm text-muted-foreground">
+                Сәйкес әрекет табылмады.
+              </div>
+            ) : (
+              filtered.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={`${item.path}-${item.label}`}
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card px-3 py-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+                    onClick={() => {
+                      navigate(item.path);
+                      onOpenChange(false);
+                    }}
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+                      <Icon size={17} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-foreground">{item.label}</span>
+                      <span className="block text-xs text-muted-foreground">{item.actionLabel}</span>
+                    </span>
+                    <ChevronRight size={15} className="text-muted-foreground" />
+                  </button>
+                );
+              })
             )}
-          >
-            {isActive ? (
-              <>
-                <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" />
-                <span className="absolute inset-0 -z-10 bg-gradient-to-r from-primary-soft/70 via-transparent to-transparent" />
-              </>
-            ) : null}
-
-            <span
-              className={cn(
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border',
-                'transition-all duration-200 ease-soft',
-                getIconToneClass(item, isActive)
-              )}
-            >
-              <Icon size={16} />
-            </span>
-
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-
-            {item.tone === 'ai' && !isActive ? (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
-            ) : null}
-
-            {isActive ? (
-              <ChevronRight size={14} className="shrink-0 text-primary" />
-            ) : null}
-          </Link>
-        );
-      })}
-    </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -590,64 +299,43 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  const navItems = useMemo(() => (user ? roleNavItems[user.role] : []), [user]);
+  const actions = useMemo(() => (user ? quickActions[user.role] : []), [user]);
+  const activeItem = useMemo(
+    () => navItems.find((item) => isPathActive(location.pathname, item)),
+    [location.pathname, navItems]
+  );
+  const displayName = useMemo(() => getDisplayName(user), [user]);
+  const ActiveIcon = activeItem?.icon;
 
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
-    if (!sidebarOpen) return;
-
     const onKeyDown = (event: KeyboardEvent) => {
+      const isCommand = event.ctrlKey || event.metaKey;
+
+      if (isCommand && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((value) => !value);
+      }
+
       if (event.key === 'Escape') {
         setSidebarOpen(false);
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
-
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-
-    const previousOverflow = document.body.style.overflow;
-
-    if (sidebarOpen) {
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [sidebarOpen]);
-
-  const navGroups = useMemo(() => {
-    if (!user) return [];
-    return roleNavGroups[user.role] || [];
-  }, [user]);
-
-  const navItems = useMemo(() => flattenGroups(navGroups), [navGroups]);
-
-  const activeItem = useMemo(
-    () => navItems.find((item) => isPathActive(location.pathname, item)),
-    [location.pathname, navItems]
-  );
-
-  const displayName = useMemo(() => getDisplayName(user), [user]);
-  const activeLabel = activeItem ? getNavLabel(activeItem) : t('nav.dashboard');
-  const ActiveIcon = activeItem?.icon;
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   const handleLogout = async () => {
-    setSidebarOpen(false);
-
     try {
       await logout();
-    } catch (error) {
-      console.error('[DashboardLayout] Logout failed', error);
     } finally {
       navigate('/', { replace: true });
     }
@@ -656,13 +344,15 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen bg-[#F8FAFC] text-foreground dark:bg-background">
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={actions} />
+
       {sidebarOpen ? (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-foreground/15 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/25 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
-          aria-label={t('common.close')}
+          aria-label="Мәзірді жабу"
           aria-controls={SIDEBAR_ID}
         />
       ) : null}
@@ -670,161 +360,147 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <aside
         id={SIDEBAR_ID}
         className={cn(
-          'fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-sidebar-border',
-          'bg-sidebar/95 shadow-soft-lg backdrop-blur-xl',
-          'transition-transform duration-200 ease-soft',
-          'lg:sticky lg:translate-x-0 lg:shadow-none',
+          'fixed left-0 top-0 z-50 flex h-dvh flex-col border-r border-sidebar-border bg-sidebar/96 shadow-soft-lg backdrop-blur-xl transition-all duration-200 ease-soft lg:sticky lg:translate-x-0 lg:shadow-none',
+          collapsed ? 'lg:w-20' : 'lg:w-72',
+          'w-72',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
-          <Link
-            to="/dashboard"
-            className="flex min-w-0 items-center gap-3 rounded-2xl transition-all duration-200 ease-soft hover:-translate-y-0.5"
-          >
-            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary text-primary-foreground shadow-soft">
-              <GraduationCap size={18} />
-              <span className="absolute inset-x-2 bottom-1 h-px bg-primary-foreground/30" />
-            </div>
-
-            <div className="min-w-0">
-              <span className="block truncate text-sm font-semibold tracking-tight">
-                Bilimcorp
+        <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
+          <Link to="/dashboard" className="flex min-w-0 items-center gap-3 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
+              <GraduationCap size={19} />
+            </span>
+            {!collapsed ? (
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold tracking-tight">Bilim Platform</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{roleSubtitles[user.role]}</span>
               </span>
-              <span className="block truncate text-[10px] font-medium text-muted-foreground">
-                Soft Academic LMS
-              </span>
-            </div>
+            ) : null}
           </Link>
 
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(false)}
-            className="rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-sidebar-accent hover:text-foreground lg:hidden"
-            aria-label={t('common.close')}
-            aria-controls={SIDEBAR_ID}
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="px-5 py-4">
-          <div className="rounded-3xl border border-sidebar-border bg-card/70 p-3 shadow-soft">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-                <ShieldCheck size={16} />
-              </div>
-
-              <div className="min-w-0">
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                  Рөл
-                </span>
-                <span className="block truncate text-sm font-semibold">
-                  {t(roleTitleKeys[user.role])}
-                </span>
-              </div>
-            </div>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="hidden lg:inline-flex"
+              onClick={() => setCollapsed((value) => !value)}
+              aria-label={collapsed ? 'Мәзірді кеңейту' : 'Мәзірді ықшамдау'}
+            >
+              {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="lg:hidden"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Мәзірді жабу"
+            >
+              <X size={18} />
+            </Button>
           </div>
         </div>
 
-        <nav
-          className="flex-1 overflow-y-auto px-3 pb-3"
-          aria-label="Dashboard navigation"
-        >
-          {navGroups.map((group) => (
-            <SidebarSection
-              key={group.title}
-              group={group}
-              pathname={location.pathname}
+        <div className="px-3 py-4">
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            className={cn(
+              'flex min-h-11 w-full items-center gap-3 rounded-2xl border border-sidebar-border bg-card/80 px-3 py-2 text-left text-sm text-muted-foreground shadow-soft transition-all hover:border-primary-muted hover:bg-primary-soft hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+              collapsed && 'lg:justify-center lg:px-2'
+            )}
+            aria-label="Жылдам іздеу"
+          >
+            <Search size={16} className="shrink-0" />
+            {!collapsed ? (
+              <span className="min-w-0 flex-1 truncate">Жылдам іздеу</span>
+            ) : null}
+            {!collapsed ? (
+              <span className="rounded-lg border border-border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">Ctrl K</span>
+            ) : null}
+          </button>
+        </div>
+
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4" aria-label="Бөлімдер">
+          {navItems.map((item) => (
+            <NavigationLink
+              key={item.path}
+              item={item}
+              active={isPathActive(location.pathname, item)}
+              collapsed={collapsed}
               onNavigate={() => setSidebarOpen(false)}
             />
           ))}
         </nav>
 
-        <div className="px-5 py-2">
-          <div className="flex justify-center opacity-60">
-            <KazakhOrnament variant="divider" />
-          </div>
-        </div>
-
-        <div className="border-t border-sidebar-border px-4 py-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Тақырып
-            </span>
-            <ThemeToggle />
-          </div>
-
-          <div className="flex items-center gap-2 rounded-3xl border border-sidebar-border bg-card/70 p-2 shadow-soft">
-            <Link
-              to="/profile"
-              className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-1.5 transition-all duration-200 ease-soft hover:bg-primary-soft"
-            >
-              <UserAvatar
-                name={displayName}
-                avatarUrl={user.avatarUrl}
-                className="h-9 w-9"
-                fallbackClassName="bg-primary-soft text-xs font-semibold text-primary"
-              />
-
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">{displayName}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {user.email}
-                </p>
+        <div className="border-t border-sidebar-border p-3">
+          {!collapsed ? (
+            <div className="mb-3 rounded-3xl border border-sidebar-border bg-card/80 p-3 shadow-soft">
+              <div className="flex items-center gap-3">
+                <UserAvatar
+                  name={displayName}
+                  avatarUrl={user.avatarUrl}
+                  className="h-10 w-10"
+                  fallbackClassName="bg-primary-soft text-xs font-semibold text-primary"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{displayName}</p>
+                  <p className="truncate text-xs text-muted-foreground">{roleLabels[user.role]}</p>
+                </div>
               </div>
-            </Link>
+            </div>
+          ) : null}
 
-            <button
+          <div className={cn('flex gap-2', collapsed && 'lg:flex-col')}>
+            <ThemeToggle />
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={handleLogout}
-              className="shrink-0 rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-destructive-soft hover:text-destructive"
-              title={t('nav.logout')}
-              aria-label={t('nav.logout')}
+              aria-label="Шығу"
+              className={cn('flex-1', collapsed && 'lg:w-full lg:px-0')}
             >
-              <LogOut size={16} />
-            </button>
+              <LogOut size={15} />
+              {!collapsed ? <span>Шығу</span> : null}
+            </Button>
           </div>
         </div>
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center border-b border-border bg-background/82 px-4 backdrop-blur-xl lg:px-6">
-          <button
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/88 px-4 backdrop-blur-xl lg:px-6">
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
             onClick={() => setSidebarOpen(true)}
-            className="-ml-2 mr-3 rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary lg:hidden"
-            aria-label={t('common.open_menu')}
+            aria-label="Мәзірді ашу"
             aria-controls={SIDEBAR_ID}
             aria-expanded={sidebarOpen}
           >
             <Menu size={19} />
-          </button>
+          </Button>
 
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              {ActiveIcon ? (
-                <ActiveIcon
-                  size={15}
-                  className="shrink-0 text-muted-foreground"
-                />
-              ) : null}
-              <p className="truncate text-sm font-semibold">{activeLabel}</p>
+            <div className="flex items-center gap-2">
+              {ActiveIcon ? <ActiveIcon size={16} className="shrink-0 text-muted-foreground" /> : null}
+              <p className="truncate text-sm font-semibold">{activeItem?.label || 'Басты бет'}</p>
             </div>
-            <p className="hidden truncate text-[11px] text-muted-foreground sm:block">
-              Soft academic workspace
-            </p>
+            <p className="hidden truncate text-xs text-muted-foreground sm:block">{roleSubtitles[user.role]}</p>
           </div>
 
-          <div className="hidden lg:block">
-            <ThemeToggle />
-          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setPaletteOpen(true)}>
+            <Search size={15} />
+            <span className="hidden sm:inline">Іздеу</span>
+          </Button>
         </header>
 
-        <main className="kazakh-ornament-bg flex-1 bg-background p-4 lg:p-6">
-          <div className="mx-auto w-full max-w-[1480px] animate-fade-in">
-            {children}
-          </div>
+        <main className="flex-1 bg-[#F8FAFC] p-4 dark:bg-background lg:p-6">
+          <div className="mx-auto w-full max-w-7xl animate-fade-in">{children}</div>
         </main>
       </div>
     </div>

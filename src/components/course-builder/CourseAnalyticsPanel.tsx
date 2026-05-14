@@ -134,7 +134,7 @@ export default function CourseAnalyticsPanel({
               </div>
 
               <p className="mt-2 max-w-3xl text-xs leading-5 text-muted-foreground">
-                Бұл блок оқушыны бақыламайды. Тек оқу нәтижелері, progress және
+                Бұл блок оқушыны бақыламайды. Тек оқу нәтижелері, прогресс және
                 quiz/test қорытындылары бойынша мұғалімге педагогикалық талдау
                 жасауға көмектеседі.
               </p>
@@ -200,7 +200,7 @@ export default function CourseAnalyticsPanel({
                 />
 
                 <MetricCard
-                  label="Орташа progress"
+                  label="Орташа прогресс"
                   value={formatPercent(snapshot.totals.avgProgressPct)}
                   hint="Курс ішіндегі аяқталған сабақтар негізінде."
                   icon={<Target size={17} />}
@@ -208,9 +208,9 @@ export default function CourseAnalyticsPanel({
                 />
 
                 <MetricCard
-                  label="Mini quiz pass rate"
+                  label="Қысқа тест өту деңгейі"
                   value={formatPercent(snapshot.totals.miniQuizPassRatePct)}
-                  hint={`Attempts: ${formatNumber(snapshot.totals.miniQuizAttempts)}`}
+                  hint={`Талпыныс: ${formatNumber(snapshot.totals.miniQuizAttempts)}`}
                   icon={<CheckCircle2 size={17} />}
                   tone="ai"
                 />
@@ -222,7 +222,7 @@ export default function CourseAnalyticsPanel({
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-foreground">
-                          Mini quiz нәтижелері
+                          Қысқа тест нәтижелері
                         </p>
 
                         <StatusBadge tone={getScoreTone(snapshot.totals.miniQuizAvgScore)}>
@@ -231,7 +231,7 @@ export default function CourseAnalyticsPanel({
                       </div>
 
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Қай сабақтағы mini quiz қиын екенін көруге арналған.
+                        Қай сабақтағы қысқа тест қиын екенін көруге арналған.
                       </p>
                     </div>
 
@@ -242,8 +242,8 @@ export default function CourseAnalyticsPanel({
 
                   {snapshot.miniQuizzes.length === 0 ? (
                     <EmptyState
-                      title="Mini quiz нәтижелері жоқ"
-                      text="Оқушылар mini quiz тапсырғаннан кейін pass rate және орташа score осы жерде көрінеді."
+                      title="Қысқа тест нәтижелері жоқ"
+                      text="Оқушылар қысқа тест тапсырғаннан кейін өту деңгейі мен орташа нәтиже осы жерде көрінеді."
                       compact
                       tone="ai"
                     />
@@ -260,7 +260,7 @@ export default function CourseAnalyticsPanel({
                                 {quiz.lessonTitle}
                               </p>
                               <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                                Attempts: {quiz.attempts} · Passed: {quiz.passed} · Failed:{' '}
+                                Талпыныс: {quiz.attempts} · Өткен: {quiz.passed} · Өтпеген:{' '}
                                 {quiz.failed}
                               </p>
                             </div>
@@ -275,7 +275,7 @@ export default function CourseAnalyticsPanel({
                           </div>
 
                           <p className="mt-1 text-[11px] text-muted-foreground">
-                            Pass rate: {formatPercent(quiz.passRatePct)}
+                            Өту деңгейі: {formatPercent(quiz.passRatePct)}
                           </p>
                         </div>
                       ))}
@@ -338,17 +338,17 @@ export default function CourseAnalyticsPanel({
 
                               <div className="mt-2 flex flex-wrap gap-2">
                                 <StatusBadge tone={getScoreTone(lesson.miniQuizAvgScore)}>
-                                  Score: {formatPercent(lesson.miniQuizAvgScore)}
+                                  Нәтиже: {formatPercent(lesson.miniQuizAvgScore)}
                                 </StatusBadge>
 
                                 {lesson.failedAttempts > 0 ? (
                                   <StatusBadge tone="danger">
-                                    Failed: {lesson.failedAttempts}
+                                    Өтпеген: {lesson.failedAttempts}
                                   </StatusBadge>
                                 ) : null}
 
                                 {lesson.reviewLater ? (
-                                  <StatusBadge tone="warning">Review later</StatusBadge>
+                                  <StatusBadge tone="warning">Қайталау белгісі</StatusBadge>
                                 ) : null}
                               </div>
                             </div>

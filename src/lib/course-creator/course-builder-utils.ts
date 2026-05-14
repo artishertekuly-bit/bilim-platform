@@ -63,8 +63,8 @@ export function getAccessTypeLabel(type: CourseAccessType) {
 export function getAccessTypeHint(type: CourseAccessType) {
   const map: Record<CourseAccessType, string> = {
     public_free: 'Каталогта көрінеді. Оқушы тегін жазыла алады.',
-    private_invite: 'Каталогта көрінбейді. Оқушы тек invite code арқылы кіреді.',
-    paid: 'Каталогта көрінеді. Оқушы access сұрайды, кейін payment немесе subscription арқылы ашылады.',
+    private_invite: 'Каталогта көрінбейді. Оқушы тек кіру коды арқылы кіреді.',
+    paid: 'Каталогта көрінеді. Оқушы қолжетімділік сұрайды, кейін төлем арқылы ашылады.',
     subscription_only: 'Ақылы курс ретінде өңделеді.',
     school_only: 'Жабық курс ретінде өңделеді.',
   };

@@ -58,8 +58,8 @@ function getModeEyebrow({
   isTeacherView: boolean;
   isAdminView: boolean;
 }) {
-  if (isTeacherView) return 'Мұғалім кеңістігі';
-  if (isAdminView) return 'Admin басқару';
+  if (isTeacherView) return 'Мұғалім кабинеті';
+  if (isAdminView) return 'Әкімшілік басқару';
   return 'Курс каталогы';
 }
 
@@ -265,8 +265,8 @@ export default function CourseCatalogPage() {
         await invalidateCatalogData();
 
         toast({
-          title: 'Access сұранысы жіберілді',
-          description: 'Admin растағаннан кейін курс ашылады.',
+          title: 'Қолжетімділік сұранысы жіберілді',
+          description: 'Әкімшілік растағаннан кейін курс ашылады.',
         });
       } catch (requestError) {
         toast({
@@ -288,7 +288,7 @@ export default function CourseCatalogPage() {
       title: 'Курс қолжетімсіз',
       description:
         access?.accessState === 'requires_invite'
-          ? 'Бұл жабық курс. Мұғалім берген invite code қажет.'
+          ? 'Бұл жабық курс. Мұғалім берген кіру коды қажет.'
           : 'Бұл курсқа қазір кіру мүмкін емес.',
       variant: 'destructive',
     });
@@ -297,7 +297,7 @@ export default function CourseCatalogPage() {
   const handleRedeemInvite = async (course: CourseView) => {
     if (!inviteCode.trim()) {
       toast({
-        title: 'Invite code енгізіңіз',
+        title: 'Кіру кодын енгізіңіз',
         variant: 'destructive',
       });
       return;
@@ -317,18 +317,18 @@ export default function CourseCatalogPage() {
       setInviteCode('');
 
       toast({
-        title: 'Invite қабылданды',
+        title: 'Кіру коды қабылданды',
         description: 'Курс сізге ашылды.',
       });
 
       navigate(buildCourseDetailPath(course.id));
     } catch (inviteError) {
       toast({
-        title: 'Invite code қате',
+        title: 'Кіру коды қате',
         description:
           inviteError instanceof Error
             ? inviteError.message
-            : 'Invite code арқылы курс ашу мүмкін болмады.',
+            : 'Кіру коды арқылы курс ашу мүмкін болмады.',
         variant: 'destructive',
       });
     } finally {
@@ -378,6 +378,7 @@ export default function CourseCatalogPage() {
           icon={<BookOpen size={20} />}
           title={pageTitle}
           description={pageDescription}
+          variant="workspace"
           actions={
             isTeacherView ? (
               <Button type="button" asChild>
@@ -452,7 +453,7 @@ export default function CourseCatalogPage() {
 
                     {isAdminView ? (
                       <Badge variant="warning" className="text-[11px]">
-                        Admin mode
+                        Әкімшілік режим
                       </Badge>
                     ) : null}
                   </div>
@@ -535,7 +536,7 @@ export default function CourseCatalogPage() {
               ) : isStudentView ? (
                 <Button type="button" variant="outline" asChild>
                   <Link to="/dashboard">
-                    Dashboard-қа қайту
+                    Басты бетке қайту
                     <ArrowRight size={15} className="ml-2" />
                   </Link>
                 </Button>

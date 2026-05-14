@@ -322,7 +322,7 @@ function MiniQuizCard({
 
         <CardContent className="p-5">
           <p className="text-sm text-destructive">
-            Mini quiz дерегін жүктеу мүмкін болмады.
+            Қысқа тест дерегін жүктеу мүмкін болмады.
           </p>
         </CardContent>
       </Card>
@@ -382,7 +382,7 @@ function MiniQuizCard({
       <CardContent className="space-y-4 p-5">
         {quiz.questions.length === 0 ? (
           <EmptyState
-            title="Mini quiz ішінде сұрақ жоқ"
+            title="Қысқа тест ішінде сұрақ жоқ"
             text="Мұғалім сұрақ қосқаннан кейін quiz осы жерде ашылады."
             compact
             tone="ai"
@@ -540,14 +540,14 @@ function MiniQuizCard({
             }
           >
             {quizAlreadyPassed
-              ? 'Mini quiz өтті'
+              ? 'Қысқа тест өтті'
               : submitting
                 ? 'Тексерілуде...'
-                : 'Mini quiz тапсыру'}
+                : 'Қысқа тест тапсыру'}
           </Button>
         ) : (
           <div className="rounded-2xl border border-border bg-card/70 p-3 text-xs text-muted-foreground">
-            Мұғалім preview режимінде quiz-ді көре алады, бірақ нәтиже жібермейді.
+            Мұғалім алдын ала қарау режимінде қысқа тестті көре алады, бірақ нәтиже жібермейді.
           </div>
         )}
       </CardContent>
@@ -665,7 +665,7 @@ export default function LessonDetailPage() {
       if (!canCompleteLesson) {
         throw new Error(
           !miniQuizPassed
-            ? 'Алдымен mini quiz тапсырыңыз.'
+            ? 'Алдымен қысқа тест тапсырыңыз.'
             : 'Бұл сабақты қазір аяқтау мүмкін емес.'
         );
       }
@@ -891,7 +891,7 @@ export default function LessonDetailPage() {
   const handleSubmitMiniQuiz = async () => {
     if (!user?.id || !lessonId || !courseId || !miniQuiz) {
       toast({
-        title: 'Mini quiz тапсыру мүмкін болмады',
+        title: 'Қысқа тест тапсыру мүмкін болмады',
         description: 'Сабақ, курс немесе quiz дерегі толық емес.',
         variant: 'destructive',
       });
@@ -905,7 +905,7 @@ export default function LessonDetailPage() {
     if (unanswered) {
       toast({
         title: 'Барлық сұраққа жауап беріңіз',
-        description: 'Mini quiz тапсыру үшін әр сұрақта кемінде бір жауап таңдаңыз.',
+        description: 'Қысқа тест тапсыру үшін әр сұрақта кемінде бір жауап таңдаңыз.',
         variant: 'destructive',
       });
       return;
@@ -930,13 +930,13 @@ export default function LessonDetailPage() {
 
       toast({
         title: result.attempt.passed
-          ? 'Mini quiz өтті'
-          : 'Mini quiz қайталауды қажет етеді',
+          ? 'Қысқа тест өтті'
+          : 'Қысқа тест қайталауды қажет етеді',
         description: `${result.attempt.correctCount}/${result.attempt.totalQuestions} дұрыс · ${result.attempt.score}%`,
       });
     } catch (quizError) {
       toast({
-        title: 'Mini quiz тапсыру мүмкін болмады',
+        title: 'Қысқа тест тапсыру мүмкін болмады',
         description:
           quizError instanceof Error
             ? quizError.message
@@ -969,6 +969,7 @@ export default function LessonDetailPage() {
                   .join(' · ')
               : t('page.lesson_detail.subtitle')
           }
+          variant="workspace"
           actions={
             data?.isCompleted ? (
               <StatusBadge tone="success">
@@ -1162,14 +1163,14 @@ export default function LessonDetailPage() {
                       Сабақты аяқтау
                     </p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Сабақты аяқтағаннан кейін прогресс course timeline ішінде жаңарады.
+                      Сабақты аяқтағаннан кейін прогресс курс оқу жоспарында жаңарады.
                     </p>
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button type="button" variant="outline" asChild>
                       <Link to={`/courses/${courseId}`}>
-                        Курс roadmap
+                        Курс оқу жоспары
                         <ArrowRight size={15} className="ml-2" />
                       </Link>
                     </Button>
@@ -1183,7 +1184,7 @@ export default function LessonDetailPage() {
                         {completeMutation.isPending
                           ? t('common.loading')
                           : !miniQuizPassed
-                            ? 'Алдымен mini quiz тапсырыңыз'
+                            ? 'Алдымен қысқа тест тапсырыңыз'
                             : t('lesson.action.complete')}
                       </Button>
                     ) : (
@@ -1231,18 +1232,9 @@ export default function LessonDetailPage() {
                   />
 
                   {!data.isCompleted && isStudent ? (
-                    <Button
-                      type="button"
-                      className="w-full"
-                      onClick={() => completeMutation.mutate()}
-                      disabled={!canCompleteLesson || completeMutation.isPending}
-                    >
-                      {completeMutation.isPending
-                        ? t('common.loading')
-                        : !miniQuizPassed
-                          ? 'Алдымен mini quiz тапсырыңыз'
-                          : t('lesson.action.complete')}
-                    </Button>
+                    <div className="rounded-2xl border border-primary-muted bg-primary-soft/60 p-3 text-xs leading-5 text-primary">
+                      Сабақты аяқтау әрекеті оқу блогының соңында орналасқан. Алдымен теория, практика және қысқа тестті аяқтаңыз.
+                    </div>
                   ) : !isStudent ? (
                     <div className="rounded-2xl border border-border bg-surface-soft/60 p-3 text-xs text-muted-foreground">
                       {t('page.lesson_detail.teacher_review_note')}

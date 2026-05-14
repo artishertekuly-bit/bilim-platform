@@ -127,7 +127,7 @@ export function CourseSummaryCard({
         />
 
         <SummaryRow
-          label="Access"
+          label="Қолжетімділік"
           value={getAccessTypeLabel(accessType)}
           icon={<KeyRound size={13} />}
         />
