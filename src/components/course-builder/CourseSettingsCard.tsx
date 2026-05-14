@@ -211,7 +211,7 @@ export function CourseSettingsCard({
 
           <FieldBlock
             label={t('page.teacher_course_builder.field.thumbnail')}
-            hint="Thumbnail URL курс карточкасын визуалды тануға көмектеседі. Бос қалса, default soft icon көрсетіледі."
+            hint="Мұқаба суретінің сілтемесі курс карточкасын бірден тануға көмектеседі. Бос қалса, әдепкі белгі көрсетіледі."
           >
             <Input
               value={courseEdit.thumbnailUrl}
@@ -229,7 +229,7 @@ export function CourseSettingsCard({
             <div className="rounded-3xl border border-border bg-card/70 p-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                 <Image size={13} />
-                Thumbnail preview
+                Мұқаба алдын ала қарау
               </div>
               <div className="overflow-hidden rounded-2xl border border-border bg-muted">
                 <img
@@ -247,7 +247,7 @@ export function CourseSettingsCard({
         </FormSection>
 
         <FormSection
-          title="Access және монетизация"
+          title="Қолжетімділік және төлем"
           description="Курс ашық, жабық немесе ақылы режимде жұмыс істейді. Ақылы курс таңдағанда ғана баға өрісі көрсетіледі."
           icon={<KeyRound size={17} />}
         >

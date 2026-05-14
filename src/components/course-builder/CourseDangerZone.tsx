@@ -19,7 +19,7 @@ export function CourseDangerZone({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle className="text-sm font-semibold text-destructive">
-                Danger zone
+                Қауіпті әрекеттер
               </CardTitle>
 
               <StatusBadge tone="danger">

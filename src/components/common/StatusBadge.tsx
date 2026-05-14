@@ -15,7 +15,16 @@ import {
 
 import { cn } from '@/lib/utils';
 
-type CourseStatus = 'draft' | 'review' | 'under_review' | 'published' | 'archived';
+type CourseStatus =
+  | 'draft'
+  | 'review'
+  | 'under_review'
+  | 'published'
+  | 'archived'
+  | 'pending'
+  | 'completed'
+  | 'failed'
+  | 'active';
 
 export type StatusBadgeTone =
   | 'default'
@@ -118,17 +127,17 @@ const courseStatusMeta: Record<
   }
 > = {
   draft: {
-    label: 'Draft',
+    label: 'Жоба нұсқа',
     tone: 'completed',
     icon: <EyeOff size={12} />,
   },
   review: {
-    label: 'Тексерісте',
+    label: 'Қайталау',
     tone: 'important',
     icon: <Clock size={12} />,
   },
   under_review: {
-    label: 'Тексерісте',
+    label: 'Қайталау',
     tone: 'important',
     icon: <Clock size={12} />,
   },
@@ -141,6 +150,26 @@ const courseStatusMeta: Record<
     label: 'Архивте',
     tone: 'muted',
     icon: <Archive size={12} />,
+  },
+  pending: {
+    label: 'Күтуде',
+    tone: 'warning',
+    icon: <Clock size={12} />,
+  },
+  completed: {
+    label: 'Аяқталған',
+    tone: 'success',
+    icon: <CheckCircle2 size={12} />,
+  },
+  failed: {
+    label: 'Өтпеді',
+    tone: 'danger',
+    icon: <XCircle size={12} />,
+  },
+  active: {
+    label: 'Белсенді',
+    tone: 'active',
+    icon: <ShieldCheck size={12} />,
   },
 };
 
@@ -214,7 +243,7 @@ export function CourseAccessBadge({
     return (
       <StatusBadge tone="primary" className={className}>
         <KeyRound size={12} />
-        Жабық
+        Кіру коды
       </StatusBadge>
     );
   }
@@ -308,7 +337,7 @@ export function OrderStatusBadge({
     return (
       <StatusBadge tone="warning" className={className}>
         <Clock size={12} />
-        Сұраныс қаралуда
+        Күтуде
       </StatusBadge>
     );
   }
@@ -317,7 +346,7 @@ export function OrderStatusBadge({
     return (
       <StatusBadge tone="success" className={className}>
         <ShieldCheck size={12} />
-        Расталған
+        Белсенді
       </StatusBadge>
     );
   }
@@ -326,7 +355,7 @@ export function OrderStatusBadge({
     return (
       <StatusBadge tone="danger" className={className}>
         <XCircle size={12} />
-        Қабылданбады
+        Өтпеді
       </StatusBadge>
     );
   }

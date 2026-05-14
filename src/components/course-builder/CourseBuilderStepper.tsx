@@ -71,7 +71,7 @@ export function CourseBuilderStepper({
       <CardContent className="p-4 sm:p-5">
         <div className="mb-4 flex flex-col gap-1">
           <p className="text-sm font-semibold text-foreground">
-            Course builder қадамдары
+            Курс құрастыру қадамдары
           </p>
           <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
             Үлкен форманы бөлімдерге бөліп, керек жерге тез өтіңіз. Курс

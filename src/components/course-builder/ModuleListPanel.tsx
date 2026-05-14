@@ -269,7 +269,7 @@ export function ModuleListPanel({
 
                                     {lesson.hasMiniQuiz ? (
                                       <LessonMetaPill icon={<CheckCircle2 size={11} />}>
-                                        Mini quiz
+                                        Қысқа тест
                                       </LessonMetaPill>
                                     ) : null}
                                   </div>
