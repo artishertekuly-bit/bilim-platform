@@ -198,7 +198,7 @@ function StudentListItem({
           </div>
 
           <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-            Прогресс: {student.progressPct}% · Қысқа тест:{' '}
+            Progress: {student.progressPct}% · Mini quiz:{' '}
             {formatPercent(student.miniQuizAvgScore)}
           </p>
 
@@ -339,7 +339,7 @@ export default function TeacherStudentAnalyticsPanel({
 
               <StatusBadge tone="ai">
                 <HelpCircle size={12} />
-                Педагогикалық шолу
+                Педагогикалық snapshot
               </StatusBadge>
 
               {students.length > 0 ? (
@@ -352,7 +352,8 @@ export default function TeacherStudentAnalyticsPanel({
 
             <p className="mt-2 max-w-3xl text-xs leading-5 text-muted-foreground">
               Бұл бөлім мұғалімге курс ішіндегі нақты оқушының оқу нәтижесін көруге
-              көмектеседі. Мұнда техникалық оқиғалар емес, прогресс, тест нәтижелері және қайталау ұсыныстары қолданылады.
+              көмектеседі. Мұнда бақылау event-тері жоқ, тек progress, quiz/test
+              нәтижелері және қайталау ұсыныстары қолданылады.
             </p>
           </div>
 
@@ -477,7 +478,7 @@ export default function TeacherStudentAnalyticsPanel({
                       </div>
 
                       <StatusBadge tone={getScoreTone(selectedStudent.miniQuizAvgScore)}>
-                        Қысқа тест: {formatPercent(selectedStudent.miniQuizAvgScore)}
+                        Mini quiz: {formatPercent(selectedStudent.miniQuizAvgScore)}
                       </StatusBadge>
                     </div>
 
@@ -486,7 +487,7 @@ export default function TeacherStudentAnalyticsPanel({
                     </div>
 
                     <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                      <span className="text-muted-foreground">Курс прогресі</span>
+                      <span className="text-muted-foreground">Course progress</span>
                       <span className="text-right font-medium text-foreground">
                         {selectedStudent.completedLessons}/{selectedStudent.totalLessons} сабақ ·{' '}
                         {selectedStudent.progressPct}%
@@ -502,18 +503,18 @@ export default function TeacherStudentAnalyticsPanel({
                       tone="success"
                     />
                     <SmallMetric
-                      label="Қысқа тест талпыныстары"
+                      label="Mini quiz attempts"
                       value={formatNumber(selectedStudent.miniQuizAttempts)}
                       icon={<Target size={15} />}
                       tone="ai"
                     />
                     <SmallMetric
-                      label="Сақталған сабақтар"
+                      label="Saved lessons"
                       value={formatNumber(selectedStudent.savedLessons)}
                       icon={<Star size={15} />}
                     />
                     <SmallMetric
-                      label="Қайталау белгісі"
+                      label="Review later"
                       value={formatNumber(selectedStudent.reviewLaterItems)}
                       icon={<RotateCcw size={15} />}
                       tone="warning"
@@ -521,12 +522,12 @@ export default function TeacherStudentAnalyticsPanel({
                   </div>
 
                   {snapshotLoading ? (
-                    <LoadingState text="Оқушы оқу деректері жүктелуде..." compact />
+                    <LoadingState text="Оқушы snapshot жүктелуде..." compact />
                   ) : null}
 
                   {!snapshotLoading && snapshotError ? (
                     <ErrorState
-                      text="Оқушы оқу деректерін жүктеу мүмкін болмады."
+                      text="Оқушы snapshot-ын жүктеу мүмкін болмады."
                       action={
                         <Button
                           type="button"
@@ -625,7 +626,7 @@ export default function TeacherStudentAnalyticsPanel({
                               </div>
 
                               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                Қысқа тест нәтижелері және қайталау белгісі бойынша.
+                                Mini quiz нәтижелері және review later белгісі бойынша.
                               </p>
                             </div>
                           </div>
@@ -661,7 +662,7 @@ export default function TeacherStudentAnalyticsPanel({
 
                                     {lesson.reviewLater ? (
                                       <StatusBadge tone="warning">
-                                        Қайталау белгісі
+                                        Review later
                                       </StatusBadge>
                                     ) : null}
                                   </div>
@@ -684,7 +685,7 @@ export default function TeacherStudentAnalyticsPanel({
                             </p>
                             <p className="mt-1 text-xs leading-5 text-muted-foreground">
                               {selectedSnapshot.teacherScopeNote ||
-                                'Бұл шолу тек оқу нәтижелері мен прогресс деректеріне негізделеді. Бұл автоматты баға немесе педагогикалық үкім емес.'}
+                                'Бұл snapshot тек оқу нәтижелері мен progress деректеріне негізделеді. Бұл автоматты баға немесе педагогикалық үкім емес.'}
                             </p>
                           </div>
                         </div>
@@ -694,7 +695,7 @@ export default function TeacherStudentAnalyticsPanel({
 
                   {!snapshotLoading && !snapshotError && !selectedCourseSnapshot ? (
                     <div className="rounded-3xl border border-dashed border-border bg-muted/45 p-4 text-xs leading-5 text-muted-foreground">
-                      Бұл оқушы бойынша осы курсқа қатысты шолу әзірге толық емес.
+                      Бұл оқушы бойынша осы курсқа қатысты snapshot әзірге толық емес.
                     </div>
                   ) : null}
                 </>

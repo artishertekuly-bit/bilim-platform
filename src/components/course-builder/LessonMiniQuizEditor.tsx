@@ -331,7 +331,7 @@ export function LessonMiniQuizEditor({
                   Сабақ таңдалмаған
                 </p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Қысқа тест қосу үшін алдымен бар сабақты таңдаңыз немесе жаңа
+                  Mini quiz қосу үшін алдымен бар сабақты таңдаңыз немесе жаңа
                   сабақты сақтаңыз.
                 </p>
               </div>
@@ -340,16 +340,16 @@ export function LessonMiniQuizEditor({
         ) : (
           <>
             {miniQuizLoading ? (
-              <LoadingState text="Қысқа тест жүктелуде..." compact />
+              <LoadingState text="Mini quiz жүктелуде..." compact />
             ) : null}
 
             <EditorSection
-              title="Қысқа тест баптаулары"
+              title="Mini quiz баптаулары"
               description="Quiz атауы, өту пайызы және оқушыға көріну күйі."
               icon={<ListChecks size={17} />}
             >
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
-                <FieldBlock label="Қысқа тест атауы">
+                <FieldBlock label="Mini quiz атауы">
                   <Input
                     value={miniQuizForm.title}
                     onChange={(e) =>
@@ -425,7 +425,7 @@ export function LessonMiniQuizEditor({
                     disabled={deleteMiniQuizPending}
                   >
                     <Trash2 size={14} className="mr-1.5" />
-                    Қысқа тест өшіру
+                    Mini quiz өшіру
                   </Button>
                 ) : null}
 
@@ -436,7 +436,7 @@ export function LessonMiniQuizEditor({
                   disabled={!canSaveMiniQuiz || upsertMiniQuizPending}
                 >
                   <Save size={14} className="mr-1.5" />
-                  {upsertMiniQuizPending ? 'Сақталуда...' : 'Қысқа тест сақтау'}
+                  {upsertMiniQuizPending ? 'Сақталуда...' : 'Mini quiz сақтау'}
                 </Button>
               </div>
             </EditorSection>
@@ -597,7 +597,7 @@ export function LessonMiniQuizEditor({
 
             {!miniQuizLoading && !selectedMiniQuiz ? (
               <EmptyState
-                title="Қысқа тест әлі сақталмаған"
+                title="Mini quiz әлі сақталмаған"
                 text="Алдымен quiz баптауларын сақтаңыз. Содан кейін сұрақтарды толық басқаруға болады."
                 compact
                 tone="ai"
@@ -638,7 +638,7 @@ export function LessonMiniQuizEditor({
                 {selectedMiniQuiz.questions.length === 0 ? (
                   <EmptyState
                     title="Сұрақ жоқ"
-                    text="Қысқа тест оқушыға пайдалы болуы үшін кемінде бір сұрақ қосыңыз."
+                    text="Mini quiz оқушыға пайдалы болуы үшін кемінде бір сұрақ қосыңыз."
                     compact
                     tone="ai"
                   />

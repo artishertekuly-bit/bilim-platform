@@ -405,7 +405,7 @@ function LearningAnalyticsPanel({
         />
 
         <MiniMetric
-          label="Қысқа тест орташа"
+          label="Mini quiz орташа"
           value={formatNullablePercent(snapshot.totals.miniQuizAvgScore)}
           icon={<Brain size={14} />}
           tone="ai"
@@ -485,8 +485,8 @@ function LearningAnalyticsPanel({
 
                 <StatusBadge tone={lesson.failedAttempts > 0 ? 'warning' : 'primary'}>
                   {lesson.failedAttempts > 0
-                    ? `${lesson.failedAttempts} қате`
-                    : 'Қайталау'}
+                    ? `${lesson.failedAttempts} failed`
+                    : 'review'}
                 </StatusBadge>
               </div>
             </Link>
@@ -688,13 +688,12 @@ export default function StudentDashboard() {
           eyebrow={
             <>
               <LayoutDashboard size={13} />
-              Оқушы кабинеті
+              Оқушы dashboard
             </>
           }
           icon={<GraduationCap size={20} />}
           title={`Қош келдіңіз, ${firstName}!`}
           description={t('page.student_dashboard.greeting_subtitle')}
-          variant="dashboard"
           actions={
             <Button type="button" asChild>
               <Link
@@ -791,7 +790,7 @@ export default function StudentDashboard() {
                 tone="accent"
               />
               <QuickActionCard
-                title="ЖИ көмекші"
+                title="AI tutor"
                 text="Түсінбеген тақырып бойынша көмек алыңыз."
                 to="/ai-tutor"
                 icon={<MessageCircle size={18} />}
@@ -835,7 +834,7 @@ export default function StudentDashboard() {
                     />
                   ) : (
                     <div className="space-y-3">
-                      {data.enrolledCourses.slice(0, 4).map((course) => (
+                      {data.enrolledCourses.map((course) => (
                         <Link
                           key={course.id}
                           to={`/courses/${course.id}`}
@@ -877,6 +876,90 @@ export default function StudentDashboard() {
                   hasError={Boolean(learningSnapshotError)}
                 />
 
+                <PanelCard title="Ата-ана сұраныстары">
+                  {isIncomingParentRequestsLoading ? (
+                    <LoadingState text="Сұраныстар жүктеліп жатыр..." compact />
+                  ) : null}
+
+                  {incomingParentRequestsError ? (
+                    <ErrorState text="Ата-ана сұраныстарын жүктеу мүмкін болмады." compact />
+                  ) : null}
+
+                  {!isIncomingParentRequestsLoading &&
+                  !incomingParentRequestsError &&
+                  pendingParentRequests.length === 0 ? (
+                    <EmptyState
+                      title="Жаңа сұраныс жоқ"
+                      text="Әзірге ата-ана тарапынан жаңа сұраныстар жоқ."
+                      compact
+                    />
+                  ) : null}
+
+                  {!isIncomingParentRequestsLoading &&
+                  !incomingParentRequestsError &&
+                  pendingParentRequests.length > 0
+                    ? pendingParentRequests.map((request) => (
+                        <div
+                          key={request.id}
+                          className="rounded-3xl border border-border bg-card p-4 shadow-soft"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-sm font-semibold text-foreground">
+                                {request.parentName?.trim() || 'Ата-ана профилі'}
+                              </p>
+                              <StatusBadge tone="warning">
+                                <Users size={12} />
+                                Pending
+                              </StatusBadge>
+                            </div>
+
+                            <p className="text-[11px] text-muted-foreground">
+                              Сұраныс жіберілген уақыт:{' '}
+                              {formatDateTime(request.requestedAt)}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              Жарамдылық мерзімі: {formatDateTime(request.expiresAt)}
+                            </p>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() =>
+                                acceptParentLinkRequestMutation.mutate({
+                                  requestId: request.id,
+                                })
+                              }
+                              disabled={parentRequestPending}
+                            >
+                              {acceptParentLinkRequestMutation.isPending
+                                ? 'Қабылданып жатыр...'
+                                : 'Қабылдау'}
+                            </Button>
+
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() =>
+                                declineParentLinkRequestMutation.mutate({
+                                  requestId: request.id,
+                                })
+                              }
+                              disabled={parentRequestPending}
+                            >
+                              {declineParentLinkRequestMutation.isPending
+                                ? 'Бас тартылып жатыр...'
+                                : 'Бас тарту'}
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    : null}
+                </PanelCard>
+
                 <PanelCard
                   title={t('page.student_dashboard.recent_tests')}
                   action={
@@ -911,11 +994,17 @@ export default function StudentDashboard() {
                           className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/50 hover:shadow-soft-md"
                         >
                           <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold text-foreground">{test.title}</p>
-                            <p className="truncate text-[11px] text-muted-foreground">{test.subjectName}</p>
+                            <p className="truncate text-xs font-semibold text-foreground">
+                              {test.title}
+                            </p>
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              {test.subjectName}
+                            </p>
                           </div>
+
                           <StatusBadge tone={getScoreTone(test.score)}>
-                            {test.score ?? '—'}{test.score !== null ? '%' : ''}
+                            {test.score ?? '—'}
+                            {test.score !== null ? '%' : ''}
                           </StatusBadge>
                         </Link>
                       ))}
@@ -923,22 +1012,85 @@ export default function StudentDashboard() {
                   )}
                 </PanelCard>
 
-                <PanelCard title="ЖИ көмекші">
-                  <div className="rounded-3xl border border-ai-border bg-ai-soft/70 p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-card text-primary">
-                        <MessageCircle size={16} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-foreground">Тақырыпты түсінбей қалсаңыз, қысқа сұрақ қойыңыз.</p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">Жауапты мысалмен түсіндіру, практика беру және қатені талдау режимдері бар.</p>
-                        <Button type="button" size="sm" className="mt-3" asChild>
-                          <Link to="/ai-tutor">ЖИ көмекшіні ашу <ArrowRight size={13} /></Link>
-                        </Button>
-                      </div>
+                <PanelCard title={t('page.student_dashboard.progress_overview')}>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 p-3">
+                      <span className="text-xs text-muted-foreground">
+                        {t('page.student_dashboard.learning_pace')}
+                      </span>
+                      <span className="text-xs font-semibold text-foreground">
+                        {studyStatus}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 p-3">
+                      <span className="text-xs text-muted-foreground">
+                        {t('dashboard.best_subject')}
+                      </span>
+                      <span className="flex items-center gap-1 text-xs font-semibold text-foreground">
+                        <CheckCircle size={12} className="text-success-foreground" />
+                        {data.stats.bestSubject || t('common.not_defined_yet')}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 p-3">
+                      <span className="text-xs text-muted-foreground">
+                        {t('page.student_dashboard.attention_subject')}
+                      </span>
+                      <span className="text-xs font-semibold text-foreground">
+                        {data.stats.weakSubject || t('common.not_defined_yet')}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 p-3">
+                      <span className="text-xs text-muted-foreground">
+                        {t('dashboard.total_tests')}
+                      </span>
+                      <span className="text-xs font-semibold text-foreground">
+                        {data.stats.totalTests}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 p-3">
+                      <span className="text-xs text-muted-foreground">
+                        {t('page.student_dashboard.completed_lessons')}
+                      </span>
+                      <span className="text-xs font-semibold text-foreground">
+                        {data.stats.completedLessons} {t('course.lessons_count')}
+                      </span>
                     </div>
                   </div>
-                </PanelCard>              </div>
+                </PanelCard>
+
+                <PanelCard
+                  title={t('nav.leaderboard')}
+                  action={
+                    <Button type="button" variant="ghost" size="sm" asChild>
+                      <Link to="/leaderboard">
+                        <ArrowRight size={14} />
+                      </Link>
+                    </Button>
+                  }
+                >
+                  <Link
+                    to="/leaderboard"
+                    className="flex items-center gap-3 rounded-3xl border border-accent-muted bg-accent-soft/65 p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-card hover:shadow-soft-md"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-accent-muted bg-card text-accent-foreground shadow-inner-soft">
+                      <Trophy size={18} />
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">
+                        {data.stats.rank ? `#${data.stats.rank}` : '—'}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('page.student_dashboard.rank_label')}
+                      </p>
+                    </div>
+                  </Link>
+                </PanelCard>
+              </div>
             </div>
           </>
         ) : null}

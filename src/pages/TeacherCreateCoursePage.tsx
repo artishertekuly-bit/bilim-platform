@@ -296,13 +296,12 @@ export default function TeacherCreateCoursePage() {
           eyebrow={
             <>
               <LayoutDashboard size={13} />
-              Курс құрастыру
+              Мұғалім course builder
             </>
           }
           icon={<GraduationCap size={20} />}
           title={t('page.teacher_course_builder.title')}
           description={t('page.teacher_course_builder.subtitle')}
-          variant="workspace"
           actions={
             selectedCourse ? (
               <div className="flex flex-wrap items-center gap-2">
@@ -418,7 +417,7 @@ export default function TeacherCreateCoursePage() {
                         2. Курс баптаулары
                       </h2>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Қолжетімділік түрін, бағаны, сипаттаманы және жариялау күйін реттеңіз.
+                        Access түрі, баға, сипаттама және жариялау күйін реттеңіз.
                       </p>
                     </div>
 

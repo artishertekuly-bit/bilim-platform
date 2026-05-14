@@ -187,7 +187,7 @@ export function CourseBasicCreateCard({
         </FormSection>
 
         <FormSection
-          title="Қолжетімділік параметрлері"
+          title="Access параметрлері"
           description="Курс кімге ашық болатынын таңдаңыз. Ақылы курс таңдағанда ғана баға өрісі шығады."
           icon={<KeyRound size={17} />}
         >
@@ -335,7 +335,7 @@ export function CourseBasicCreateCard({
 
           <FieldBlock
             label={t('page.teacher_course_builder.field.video_url')}
-            hint="YouTube немесе сыртқы видео сілтемесін енгізіңіз."
+            hint="YouTube немесе сыртқы video URL енгізуге болады. URL blur кезінде normalize болады."
           >
             <Input
               value={newCourse.lessonVideo}

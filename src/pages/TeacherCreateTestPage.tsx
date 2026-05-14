@@ -34,7 +34,6 @@ import {
 } from '@/components/common/DataState';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   ArrowDown,
   ArrowUp,
@@ -231,7 +230,7 @@ function TestBuilderStepper({
       id: 'test-settings',
       number: '2',
       title: 'Параметрлер',
-      description: 'Статус, пән, тақырып және негізгі тест баптаулары.',
+      description: 'Статус, пән, тақырып және негізгі test settings.',
       icon: <Settings size={16} />,
       disabled: !hasSelectedTest,
     },
@@ -254,8 +253,8 @@ function TestBuilderStepper({
     {
       id: 'ai-import',
       number: '5',
-      title: 'ЖИ арқылы импорттау',
-      description: 'ЖИ дайындаған сұрақтарды импорттау.',
+      title: 'AI импорт',
+      description: 'AI арқылы дайындалған сұрақтарды импорттау.',
       icon: <Sparkles size={16} />,
       disabled: !hasPendingAiImport,
     },
@@ -265,7 +264,7 @@ function TestBuilderStepper({
     <Card>
       <CardContent className="pt-5">
         <div className="mb-4 flex flex-col gap-1">
-          <p className="text-sm font-semibold">Тест құрастыру қадамдары</p>
+          <p className="text-sm font-semibold">Test builder қадамдары</p>
           <p className="text-xs text-muted-foreground">
             Үлкен форманы бөлімдерге бөліп, керек жерге тез өтіңіз.
           </p>
@@ -590,7 +589,7 @@ export default function TeacherCreateTestPage() {
       toast({
         title: t('page.teacher_test_builder.toast.create_test_title'),
         description: pendingAiImport
-          ? 'Жаңа тест таңдалды. Енді ЖИ сұрақтарын осы тестке импорттай аласыз.'
+          ? 'Жаңа тест таңдалды. Енді AI сұрақтарды осы тестке импорттай аласыз.'
           : undefined,
       });
     },
@@ -805,7 +804,7 @@ export default function TeacherCreateTestPage() {
       }
 
       if (!pendingAiImport || pendingAiImport.questions.length === 0) {
-        throw new Error('Импорттайтын ЖИ сұрақтары табылмады.');
+        throw new Error('Импорттайтын AI сұрақтар табылмады.');
       }
 
       const startSortOrder =
@@ -834,10 +833,10 @@ export default function TeacherCreateTestPage() {
       resetQuestionForm();
 
       toast({
-        title: 'ЖИ сұрақтары импортталды',
+        title: 'AI сұрақтар импортталды',
         description:
           skipped > 0
-            ? `${importedCount} сұрақ импортталды, ${skipped} сұрақ импортқа кірмеді.`
+            ? `${importedCount} сұрақ импортталды, ${skipped} сұрақ import-қа кірмеді.`
             : `${importedCount} сұрақ импортталды.`,
       });
     },
@@ -895,7 +894,7 @@ export default function TeacherCreateTestPage() {
           eyebrow={
             <>
               <LayoutDashboard size={13} />
-              Мұғалім тест құрастыру
+              Мұғалім test builder
             </>
           }
           icon={<ClipboardList size={20} />}
@@ -912,7 +911,7 @@ export default function TeacherCreateTestPage() {
               <Button type="button" variant="outline" asChild>
                 <Link to="/ai-question-builder">
                   <Sparkles size={16} className="mr-2" />
-                  ЖИ арқылы сұрақ құрастыру
+                  AI сұрақ құрастыру
                 </Link>
               </Button>
             </div>
@@ -974,19 +973,19 @@ export default function TeacherCreateTestPage() {
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
                 <Sparkles size={16} className="text-primary" />
-                ЖИ дайындаған сұрақтар бар
+                AI-дан дайын сұрақтар бар
               </CardTitle>
             </CardHeader>
 
             <CardContent className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="space-y-1 text-sm">
                 <p className="font-medium">
-                  {pendingAiImport.titleSuggestion || 'ЖИ ұсынған тест жобасы'}
+                  {pendingAiImport.titleSuggestion || 'AI generated test draft'}
                 </p>
                 <p className="text-muted-foreground">
                   {pendingAiImport.questions.length} үйлесімді сұрақ дайын
                   {pendingAiImport.skippedCount > 0
-                    ? `, ${pendingAiImport.skippedCount} сұрақ импортқа кірмеді`
+                    ? `, ${pendingAiImport.skippedCount} сұрақ import-қа кірмеді`
                     : ''}
                   .
                 </p>
@@ -1007,7 +1006,7 @@ export default function TeacherCreateTestPage() {
                   onClick={() => {
                     if (
                       window.confirm(
-                        'ЖИ сұрақтарын осы тестке импорттайсыз ба? Қайталап импорттасаңыз, бірдей сұрақтар қосылуы мүмкін.'
+                        'AI сұрақтарды осы тестке импорттағыңыз келе ме? Қайталап импорттасаңыз, дубликат сұрақтар қосылуы мүмкін.'
                       )
                     ) {
                       importAiQuestionsMutation.mutate();
@@ -1075,24 +1074,22 @@ export default function TeacherCreateTestPage() {
 
                   <div className="space-y-1.5">
                     <Label>{t('page.teacher_test_builder.field.subject')}</Label>
-                    <Select
-                      value={newTest.subjectId || 'none'}
-                      onValueChange={(value) =>
-                        setNewTest((p) => ({ ...p, subjectId: value === 'none' ? '' : value }))
+                    <select
+                      value={newTest.subjectId}
+                      onChange={(e) =>
+                        setNewTest((p) => ({ ...p, subjectId: e.target.value }))
                       }
+                      className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     >
-                      <SelectTrigger className="rounded-2xl">
-                        <SelectValue placeholder={t('page.teacher_test_builder.placeholder.select_subject')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">{t('page.teacher_test_builder.placeholder.select_subject')}</SelectItem>
-                        {(subjects || []).map((subject) => (
-                          <SelectItem key={subject.id} value={subject.id}>
-                            {subject.name_kk}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <option value="">
+                        {t('page.teacher_test_builder.placeholder.select_subject')}
+                      </option>
+                      {(subjects || []).map((subject) => (
+                        <option key={subject.id} value={subject.id}>
+                          {subject.name_kk}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -1209,45 +1206,42 @@ export default function TeacherCreateTestPage() {
 
                       <div className="space-y-1.5">
                         <Label>{t('page.teacher_test_builder.field.status')}</Label>
-                        <Select
+                        <select
                           value={testEdit.status}
-                          onValueChange={(value) =>
-                            setTestEdit((p) => ({ ...p, status: value as TestStatus }))
+                          onChange={(e) =>
+                            setTestEdit((p) => ({
+                              ...p,
+                              status: e.target.value as TestStatus,
+                            }))
                           }
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                         >
-                          <SelectTrigger className="rounded-2xl">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {statuses.map((status) => (
-                              <SelectItem key={status} value={status}>
-                                {statusLabels[status]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          {statuses.map((status) => (
+                            <option key={status} value={status}>
+                              {statusLabels[status]}
+                            </option>
+                          ))}
+                        </select>
                       </div>
 
                       <div className="space-y-1.5 md:col-span-2">
                         <Label>{t('page.teacher_test_builder.field.subject')}</Label>
-                        <Select
-                          value={testEdit.subjectId || 'none'}
-                          onValueChange={(value) =>
-                            setTestEdit((p) => ({ ...p, subjectId: value === 'none' ? '' : value }))
+                        <select
+                          value={testEdit.subjectId}
+                          onChange={(e) =>
+                            setTestEdit((p) => ({ ...p, subjectId: e.target.value }))
                           }
+                          className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                         >
-                          <SelectTrigger className="rounded-2xl">
-                            <SelectValue placeholder={t('page.teacher_test_builder.placeholder.select_subject')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">{t('page.teacher_test_builder.placeholder.select_subject')}</SelectItem>
-                            {(subjects || []).map((subject) => (
-                              <SelectItem key={subject.id} value={subject.id}>
-                                {subject.name_kk}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          <option value="">
+                            {t('page.teacher_test_builder.placeholder.select_subject')}
+                          </option>
+                          {(subjects || []).map((subject) => (
+                            <option key={subject.id} value={subject.id}>
+                              {subject.name_kk}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
 
@@ -1288,7 +1282,7 @@ export default function TeacherCreateTestPage() {
                   <Card className="border-destructive/30">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-semibold text-destructive">
-                        Қауіпті әрекеттер
+                        Danger zone
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">

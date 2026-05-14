@@ -137,7 +137,7 @@ function InviteCodeCard({
             variant="outline"
             size="icon-sm"
             onClick={() => onCopyInviteCode(invite.code)}
-            aria-label="Кіру кодын көшіру"
+            aria-label="Invite code көшіру"
           >
             <Copy size={13} />
           </Button>
@@ -149,7 +149,7 @@ function InviteCodeCard({
               size="icon-sm"
               disabled={deactivatePending}
               onClick={() => onDeactivateInvite(invite.id)}
-              aria-label="Кіру кодын өшіру"
+              aria-label="Invite code өшіру"
             >
               <Trash2 size={13} />
             </Button>
@@ -193,7 +193,7 @@ export function CourseInviteCodesPanel({
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
                 <KeyRound size={16} />
-                Кіру кодтары
+                Invite codes
               </CardTitle>
 
               <StatusBadge tone="secondary">
@@ -207,7 +207,7 @@ export function CourseInviteCodesPanel({
             </div>
 
             <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Кіру коды оқушыға курсқа қолжетімділік береді және автоматты түрде курс
+              Invite code оқушыға course access береді және автоматты түрде course
               enrollment жасайды. Бұл әсіресе жабық курс үшін керек.
             </p>
           </div>
@@ -227,7 +227,7 @@ export function CourseInviteCodesPanel({
                   Курс жабық режимде емес
                 </p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Кіру коды толық қолданылуы үшін курс түрін “Жабық курс” етіп
+                  Invite code толық қолданылуы үшін курс түрін “Жабық курс” етіп
                   қойыңыз. Ашық немесе ақылы курста access басқа логикамен
                   басқарылады.
                 </p>
@@ -298,18 +298,18 @@ export function CourseInviteCodesPanel({
               disabled={createInvitePending}
             >
               <KeyRound size={14} className="mr-1.5" />
-              {createInvitePending ? 'Жасалуда...' : 'Кіру кодын жасау'}
+              {createInvitePending ? 'Жасалуда...' : 'Invite code жасау'}
             </Button>
           </div>
         </section>
 
         {courseInvitesLoading ? (
-          <LoadingState text="Кіру кодтары жүктелуде..." compact size="sm" />
+          <LoadingState text="Invite codes жүктелуде..." compact size="sm" />
         ) : null}
 
         {!courseInvitesLoading && courseInvites.length === 0 ? (
           <EmptyState
-            title="Кіру коды жоқ"
+            title="Invite code жоқ"
             text="Жабық курсқа оқушы шақыру үшін invite code жасаңыз."
             compact
           />
