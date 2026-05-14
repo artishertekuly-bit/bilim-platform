@@ -1,7 +1,15 @@
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
-  Eye,
-  Image,
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Image as ImageIcon,
   KeyRound,
   Save,
   Settings,
@@ -18,6 +26,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { CourseAccessType, CourseVisibility, SubjectRow } from '@/lib/app-data-types';
 import t from '@/lib/i18n';
+import { normalizeMediaUrl } from '@/lib/media-url';
 import {
   getAccessTypeLabel,
   resolveVisibilityFromAccessType,
@@ -53,30 +62,29 @@ function getStatusLabel(status: CourseStatus) {
 
 function FormSection({
   title,
-  description,
   icon,
   children,
+  aside,
 }: {
   title: string;
-  description?: string;
   icon: ReactNode;
   children: ReactNode;
+  aside?: ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-border bg-surface-soft/55 p-4 shadow-soft">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-          {icon}
+    <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+            {icon}
+          </div>
+
+          <p className="min-w-0 text-sm font-semibold text-foreground">
+            {title}
+          </p>
         </div>
 
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          {description ? (
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {description}
-            </p>
-          ) : null}
-        </div>
+        {aside ? <div className="shrink-0">{aside}</div> : null}
       </div>
 
       <div className="space-y-4">{children}</div>
@@ -88,14 +96,19 @@ function FieldBlock({
   label,
   children,
   hint,
+  required,
 }: {
   label: ReactNode;
   children: ReactNode;
   hint?: string;
+  required?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-semibold text-foreground">{label}</Label>
+      <Label className="text-xs font-semibold text-foreground">
+        {label}
+        {required ? <span className="ml-1 text-destructive">*</span> : null}
+      </Label>
       {children}
       {hint ? (
         <p className="text-[11px] leading-5 text-muted-foreground">{hint}</p>
@@ -119,50 +132,62 @@ export function CourseSettingsCard({
   updating: boolean;
   onSaveCourse: () => void;
 }) {
+  const [thumbnailError, setThumbnailError] = useState(false);
+
   const pricingVisible = shouldShowCoursePricing(courseEdit.accessType);
+  const thumbnailUrl = courseEdit.thumbnailUrl.trim();
+
+  const basicsComplete = useMemo(
+    () =>
+      courseEdit.title.trim().length > 0 &&
+      courseEdit.description.trim().length > 0 &&
+      courseEdit.subjectId.trim().length > 0,
+    [courseEdit.description, courseEdit.subjectId, courseEdit.title]
+  );
+
+  useEffect(() => {
+    setThumbnailError(false);
+  }, [thumbnailUrl]);
 
   return (
     <Card id="course-settings" className="scroll-mt-24 overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base font-semibold">
-                Курс параметрлері
-              </CardTitle>
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-base font-semibold">
+              Курс баптаулары
+            </CardTitle>
 
-              <StatusBadge tone={getStatusTone(courseEdit.status)}>
-                {getStatusLabel(courseEdit.status)}
-              </StatusBadge>
-            </div>
+            <StatusBadge tone={getStatusTone(courseEdit.status)}>
+              {getStatusLabel(courseEdit.status)}
+            </StatusBadge>
 
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Курс атауын, сипаттамасын, access түрін, баға параметрін және
-              оқушы қабылдау күйін реттеңіз.
-            </p>
+            <StatusBadge tone={basicsComplete ? 'success' : 'muted'}>
+              {basicsComplete ? (
+                <CheckCircle2 size={12} />
+              ) : (
+                <AlertCircle size={12} />
+              )}
+              {basicsComplete ? 'Дайын' : 'Толық емес'}
+            </StatusBadge>
           </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onSaveCourse}
-            disabled={updating}
-          >
-            <Save size={15} className="mr-2" />
-            {updating
-              ? t('page.teacher_course_builder.action.saving')
-              : t('page.teacher_course_builder.action.save_course')}
-          </Button>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-5 p-4 sm:p-5">
         <FormSection
           title="Негізгі ақпарат"
-          description="Бұл мәліметтер курс каталогында және курс бетінде көрінеді."
           icon={<Settings size={17} />}
+          aside={
+            <StatusBadge tone={basicsComplete ? 'success' : 'muted'}>
+              {basicsComplete ? 'Толды' : 'Міндетті'}
+            </StatusBadge>
+          }
         >
-          <FieldBlock label={t('page.teacher_course_builder.field.course_title')}>
+          <FieldBlock
+            label={t('page.teacher_course_builder.field.course_title')}
+            required
+          >
             <Input
               value={courseEdit.title}
               onChange={(event) =>
@@ -171,10 +196,14 @@ export function CourseSettingsCard({
                   title: event.target.value,
                 }))
               }
+              placeholder={t('page.teacher_course_builder.placeholder.course_title')}
             />
           </FieldBlock>
 
-          <FieldBlock label={t('page.teacher_course_builder.field.description')}>
+          <FieldBlock
+            label={t('page.teacher_course_builder.field.description')}
+            required
+          >
             <Textarea
               rows={4}
               value={courseEdit.description}
@@ -184,10 +213,14 @@ export function CourseSettingsCard({
                   description: event.target.value,
                 }))
               }
+              placeholder={t('page.teacher_course_builder.placeholder.description')}
             />
           </FieldBlock>
 
-          <FieldBlock label={t('page.teacher_course_builder.field.subject')}>
+          <FieldBlock
+            label={t('page.teacher_course_builder.field.subject')}
+            required
+          >
             <select
               value={courseEdit.subjectId}
               onChange={(event) =>
@@ -196,7 +229,7 @@ export function CourseSettingsCard({
                   subjectId: event.target.value,
                 }))
               }
-              className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground shadow-inner-soft outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
+              className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
             >
               <option value="">
                 {t('page.teacher_course_builder.placeholder.select_subject')}
@@ -209,10 +242,7 @@ export function CourseSettingsCard({
             </select>
           </FieldBlock>
 
-          <FieldBlock
-            label={t('page.teacher_course_builder.field.thumbnail')}
-            hint="Thumbnail URL курс карточкасын визуалды тануға көмектеседі. Бос қалса, default soft icon көрсетіледі."
-          >
+          <FieldBlock label={t('page.teacher_course_builder.field.thumbnail')}>
             <Input
               value={courseEdit.thumbnailUrl}
               onChange={(event) =>
@@ -221,37 +251,68 @@ export function CourseSettingsCard({
                   thumbnailUrl: event.target.value,
                 }))
               }
+              onBlur={(event) =>
+                setCourseEdit((previous) => ({
+                  ...previous,
+                  thumbnailUrl: normalizeMediaUrl(event.target.value),
+                }))
+              }
               placeholder="https://..."
             />
           </FieldBlock>
 
-          {courseEdit.thumbnailUrl ? (
-            <div className="rounded-3xl border border-border bg-card/70 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                <Image size={13} />
-                Thumbnail preview
+          {thumbnailUrl || thumbnailError ? (
+            <div className="rounded-3xl border border-border bg-muted/25 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <ImageIcon size={13} />
+                  Сурет
+                </div>
+
+                {thumbnailError ? (
+                  <StatusBadge tone="muted">
+                    <AlertCircle size={12} />
+                    Қате URL
+                  </StatusBadge>
+                ) : (
+                  <StatusBadge tone="success">
+                    <CheckCircle2 size={12} />
+                    Preview
+                  </StatusBadge>
+                )}
               </div>
-              <div className="overflow-hidden rounded-2xl border border-border bg-muted">
-                <img
-                  src={courseEdit.thumbnailUrl}
-                  alt="Course thumbnail preview"
-                  className="aspect-video w-full object-cover"
-                  loading="lazy"
-                  onError={(event) => {
-                    event.currentTarget.style.display = 'none';
-                  }}
-                />
-              </div>
+
+              {thumbnailUrl && !thumbnailError ? (
+                <div className="overflow-hidden rounded-2xl border border-border bg-card">
+                  <img
+                    src={thumbnailUrl}
+                    alt="Курс суреті"
+                    className="aspect-video w-full object-cover"
+                    loading="lazy"
+                    onError={() => setThumbnailError(true)}
+                  />
+                </div>
+              ) : (
+                <div className="flex aspect-video w-full items-center justify-center rounded-2xl border border-dashed border-border bg-card px-4 text-center">
+                  <p className="text-xs font-semibold text-muted-foreground">
+                    Сурет жүктелмеді
+                  </p>
+                </div>
+              )}
             </div>
           ) : null}
         </FormSection>
 
         <FormSection
-          title="Access және монетизация"
-          description="Курс ашық, жабық немесе ақылы режимде жұмыс істейді. Ақылы курс таңдағанда ғана баға өрісі көрсетіледі."
+          title="Қолжетімділік және баға"
           icon={<KeyRound size={17} />}
+          aside={
+            <StatusBadge tone={pricingVisible ? 'important' : 'primary'}>
+              {getAccessTypeLabel(courseEdit.accessType)}
+            </StatusBadge>
+          }
         >
-          <FieldBlock label="Курс түрі">
+          <FieldBlock label="Курсқа кіру түрі">
             <CourseAccessTypeCards
               value={courseEdit.accessType}
               onChange={(nextAccessType) =>
@@ -279,16 +340,11 @@ export function CourseSettingsCard({
                   Ақылы курс
                 </StatusBadge>
 
-                <p className="text-[11px] leading-5 text-muted-foreground">
-                  Қазіргі баға:{' '}
-                  <span className="font-semibold text-foreground">
-                    {selectedCoursePrice}
-                  </span>
-                </p>
+                <StatusBadge tone="muted">{selectedCoursePrice}</StatusBadge>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <FieldBlock label="Баға">
+                <FieldBlock label="Баға" required>
                   <Input
                     type="number"
                     min={0}
@@ -299,6 +355,7 @@ export function CourseSettingsCard({
                         price: event.target.value,
                       }))
                     }
+                    placeholder="5000"
                   />
                 </FieldBlock>
 
@@ -312,24 +369,17 @@ export function CourseSettingsCard({
                       }))
                     }
                     maxLength={3}
+                    placeholder="KZT"
                   />
                 </FieldBlock>
               </div>
             </div>
-          ) : (
-            <div className="rounded-2xl border border-border bg-card/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
-              Бұл курс түрінде баға өрісі қолданылмайды. Қазіргі режим:{' '}
-              <span className="font-semibold text-foreground">
-                {getAccessTypeLabel(courseEdit.accessType)}
-              </span>
-              .
-            </div>
-          )}
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
             <FieldBlock
               label="Оқушы лимиті"
-              hint="Бос қалдырсаңыз, оқушы санына шектеу қойылмайды."
+              hint="Бос қалса — шектеусіз."
             >
               <Input
                 type="number"
@@ -345,10 +395,7 @@ export function CourseSettingsCard({
               />
             </FieldBlock>
 
-            <FieldBlock
-              label="Оқушы қабылдау"
-              hint="Жабық болса, оқушы жаңа жазыла алмайды, бірақ бұрынғы access логикасы бөлек сақталады."
-            >
+            <FieldBlock label="Оқушы қабылдау">
               <button
                 type="button"
                 onClick={() =>
@@ -357,7 +404,8 @@ export function CourseSettingsCard({
                     enrollmentOpen: !previous.enrollmentOpen,
                   }))
                 }
-                className={`flex h-11 w-full items-center justify-between rounded-2xl border px-4 text-left text-sm transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] ${
+                aria-pressed={courseEdit.enrollmentOpen}
+                className={`flex h-11 w-full items-center justify-between rounded-2xl border px-4 text-left text-sm transition-all duration-200 ease-soft active:scale-[0.99] ${
                   courseEdit.enrollmentOpen
                     ? 'border-success-muted bg-success-soft text-success-foreground'
                     : 'border-border bg-muted text-muted-foreground'
@@ -382,47 +430,13 @@ export function CourseSettingsCard({
               </button>
             </FieldBlock>
           </div>
-
-          <div className="rounded-3xl border border-border bg-card/75 p-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Eye size={13} />
-                Қазіргі режим
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge tone={pricingVisible ? 'important' : 'primary'}>
-                  {getAccessTypeLabel(courseEdit.accessType)}
-                </StatusBadge>
-
-                {pricingVisible ? (
-                  <StatusBadge tone="muted">
-                    {selectedCoursePrice}
-                  </StatusBadge>
-                ) : null}
-
-                <StatusBadge tone={courseEdit.enrollmentOpen ? 'success' : 'muted'}>
-                  {courseEdit.enrollmentOpen ? 'Enrollment open' : 'Enrollment closed'}
-                </StatusBadge>
-              </div>
-            </div>
-          </div>
         </FormSection>
 
-        <div className="flex flex-col gap-3 rounded-3xl border border-primary-muted bg-primary-soft/70 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-foreground">
-              Өзгерістерді сақтау
-            </p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Курс параметрлері тек “Сақтау” батырмасын басқаннан кейін жаңарады.
-            </p>
-          </div>
-
+        <div className="flex justify-end rounded-3xl border border-primary-muted bg-primary-soft/70 p-4">
           <Button
             type="button"
             onClick={onSaveCourse}
-            disabled={updating}
+            disabled={updating || !basicsComplete}
             className="w-full sm:w-auto"
           >
             <Save size={15} className="mr-2" />

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -49,8 +50,8 @@ function CourseMetaPill({
   children,
   emphasized = false,
 }: {
-  icon: React.ReactNode;
-  children: React.ReactNode;
+  icon: ReactNode;
+  children: ReactNode;
   emphasized?: boolean;
 }) {
   return (
@@ -80,17 +81,11 @@ export function CourseManageList({
 }) {
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-base font-semibold">
-              {t('page.teacher_course_builder.section.manage_courses')}
-            </CardTitle>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Бұрын құрылған курсты таңдап, параметрлерін, модульдерін және
-              сабақтарын өңдеңіз.
-            </p>
-          </div>
+          <CardTitle className="text-base font-semibold">
+            {t('page.teacher_course_builder.section.manage_courses')}
+          </CardTitle>
 
           <StatusBadge tone="muted">
             <BookOpen size={12} />
@@ -123,20 +118,20 @@ export function CourseManageList({
                   type="button"
                   onClick={() => onSelectCourse(course.id)}
                   aria-pressed={selected}
-                  className={`group w-full rounded-3xl border p-4 text-left transition-all duration-200 ease-soft active:translate-y-0 active:scale-[0.99] ${
+                  className={`w-full rounded-3xl border p-4 text-left transition-colors active:scale-[0.99] ${
                     selected
-                      ? 'border-primary-muted bg-primary-soft shadow-soft-md'
-                      : 'border-border bg-card hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/60 hover:shadow-soft-md'
+                      ? 'border-primary-muted bg-primary-soft'
+                      : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start gap-3">
                         <div
-                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
                             selected
                               ? 'border-primary-muted bg-card text-primary'
-                              : 'border-border bg-muted/70 text-muted-foreground group-hover:border-primary-muted group-hover:bg-card group-hover:text-primary'
+                              : 'border-border bg-muted/70 text-muted-foreground'
                           }`}
                         >
                           <BookOpen size={16} />
@@ -184,7 +179,7 @@ export function CourseManageList({
                     </div>
 
                     <span
-                      className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-all duration-200 ease-soft ${
+                      className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
                         selected
                           ? 'border-primary bg-primary'
                           : 'border-muted-foreground/30 bg-card'

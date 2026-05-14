@@ -1,4 +1,4 @@
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import {
   CalendarClock,
   Copy,
@@ -7,6 +7,7 @@ import {
   Plus,
   Trash2,
   Users,
+  X,
 } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
@@ -29,19 +30,14 @@ type InviteFormState = {
 function FieldBlock({
   label,
   children,
-  hint,
 }: {
   label: ReactNode;
   children: ReactNode;
-  hint?: string;
 }) {
   return (
     <div className="space-y-1.5">
       <Label className="text-xs font-semibold text-foreground">{label}</Label>
       {children}
-      {hint ? (
-        <p className="text-[11px] leading-5 text-muted-foreground">{hint}</p>
-      ) : null}
     </div>
   );
 }
@@ -57,14 +53,55 @@ function isInviteCourse(accessType: CourseAccessType) {
   );
 }
 
+function InlineDeactivateConfirm({
+  disabled,
+  onConfirm,
+  onCancel,
+}: {
+  disabled: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
+      <p className="text-xs font-semibold text-foreground">
+        Шақыру коды өшірілсін бе?
+      </p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={disabled}
+          onClick={onConfirm}
+        >
+          <Trash2 size={13} className="mr-2" />
+          Өшіру
+        </Button>
+
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          Болдырмау
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function InviteCodeCard({
   invite,
   deactivatePending,
+  deactivateConfirmOpen,
+  onToggleDeactivateConfirm,
+  onCancelDeactivateConfirm,
   onCopyInviteCode,
   onDeactivateInvite,
 }: {
   invite: CourseInviteRow;
   deactivatePending: boolean;
+  deactivateConfirmOpen: boolean;
+  onToggleDeactivateConfirm: () => void;
+  onCancelDeactivateConfirm: () => void;
   onCopyInviteCode: (code: string) => void;
   onDeactivateInvite: (inviteId: string) => void;
 }) {
@@ -78,19 +115,24 @@ function InviteCodeCard({
   const statusTone = !active ? 'muted' : exhausted ? 'warning' : 'success';
   const statusLabel = !active ? 'Өшірілген' : exhausted ? 'Лимит бітті' : 'Белсенді';
 
+  const handleDeactivate = () => {
+    onDeactivateInvite(invite.id);
+    onCancelDeactivateConfirm();
+  };
+
   return (
     <div
-      className={`rounded-3xl border p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
+      className={`rounded-3xl border p-4 transition-colors ${
         active
-          ? 'border-border bg-card hover:border-primary-muted'
-          : 'border-border bg-muted/55 opacity-80'
+          ? 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/25'
+          : 'border-border bg-muted/45 opacity-80'
       }`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
             <div
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
                 active
                   ? 'border-primary-muted bg-primary-soft text-primary'
                   : 'border-border bg-card text-muted-foreground'
@@ -101,7 +143,7 @@ function InviteCodeCard({
 
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="rounded-2xl border border-border bg-surface-soft/70 px-3 py-1.5 font-mono text-sm font-semibold tracking-wide text-foreground">
+                <p className="rounded-2xl border border-border bg-muted/40 px-3 py-1.5 font-mono text-sm font-semibold tracking-wide text-foreground">
                   {invite.code}
                 </p>
 
@@ -111,21 +153,21 @@ function InviteCodeCard({
               <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
                   <Users size={11} />
-                  Қолданылды: {invite.used_count}
-                  {invite.max_uses === null
-                    ? ' / шектеусіз'
-                    : ` / ${invite.max_uses}`}
+                  {invite.used_count}
+                  {invite.max_uses === null ? ' / ∞' : ` / ${invite.max_uses}`}
                 </span>
 
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
                   <Users size={11} />
-                  Қалғаны: {remaining === null ? 'шектеусіз' : remaining}
+                  {remaining === null ? '∞' : remaining}
                 </span>
 
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1 sm:col-span-2">
-                  <CalendarClock size={11} />
-                  Мерзімі: {formatDateTime(invite.expires_at)}
-                </span>
+                {invite.expires_at ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1 sm:col-span-2">
+                    <CalendarClock size={11} />
+                    {formatDateTime(invite.expires_at)}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>
@@ -137,7 +179,7 @@ function InviteCodeCard({
             variant="outline"
             size="icon-sm"
             onClick={() => onCopyInviteCode(invite.code)}
-            aria-label="Invite code көшіру"
+            aria-label="Шақыру кодын көшіру"
           >
             <Copy size={13} />
           </Button>
@@ -145,17 +187,27 @@ function InviteCodeCard({
           {active ? (
             <Button
               type="button"
-              variant="destructive"
+              variant={deactivateConfirmOpen ? 'outline' : 'destructive'}
               size="icon-sm"
               disabled={deactivatePending}
-              onClick={() => onDeactivateInvite(invite.id)}
-              aria-label="Invite code өшіру"
+              onClick={onToggleDeactivateConfirm}
+              aria-label="Шақыру кодын өшіру"
             >
-              <Trash2 size={13} />
+              {deactivateConfirmOpen ? <X size={13} /> : <Trash2 size={13} />}
             </Button>
           ) : null}
         </div>
       </div>
+
+      {deactivateConfirmOpen ? (
+        <div className="mt-3">
+          <InlineDeactivateConfirm
+            disabled={deactivatePending}
+            onConfirm={handleDeactivate}
+            onCancel={onCancelDeactivateConfirm}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -183,33 +235,28 @@ export function CourseInviteCodesPanel({
   onDeactivateInvite: (inviteId: string) => void;
   onCopyInviteCode: (code: string) => void;
 }) {
+  const [deactivateConfirmId, setDeactivateConfirmId] = useState<string | null>(null);
+
   const inviteCourse = isInviteCourse(accessType);
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <KeyRound size={16} />
-                Invite codes
-              </CardTitle>
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <KeyRound size={16} />
+              Шақыру кодтары
+            </CardTitle>
 
-              <StatusBadge tone="secondary">
-                <KeyRound size={12} />
-                {courseInvites.length} code
-              </StatusBadge>
+            <StatusBadge tone="secondary">
+              <KeyRound size={12} />
+              {courseInvites.length}
+            </StatusBadge>
 
-              <StatusBadge tone={inviteCourse ? 'primary' : 'warning'}>
-                {inviteCourse ? 'Жабық курс режимі' : 'Жабық курс емес'}
-              </StatusBadge>
-            </div>
-
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Invite code оқушыға course access береді және автоматты түрде course
-              enrollment жасайды. Бұл әсіресе жабық курс үшін керек.
-            </p>
+            <StatusBadge tone={inviteCourse ? 'primary' : 'warning'}>
+              {inviteCourse ? 'Жабық режим' : 'Қосымша'}
+            </StatusBadge>
           </div>
         </div>
       </CardHeader>
@@ -217,47 +264,33 @@ export function CourseInviteCodesPanel({
       <CardContent className="space-y-5 p-4 sm:p-5">
         {!inviteCourse ? (
           <div className="rounded-3xl border border-warning-muted bg-warning-soft/70 p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-warning-muted bg-card text-warning-foreground shadow-inner-soft">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-warning-muted bg-card text-warning-foreground">
                 <Lock size={17} />
               </div>
 
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  Курс жабық режимде емес
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Invite code толық қолданылуы үшін курс түрін “Жабық курс” етіп
-                  қойыңыз. Ашық немесе ақылы курста access басқа логикамен
-                  басқарылады.
-                </p>
-              </div>
+              <p className="text-sm font-semibold text-foreground">
+                Курс жабық режимде емес
+              </p>
             </div>
           </div>
         ) : null}
 
-        <section className="rounded-3xl border border-border bg-surface-soft/55 p-4 shadow-soft">
-          <div className="mb-4 flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-              <Plus size={17} />
-            </div>
+        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+                <Plus size={17} />
+              </div>
 
-            <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">
-                Жаңа invite code жасау
-              </p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Қолдану лимиті мен мерзімін көрсетіңіз. Бос қалдырылған лимит
-                шектеусіз деп қабылданады.
+                Жаңа код
               </p>
             </div>
           </div>
 
           <div className="space-y-4">
-            <FieldBlock
-              label="Қолдану лимиті"
-              hint="Мысалы: 30. Бос қалса — шектеусіз."
-            >
+            <FieldBlock label="Қолдану лимиті">
               <Input
                 type="number"
                 min={1}
@@ -268,14 +301,11 @@ export function CourseInviteCodesPanel({
                     maxUses: event.target.value,
                   }))
                 }
-                placeholder="Бос болса — шектеусіз"
+                placeholder="Шектеусіз"
               />
             </FieldBlock>
 
-            <FieldBlock
-              label="Мерзімі"
-              hint="Бос қалдырсаңыз, invite code мерзімсіз болуы мүмкін."
-            >
+            <FieldBlock label="Мерзімі">
               <Input
                 type="datetime-local"
                 value={inviteForm.expiresAt}
@@ -298,34 +328,29 @@ export function CourseInviteCodesPanel({
               disabled={createInvitePending}
             >
               <KeyRound size={14} className="mr-1.5" />
-              {createInvitePending ? 'Жасалуда...' : 'Invite code жасау'}
+              {createInvitePending ? 'Жасалуда...' : 'Код жасау'}
             </Button>
           </div>
         </section>
 
         {courseInvitesLoading ? (
-          <LoadingState text="Invite codes жүктелуде..." compact size="sm" />
+          <LoadingState text="Жүктелуде..." compact size="sm" />
         ) : null}
 
         {!courseInvitesLoading && courseInvites.length === 0 ? (
           <EmptyState
-            title="Invite code жоқ"
-            text="Жабық курсқа оқушы шақыру үшін invite code жасаңыз."
+            title="Код жоқ"
+            text="Шақыру кодын жасаңыз."
             compact
           />
         ) : null}
 
         {!courseInvitesLoading && courseInvites.length > 0 ? (
           <section className="space-y-3">
-            <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-surface-soft/60 px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  Құрылған invite codes
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Code көшіріңіз немесе белсенді code-ты өшіріңіз.
-                </p>
-              </div>
+            <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">
+                Құрылған кодтар
+              </p>
 
               <StatusBadge tone="muted">{courseInvites.length}</StatusBadge>
             </div>
@@ -336,6 +361,13 @@ export function CourseInviteCodesPanel({
                   key={invite.id}
                   invite={invite}
                   deactivatePending={deactivateInvitePending}
+                  deactivateConfirmOpen={deactivateConfirmId === invite.id}
+                  onToggleDeactivateConfirm={() =>
+                    setDeactivateConfirmId((current) =>
+                      current === invite.id ? null : invite.id
+                    )
+                  }
+                  onCancelDeactivateConfirm={() => setDeactivateConfirmId(null)}
                   onCopyInviteCode={onCopyInviteCode}
                   onDeactivateInvite={onDeactivateInvite}
                 />

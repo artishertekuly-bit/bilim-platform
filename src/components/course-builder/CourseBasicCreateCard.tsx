@@ -1,10 +1,17 @@
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import {
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react';
 import {
   BookOpen,
+  CheckCircle2,
+  ChevronDown,
   FileText,
   KeyRound,
   Plus,
-  Sparkles,
+  Tag,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -41,30 +48,29 @@ type NewCourseForm = {
 
 function FormSection({
   title,
-  description,
   icon,
   children,
+  aside,
 }: {
   title: string;
-  description?: string;
   icon: ReactNode;
   children: ReactNode;
+  aside?: ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-border bg-surface-soft/55 p-4 shadow-soft">
-      <div className="mb-4 flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-          {icon}
+    <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+            {icon}
+          </div>
+
+          <p className="min-w-0 text-sm font-semibold text-foreground">
+            {title}
+          </p>
         </div>
 
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          {description ? (
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {description}
-            </p>
-          ) : null}
-        </div>
+        {aside ? <div className="shrink-0">{aside}</div> : null}
       </div>
 
       <div className="space-y-4">{children}</div>
@@ -75,19 +81,19 @@ function FormSection({
 function FieldBlock({
   label,
   children,
-  hint,
+  required,
 }: {
   label: ReactNode;
   children: ReactNode;
-  hint?: string;
+  required?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-semibold text-foreground">{label}</Label>
+      <Label className="text-xs font-semibold text-foreground">
+        {label}
+        {required ? <span className="ml-1 text-destructive">*</span> : null}
+      </Label>
       {children}
-      {hint ? (
-        <p className="text-[11px] leading-5 text-muted-foreground">{hint}</p>
-      ) : null}
     </div>
   );
 }
@@ -107,28 +113,47 @@ export function CourseBasicCreateCard({
   creating: boolean;
   onCreateCourse: () => void;
 }) {
+  const [initialStructureOpen, setInitialStructureOpen] = useState(false);
+
   const pricingVisible = shouldShowCoursePricing(newCourse.accessType);
+
+  const basicsComplete =
+    newCourse.title.trim().length > 0 &&
+    newCourse.description.trim().length > 0 &&
+    newCourse.subjectId.trim().length > 0;
+
+  const initialStructureComplete =
+    newCourse.moduleTitle.trim().length > 0 &&
+    newCourse.lessonTitle.trim().length > 0;
+
+  const createButtonDisabled = creating || !basicsComplete;
+
+  const handleCreateClick = () => {
+    if (!canCreateCourse) {
+      setInitialStructureOpen(true);
+      return;
+    }
+
+    onCreateCourse();
+  };
 
   return (
     <Card id="new-course" className="scroll-mt-24 overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base font-semibold">
-                {t('page.teacher_course_builder.section.new_course')}
-              </CardTitle>
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-base font-semibold">
+              {t('page.teacher_course_builder.section.new_course')}
+            </CardTitle>
 
-              <StatusBadge tone="primary">
-                <Plus size={12} />
-                Жаңа курс
-              </StatusBadge>
-            </div>
+            <StatusBadge tone="primary">
+              <Plus size={12} />
+              Жаңа курс
+            </StatusBadge>
 
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Курстың негізгі мәліметін енгізіп, алғашқы модуль мен кіріспе
-              сабақты бірден құрыңыз.
-            </p>
+            <StatusBadge tone={canCreateCourse ? 'success' : 'muted'}>
+              {canCreateCourse ? 'Дайын' : 'Толық емес'}
+            </StatusBadge>
           </div>
         </div>
       </CardHeader>
@@ -136,10 +161,17 @@ export function CourseBasicCreateCard({
       <CardContent className="space-y-5 p-4 sm:p-5">
         <FormSection
           title="Негізгі ақпарат"
-          description="Курс атауы, сипаттамасы және пәні. Бұл мәліметтер каталогта көрінеді."
           icon={<BookOpen size={17} />}
+          aside={
+            <StatusBadge tone={basicsComplete ? 'success' : 'muted'}>
+              {basicsComplete ? 'Толды' : 'Міндетті'}
+            </StatusBadge>
+          }
         >
-          <FieldBlock label={t('page.teacher_course_builder.field.course_title')}>
+          <FieldBlock
+            label={t('page.teacher_course_builder.field.course_title')}
+            required
+          >
             <Input
               value={newCourse.title}
               onChange={(event) =>
@@ -149,7 +181,10 @@ export function CourseBasicCreateCard({
             />
           </FieldBlock>
 
-          <FieldBlock label={t('page.teacher_course_builder.field.description')}>
+          <FieldBlock
+            label={t('page.teacher_course_builder.field.description')}
+            required
+          >
             <Textarea
               rows={4}
               value={newCourse.description}
@@ -163,7 +198,10 @@ export function CourseBasicCreateCard({
             />
           </FieldBlock>
 
-          <FieldBlock label={t('page.teacher_course_builder.field.subject')}>
+          <FieldBlock
+            label={t('page.teacher_course_builder.field.subject')}
+            required
+          >
             <select
               value={newCourse.subjectId}
               onChange={(event) =>
@@ -172,7 +210,7 @@ export function CourseBasicCreateCard({
                   subjectId: event.target.value,
                 }))
               }
-              className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground shadow-inner-soft outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
+              className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
             >
               <option value="">
                 {t('page.teacher_course_builder.placeholder.select_subject')}
@@ -187,11 +225,10 @@ export function CourseBasicCreateCard({
         </FormSection>
 
         <FormSection
-          title="Access параметрлері"
-          description="Курс кімге ашық болатынын таңдаңыз. Ақылы курс таңдағанда ғана баға өрісі шығады."
+          title="Қолжетімділік"
           icon={<KeyRound size={17} />}
         >
-          <FieldBlock label="Курс түрі">
+          <FieldBlock label="Курсқа кіру түрі">
             <CourseAccessTypeCards
               value={newCourse.accessType}
               onChange={(nextAccessType) =>
@@ -213,18 +250,15 @@ export function CourseBasicCreateCard({
 
           {pricingVisible ? (
             <div className="rounded-3xl border border-accent-muted bg-accent-soft/70 p-3">
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-3">
                 <StatusBadge tone="important">
-                  <KeyRound size={12} />
+                  <Tag size={12} />
                   Ақылы курс
                 </StatusBadge>
-                <p className="text-[11px] text-muted-foreground">
-                  Баға мен валюта тек ақылы курс үшін қолданылады.
-                </p>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <FieldBlock label="Баға">
+                <FieldBlock label="Баға" required>
                   <Input
                     type="number"
                     min={0}
@@ -235,6 +269,7 @@ export function CourseBasicCreateCard({
                         price: event.target.value,
                       }))
                     }
+                    placeholder="5000"
                   />
                 </FieldBlock>
 
@@ -248,21 +283,14 @@ export function CourseBasicCreateCard({
                       }))
                     }
                     maxLength={3}
+                    placeholder="KZT"
                   />
                 </FieldBlock>
               </div>
             </div>
-          ) : (
-            <div className="rounded-2xl border border-border bg-card/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
-              Бұл курс түрінде баға өрісі қолданылмайды. Каталогта курс тегін
-              немесе invite арқылы көрсетіледі.
-            </div>
-          )}
+          ) : null}
 
-          <FieldBlock
-            label="Оқушы лимиті"
-            hint="Бос қалдырсаңыз, курсқа оқушы саны бойынша шектеу қойылмайды."
-          >
+          <FieldBlock label="Оқушы лимиті">
             <Input
               type="number"
               min={1}
@@ -273,118 +301,144 @@ export function CourseBasicCreateCard({
                   maxStudents: event.target.value,
                 }))
               }
-              placeholder="Бос қалса — шектеусіз"
+              placeholder="Шектеусіз"
             />
           </FieldBlock>
         </FormSection>
 
-        <FormSection
-          title="Алғашқы құрылым"
-          description="Курс құрылғанда бір бастапқы модуль және кіріспе сабақ бірге жасалады."
-          icon={<FileText size={17} />}
-        >
-          <FieldBlock label={t('page.teacher_course_builder.field.initial_module')}>
-            <Input
-              value={newCourse.moduleTitle}
-              onChange={(event) =>
-                setNewCourse((previous) => ({
-                  ...previous,
-                  moduleTitle: event.target.value,
-                }))
-              }
-            />
-          </FieldBlock>
-
-          <FieldBlock label={t('page.teacher_course_builder.field.intro_lesson')}>
-            <Input
-              value={newCourse.lessonTitle}
-              onChange={(event) =>
-                setNewCourse((previous) => ({
-                  ...previous,
-                  lessonTitle: event.target.value,
-                }))
-              }
-            />
-          </FieldBlock>
-
-          <FieldBlock label={t('page.teacher_course_builder.field.theory')}>
-            <Textarea
-              rows={4}
-              value={newCourse.lessonBody}
-              onChange={(event) =>
-                setNewCourse((previous) => ({
-                  ...previous,
-                  lessonBody: event.target.value,
-                }))
-              }
-            />
-          </FieldBlock>
-
-          <FieldBlock label={t('page.teacher_course_builder.field.practice')}>
-            <Textarea
-              rows={3}
-              value={newCourse.lessonPractice}
-              onChange={(event) =>
-                setNewCourse((previous) => ({
-                  ...previous,
-                  lessonPractice: event.target.value,
-                }))
-              }
-            />
-          </FieldBlock>
-
-          <FieldBlock
-            label={t('page.teacher_course_builder.field.video_url')}
-            hint="YouTube немесе сыртқы video URL енгізуге болады. URL blur кезінде normalize болады."
+        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setInitialStructureOpen((previous) => !previous)}
+            className="flex w-full items-center justify-between gap-4 text-left"
+            aria-expanded={initialStructureOpen}
           >
-            <Input
-              value={newCourse.lessonVideo}
-              onChange={(event) =>
-                setNewCourse((previous) => ({
-                  ...previous,
-                  lessonVideo: event.target.value,
-                }))
-              }
-              onBlur={(event) =>
-                setNewCourse((previous) => ({
-                  ...previous,
-                  lessonVideo: normalizeMediaUrl(event.target.value),
-                }))
-              }
-              placeholder="https://youtube.com/..."
-            />
-          </FieldBlock>
-        </FormSection>
-
-        <div className="rounded-3xl border border-primary-muted bg-primary-soft/70 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-inner-soft">
-                <Sparkles size={17} />
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+                <FileText size={17} />
               </div>
 
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  Курс жасауға дайын
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Міндетті өрістер толтырылғаннан кейін курс, модуль және алғашқы
-                  сабақ бірге сақталады.
-                </p>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    Бастапқы құрылым
+                  </p>
+
+                  <StatusBadge tone={initialStructureComplete ? 'success' : 'muted'}>
+                    {initialStructureComplete ? (
+                      <CheckCircle2 size={12} />
+                    ) : null}
+                    {initialStructureComplete ? 'Дайын' : 'Міндетті'}
+                  </StatusBadge>
+                </div>
               </div>
             </div>
 
-            <Button
-              className="w-full sm:w-auto"
-              onClick={onCreateCourse}
-              disabled={!canCreateCourse || creating}
-            >
-              <Plus size={15} className="mr-2" />
-              {creating
-                ? t('page.teacher_course_builder.action.saving')
-                : t('page.teacher_course_builder.action.create_course')}
-            </Button>
-          </div>
+            <ChevronDown
+              size={18}
+              className={`shrink-0 text-muted-foreground transition-transform ${
+                initialStructureOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+
+          {initialStructureOpen ? (
+            <div className="mt-4 space-y-4 border-t border-border/70 pt-4">
+              <FieldBlock
+                label={t('page.teacher_course_builder.field.initial_module')}
+                required
+              >
+                <Input
+                  value={newCourse.moduleTitle}
+                  onChange={(event) =>
+                    setNewCourse((previous) => ({
+                      ...previous,
+                      moduleTitle: event.target.value,
+                    }))
+                  }
+                  placeholder="Кіріспе"
+                />
+              </FieldBlock>
+
+              <FieldBlock
+                label={t('page.teacher_course_builder.field.intro_lesson')}
+                required
+              >
+                <Input
+                  value={newCourse.lessonTitle}
+                  onChange={(event) =>
+                    setNewCourse((previous) => ({
+                      ...previous,
+                      lessonTitle: event.target.value,
+                    }))
+                  }
+                  placeholder="Курсқа кіріспе"
+                />
+              </FieldBlock>
+
+              <FieldBlock label={t('page.teacher_course_builder.field.theory')}>
+                <Textarea
+                  rows={4}
+                  value={newCourse.lessonBody}
+                  onChange={(event) =>
+                    setNewCourse((previous) => ({
+                      ...previous,
+                      lessonBody: event.target.value,
+                    }))
+                  }
+                  placeholder="Теория"
+                />
+              </FieldBlock>
+
+              <FieldBlock label={t('page.teacher_course_builder.field.practice')}>
+                <Textarea
+                  rows={3}
+                  value={newCourse.lessonPractice}
+                  onChange={(event) =>
+                    setNewCourse((previous) => ({
+                      ...previous,
+                      lessonPractice: event.target.value,
+                    }))
+                  }
+                  placeholder="Практика"
+                />
+              </FieldBlock>
+
+              <FieldBlock label={t('page.teacher_course_builder.field.video_url')}>
+                <Input
+                  value={newCourse.lessonVideo}
+                  onChange={(event) =>
+                    setNewCourse((previous) => ({
+                      ...previous,
+                      lessonVideo: event.target.value,
+                    }))
+                  }
+                  onBlur={(event) =>
+                    setNewCourse((previous) => ({
+                      ...previous,
+                      lessonVideo: normalizeMediaUrl(event.target.value),
+                    }))
+                  }
+                  placeholder="https://youtube.com/..."
+                />
+              </FieldBlock>
+            </div>
+          ) : null}
+        </section>
+
+        <div className="flex justify-end rounded-3xl border border-primary-muted bg-primary-soft/70 p-4">
+          <Button
+            className="w-full sm:w-auto"
+            onClick={handleCreateClick}
+            disabled={createButtonDisabled}
+          >
+            <Plus size={15} className="mr-2" />
+            {creating
+              ? t('page.teacher_course_builder.action.saving')
+              : canCreateCourse
+                ? t('page.teacher_course_builder.action.create_course')
+                : 'Қажетті өрістерді тексеру'}
+          </Button>
         </div>
       </CardContent>
     </Card>

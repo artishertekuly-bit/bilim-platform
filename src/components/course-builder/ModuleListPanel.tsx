@@ -1,15 +1,17 @@
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import {
   ArrowDown,
   ArrowUp,
   BookOpen,
+  Check,
   CheckCircle2,
   FileText,
-  GripVertical,
   Layers3,
+  Pencil,
   Plus,
   Trash2,
   Video,
+  X,
 } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
@@ -71,6 +73,135 @@ function LessonMetaPill({
   );
 }
 
+function InlineDeleteConfirm({
+  title,
+  disabled,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  disabled: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
+      <p className="text-xs font-semibold text-foreground">{title}</p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={disabled}
+          onClick={onConfirm}
+        >
+          <Trash2 size={13} className="mr-2" />
+          Өшіру
+        </Button>
+
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          Болдырмау
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ModuleTitleEditor({
+  module,
+  disabled,
+  onUpdateModuleTitle,
+}: {
+  module: CourseBuilderModuleView;
+  disabled: boolean;
+  onUpdateModuleTitle: (moduleId: string, title: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(module.title);
+
+  useEffect(() => {
+    setTitle(module.title);
+    setEditing(false);
+  }, [module.id, module.title]);
+
+  const trimmedTitle = title.trim();
+  const changed = trimmedTitle.length > 0 && trimmedTitle !== module.title;
+
+  const handleSave = () => {
+    if (!changed) {
+      setEditing(false);
+      setTitle(module.title);
+      return;
+    }
+
+    onUpdateModuleTitle(module.id, trimmedTitle);
+    setEditing(false);
+  };
+
+  if (!editing) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          {module.title}
+        </p>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => setEditing(true)}
+          aria-label="Модуль атауын өзгерту"
+        >
+          <Pencil size={14} />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 gap-2">
+      <Input
+        value={title}
+        onChange={(event) => setTitle(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') handleSave();
+          if (event.key === 'Escape') {
+            setTitle(module.title);
+            setEditing(false);
+          }
+        }}
+        className="font-semibold"
+        autoFocus
+      />
+
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        disabled={disabled || !changed}
+        onClick={handleSave}
+        aria-label="Модуль атауын сақтау"
+      >
+        <Check size={14} />
+      </Button>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        onClick={() => {
+          setTitle(module.title);
+          setEditing(false);
+        }}
+        aria-label="Өзгертуді болдырмау"
+      >
+        <X size={14} />
+      </Button>
+    </div>
+  );
+}
+
 export function ModuleListPanel({
   selectedCourseModules,
   moduleForm,
@@ -88,26 +219,22 @@ export function ModuleListPanel({
   onReorderLesson,
   onDeleteLesson,
 }: ModuleListPanelProps) {
+  const [moduleDeleteId, setModuleDeleteId] = useState<string | null>(null);
+  const [lessonDeleteId, setLessonDeleteId] = useState<string | null>(null);
+
   return (
     <Card id="modules-lessons" className="scroll-mt-24 overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="text-base font-semibold">
-                {t('page.teacher_course_builder.section.modules_lessons')}
-              </CardTitle>
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-base font-semibold">
+              {t('page.teacher_course_builder.section.modules_lessons')}
+            </CardTitle>
 
-              <StatusBadge tone="primary">
-                <Layers3 size={12} />
-                {selectedCourseModules.length} модуль
-              </StatusBadge>
-            </div>
-
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Модульдер мен сабақтарды ретімен орналастырыңыз. Сабақты бассаңыз,
-              оң жақтағы редакторға жүктеледі.
-            </p>
+            <StatusBadge tone="primary">
+              <Layers3 size={12} />
+              {selectedCourseModules.length} модуль
+            </StatusBadge>
           </div>
         </div>
       </CardHeader>
@@ -123,30 +250,25 @@ export function ModuleListPanel({
           <div className="space-y-4">
             {selectedCourseModules.map((module, moduleIndex) => {
               const sortedLessons = getSortedBySortOrder(module.lessons || []);
+              const moduleDeleteOpen = moduleDeleteId === module.id;
 
               return (
                 <section
                   key={module.id}
-                  className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
+                  className="overflow-hidden rounded-3xl border border-border bg-card"
                 >
-                  <div className="border-b border-border/70 bg-surface-soft/60 p-4">
+                  <div className="border-b border-border/70 bg-muted/25 p-4">
                     <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-                          <GripVertical size={16} />
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+                          <Layers3 size={16} />
                         </div>
 
                         <div className="min-w-0 flex-1">
-                          <Input
-                            key={`${module.id}:${module.title}`}
-                            defaultValue={module.title}
-                            onBlur={(event) => {
-                              const value = event.target.value.trim();
-                              if (value && value !== module.title) {
-                                onUpdateModuleTitle(module.id, value);
-                              }
-                            }}
-                            className="font-semibold"
+                          <ModuleTitleEditor
+                            module={module}
+                            disabled={reorderModulesPending}
+                            onUpdateModuleTitle={onUpdateModuleTitle}
                           />
                         </div>
                       </div>
@@ -186,140 +308,167 @@ export function ModuleListPanel({
 
                         <Button
                           type="button"
-                          variant="destructive"
+                          variant={moduleDeleteOpen ? 'outline' : 'destructive'}
                           size="icon-sm"
                           disabled={deleteModulePending}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                t('page.teacher_course_builder.confirm.delete_module')
-                              )
-                            ) {
-                              onDeleteModule(module.id);
-                            }
-                          }}
+                          onClick={() =>
+                            setModuleDeleteId((current) =>
+                              current === module.id ? null : module.id
+                            )
+                          }
                           aria-label="Модульді өшіру"
                         >
-                          <Trash2 size={14} />
+                          {moduleDeleteOpen ? <X size={14} /> : <Trash2 size={14} />}
                         </Button>
                       </div>
                     </div>
+
+                    {moduleDeleteOpen ? (
+                      <div className="mt-3">
+                        <InlineDeleteConfirm
+                          title="Модуль өшірілсін бе?"
+                          disabled={deleteModulePending}
+                          onConfirm={() => {
+                            onDeleteModule(module.id);
+                            setModuleDeleteId(null);
+                          }}
+                          onCancel={() => setModuleDeleteId(null)}
+                        />
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="space-y-2 p-4">
                     {sortedLessons.length === 0 ? (
-                      <div className="rounded-3xl border border-dashed border-border bg-muted/40 p-4 text-xs leading-5 text-muted-foreground">
+                      <div className="rounded-3xl border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground">
                         {t('page.teacher_course_builder.empty.lessons_inline')}
                       </div>
                     ) : (
-                      sortedLessons.map((lesson, lessonIndex) => (
-                        <div
-                          key={lesson.id}
-                          className="rounded-3xl border border-border bg-surface-soft/55 p-3 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md"
-                        >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                            <button
-                              type="button"
-                              onClick={() => onStartEditLesson(lesson.id)}
-                              className="min-w-0 flex-1 text-left"
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border bg-card text-muted-foreground shadow-inner-soft">
-                                  <FileText size={15} />
-                                </div>
+                      sortedLessons.map((lesson, lessonIndex) => {
+                        const lessonDeleteOpen = lessonDeleteId === lesson.id;
 
-                                <div className="min-w-0 flex-1">
-                                  <p className="line-clamp-2 text-sm font-semibold text-foreground">
-                                    {lesson.title}
-                                  </p>
+                        return (
+                          <div
+                            key={lesson.id}
+                            className="rounded-3xl border border-border bg-card p-3 transition-colors hover:border-primary-muted hover:bg-primary-soft/30"
+                          >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <button
+                                type="button"
+                                onClick={() => onStartEditLesson(lesson.id)}
+                                className="min-w-0 flex-1 text-left"
+                              >
+                                <div className="flex items-start gap-3">
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground">
+                                    <FileText size={15} />
+                                  </div>
 
-                                  <div className="mt-2 flex flex-wrap gap-1.5">
-                                    <StatusBadge
-                                      tone={lesson.isPublished ? 'success' : 'completed'}
-                                    >
-                                      {lesson.isPublished ? (
-                                        <CheckCircle2 size={12} />
-                                      ) : (
-                                        <FileText size={12} />
-                                      )}
-                                      {lesson.isPublished
-                                        ? t(
-                                            'page.teacher_course_builder.lesson_status.published'
-                                          )
-                                        : t(
-                                            'page.teacher_course_builder.lesson_status.draft'
-                                          )}
-                                    </StatusBadge>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="line-clamp-2 text-sm font-semibold text-foreground">
+                                      {lesson.title}
+                                    </p>
 
-                                    <LessonMetaPill icon={<GripVertical size={11} />}>
-                                      #{lesson.sortOrder}
-                                    </LessonMetaPill>
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                      <StatusBadge
+                                        tone={lesson.isPublished ? 'success' : 'completed'}
+                                      >
+                                        {lesson.isPublished ? (
+                                          <CheckCircle2 size={12} />
+                                        ) : (
+                                          <FileText size={12} />
+                                        )}
+                                        {lesson.isPublished
+                                          ? t(
+                                              'page.teacher_course_builder.lesson_status.published'
+                                            )
+                                          : t(
+                                              'page.teacher_course_builder.lesson_status.draft'
+                                            )}
+                                      </StatusBadge>
 
-                                    {lesson.mediaUrl ? (
-                                      <LessonMetaPill icon={<Video size={11} />}>
-                                        {t('page.teacher_course_builder.lesson_has_video')}
+                                      <LessonMetaPill icon={<Layers3 size={11} />}>
+                                        #{lesson.sortOrder}
                                       </LessonMetaPill>
-                                    ) : null}
 
-                                    {lesson.attachmentsCount ? (
-                                      <LessonMetaPill icon={<FileText size={11} />}>
-                                        {lesson.attachmentsCount} файл
-                                      </LessonMetaPill>
-                                    ) : null}
+                                      {lesson.mediaUrl ? (
+                                        <LessonMetaPill icon={<Video size={11} />}>
+                                          {t('page.teacher_course_builder.lesson_has_video')}
+                                        </LessonMetaPill>
+                                      ) : null}
 
-                                    {lesson.hasMiniQuiz ? (
-                                      <LessonMetaPill icon={<CheckCircle2 size={11} />}>
-                                        Mini quiz
-                                      </LessonMetaPill>
-                                    ) : null}
+                                      {lesson.attachmentsCount ? (
+                                        <LessonMetaPill icon={<FileText size={11} />}>
+                                          {lesson.attachmentsCount} файл
+                                        </LessonMetaPill>
+                                      ) : null}
+
+                                      {lesson.hasMiniQuiz ? (
+                                        <LessonMetaPill icon={<CheckCircle2 size={11} />}>
+                                          Mini quiz
+                                        </LessonMetaPill>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            </button>
+                              </button>
 
-                            <div className="flex shrink-0 items-center gap-1.5">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon-sm"
-                                disabled={lessonIndex === 0 || reorderLessonsPending}
-                                onClick={() =>
-                                  onReorderLesson(module.id, lesson.id, 'up')
-                                }
-                                aria-label="Сабақты жоғары жылжыту"
-                              >
-                                <ArrowUp size={14} />
-                              </Button>
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon-sm"
+                                  disabled={lessonIndex === 0 || reorderLessonsPending}
+                                  onClick={() =>
+                                    onReorderLesson(module.id, lesson.id, 'up')
+                                  }
+                                  aria-label="Сабақты жоғары жылжыту"
+                                >
+                                  <ArrowUp size={14} />
+                                </Button>
 
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="icon-sm"
-                                disabled={
-                                  lessonIndex === sortedLessons.length - 1 ||
-                                  reorderLessonsPending
-                                }
-                                onClick={() =>
-                                  onReorderLesson(module.id, lesson.id, 'down')
-                                }
-                                aria-label="Сабақты төмен жылжыту"
-                              >
-                                <ArrowDown size={14} />
-                              </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon-sm"
+                                  disabled={
+                                    lessonIndex === sortedLessons.length - 1 ||
+                                    reorderLessonsPending
+                                  }
+                                  onClick={() =>
+                                    onReorderLesson(module.id, lesson.id, 'down')
+                                  }
+                                  aria-label="Сабақты төмен жылжыту"
+                                >
+                                  <ArrowDown size={14} />
+                                </Button>
 
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="icon-sm"
-                                disabled={deleteLessonPending}
-                                onClick={() => {
-                                  if (
-                                    window.confirm(
-                                      t(
-                                        'page.teacher_course_builder.confirm.delete_lesson'
-                                      )
+                                <Button
+                                  type="button"
+                                  variant={lessonDeleteOpen ? 'outline' : 'destructive'}
+                                  size="icon-sm"
+                                  disabled={deleteLessonPending}
+                                  onClick={() =>
+                                    setLessonDeleteId((current) =>
+                                      current === lesson.id ? null : lesson.id
                                     )
-                                  ) {
+                                  }
+                                  aria-label="Сабақты өшіру"
+                                >
+                                  {lessonDeleteOpen ? (
+                                    <X size={14} />
+                                  ) : (
+                                    <Trash2 size={14} />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+
+                            {lessonDeleteOpen ? (
+                              <div className="mt-3">
+                                <InlineDeleteConfirm
+                                  title="Сабақ өшірілсін бе?"
+                                  disabled={deleteLessonPending}
+                                  onConfirm={() => {
                                     onDeleteLesson({
                                       lessonId: lesson.id,
                                       moduleId: module.id,
@@ -327,16 +476,15 @@ export function ModuleListPanel({
                                         .filter((item) => item.id !== lesson.id)
                                         .map((item) => item.id),
                                     });
-                                  }
-                                }}
-                                aria-label="Сабақты өшіру"
-                              >
-                                <Trash2 size={14} />
-                              </Button>
-                            </div>
+                                    setLessonDeleteId(null);
+                                  }}
+                                  onCancel={() => setLessonDeleteId(null)}
+                                />
+                              </div>
+                            ) : null}
                           </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </section>
@@ -345,20 +493,15 @@ export function ModuleListPanel({
           </div>
         )}
 
-        <div className="rounded-3xl border border-dashed border-primary-muted bg-primary-soft/50 p-4">
-          <div className="mb-3 flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-inner-soft">
+        <div className="rounded-3xl border border-dashed border-primary-muted bg-primary-soft/40 p-4">
+          <div className="mb-3 flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary">
               <Plus size={17} />
             </div>
 
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                Жаңа модуль қосу
-              </p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Модуль атауын енгізіп, оны курс құрылымына қосыңыз.
-              </p>
-            </div>
+            <p className="text-sm font-semibold text-foreground">
+              Жаңа модуль
+            </p>
           </div>
 
           <div className="space-y-3">
@@ -371,6 +514,11 @@ export function ModuleListPanel({
                 onChange={(event) =>
                   setModuleForm({ title: event.target.value })
                 }
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && canAddModule) {
+                    onAddModule();
+                  }
+                }}
                 placeholder={t('page.teacher_course_builder.placeholder.module_title')}
               />
             </div>

@@ -12,10 +12,10 @@ export function BuilderStatCard({
   icon: ReactNode;
 }) {
   return (
-    <Card interactive className="overflow-hidden">
+    <Card className="overflow-hidden">
       <CardContent className="p-4 sm:p-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
             {icon}
           </div>
 

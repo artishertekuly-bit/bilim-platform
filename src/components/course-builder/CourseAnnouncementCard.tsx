@@ -25,13 +25,13 @@ export function CourseAnnouncementCard({
 
   return (
     <div
-      className={`rounded-3xl border p-4 text-sm shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
+      className={`rounded-3xl border p-4 text-sm transition-colors ${
         expired
-          ? 'border-border bg-muted/55 opacity-80'
+          ? 'border-border bg-muted/45 opacity-80'
           : announcement.priority === 'urgent'
-            ? 'border-destructive-muted bg-destructive-soft/65'
+            ? 'border-destructive-muted bg-destructive-soft/55'
             : announcement.priority === 'important'
-              ? 'border-warning-muted bg-warning-soft/65'
+              ? 'border-warning-muted bg-warning-soft/55'
               : 'border-border bg-card'
       }`}
     >
@@ -39,7 +39,7 @@ export function CourseAnnouncementCard({
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
             <div
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
                 expired
                   ? 'border-border bg-card text-muted-foreground'
                   : announcement.priority === 'urgent'
@@ -55,7 +55,6 @@ export function CourseAnnouncementCard({
             <div className="min-w-0 flex-1">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <StatusBadge tone={getAnnouncementPriorityTone(announcement.priority)}>
-                  <Megaphone size={12} />
                   {getAnnouncementPriorityLabel(announcement.priority)}
                 </StatusBadge>
 
@@ -85,13 +84,15 @@ export function CourseAnnouncementCard({
               <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
                   <CalendarClock size={11} />
-                  Жарияланды: {formatDateTime(announcement.publishedAt)}
+                  {formatDateTime(announcement.publishedAt)}
                 </span>
 
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
-                  <CalendarClock size={11} />
-                  Мерзімі: {formatDateTime(announcement.expiresAt)}
-                </span>
+                {announcement.expiresAt ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+                    <CalendarClock size={11} />
+                    {formatDateTime(announcement.expiresAt)}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>

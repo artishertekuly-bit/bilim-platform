@@ -1,4 +1,4 @@
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import {
   ExternalLink,
   FileText,
@@ -6,6 +6,7 @@ import {
   Paperclip,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
@@ -15,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { normalizeMediaUrl } from '@/lib/media-url';
 
 type LessonAttachmentFormState = {
   title: string;
@@ -40,19 +42,52 @@ type LessonAttachmentLike = {
 function FieldBlock({
   label,
   children,
-  hint,
+  required,
 }: {
   label: ReactNode;
   children: ReactNode;
-  hint?: string;
+  required?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-semibold text-foreground">{label}</Label>
+      <Label className="text-xs font-semibold text-foreground">
+        {label}
+        {required ? <span className="ml-1 text-destructive">*</span> : null}
+      </Label>
       {children}
-      {hint ? (
-        <p className="text-[11px] leading-5 text-muted-foreground">{hint}</p>
-      ) : null}
+    </div>
+  );
+}
+
+function InlineDeleteConfirm({
+  disabled,
+  onConfirm,
+  onCancel,
+}: {
+  disabled: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
+      <p className="text-xs font-semibold text-foreground">Материал өшірілсін бе?</p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={disabled}
+          onClick={onConfirm}
+        >
+          <Trash2 size={13} className="mr-2" />
+          Өшіру
+        </Button>
+
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          Болдырмау
+        </Button>
+      </div>
     </div>
   );
 }
@@ -60,21 +95,27 @@ function FieldBlock({
 function AttachmentCard({
   attachment,
   deleting,
+  deleteConfirmOpen,
+  onToggleDeleteConfirm,
+  onCancelDeleteConfirm,
   onDelete,
 }: {
   attachment: LessonAttachmentLike;
   deleting: boolean;
+  deleteConfirmOpen: boolean;
+  onToggleDeleteConfirm: () => void;
+  onCancelDeleteConfirm: () => void;
   onDelete: (attachmentId: string) => void | Promise<void>;
 }) {
   const externalUrl = attachment.file.externalUrl;
-  const visibleFileLabel = externalUrl || attachment.file.filename || 'Файл дерегі жоқ';
+  const visibleFileLabel = externalUrl || attachment.file.filename || 'Файл жоқ';
 
   return (
-    <div className="rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md">
+    <div className="rounded-3xl border border-border bg-card p-4 transition-colors hover:border-primary-muted hover:bg-primary-soft/25">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
               <FileText size={16} />
             </div>
 
@@ -84,23 +125,25 @@ function AttachmentCard({
                   {attachment.title}
                 </p>
 
-                {externalUrl ? (
-                  <StatusBadge tone="primary">
-                    <ExternalLink size={12} />
-                    External URL
-                  </StatusBadge>
-                ) : (
-                  <StatusBadge tone="muted">URL жоқ</StatusBadge>
-                )}
+                <StatusBadge tone={externalUrl ? 'primary' : 'muted'}>
+                  {externalUrl ? (
+                    <>
+                      <ExternalLink size={12} />
+                      Сілтеме
+                    </>
+                  ) : (
+                    'URL жоқ'
+                  )}
+                </StatusBadge>
               </div>
 
               {attachment.description ? (
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
                   {attachment.description}
                 </p>
               ) : null}
 
-              <p className="mt-2 truncate rounded-2xl border border-border bg-muted/55 px-3 py-2 text-[11px] text-muted-foreground">
+              <p className="mt-2 truncate rounded-2xl border border-border bg-muted/45 px-3 py-2 text-[11px] text-muted-foreground">
                 {visibleFileLabel}
               </p>
             </div>
@@ -124,16 +167,26 @@ function AttachmentCard({
 
           <Button
             type="button"
-            variant="destructive"
+            variant={deleteConfirmOpen ? 'outline' : 'destructive'}
             size="icon-sm"
             disabled={deleting}
-            onClick={() => onDelete(attachment.id)}
+            onClick={onToggleDeleteConfirm}
             aria-label="Материалды өшіру"
           >
-            <Trash2 size={13} />
+            {deleteConfirmOpen ? <X size={13} /> : <Trash2 size={13} />}
           </Button>
         </div>
       </div>
+
+      {deleteConfirmOpen ? (
+        <div className="mt-3">
+          <InlineDeleteConfirm
+            disabled={deleting}
+            onConfirm={() => onDelete(attachment.id)}
+            onCancel={onCancelDeleteConfirm}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -163,76 +216,64 @@ export function LessonAttachmentPanel({
   handleDeleteLessonAttachment: (attachmentId: string) => void | Promise<void>;
   deleteLessonAttachmentPending: boolean;
 }) {
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
   const hasSelectedLesson = Boolean(editingLessonId && selectedEditingLesson);
+  const formComplete =
+    lessonAttachmentForm.title.trim().length > 0 &&
+    lessonAttachmentForm.externalUrl.trim().length > 0;
+
+  const handleConfirmedDelete = (attachmentId: string) => {
+    handleDeleteLessonAttachment(attachmentId);
+    setDeleteConfirmId(null);
+  };
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <Paperclip size={16} />
-                Сабақ файлдары
-              </CardTitle>
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <Paperclip size={16} />
+              Сабақ материалдары
+            </CardTitle>
 
-              <StatusBadge tone="secondary">
-                <FileText size={12} />
-                {lessonAttachments.length} файл
-              </StatusBadge>
-            </div>
-
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Сабаққа PDF, Google Drive, презентация немесе басқа external материал
-              сілтемесін қосыңыз. Бұл материалдар оқушының lesson detail бетінде
-              көрінеді.
-            </p>
+            <StatusBadge tone="secondary">
+              <FileText size={12} />
+              {lessonAttachments.length}
+            </StatusBadge>
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-5 p-4 sm:p-5">
         {!hasSelectedLesson ? (
-          <div className="rounded-3xl border border-dashed border-primary-muted bg-primary-soft/50 p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-inner-soft">
-                <Paperclip size={17} />
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  Сабақ таңдалмаған
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Файл қосу үшін алдымен бар сабақты таңдаңыз немесе жаңа сабақты
-                  сақтаңыз.
-                </p>
-              </div>
-            </div>
-          </div>
+          <EmptyState
+            title="Сабақ таңдалмаған"
+            text="Алдымен сабақты сақтаңыз."
+            compact
+          />
         ) : (
           <>
-            <section className="rounded-3xl border border-border bg-surface-soft/55 p-4 shadow-soft">
-              <div className="mb-4 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-                  <Plus size={17} />
+            <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+                    <Plus size={17} />
+                  </div>
+
+                  <p className="truncate text-sm font-semibold text-foreground">
+                    Жаңа материал
+                  </p>
                 </div>
 
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">
-                    Жаңа материал қосу
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Таңдалған сабақ:{' '}
-                    <span className="font-semibold text-foreground">
-                      {selectedEditingLesson?.title}
-                    </span>
-                  </p>
-                </div>
+                <StatusBadge tone={formComplete ? 'success' : 'muted'}>
+                  {formComplete ? 'Толды' : 'Міндетті'}
+                </StatusBadge>
               </div>
 
               <div className="space-y-4">
-                <FieldBlock label="Материал атауы">
+                <FieldBlock label="Материал атауы" required>
                   <Input
                     value={lessonAttachmentForm.title}
                     onChange={(event) =>
@@ -241,20 +282,23 @@ export function LessonAttachmentPanel({
                         title: event.target.value,
                       }))
                     }
-                    placeholder="Мысалы: Үй жұмысы PDF"
+                    placeholder="Материал атауы"
                   />
                 </FieldBlock>
 
-                <FieldBlock
-                  label="Сілтеме"
-                  hint="Google Drive, PDF, презентация немесе сыртқы ресурс URL енгізуге болады."
-                >
+                <FieldBlock label="Сілтеме" required>
                   <Input
                     value={lessonAttachmentForm.externalUrl}
                     onChange={(event) =>
                       setLessonAttachmentForm((previous) => ({
                         ...previous,
                         externalUrl: event.target.value,
+                      }))
+                    }
+                    onBlur={(event) =>
+                      setLessonAttachmentForm((previous) => ({
+                        ...previous,
+                        externalUrl: normalizeMediaUrl(event.target.value),
                       }))
                     }
                     placeholder="https://..."
@@ -271,7 +315,7 @@ export function LessonAttachmentPanel({
                         description: event.target.value,
                       }))
                     }
-                    placeholder="Қысқаша түсіндірме"
+                    placeholder="Сипаттама"
                   />
                 </FieldBlock>
 
@@ -284,40 +328,29 @@ export function LessonAttachmentPanel({
                   disabled={!canCreateLessonAttachment || createLessonAttachmentPending}
                 >
                   <LinkIcon size={14} className="mr-1.5" />
-                  {createLessonAttachmentPending
-                    ? 'Қосылуда...'
-                    : 'Сабақ файлын қосу'}
+                  {createLessonAttachmentPending ? 'Қосылуда...' : 'Қосу'}
                 </Button>
               </div>
             </section>
 
             {lessonAttachmentsLoading ? (
-              <LoadingState
-                text="Сабақ файлдары жүктелуде..."
-                compact
-                size="sm"
-              />
+              <LoadingState text="Жүктелуде..." compact size="sm" />
             ) : null}
 
             {!lessonAttachmentsLoading && lessonAttachments.length === 0 ? (
               <EmptyState
-                title="Бұл сабаққа файл қосылмаған"
-                text="Қосымша PDF, презентация немесе external URL қоссаңыз, оқушы сабақ бетінде көре алады."
+                title="Материал жоқ"
+                text="Материал қосыңыз."
                 compact
               />
             ) : null}
 
             {!lessonAttachmentsLoading && lessonAttachments.length > 0 ? (
               <section className="space-y-3">
-                <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-surface-soft/60 px-4 py-3">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      Қосылған материалдар
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Сабаққа бекітілген файлдар мен сілтемелер.
-                    </p>
-                  </div>
+                <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 px-4 py-3">
+                  <p className="text-sm font-semibold text-foreground">
+                    Қосылған материалдар
+                  </p>
 
                   <StatusBadge tone="muted">
                     {lessonAttachments.length}
@@ -330,7 +363,14 @@ export function LessonAttachmentPanel({
                       key={attachment.id}
                       attachment={attachment}
                       deleting={deleteLessonAttachmentPending}
-                      onDelete={handleDeleteLessonAttachment}
+                      deleteConfirmOpen={deleteConfirmId === attachment.id}
+                      onToggleDeleteConfirm={() =>
+                        setDeleteConfirmId((current) =>
+                          current === attachment.id ? null : attachment.id
+                        )
+                      }
+                      onCancelDeleteConfirm={() => setDeleteConfirmId(null)}
+                      onDelete={handleConfirmedDelete}
                     />
                   ))}
                 </div>

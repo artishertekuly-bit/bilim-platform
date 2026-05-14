@@ -4,7 +4,6 @@ import {
   BookOpen,
   CheckCircle2,
   GraduationCap,
-  HelpCircle,
   RotateCcw,
   Search,
   Star,
@@ -81,7 +80,7 @@ function ProgressLine({ value }: { value: number | null | undefined }) {
   const normalized = Math.min(100, Math.max(0, Number(value || 0)));
 
   return (
-    <div className="h-2 overflow-hidden rounded-full border border-border bg-muted shadow-inner-soft">
+    <div className="h-2 overflow-hidden rounded-full border border-border bg-muted">
       <div
         className="h-full rounded-full bg-primary transition-all duration-500 ease-soft"
         style={{ width: `${normalized}%` }}
@@ -107,7 +106,7 @@ function StudentAvatar({
 
   return (
     <div
-      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-primary-muted bg-primary-soft font-semibold text-primary shadow-inner-soft ${sizeClassName}`}
+      className={`flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-primary-muted bg-primary-soft font-semibold text-primary ${sizeClassName}`}
     >
       {avatarUrl ? (
         <img
@@ -142,10 +141,10 @@ function SmallMetric({
   }[tone];
 
   return (
-    <div className="rounded-3xl border border-border bg-card p-3 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md">
+    <div className="rounded-3xl border border-border bg-card p-3">
       <div className="flex items-start gap-3">
         <div
-          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
         >
           {icon}
         </div>
@@ -173,10 +172,10 @@ function StudentListItem({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      className={`group w-full rounded-3xl border p-3 text-left transition-all duration-200 ease-soft active:translate-y-0 active:scale-[0.99] ${
+      className={`w-full rounded-3xl border p-3 text-left transition-colors active:scale-[0.99] ${
         selected
-          ? 'border-primary-muted bg-primary-soft shadow-soft-md'
-          : 'border-border bg-card shadow-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/60 hover:shadow-soft-md'
+          ? 'border-primary-muted bg-primary-soft'
+          : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
       }`}
     >
       <div className="flex items-start gap-3">
@@ -198,7 +197,7 @@ function StudentListItem({
           </div>
 
           <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-            Progress: {student.progressPct}% · Mini quiz:{' '}
+            Прогресс: {student.progressPct}% · Шағын тест:{' '}
             {formatPercent(student.miniQuizAvgScore)}
           </p>
 
@@ -240,10 +239,10 @@ function InsightCard({
   }[tone];
 
   return (
-    <div className={`rounded-3xl border p-3 shadow-soft ${toneClassName.card}`}>
+    <div className={`rounded-3xl border p-3 ${toneClassName.card}`}>
       <div className="flex items-start gap-3">
         <div
-          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName.icon}`}
+          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${toneClassName.icon}`}
         >
           {icon}
         </div>
@@ -328,33 +327,20 @@ export default function TeacherStudentAnalyticsPanel({
 
   return (
     <Card id="teacher-student-analytics" className="scroll-mt-24 overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <GraduationCap size={16} />
-                Оқушы бойынша талдау
-              </CardTitle>
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <GraduationCap size={16} />
+              Оқушы талдауы
+            </CardTitle>
 
-              <StatusBadge tone="ai">
-                <HelpCircle size={12} />
-                Педагогикалық snapshot
+            {students.length > 0 ? (
+              <StatusBadge tone="secondary">
+                <UserRound size={12} />
+                {students.length}
               </StatusBadge>
-
-              {students.length > 0 ? (
-                <StatusBadge tone="secondary">
-                  <UserRound size={12} />
-                  {students.length} оқушы
-                </StatusBadge>
-              ) : null}
-            </div>
-
-            <p className="mt-2 max-w-3xl text-xs leading-5 text-muted-foreground">
-              Бұл бөлім мұғалімге курс ішіндегі нақты оқушының оқу нәтижесін көруге
-              көмектеседі. Мұнда бақылау event-тері жоқ, тек progress, quiz/test
-              нәтижелері және қайталау ұсыныстары қолданылады.
-            </p>
+            ) : null}
           </div>
 
           <Button
@@ -375,12 +361,12 @@ export default function TeacherStudentAnalyticsPanel({
 
       <CardContent className="space-y-5 p-4 sm:p-5">
         {studentsLoading ? (
-          <LoadingState text="Оқушылар аналитикасы жүктелуде..." compact />
+          <LoadingState text="Жүктелуде..." compact />
         ) : null}
 
         {!studentsLoading && studentsError ? (
           <ErrorState
-            text="Оқушылар аналитикасын жүктеу мүмкін болмады."
+            text="Оқушы деректерін жүктеу мүмкін болмады."
             action={
               <Button
                 type="button"
@@ -397,8 +383,8 @@ export default function TeacherStudentAnalyticsPanel({
 
         {!studentsLoading && !studentsError && students.length === 0 ? (
           <EmptyState
-            title="Бұл курста оқушы деректері жоқ"
-            text="Оқушы курсқа тіркелгеннен немесе оқу нәтижелері пайда болғаннан кейін бұл бөлімде жеке аналитика көрінеді."
+            title="Оқушы дерегі жоқ"
+            text="Дерек пайда болғаннан кейін көрсетіледі."
             compact
             tone="ai"
           />
@@ -415,7 +401,7 @@ export default function TeacherStudentAnalyticsPanel({
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Оқушыны іздеу..."
+                  placeholder="Оқушыны іздеу"
                   className="pl-10"
                 />
               </div>
@@ -424,7 +410,7 @@ export default function TeacherStudentAnalyticsPanel({
                 {filteredStudents.length === 0 ? (
                   <EmptyState
                     title="Оқушы табылмады"
-                    text="Іздеу мәтінін өзгертіп көріңіз."
+                    text="Іздеуді өзгертіңіз."
                     compact
                   />
                 ) : (
@@ -444,14 +430,14 @@ export default function TeacherStudentAnalyticsPanel({
               {!selectedStudent ? (
                 <EmptyState
                   title="Оқушы таңдалмаған"
-                  text="Жеке аналитиканы көру үшін тізімнен оқушы таңдаңыз."
+                  text="Тізімнен оқушы таңдаңыз."
                   compact
                 />
               ) : null}
 
               {selectedStudent ? (
                 <>
-                  <section className="rounded-3xl border border-border bg-card p-4 shadow-soft">
+                  <section className="rounded-3xl border border-border bg-card p-4">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex items-start gap-3">
                         <StudentAvatar
@@ -478,7 +464,7 @@ export default function TeacherStudentAnalyticsPanel({
                       </div>
 
                       <StatusBadge tone={getScoreTone(selectedStudent.miniQuizAvgScore)}>
-                        Mini quiz: {formatPercent(selectedStudent.miniQuizAvgScore)}
+                        Шағын тест: {formatPercent(selectedStudent.miniQuizAvgScore)}
                       </StatusBadge>
                     </div>
 
@@ -487,7 +473,7 @@ export default function TeacherStudentAnalyticsPanel({
                     </div>
 
                     <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                      <span className="text-muted-foreground">Course progress</span>
+                      <span className="text-muted-foreground">Прогресс</span>
                       <span className="text-right font-medium text-foreground">
                         {selectedStudent.completedLessons}/{selectedStudent.totalLessons} сабақ ·{' '}
                         {selectedStudent.progressPct}%
@@ -497,24 +483,24 @@ export default function TeacherStudentAnalyticsPanel({
 
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <SmallMetric
-                      label="Аяқталған сабақ"
+                      label="Аяқталған"
                       value={`${selectedStudent.completedLessons}/${selectedStudent.totalLessons}`}
                       icon={<BookOpen size={15} />}
                       tone="success"
                     />
                     <SmallMetric
-                      label="Mini quiz attempts"
+                      label="Шағын тест"
                       value={formatNumber(selectedStudent.miniQuizAttempts)}
                       icon={<Target size={15} />}
                       tone="ai"
                     />
                     <SmallMetric
-                      label="Saved lessons"
+                      label="Сақталған"
                       value={formatNumber(selectedStudent.savedLessons)}
                       icon={<Star size={15} />}
                     />
                     <SmallMetric
-                      label="Review later"
+                      label="Қайталау"
                       value={formatNumber(selectedStudent.reviewLaterItems)}
                       icon={<RotateCcw size={15} />}
                       tone="warning"
@@ -522,12 +508,12 @@ export default function TeacherStudentAnalyticsPanel({
                   </div>
 
                   {snapshotLoading ? (
-                    <LoadingState text="Оқушы snapshot жүктелуде..." compact />
+                    <LoadingState text="Жүктелуде..." compact />
                   ) : null}
 
                   {!snapshotLoading && snapshotError ? (
                     <ErrorState
-                      text="Оқушы snapshot-ын жүктеу мүмкін болмады."
+                      text="Snapshot жүктеу мүмкін болмады."
                       action={
                         <Button
                           type="button"
@@ -543,159 +529,126 @@ export default function TeacherStudentAnalyticsPanel({
                   ) : null}
 
                   {!snapshotLoading && !snapshotError && selectedSnapshot ? (
-                    <>
-                      <div className="grid gap-4 xl:grid-cols-2">
-                        <section className="rounded-3xl border border-border bg-card p-4 shadow-soft">
-                          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-sm font-semibold text-foreground">
-                                  Қайталау ұсыныстары
-                                </p>
-
-                                <StatusBadge
-                                  tone={
-                                    selectedSnapshot.recommendations.length
-                                      ? 'warning'
-                                      : 'success'
-                                  }
-                                >
-                                  {selectedSnapshot.recommendations.length}
-                                </StatusBadge>
-                              </div>
-
-                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                Автоматты үкім емес, мұғаліммен талқылауға арналған
-                                ұсыныстар.
-                              </p>
-                            </div>
-                          </div>
-
-                          {selectedSnapshot.recommendations.length === 0 ? (
-                            <EmptyState
-                              title="Қайталау ұсынысы жоқ"
-                              text="Оқушы жоспар бойынша жалғастыра алады."
-                              compact
-                            />
-                          ) : (
-                            <div className="space-y-2">
-                              {selectedSnapshot.recommendations
-                                .slice(0, 5)
-                                .map((recommendation) => (
-                                  <InsightCard
-                                    key={recommendation.id}
-                                    icon={<AlertTriangle size={15} />}
-                                    title={recommendation.title}
-                                    description={recommendation.description}
-                                    tone={
-                                      recommendation.priority === 'high'
-                                        ? 'danger'
-                                        : recommendation.priority === 'medium'
-                                          ? 'warning'
-                                          : 'ai'
-                                    }
-                                  >
-                                    <StatusBadge
-                                      tone={getRiskTone(recommendation.priority)}
-                                    >
-                                      {getRiskLabel(recommendation.priority)}
-                                    </StatusBadge>
-                                  </InsightCard>
-                                ))}
-                            </div>
-                          )}
-                        </section>
-
-                        <section className="rounded-3xl border border-border bg-card p-4 shadow-soft">
-                          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="text-sm font-semibold text-foreground">
-                                  Қиындық байқалған сабақтар
-                                </p>
-
-                                <StatusBadge
-                                  tone={
-                                    selectedSnapshot.weakLessons.length
-                                      ? 'warning'
-                                      : 'success'
-                                  }
-                                >
-                                  {selectedSnapshot.weakLessons.length}
-                                </StatusBadge>
-                              </div>
-
-                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                                Mini quiz нәтижелері және review later белгісі бойынша.
-                              </p>
-                            </div>
-                          </div>
-
-                          {selectedSnapshot.weakLessons.length === 0 ? (
-                            <EmptyState
-                              title="Айқын қиын сабақ байқалмайды"
-                              text="Бұл оқушы бойынша әзірге нақты weak lesson жоқ."
-                              compact
-                            />
-                          ) : (
-                            <div className="space-y-2">
-                              {selectedSnapshot.weakLessons.slice(0, 5).map((lesson) => (
-                                <InsightCard
-                                  key={lesson.lessonId}
-                                  icon={<TrendingDown size={15} />}
-                                  title={lesson.lessonTitle}
-                                  description={lesson.reason}
-                                  tone="danger"
-                                >
-                                  <div className="flex flex-wrap gap-2">
-                                    <StatusBadge
-                                      tone={getScoreTone(lesson.miniQuizAvgScore)}
-                                    >
-                                      Score: {formatPercent(lesson.miniQuizAvgScore)}
-                                    </StatusBadge>
-
-                                    {lesson.failedAttempts > 0 ? (
-                                      <StatusBadge tone="danger">
-                                        Failed: {lesson.failedAttempts}
-                                      </StatusBadge>
-                                    ) : null}
-
-                                    {lesson.reviewLater ? (
-                                      <StatusBadge tone="warning">
-                                        Review later
-                                      </StatusBadge>
-                                    ) : null}
-                                  </div>
-                                </InsightCard>
-                              ))}
-                            </div>
-                          )}
-                        </section>
-                      </div>
-
-                      <div className="rounded-3xl border border-ai-border bg-ai-soft/65 p-4 shadow-soft">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-card text-primary shadow-inner-soft">
-                            <HelpCircle size={16} />
-                          </div>
-
-                          <div>
+                    <div className="grid gap-4 xl:grid-cols-2">
+                      <section className="rounded-3xl border border-border bg-card p-4">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
                             <p className="text-sm font-semibold text-foreground">
-                              Педагогикалық ескерту
+                              Қайталау
                             </p>
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                              {selectedSnapshot.teacherScopeNote ||
-                                'Бұл snapshot тек оқу нәтижелері мен progress деректеріне негізделеді. Бұл автоматты баға немесе педагогикалық үкім емес.'}
-                            </p>
+
+                            <StatusBadge
+                              tone={
+                                selectedSnapshot.recommendations.length
+                                  ? 'warning'
+                                  : 'success'
+                              }
+                            >
+                              {selectedSnapshot.recommendations.length}
+                            </StatusBadge>
                           </div>
                         </div>
-                      </div>
-                    </>
+
+                        {selectedSnapshot.recommendations.length === 0 ? (
+                          <EmptyState
+                            title="Ұсыныс жоқ"
+                            text="Оқушы жалғастыра алады."
+                            compact
+                          />
+                        ) : (
+                          <div className="space-y-2">
+                            {selectedSnapshot.recommendations
+                              .slice(0, 5)
+                              .map((recommendation) => (
+                                <InsightCard
+                                  key={recommendation.id}
+                                  icon={<AlertTriangle size={15} />}
+                                  title={recommendation.title}
+                                  description={recommendation.description}
+                                  tone={
+                                    recommendation.priority === 'high'
+                                      ? 'danger'
+                                      : recommendation.priority === 'medium'
+                                        ? 'warning'
+                                        : 'ai'
+                                  }
+                                >
+                                  <StatusBadge
+                                    tone={getRiskTone(recommendation.priority)}
+                                  >
+                                    {getRiskLabel(recommendation.priority)}
+                                  </StatusBadge>
+                                </InsightCard>
+                              ))}
+                          </div>
+                        )}
+                      </section>
+
+                      <section className="rounded-3xl border border-border bg-card p-4">
+                        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-foreground">
+                              Қиын сабақтар
+                            </p>
+
+                            <StatusBadge
+                              tone={
+                                selectedSnapshot.weakLessons.length
+                                  ? 'warning'
+                                  : 'success'
+                              }
+                            >
+                              {selectedSnapshot.weakLessons.length}
+                            </StatusBadge>
+                          </div>
+                        </div>
+
+                        {selectedSnapshot.weakLessons.length === 0 ? (
+                          <EmptyState
+                            title="Қиын сабақ жоқ"
+                            text="Дерек көбейгенде жаңарады."
+                            compact
+                          />
+                        ) : (
+                          <div className="space-y-2">
+                            {selectedSnapshot.weakLessons.slice(0, 5).map((lesson) => (
+                              <InsightCard
+                                key={lesson.lessonId}
+                                icon={<TrendingDown size={15} />}
+                                title={lesson.lessonTitle}
+                                description={lesson.reason}
+                                tone="danger"
+                              >
+                                <div className="flex flex-wrap gap-2">
+                                  <StatusBadge
+                                    tone={getScoreTone(lesson.miniQuizAvgScore)}
+                                  >
+                                    Ұпай: {formatPercent(lesson.miniQuizAvgScore)}
+                                  </StatusBadge>
+
+                                  {lesson.failedAttempts > 0 ? (
+                                    <StatusBadge tone="danger">
+                                      Өтпеді: {lesson.failedAttempts}
+                                    </StatusBadge>
+                                  ) : null}
+
+                                  {lesson.reviewLater ? (
+                                    <StatusBadge tone="warning">
+                                      Қайталау
+                                    </StatusBadge>
+                                  ) : null}
+                                </div>
+                              </InsightCard>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    </div>
                   ) : null}
 
                   {!snapshotLoading && !snapshotError && !selectedCourseSnapshot ? (
                     <div className="rounded-3xl border border-dashed border-border bg-muted/45 p-4 text-xs leading-5 text-muted-foreground">
-                      Бұл оқушы бойынша осы курсқа қатысты snapshot әзірге толық емес.
+                      Snapshot толық емес.
                     </div>
                   ) : null}
                 </>

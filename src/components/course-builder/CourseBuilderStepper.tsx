@@ -19,40 +19,35 @@ export function CourseBuilderStepper({
     {
       id: 'new-course',
       number: '1',
-      title: 'Жаңа курс',
-      description: 'Курстың бастапқы атауы, пәні және алғашқы сабағы.',
+      title: 'Курс',
       icon: <Plus size={16} />,
       disabled: false,
     },
     {
       id: 'course-settings',
       number: '2',
-      title: 'Параметрлер',
-      description: 'Курс түрі, баға, thumbnail және негізгі ақпарат.',
+      title: 'Баптаулар',
       icon: <Settings size={16} />,
       disabled: !hasSelectedCourse,
     },
     {
       id: 'modules-lessons',
       number: '3',
-      title: 'Модульдер',
-      description: 'Модульдер, сабақтар, реттілік және жариялау күйі.',
+      title: 'Сабақтар',
       icon: <FileText size={16} />,
       disabled: !hasSelectedCourse,
     },
     {
       id: 'announcements',
       number: '4',
-      title: 'Хабарландырулар',
-      description: 'Маңызды ақпарат, pin және мерзімді ескерту.',
+      title: 'Хабарландыру',
       icon: <Megaphone size={16} />,
       disabled: !hasSelectedCourse,
     },
     {
       id: 'materials',
       number: '5',
-      title: 'Материалдар',
-      description: 'Силлабус, PDF, формулалар, lesson attachments.',
+      title: 'Материал',
       icon: <LinkIcon size={16} />,
       disabled: !hasSelectedCourse,
     },
@@ -60,7 +55,6 @@ export function CourseBuilderStepper({
       id: 'publish',
       number: '6',
       title: 'Жариялау',
-      description: 'Publish, archive және invite code басқару.',
       icon: <CheckCircle2 size={16} />,
       disabled: !hasSelectedCourse,
     },
@@ -68,18 +62,7 @@ export function CourseBuilderStepper({
 
   return (
     <Card className="overflow-hidden">
-      <CardContent className="p-4 sm:p-5">
-        <div className="mb-4 flex flex-col gap-1">
-          <p className="text-sm font-semibold text-foreground">
-            Course builder қадамдары
-          </p>
-          <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
-            Үлкен форманы бөлімдерге бөліп, керек жерге тез өтіңіз. Курс
-            таңдалғаннан кейін параметрлер, модульдер, материалдар және жариялау
-            блоктары ашылады.
-          </p>
-        </div>
-
+      <CardContent className="p-3 sm:p-4">
         <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {steps.map((step) => {
             const enabled = !step.disabled;
@@ -91,17 +74,17 @@ export function CourseBuilderStepper({
                 disabled={step.disabled}
                 onClick={() => scrollToBuilderSection(step.id)}
                 aria-disabled={step.disabled}
-                className={`group rounded-3xl border p-3 text-left transition-all duration-200 ease-soft ${
+                className={`rounded-3xl border p-3 text-left transition-colors active:scale-[0.99] ${
                   enabled
-                    ? 'border-border bg-card shadow-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]'
+                    ? 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
                     : 'cursor-not-allowed border-border bg-muted/50 opacity-60'
                 }`}
               >
-                <div className="flex items-start gap-3">
+                <div className="flex items-center gap-3">
                   <div
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft transition-all duration-200 ease-soft ${
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${
                       enabled
-                        ? 'border-primary-muted bg-primary-soft text-primary group-hover:bg-card'
+                        ? 'border-primary-muted bg-primary-soft text-primary'
                         : 'border-border bg-card/70 text-muted-foreground'
                     }`}
                   >
@@ -128,10 +111,6 @@ export function CourseBuilderStepper({
                         {step.title}
                       </p>
                     </div>
-
-                    <p className="mt-1.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                      {step.description}
-                    </p>
                   </div>
                 </div>
               </button>

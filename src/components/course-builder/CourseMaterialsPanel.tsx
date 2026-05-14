@@ -1,4 +1,4 @@
-import type { Dispatch, ReactNode, SetStateAction } from 'react';
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import {
   ExternalLink,
   FileText,
@@ -6,6 +6,7 @@ import {
   Link as LinkIcon,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
@@ -15,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { normalizeMediaUrl } from '@/lib/media-url';
 
 type CourseAssetFormState = {
   title: string;
@@ -35,19 +37,52 @@ type CourseAssetItem = {
 function FieldBlock({
   label,
   children,
-  hint,
+  required,
 }: {
   label: ReactNode;
   children: ReactNode;
-  hint?: string;
+  required?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-semibold text-foreground">{label}</Label>
+      <Label className="text-xs font-semibold text-foreground">
+        {label}
+        {required ? <span className="ml-1 text-destructive">*</span> : null}
+      </Label>
       {children}
-      {hint ? (
-        <p className="text-[11px] leading-5 text-muted-foreground">{hint}</p>
-      ) : null}
+    </div>
+  );
+}
+
+function InlineDeleteConfirm({
+  disabled,
+  onConfirm,
+  onCancel,
+}: {
+  disabled: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
+      <p className="text-xs font-semibold text-foreground">Материал өшірілсін бе?</p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={disabled}
+          onClick={onConfirm}
+        >
+          <Trash2 size={13} className="mr-2" />
+          Өшіру
+        </Button>
+
+        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
+          Болдырмау
+        </Button>
+      </div>
     </div>
   );
 }
@@ -55,21 +90,27 @@ function FieldBlock({
 function CourseAssetCard({
   asset,
   deleting,
+  deleteConfirmOpen,
+  onToggleDeleteConfirm,
+  onCancelDeleteConfirm,
   onDelete,
 }: {
   asset: CourseAssetItem;
   deleting: boolean;
+  deleteConfirmOpen: boolean;
+  onToggleDeleteConfirm: () => void;
+  onCancelDeleteConfirm: () => void;
   onDelete: (assetId: string) => void;
 }) {
   const externalUrl = asset.file.externalUrl;
-  const visibleFileLabel = externalUrl || asset.file.filename || 'Файл дерегі жоқ';
+  const visibleFileLabel = externalUrl || asset.file.filename || 'Файл жоқ';
 
   return (
-    <div className="rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md">
+    <div className="rounded-3xl border border-border bg-card p-4 transition-colors hover:border-primary-muted hover:bg-primary-soft/25">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
               <FileText size={16} />
             </div>
 
@@ -79,23 +120,25 @@ function CourseAssetCard({
                   {asset.title}
                 </p>
 
-                {externalUrl ? (
-                  <StatusBadge tone="primary">
-                    <ExternalLink size={12} />
-                    External URL
-                  </StatusBadge>
-                ) : (
-                  <StatusBadge tone="muted">URL жоқ</StatusBadge>
-                )}
+                <StatusBadge tone={externalUrl ? 'primary' : 'muted'}>
+                  {externalUrl ? (
+                    <>
+                      <ExternalLink size={12} />
+                      Сілтеме
+                    </>
+                  ) : (
+                    'URL жоқ'
+                  )}
+                </StatusBadge>
               </div>
 
               {asset.description ? (
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
                   {asset.description}
                 </p>
               ) : null}
 
-              <p className="mt-2 truncate rounded-2xl border border-border bg-muted/55 px-3 py-2 text-[11px] text-muted-foreground">
+              <p className="mt-2 truncate rounded-2xl border border-border bg-muted/45 px-3 py-2 text-[11px] text-muted-foreground">
                 {visibleFileLabel}
               </p>
             </div>
@@ -119,16 +162,26 @@ function CourseAssetCard({
 
           <Button
             type="button"
-            variant="destructive"
+            variant={deleteConfirmOpen ? 'outline' : 'destructive'}
             size="icon-sm"
             disabled={deleting}
-            onClick={() => onDelete(asset.id)}
+            onClick={onToggleDeleteConfirm}
             aria-label="Курс материалын өшіру"
           >
-            <Trash2 size={13} />
+            {deleteConfirmOpen ? <X size={13} /> : <Trash2 size={13} />}
           </Button>
         </div>
       </div>
+
+      {deleteConfirmOpen ? (
+        <div className="mt-3">
+          <InlineDeleteConfirm
+            disabled={deleting}
+            onConfirm={() => onDelete(asset.id)}
+            onCancel={onCancelDeleteConfirm}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -152,52 +205,55 @@ export function CourseMaterialsPanel({
   deleteCourseAssetPending: boolean;
   onDeleteCourseAsset: (assetId: string) => void;
 }) {
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const formComplete =
+    courseAssetForm.title.trim().length > 0 &&
+    courseAssetForm.externalUrl.trim().length > 0;
+
+  const handleConfirmedDelete = (assetId: string) => {
+    onDeleteCourseAsset(assetId);
+    setDeleteConfirmId(null);
+  };
+
   return (
     <Card id="materials" className="scroll-mt-24 overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <FolderOpen size={16} />
-                Курс материалдары
-              </CardTitle>
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <FolderOpen size={16} />
+              Курс материалдары
+            </CardTitle>
 
-              <StatusBadge tone="secondary">
-                <FileText size={12} />
-                {courseAssets.length} материал
-              </StatusBadge>
-            </div>
-
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Бұл бөлім міндетті емес. Мұғалім курсқа силлабус, бағалау
-              критерийі, формулалар жинағы немесе кіріспе PDF сияқты жалпы
-              материал сілтемесін қоса алады.
-            </p>
+            <StatusBadge tone="secondary">
+              <FileText size={12} />
+              {courseAssets.length}
+            </StatusBadge>
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-5 p-4 sm:p-5">
-        <section className="rounded-3xl border border-border bg-surface-soft/55 p-4 shadow-soft">
-          <div className="mb-4 flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-              <Plus size={17} />
+        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+                <Plus size={17} />
+              </div>
+
+              <p className="truncate text-sm font-semibold text-foreground">
+                Жаңа материал
+              </p>
             </div>
 
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-foreground">
-                Жаңа курс материалы
-              </p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Бұл материал курс деңгейінде бекітіледі және course detail /
-                lesson detail аймақтарында жалпы ресурс ретінде көрінеді.
-              </p>
-            </div>
+            <StatusBadge tone={formComplete ? 'success' : 'muted'}>
+              {formComplete ? 'Толды' : 'Міндетті'}
+            </StatusBadge>
           </div>
 
           <div className="space-y-4">
-            <FieldBlock label="Материал атауы">
+            <FieldBlock label="Материал атауы" required>
               <Input
                 value={courseAssetForm.title}
                 onChange={(event) =>
@@ -206,20 +262,23 @@ export function CourseMaterialsPanel({
                     title: event.target.value,
                   }))
                 }
-                placeholder="Мысалы: Курс силлабусы"
+                placeholder="Материал атауы"
               />
             </FieldBlock>
 
-            <FieldBlock
-              label="Сілтеме"
-              hint="Google Drive, PDF, презентация немесе сыртқы ресурс URL енгізуге болады."
-            >
+            <FieldBlock label="Сілтеме" required>
               <Input
                 value={courseAssetForm.externalUrl}
                 onChange={(event) =>
                   setCourseAssetForm((previous) => ({
                     ...previous,
                     externalUrl: event.target.value,
+                  }))
+                }
+                onBlur={(event) =>
+                  setCourseAssetForm((previous) => ({
+                    ...previous,
+                    externalUrl: normalizeMediaUrl(event.target.value),
                   }))
                 }
                 placeholder="https://..."
@@ -236,7 +295,7 @@ export function CourseMaterialsPanel({
                     description: event.target.value,
                   }))
                 }
-                placeholder="Қысқаша түсіндірме"
+                placeholder="Сипаттама"
               />
             </FieldBlock>
 
@@ -249,34 +308,29 @@ export function CourseMaterialsPanel({
               disabled={!canCreateCourseAsset}
             >
               <LinkIcon size={14} className="mr-1.5" />
-              Курс материалын қосу
+              Қосу
             </Button>
           </div>
         </section>
 
         {courseAssetsLoading ? (
-          <LoadingState text="Материалдар жүктелуде..." compact size="sm" />
+          <LoadingState text="Жүктелуде..." compact size="sm" />
         ) : null}
 
         {!courseAssetsLoading && courseAssets.length === 0 ? (
           <EmptyState
-            title="Курс материалы қосылмаған"
-            text="Силлабус, бағалау критерийі, формулалар жинағы немесе кіріспе PDF сияқты материалдарды кейін қосуға болады."
+            title="Материал жоқ"
+            text="Материал қосыңыз."
             compact
           />
         ) : null}
 
         {!courseAssetsLoading && courseAssets.length > 0 ? (
           <section className="space-y-3">
-            <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-surface-soft/60 px-4 py-3">
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  Қосылған курс материалдары
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Курсқа бекітілген жалпы файлдар мен сілтемелер.
-                </p>
-              </div>
+            <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 px-4 py-3">
+              <p className="text-sm font-semibold text-foreground">
+                Қосылған материалдар
+              </p>
 
               <StatusBadge tone="muted">{courseAssets.length}</StatusBadge>
             </div>
@@ -287,7 +341,14 @@ export function CourseMaterialsPanel({
                   key={asset.id}
                   asset={asset}
                   deleting={deleteCourseAssetPending}
-                  onDelete={onDeleteCourseAsset}
+                  deleteConfirmOpen={deleteConfirmId === asset.id}
+                  onToggleDeleteConfirm={() =>
+                    setDeleteConfirmId((current) =>
+                      current === asset.id ? null : asset.id
+                    )
+                  }
+                  onCancelDeleteConfirm={() => setDeleteConfirmId(null)}
+                  onDelete={handleConfirmedDelete}
                 />
               ))}
             </div>

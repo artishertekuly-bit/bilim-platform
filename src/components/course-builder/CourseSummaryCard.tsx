@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import {
   BookOpen,
   FileText,
@@ -41,7 +42,7 @@ function SummaryRow({
 }: {
   label: string;
   value: string | number;
-  icon: React.ReactNode;
+  icon: ReactNode;
   emphasized?: boolean;
 }) {
   return (
@@ -49,7 +50,7 @@ function SummaryRow({
       className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 ${
         emphasized
           ? 'border-accent-muted bg-accent-soft/70'
-          : 'border-border bg-surface-soft/60'
+          : 'border-border bg-muted/30'
       }`}
     >
       <span className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -89,16 +90,11 @@ export function CourseSummaryCard({
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-sm font-semibold">
-              Қысқаша мәлімет
-            </CardTitle>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Таңдалған курстың негізгі құрылымы мен access жағдайы.
-            </p>
-          </div>
+          <CardTitle className="text-sm font-semibold">
+            Қысқаша мәлімет
+          </CardTitle>
 
           <StatusBadge tone={getAccessTone(accessType)}>
             <KeyRound size={12} />
@@ -121,13 +117,13 @@ export function CourseSummaryCard({
         />
 
         <SummaryRow
-          label="Студенттер"
+          label="Оқушылар"
           value={selectedCourse.students}
           icon={<Users size={13} />}
         />
 
         <SummaryRow
-          label="Access"
+          label="Қолжетімділік"
           value={getAccessTypeLabel(accessType)}
           icon={<KeyRound size={13} />}
         />
