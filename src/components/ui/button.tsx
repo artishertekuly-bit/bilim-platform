@@ -8,60 +8,40 @@ const buttonVariants = cva(
   [
     'inline-flex items-center justify-center gap-2 whitespace-nowrap',
     'rounded-2xl text-sm font-medium',
-    'transition-all duration-200 ease-soft',
+    'transition-colors duration-200 ease-soft',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     'disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-60',
-    'active:translate-y-0 active:scale-[0.99]',
+    'active:scale-[0.99]',
     '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
   ].join(' '),
   {
     variants: {
       variant: {
-        default: [
-          'bg-primary text-primary-foreground shadow-soft',
-          'hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-soft-md',
-        ].join(' '),
+        default: 'bg-primary text-primary-foreground hover:bg-primary/90',
 
-        destructive: [
-          'bg-destructive text-destructive-foreground shadow-soft',
-          'hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-soft-md',
-        ].join(' '),
+        destructive:
+          'bg-destructive text-destructive-foreground hover:bg-destructive/90',
 
-        outline: [
-          'border border-border bg-card text-foreground shadow-soft',
-          'hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft hover:text-primary hover:shadow-soft-md',
-        ].join(' '),
+        outline:
+          'border border-border bg-card text-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
 
-        secondary: [
-          'bg-secondary-soft text-secondary-foreground shadow-soft',
-          'hover:-translate-y-0.5 hover:bg-secondary-muted hover:shadow-soft-md',
-        ].join(' '),
+        secondary:
+          'bg-secondary-soft text-secondary-foreground hover:bg-secondary-muted',
 
-        ghost: [
-          'text-muted-foreground',
-          'hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary',
-        ].join(' '),
+        ghost:
+          'text-muted-foreground hover:bg-primary-soft hover:text-primary',
 
-        link: [
-          'h-auto rounded-none px-0 py-0 text-primary underline-offset-4',
-          'hover:text-primary hover:underline',
-          'active:scale-100',
-        ].join(' '),
+        link:
+          'h-auto rounded-none px-0 py-0 text-primary underline-offset-4 hover:text-primary hover:underline active:scale-100',
 
-        success: [
-          'bg-success-soft text-success-foreground shadow-soft',
-          'hover:-translate-y-0.5 hover:bg-success-muted hover:shadow-soft-md',
-        ].join(' '),
+        success:
+          'bg-success-soft text-success-foreground hover:bg-success-muted',
 
-        warning: [
-          'bg-warning-soft text-warning-foreground shadow-soft',
-          'hover:-translate-y-0.5 hover:bg-warning-muted hover:shadow-soft-md',
-        ].join(' '),
+        warning:
+          'bg-warning-soft text-warning-foreground hover:bg-warning-muted',
 
-        ai: [
-          'border border-ai-border bg-ai-soft text-ai-foreground shadow-soft',
-          'hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft hover:text-primary hover:shadow-soft-md',
-        ].join(' '),
+        ai:
+          'border border-ai-border bg-ai-soft text-ai-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
       },
 
       size: {

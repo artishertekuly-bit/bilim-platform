@@ -7,7 +7,6 @@ import {
   Bookmark,
   Bot,
   BrainCircuit,
-  ChevronRight,
   ClipboardList,
   Eye,
   FileText,
@@ -31,7 +30,6 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import KazakhOrnament from '@/components/KazakhOrnament';
 import UserAvatar from '@/components/UserAvatar';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { useAuth, type UserRole } from '@/lib/auth-context';
@@ -439,22 +437,22 @@ function flattenGroups(groups: NavGroupConfig[]) {
 function getIconToneClass(item: NavItemConfig, isActive: boolean) {
   if (isActive) {
     if (item.tone === 'ai') {
-      return 'border-ai-border bg-ai-soft text-primary shadow-soft';
+      return 'border-ai-border bg-ai-soft text-primary';
     }
 
     if (item.tone === 'create') {
-      return 'border-accent-muted bg-accent-soft text-accent-foreground shadow-soft';
+      return 'border-accent-muted bg-accent-soft text-accent-foreground';
     }
 
-    return 'border-primary-muted bg-card text-primary shadow-soft';
+    return 'border-primary-muted bg-card text-primary';
   }
 
   if (item.tone === 'ai') {
-    return 'border-ai-border/60 bg-ai-soft/55 text-primary group-hover:bg-card';
+    return 'border-ai-border/60 bg-ai-soft/55 text-primary';
   }
 
   if (item.tone === 'create') {
-    return 'border-accent-muted/60 bg-accent-soft/55 text-accent-foreground group-hover:bg-card';
+    return 'border-accent-muted/60 bg-accent-soft/55 text-accent-foreground';
   }
 
   return 'border-transparent bg-card/40 text-muted-foreground group-hover:border-primary-muted group-hover:bg-card group-hover:text-primary';
@@ -466,26 +464,26 @@ function ThemeToggle() {
   const items = [
     {
       value: 'light' as const,
-      label: 'Light',
+      label: 'Жарық',
       icon: Sun,
     },
     {
       value: 'dark' as const,
-      label: 'Dark',
+      label: 'Қараңғы',
       icon: Moon,
     },
     {
       value: 'system' as const,
-      label: 'System',
+      label: 'Жүйе',
       icon: Monitor,
     },
   ];
 
   return (
     <div
-      className="flex items-center rounded-2xl border border-border bg-card/80 p-1 shadow-soft"
-      title={`Theme: ${theme} · active ${resolvedTheme}`}
-      aria-label="Theme switcher"
+      className="flex items-center rounded-2xl border border-border bg-card p-1"
+      title={`Тақырып: ${theme} · белсенді ${resolvedTheme}`}
+      aria-label="Тақырып ауыстыру"
     >
       {items.map((item) => {
         const Icon = item.icon;
@@ -499,11 +497,9 @@ function ThemeToggle() {
             aria-label={item.label}
             aria-pressed={active}
             className={cn(
-              'inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground',
-              'transition-all duration-200 ease-soft',
-              'hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary',
-              'active:translate-y-0 active:scale-[0.98]',
-              active && 'bg-primary-soft text-primary shadow-soft ring-1 ring-primary-muted'
+              'inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors',
+              'hover:bg-primary-soft hover:text-primary',
+              active && 'bg-primary-soft text-primary ring-1 ring-primary-muted'
             )}
           >
             <Icon size={14} />
@@ -526,7 +522,7 @@ function SidebarSection({
   return (
     <div className="space-y-1">
       <div className="px-3 pb-1 pt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {group.title}
         </p>
       </div>
@@ -543,26 +539,19 @@ function SidebarSection({
             onClick={onNavigate}
             aria-current={isActive ? 'page' : undefined}
             className={cn(
-              'group relative flex items-center gap-3 overflow-hidden rounded-2xl px-3 py-2.5 text-sm',
-              'transition-all duration-200 ease-soft',
-              'hover:-translate-y-0.5 hover:shadow-soft',
-              'active:translate-y-0 active:scale-[0.99]',
+              'group relative flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition-colors',
               isActive
-                ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground shadow-soft ring-1 ring-sidebar-border'
+                ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground ring-1 ring-sidebar-border'
                 : 'text-sidebar-foreground hover:bg-sidebar-accent/75 hover:text-foreground'
             )}
           >
             {isActive ? (
-              <>
-                <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" />
-                <span className="absolute inset-0 -z-10 bg-gradient-to-r from-primary-soft/70 via-transparent to-transparent" />
-              </>
+              <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" />
             ) : null}
 
             <span
               className={cn(
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border',
-                'transition-all duration-200 ease-soft',
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors',
                 getIconToneClass(item, isActive)
               )}
             >
@@ -573,10 +562,6 @@ function SidebarSection({
 
             {item.tone === 'ai' && !isActive ? (
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
-            ) : null}
-
-            {isActive ? (
-              <ChevronRight size={14} className="shrink-0 text-primary" />
             ) : null}
           </Link>
         );
@@ -660,7 +645,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {sidebarOpen ? (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-foreground/15 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-foreground/20 lg:hidden"
           onClick={() => setSidebarOpen(false)}
           aria-label={t('common.close')}
           aria-controls={SIDEBAR_ID}
@@ -670,29 +655,24 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <aside
         id={SIDEBAR_ID}
         className={cn(
-          'fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-sidebar-border',
-          'bg-sidebar/95 shadow-soft-lg backdrop-blur-xl',
+          'fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-sidebar-border bg-sidebar',
           'transition-transform duration-200 ease-soft',
-          'lg:sticky lg:translate-x-0 lg:shadow-none',
+          'lg:sticky lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
           <Link
             to="/dashboard"
-            className="flex min-w-0 items-center gap-3 rounded-2xl transition-all duration-200 ease-soft hover:-translate-y-0.5"
+            className="flex min-w-0 items-center gap-3 rounded-2xl"
           >
-            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary text-primary-foreground shadow-soft">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
               <GraduationCap size={18} />
-              <span className="absolute inset-x-2 bottom-1 h-px bg-primary-foreground/30" />
             </div>
 
             <div className="min-w-0">
               <span className="block truncate text-sm font-semibold tracking-tight">
                 Bilimcorp
-              </span>
-              <span className="block truncate text-[10px] font-medium text-muted-foreground">
-                Soft Academic LMS
               </span>
             </div>
           </Link>
@@ -700,7 +680,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            className="rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-sidebar-accent hover:text-foreground lg:hidden"
+            className="rounded-2xl p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground lg:hidden"
             aria-label={t('common.close')}
             aria-controls={SIDEBAR_ID}
           >
@@ -709,14 +689,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
 
         <div className="px-5 py-4">
-          <div className="rounded-3xl border border-sidebar-border bg-card/70 p-3 shadow-soft">
+          <div className="rounded-3xl border border-sidebar-border bg-card/70 p-3">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
                 <ShieldCheck size={16} />
               </div>
 
               <div className="min-w-0">
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                   Рөл
                 </span>
                 <span className="block truncate text-sm font-semibold">
@@ -729,7 +709,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
         <nav
           className="flex-1 overflow-y-auto px-3 pb-3"
-          aria-label="Dashboard navigation"
+          aria-label="Навигация"
         >
           {navGroups.map((group) => (
             <SidebarSection
@@ -741,12 +721,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="px-5 py-2">
-          <div className="flex justify-center opacity-60">
-            <KazakhOrnament variant="divider" />
-          </div>
-        </div>
-
         <div className="border-t border-sidebar-border px-4 py-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <span className="text-[11px] font-medium text-muted-foreground">
@@ -755,10 +729,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <ThemeToggle />
           </div>
 
-          <div className="flex items-center gap-2 rounded-3xl border border-sidebar-border bg-card/70 p-2 shadow-soft">
+          <div className="flex items-center gap-2 rounded-3xl border border-sidebar-border bg-card/70 p-2">
             <Link
               to="/profile"
-              className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-1.5 transition-all duration-200 ease-soft hover:bg-primary-soft"
+              className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-1.5 transition-colors hover:bg-primary-soft"
             >
               <UserAvatar
                 name={displayName}
@@ -778,7 +752,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <button
               type="button"
               onClick={handleLogout}
-              className="shrink-0 rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-destructive-soft hover:text-destructive"
+              className="shrink-0 rounded-2xl p-2 text-muted-foreground transition-colors hover:bg-destructive-soft hover:text-destructive"
               title={t('nav.logout')}
               aria-label={t('nav.logout')}
             >
@@ -789,11 +763,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center border-b border-border bg-background/82 px-4 backdrop-blur-xl lg:px-6">
+        <header className="sticky top-0 z-30 flex h-16 items-center border-b border-border bg-background px-4 lg:px-6">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="-ml-2 mr-3 rounded-2xl p-2 text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary lg:hidden"
+            className="-ml-2 mr-3 rounded-2xl p-2 text-muted-foreground transition-colors hover:bg-primary-soft hover:text-primary lg:hidden"
             aria-label={t('common.open_menu')}
             aria-controls={SIDEBAR_ID}
             aria-expanded={sidebarOpen}
@@ -811,9 +785,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               ) : null}
               <p className="truncate text-sm font-semibold">{activeLabel}</p>
             </div>
-            <p className="hidden truncate text-[11px] text-muted-foreground sm:block">
-              Soft academic workspace
-            </p>
           </div>
 
           <div className="hidden lg:block">
@@ -821,8 +792,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="kazakh-ornament-bg flex-1 bg-background p-4 lg:p-6">
-          <div className="mx-auto w-full max-w-[1480px] animate-fade-in">
+        <main className="flex-1 bg-background p-4 lg:p-6">
+          <div className="mx-auto w-full max-w-[1480px]">
             {children}
           </div>
         </main>

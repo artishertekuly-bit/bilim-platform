@@ -55,17 +55,15 @@ export default function UserAvatar({
   return (
     <Avatar
       className={cn(
-        'overflow-hidden border border-primary-muted bg-primary-soft text-primary shadow-inner-soft',
-        'transition-all duration-200 ease-soft',
-        className,
-        'rounded-full'
+        'overflow-hidden rounded-full border border-primary-muted bg-primary-soft text-primary',
+        className
       )}
     >
       {showImage ? (
         <AvatarImage
           key={normalizedAvatarUrl}
           src={normalizedAvatarUrl || undefined}
-          alt={name ? `${name} avatar` : 'User avatar'}
+          alt={name ? `${name} профиль суреті` : 'Профиль суреті'}
           className="h-full w-full rounded-full object-cover"
           referrerPolicy="no-referrer"
           onError={() => setImageError(true)}
