@@ -201,22 +201,18 @@ function getUniqueCompletionRecordCount(rows: LessonProgressAnalyticsRow[]) {
   ).length;
 }
 
-function getLessonIdFromRow(
-  row:
-    | LessonProgressAnalyticsRow
-    | MiniQuizAttemptAnalyticsRow
-    | BookmarkAnalyticsRow
-    | ReviewLaterAnalyticsRow,
-) {
+type LessonReferenceRow = {
+  lesson_id?: string | null;
+  item_id?: string | null;
+  course_id?: string | null;
+};
+
+function getLessonIdFromRow(row: LessonReferenceRow) {
   return row.lesson_id || row.item_id || null;
 }
 
 function resolveCourseIdFromLesson(
-  row:
-    | LessonProgressAnalyticsRow
-    | MiniQuizAttemptAnalyticsRow
-    | BookmarkAnalyticsRow
-    | ReviewLaterAnalyticsRow,
+  row: LessonReferenceRow,
   lessonsById: Map<string, LessonAnalyticsRow>,
 ) {
   if (row.course_id) return row.course_id;
@@ -227,22 +223,13 @@ function resolveCourseIdFromLesson(
   return lessonsById.get(lessonId)?.course_id || null;
 }
 
-function attachCourseIdFromLesson<T extends { course_id?: string | null }>(
+function attachCourseIdFromLesson<T extends LessonReferenceRow>(
   rows: T[],
   lessonsById: Map<string, LessonAnalyticsRow>,
 ): T[] {
   return rows.map((row) => ({
     ...row,
-    course_id: resolveCourseIdFromLesson(
-      row as T &
-        (
-          | LessonProgressAnalyticsRow
-          | MiniQuizAttemptAnalyticsRow
-          | BookmarkAnalyticsRow
-          | ReviewLaterAnalyticsRow
-        ),
-      lessonsById,
-    ),
+    course_id: resolveCourseIdFromLesson(row, lessonsById),
   }));
 }
 

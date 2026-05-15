@@ -25,7 +25,6 @@ import {
 
 import {
   AlertTriangle,
-  ArrowRight,
   Check,
   CheckCircle2,
   ClipboardList,
@@ -103,6 +102,26 @@ function getKindLabel(value: QuestionKindOption) {
   return questionKindOptions.find((item) => item.value === value)?.label || value;
 }
 
+function normalizeDifficulty(value: string): Difficulty {
+  if (value === 'easy' || value === 'medium' || value === 'hard') {
+    return value;
+  }
+
+  return 'medium';
+}
+
+function normalizeQuestionKind(value: string): QuestionKindOption {
+  if (
+    value === 'mixed' ||
+    value === 'multiple_choice' ||
+    value === 'short_answer'
+  ) {
+    return value;
+  }
+
+  return 'mixed';
+}
+
 function getQuestionTypeLabel(type: GeneratedQuestion['type']) {
   if (type === 'multiple_choice') return 'Multiple choice';
   return 'Қысқа жауап';
@@ -133,7 +152,7 @@ function StatCard({
   );
 }
 
-function OptionCard<T extends string>({
+function OptionCard({
   active,
   label,
   description,
@@ -143,8 +162,8 @@ function OptionCard<T extends string>({
   active: boolean;
   label: string;
   description: string;
-  value: T;
-  onSelect: (value: T) => void;
+  value: string;
+  onSelect: (value: string) => void;
 }) {
   return (
     <button
@@ -565,7 +584,7 @@ export default function AiQuestionBuilderPage() {
                         label={item.label}
                         description={item.description}
                         value={item.value}
-                        onSelect={setDifficulty}
+                        onSelect={(value) => setDifficulty(normalizeDifficulty(value))}
                       />
                     ))}
                   </div>
@@ -581,7 +600,7 @@ export default function AiQuestionBuilderPage() {
                         label={item.label}
                         description={item.description}
                         value={item.value}
-                        onSelect={setKind}
+                        onSelect={(value) => setKind(normalizeQuestionKind(value))}
                       />
                     ))}
                   </div>

@@ -20,6 +20,7 @@ import {
 import {
   platformKeys,
   useSubjects,
+  useTeacherCourseWorkspace,
   useTeacherTestsWorkspace,
 } from '@/hooks/use-platform-data';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,13 @@ import {
 
 const statuses = ['draft', 'under_review', 'published', 'archived'] as const;
 type TestStatus = (typeof statuses)[number];
+
+type CourseOption = {
+  id: string;
+  title: string;
+  subjectId: string;
+  subjectName: string | null;
+};
 
 type QuestionFormState = {
   questionText: string;
@@ -106,6 +114,48 @@ function getTestStatusTone(status: TestStatus) {
   if (status === 'under_review') return 'warning' as const;
   if (status === 'archived') return 'muted' as const;
   return 'info' as const;
+}
+
+function normalizeCourseOptions(workspace: unknown): CourseOption[] {
+  const raw = workspace as {
+    courses?: unknown[];
+    items?: unknown[];
+    teacherCourses?: unknown[];
+  };
+
+  const source: unknown[] =
+    (Array.isArray(raw?.courses) && raw.courses) ||
+    (Array.isArray(raw?.items) && raw.items) ||
+    (Array.isArray(raw?.teacherCourses) && raw.teacherCourses) ||
+    (Array.isArray(raw) && raw) ||
+    [];
+
+  return source
+    .map((item): CourseOption => {
+      const row = item as Record<string, unknown>;
+
+      const subjectId =
+        typeof row.subjectId === 'string'
+          ? row.subjectId
+          : typeof row.subject_id === 'string'
+            ? row.subject_id
+            : '';
+
+      const subjectName =
+        typeof row.subjectName === 'string'
+          ? row.subjectName
+          : typeof row.subject_name === 'string'
+            ? row.subject_name
+            : null;
+
+      return {
+        id: String(row.id || row.courseId || '').trim(),
+        title: String(row.title || row.courseTitle || 'Курс').trim(),
+        subjectId,
+        subjectName,
+      };
+    })
+    .filter((course) => course.id.length > 0);
 }
 
 function parseCorrectAnswerIndexes(value: string) {
@@ -427,9 +477,18 @@ export default function TeacherCreateTestPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: subjects } = useSubjects();
+  const {
+    data: courseWorkspace,
+    isFetching: courseWorkspaceFetching,
+  } = useTeacherCourseWorkspace(user?.id || '', !!user?.id);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const requestedTestId = searchParams.get('testId') || '';
+
+  const courseOptions = useMemo(
+    () => normalizeCourseOptions(courseWorkspace),
+    [courseWorkspace],
+  );
 
   const {
     data: workspace,
@@ -445,6 +504,7 @@ export default function TeacherCreateTestPage() {
     topic: '',
     duration: '20',
     subjectId: '',
+    courseId: '',
   });
 
   const [testEdit, setTestEdit] = useState<{
@@ -579,6 +639,17 @@ export default function TeacherCreateTestPage() {
   }, [pendingAiImport]);
 
   useEffect(() => {
+    if (!newTest.courseId || courseOptions.some((course) => course.id === newTest.courseId)) {
+      return;
+    }
+
+    setNewTest((previous) => ({
+      ...previous,
+      courseId: '',
+    }));
+  }, [courseOptions, newTest.courseId]);
+
+  useEffect(() => {
     if (!workspace?.tests?.length) {
       if (selectedTestId) {
         setSelectedTestId('');
@@ -709,6 +780,7 @@ export default function TeacherCreateTestPage() {
 
       return createTest({
         title: newTest.title.trim(),
+        courseId: newTest.courseId,
         topic: newTest.topic.trim(),
         subjectId: newTest.subjectId,
         durationMinutes: Number(newTest.duration) || 20,
@@ -717,7 +789,7 @@ export default function TeacherCreateTestPage() {
       });
     },
     onSuccess: async (test) => {
-      setNewTest({ title: '', topic: '', duration: '20', subjectId: '' });
+      setNewTest({ title: '', topic: '', duration: '20', subjectId: '', courseId: '' });
       await refetch();
       selectTest(test.id);
 
@@ -1085,6 +1157,7 @@ export default function TeacherCreateTestPage() {
 
   const canCreateTest =
     !!newTest.title.trim() &&
+    !!newTest.courseId &&
     !!newTest.subjectId &&
     !createTestMutation.isPending;
 
@@ -1264,6 +1337,39 @@ export default function TeacherCreateTestPage() {
               </CardHeader>
 
               <CardContent className="space-y-4 p-4 sm:p-5">
+                <FieldBlock label="Курс" required>
+                  <select
+                    value={newTest.courseId}
+                    onChange={(event) => {
+                      const courseId = event.target.value;
+                      const course = courseOptions.find((item) => item.id === courseId);
+
+                      setNewTest((previous) => ({
+                        ...previous,
+                        courseId,
+                        subjectId: course?.subjectId || previous.subjectId,
+                      }));
+                    }}
+                    disabled={courseWorkspaceFetching || courseOptions.length === 0}
+                    className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <option value="">
+                      {courseWorkspaceFetching
+                        ? 'Курстар жүктелуде...'
+                        : courseOptions.length === 0
+                          ? 'Алдымен курс құрыңыз'
+                          : 'Курс таңдаңыз'}
+                    </option>
+
+                    {courseOptions.map((course) => (
+                      <option key={course.id} value={course.id}>
+                        {course.title}
+                        {course.subjectName ? ` · ${course.subjectName}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </FieldBlock>
+
                 <FieldBlock
                   label={t('page.teacher_test_builder.field.test_title')}
                   required
