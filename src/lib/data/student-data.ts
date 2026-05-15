@@ -9,6 +9,9 @@ import type {
   CourseAccessType,
   CourseAccessView,
   CourseUnlockAction,
+  CourseProgressLessonStatus,
+  CourseProgressLessonView,
+  CourseProgressModuleView,
   CourseProgressTimelineView,
   CourseView,
   CourseVisibility,
@@ -16,6 +19,7 @@ import type {
   DashboardStudentData,
   EntitlementRow,
   LessonDetailView,
+  LessonLockedReason,
   LeaderboardView,
   OrderRow,
   ProfileMap,
@@ -617,6 +621,9 @@ export async function getStudentDashboard(
       const lessonIndex = siblings.findIndex((item) => item.id === lesson.id);
       const previous = lessonIndex > 0 ? siblings[lessonIndex - 1] : null;
       const isLocked = Boolean(previous && !lessonProgressMap.get(previous.id)?.is_completed);
+      const lockedReason: LessonLockedReason = isLocked
+        ? 'previous_lesson_required'
+        : 'none';
 
       return {
         id: lesson.id,
@@ -633,7 +640,7 @@ export async function getStudentDashboard(
         sortOrder: lesson.sort_order,
         isCompleted: completed,
         isLocked,
-        lockedReason: isLocked ? 'previous_lesson_required' : 'none',
+        lockedReason,
       };
     })
     .filter((lesson) => !lesson.isCompleted)
@@ -1068,12 +1075,12 @@ export async function getCourseProgressTimeline(
 
   let nextLessonId: string | null = null;
 
-  const timelineModules = modules.map((module) => {
+  const timelineModules: CourseProgressModuleView[] = modules.map((module) => {
     const moduleLessons = (lessonsByModuleId.get(module.id) || [])
       .slice()
       .sort((a, b) => a.sort_order - b.sort_order);
 
-    const mappedLessons = moduleLessons.map((lesson, index) => {
+    const mappedLessons: CourseProgressLessonView[] = moduleLessons.map((lesson, index) => {
       const progressRow = progressMap.get(lesson.id);
       const isCompleted = completedLessonIds.has(lesson.id);
 
@@ -1088,7 +1095,7 @@ export async function getCourseProgressTimeline(
       const isLocked =
         courseAccessLocked || previousLessonLocked || lessonUnpublishedLocked;
 
-      const lockedReason = courseAccessLocked
+      const lockedReason: LessonLockedReason = courseAccessLocked
         ? 'course_access_required'
         : lessonUnpublishedLocked
           ? 'lesson_unpublished'
@@ -1096,7 +1103,7 @@ export async function getCourseProgressTimeline(
             ? 'previous_lesson_required'
             : 'none';
 
-      const status = isCompleted
+      const status: CourseProgressLessonStatus = isCompleted
         ? 'completed'
         : isLocked
           ? 'locked'
@@ -1261,7 +1268,7 @@ export async function getLessonDetail(
   const isLocked =
     courseAccessLocked || lessonUnpublishedLocked || previousLessonLocked;
 
-  const lockedReason = courseAccessLocked
+  const lockedReason: LessonLockedReason = courseAccessLocked
     ? 'course_access_required'
     : lessonUnpublishedLocked
       ? 'lesson_unpublished'
@@ -1302,7 +1309,7 @@ export async function getLessonDetail(
 export async function getLessonsForStudent(
   studentId?: string,
   locale: 'kk' | 'ru' = 'kk'
-) {
+): Promise<LessonView[]> {
   const [subjects, enrollments, modules, lessons, progress] = await Promise.all([
     getSubjects(),
     studentId
@@ -1368,6 +1375,11 @@ export async function getLessonsForStudent(
       );
 
       const isLocked = courseAccessLocked || previousLessonLocked;
+      const lockedReason: LessonLockedReason = courseAccessLocked
+        ? 'course_access_required'
+        : previousLessonLocked
+          ? 'previous_lesson_required'
+          : 'none';
 
       return {
         id: lesson.id,
@@ -1384,13 +1396,9 @@ export async function getLessonsForStudent(
         sortOrder: lesson.sort_order,
         isCompleted: progressSet.has(lesson.id),
         isLocked,
-        lockedReason: courseAccessLocked
-          ? 'course_access_required'
-          : previousLessonLocked
-            ? 'previous_lesson_required'
-            : 'none',
+        lockedReason,
       };
-    }) as LessonView[];
+    });
 }
 
 export async function markLessonComplete(_studentId: string, lessonId: string) {

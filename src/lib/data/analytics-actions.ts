@@ -12,10 +12,106 @@ import type {
 } from '@/lib/app-data-types';
 import { queryOrThrow } from './common';
 
-type AnyRow = Record<string, any>;
+type CourseMetaRow = {
+  id: string;
+  title: string;
+  subject_id: string | null;
+  subjectName: string | null;
+};
+
+type SubjectRow = {
+  id: string;
+  name_kk: string | null;
+  name_ru: string | null;
+};
+
+type EnrollmentRow = {
+  student_id: string | null;
+  course_id: string | null;
+};
+
+type ModuleAnalyticsRow = {
+  id: string;
+  course_id: string | null;
+  title: string | null;
+  sort_order: number | null;
+};
+
+type LessonAnalyticsRow = {
+  id: string;
+  module_id: string | null;
+  title: string | null;
+  sort_order: number | null;
+  is_published: boolean | null;
+  course_id: string;
+  module_title: string | null;
+};
+
+type LessonProgressAnalyticsRow = {
+  id?: string | null;
+  student_id: string | null;
+  lesson_id: string | null;
+  completed_at: string | null;
+  created_at?: string | null;
+  is_completed?: boolean | null;
+  course_id?: string | null;
+};
+
+type MiniQuizAttemptAnalyticsRow = {
+  id?: string | null;
+  quiz_id: string | null;
+  lesson_id: string | null;
+  course_id?: string | null;
+  student_id: string | null;
+  score: number | null;
+  passed: boolean | null;
+  completed_at?: string | null;
+  created_at?: string | null;
+};
+
+type TestAttemptAnalyticsRow = {
+  id?: string | null;
+  test_id: string | null;
+  student_id: string | null;
+  score: number | null;
+  completed_at?: string | null;
+  course_id?: string | null;
+};
+
+type BookmarkAnalyticsRow = {
+  id?: string | null;
+  student_id: string | null;
+  lesson_id?: string | null;
+  item_id?: string | null;
+  course_id?: string | null;
+  created_at?: string | null;
+};
+
+type ReviewLaterAnalyticsRow = {
+  id?: string | null;
+  student_id: string | null;
+  lesson_id?: string | null;
+  item_id?: string | null;
+  course_id?: string | null;
+  created_at?: string | null;
+};
+
+type ProfileAnalyticsRow = {
+  user_id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+};
+
+type LessonMiniQuizAnalyticsRow = {
+  id: string;
+  lesson_id: string | null;
+  course_id?: string | null;
+  title: string | null;
+};
 
 function toNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
+
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
@@ -25,17 +121,19 @@ function avg(values: number[]) {
   if (normalized.length === 0) return null;
 
   return Math.round(
-    normalized.reduce((sum, value) => sum + value, 0) / normalized.length
+    normalized.reduce((sum, value) => sum + value, 0) / normalized.length,
   );
 }
 
 function pct(part: number, total: number) {
   if (!total) return 0;
+
   return Math.round((part / total) * 100);
 }
 
 function nullablePct(part: number, total: number) {
   if (!total) return null;
+
   return Math.round((part / total) * 100);
 }
 
@@ -71,8 +169,10 @@ function unique<T>(items: T[]) {
 function groupBy<T>(items: T[], getKey: (item: T) => string) {
   return items.reduce<Record<string, T[]>>((acc, item) => {
     const key = getKey(item);
+
     if (!acc[key]) acc[key] = [];
     acc[key].push(item);
+
     return acc;
   }, {});
 }
@@ -81,44 +181,68 @@ function countUnique(items: Array<string | null | undefined>) {
   return unique(items.filter(Boolean) as string[]).length;
 }
 
-function getCompletedProgressRows(rows: AnyRow[]) {
-  return rows.filter((item) => Boolean(item.completed_at));
+function getCompletedProgressRows(rows: LessonProgressAnalyticsRow[]) {
+  return rows.filter((item) => Boolean(item.completed_at || item.is_completed));
 }
 
-function getUniqueCompletedLessonCount(rows: AnyRow[]) {
+function getUniqueCompletedLessonCount(rows: LessonProgressAnalyticsRow[]) {
   return countUnique(getCompletedProgressRows(rows).map((item) => item.lesson_id));
 }
 
-function getUniqueCompletionRecordCount(rows: AnyRow[]) {
+function getUniqueCompletionRecordCount(rows: LessonProgressAnalyticsRow[]) {
   return unique(
     getCompletedProgressRows(rows)
       .map((item) => {
         if (!item.student_id || !item.lesson_id) return null;
+
         return `${item.student_id}:${item.lesson_id}`;
       })
-      .filter(Boolean) as string[]
+      .filter(Boolean) as string[],
   ).length;
 }
 
-function resolveCourseIdFromLesson(
-  row: AnyRow,
-  lessonsById: Map<string, AnyRow>
+function getLessonIdFromRow(
+  row:
+    | LessonProgressAnalyticsRow
+    | MiniQuizAttemptAnalyticsRow
+    | BookmarkAnalyticsRow
+    | ReviewLaterAnalyticsRow,
 ) {
-  if (row.course_id) return row.course_id as string;
+  return row.lesson_id || row.item_id || null;
+}
 
-  const lessonId = row.lesson_id || row.item_id;
+function resolveCourseIdFromLesson(
+  row:
+    | LessonProgressAnalyticsRow
+    | MiniQuizAttemptAnalyticsRow
+    | BookmarkAnalyticsRow
+    | ReviewLaterAnalyticsRow,
+  lessonsById: Map<string, LessonAnalyticsRow>,
+) {
+  if (row.course_id) return row.course_id;
+
+  const lessonId = getLessonIdFromRow(row);
   if (!lessonId) return null;
 
   return lessonsById.get(lessonId)?.course_id || null;
 }
 
-function attachCourseIdFromLesson(
-  rows: AnyRow[],
-  lessonsById: Map<string, AnyRow>
-) {
+function attachCourseIdFromLesson<T extends { course_id?: string | null }>(
+  rows: T[],
+  lessonsById: Map<string, LessonAnalyticsRow>,
+): T[] {
   return rows.map((row) => ({
     ...row,
-    course_id: resolveCourseIdFromLesson(row, lessonsById),
+    course_id: resolveCourseIdFromLesson(
+      row as T &
+        (
+          | LessonProgressAnalyticsRow
+          | MiniQuizAttemptAnalyticsRow
+          | BookmarkAnalyticsRow
+          | ReviewLaterAnalyticsRow
+        ),
+      lessonsById,
+    ),
   }));
 }
 
@@ -174,17 +298,21 @@ function buildRecommendations(input: {
 async function getCourseMeta(courseIds: string[]) {
   const normalizedCourseIds = unique(courseIds.filter(Boolean));
 
-  if (normalizedCourseIds.length === 0) return new Map<string, AnyRow>();
+  if (normalizedCourseIds.length === 0) return new Map<string, CourseMetaRow>();
 
   const courses = (await queryOrThrow(
     supabase
       .from('courses')
       .select('id, title, subject_id')
-      .in('id', normalizedCourseIds)
-  )) as AnyRow[];
+      .in('id', normalizedCourseIds),
+  )) as Array<{
+    id: string;
+    title: string;
+    subject_id: string | null;
+  }>;
 
   const subjectIds = unique(
-    courses.map((course) => course.subject_id).filter(Boolean)
+    courses.map((course) => course.subject_id).filter(Boolean) as string[],
   );
 
   const subjects = subjectIds.length
@@ -192,15 +320,17 @@ async function getCourseMeta(courseIds: string[]) {
         supabase
           .from('subjects')
           .select('id, name_kk, name_ru')
-          .in('id', subjectIds)
-      )) as AnyRow[])
+          .in('id', subjectIds),
+      )) as SubjectRow[])
     : [];
 
   const subjectsById = new Map(subjects.map((subject) => [subject.id, subject]));
 
   return new Map(
     courses.map((course) => {
-      const subject = subjectsById.get(course.subject_id);
+      const subject = course.subject_id
+        ? subjectsById.get(course.subject_id)
+        : null;
 
       return [
         course.id,
@@ -209,7 +339,7 @@ async function getCourseMeta(courseIds: string[]) {
           subjectName: subject?.name_kk || subject?.name_ru || null,
         },
       ];
-    })
+    }),
   );
 }
 
@@ -222,10 +352,10 @@ async function getCourseLessons(courseIds: string[]) {
     supabase
       .from('modules')
       .select('id, course_id, title, sort_order')
-      .in('course_id', normalizedCourseIds)
-  )) as AnyRow[];
+      .in('course_id', normalizedCourseIds),
+  )) as ModuleAnalyticsRow[];
 
-  const moduleIds = modules.map((module) => module.id);
+  const moduleIds = modules.map((module) => module.id).filter(Boolean);
 
   if (moduleIds.length === 0) return [];
 
@@ -233,22 +363,160 @@ async function getCourseLessons(courseIds: string[]) {
     supabase
       .from('lessons')
       .select('id, module_id, title, sort_order, is_published')
-      .in('module_id', moduleIds)
-  )) as AnyRow[];
+      .in('module_id', moduleIds),
+  )) as Array<{
+    id: string;
+    module_id: string | null;
+    title: string | null;
+    sort_order: number | null;
+    is_published: boolean | null;
+  }>;
 
   const moduleById = new Map(modules.map((module) => [module.id, module]));
 
   return lessons
     .map((lesson) => {
-      const module = moduleById.get(lesson.module_id);
+      const module = lesson.module_id ? moduleById.get(lesson.module_id) : null;
+      const courseId = module?.course_id || null;
+
+      if (!courseId) return null;
 
       return {
         ...lesson,
-        course_id: module?.course_id || null,
+        course_id: courseId,
         module_title: module?.title || null,
       };
     })
-    .filter((lesson) => Boolean(lesson.course_id));
+    .filter(Boolean) as LessonAnalyticsRow[];
+}
+
+async function getLessonsByIds(lessonIds: string[]) {
+  const normalizedLessonIds = unique(lessonIds.filter(Boolean));
+
+  if (normalizedLessonIds.length === 0) return [];
+
+  const lessons = (await queryOrThrow(
+    supabase
+      .from('lessons')
+      .select('id, module_id, title, sort_order, is_published')
+      .in('id', normalizedLessonIds),
+  )) as Array<{
+    id: string;
+    module_id: string | null;
+    title: string | null;
+    sort_order: number | null;
+    is_published: boolean | null;
+  }>;
+
+  const moduleIds = unique(
+    lessons.map((lesson) => lesson.module_id).filter(Boolean) as string[],
+  );
+
+  if (moduleIds.length === 0) return [];
+
+  const modules = (await queryOrThrow(
+    supabase
+      .from('modules')
+      .select('id, course_id, title, sort_order')
+      .in('id', moduleIds),
+  )) as ModuleAnalyticsRow[];
+
+  const moduleById = new Map(modules.map((module) => [module.id, module]));
+
+  return lessons
+    .map((lesson) => {
+      const module = lesson.module_id ? moduleById.get(lesson.module_id) : null;
+      const courseId = module?.course_id || null;
+
+      if (!courseId) return null;
+
+      return {
+        ...lesson,
+        course_id: courseId,
+        module_title: module?.title || null,
+      };
+    })
+    .filter(Boolean) as LessonAnalyticsRow[];
+}
+
+async function getLessonProgressByLessonIds(input: {
+  lessonIds: string[];
+  studentId?: string;
+}) {
+  const lessonIds = unique(input.lessonIds.filter(Boolean));
+
+  if (lessonIds.length === 0) return [];
+
+  let query = supabase
+    .from('lesson_progress')
+    .select('*')
+    .in('lesson_id', lessonIds);
+
+  if (input.studentId) {
+    query = query.eq('student_id', input.studentId);
+  }
+
+  return (await queryOrThrow(query)) as LessonProgressAnalyticsRow[];
+}
+
+async function getMiniQuizAttemptsByLessonIds(input: {
+  lessonIds: string[];
+  studentId?: string;
+}) {
+  const lessonIds = unique(input.lessonIds.filter(Boolean));
+
+  if (lessonIds.length === 0) return [];
+
+  let query = supabase
+    .from('lesson_mini_quiz_attempts' as never)
+    .select('*')
+    .in('lesson_id', lessonIds);
+
+  if (input.studentId) {
+    query = query.eq('student_id', input.studentId);
+  }
+
+  return (await queryOrThrow(query)) as unknown as MiniQuizAttemptAnalyticsRow[];
+}
+
+async function getBookmarksByLessonIds(input: {
+  lessonIds: string[];
+  studentId?: string;
+}) {
+  const lessonIds = unique(input.lessonIds.filter(Boolean));
+
+  if (lessonIds.length === 0) return [];
+
+  let query = supabase
+    .from('student_lesson_bookmarks' as never)
+    .select('*')
+    .in('lesson_id', lessonIds);
+
+  if (input.studentId) {
+    query = query.eq('student_id', input.studentId);
+  }
+
+  return (await queryOrThrow(query)) as unknown as BookmarkAnalyticsRow[];
+}
+
+async function getReviewLaterItemsByLessonIds(input: {
+  lessonIds: string[];
+  studentId?: string;
+}) {
+  const lessonIds = unique(input.lessonIds.filter(Boolean));
+
+  if (lessonIds.length === 0) return [];
+
+  let query = supabase
+    .from('review_later_items' as never)
+    .select('*')
+    .in('lesson_id', lessonIds);
+
+  if (input.studentId) {
+    query = query.eq('student_id', input.studentId);
+  }
+
+  return (await queryOrThrow(query)) as unknown as ReviewLaterAnalyticsRow[];
 }
 
 async function getTestCourseMap(testIds: string[]) {
@@ -257,41 +525,34 @@ async function getTestCourseMap(testIds: string[]) {
   if (normalizedTestIds.length === 0) return new Map<string, string>();
 
   const { data, error } = await supabase
-    .from('tests')
+    .from('tests' as never)
     .select('id, course_id')
     .in('id', normalizedTestIds);
 
   if (error || !data) {
-    /**
-     * Кей schema-ларда tests.course_id болмауы мүмкін.
-     * Мұндай жағдайда test analytics-ті course-level snapshot-қа араластырмаймыз.
-     * Барлық platform test attempt-терін бір course-қа қосып жіберу — қате аналитика.
-     */
     return new Map<string, string>();
   }
 
   return new Map(
-    (data as AnyRow[])
+    (data as unknown as Array<{ id?: string | null; course_id?: string | null }>)
       .filter((test) => Boolean(test.id && test.course_id))
-      .map((test) => [test.id, test.course_id])
+      .map((test) => [test.id as string, test.course_id as string]),
   );
 }
 
 async function getTestAttemptsForCourse(courseId: string) {
   const { data: tests, error: testsError } = await supabase
-    .from('tests')
+    .from('tests' as never)
     .select('id, course_id')
     .eq('course_id', courseId);
 
   if (testsError || !tests) {
-    /**
-     * course_id жоқ schema үшін қауіпсіз fallback.
-     * Wrong global test analytics көрсеткеннен гөрі бос test analytics дұрыс.
-     */
     return [];
   }
 
-  const testIds = (tests as AnyRow[]).map((test) => test.id).filter(Boolean);
+  const testIds = (tests as unknown as Array<{ id?: string | null }>)
+    .map((test) => test.id)
+    .filter(Boolean) as string[];
 
   if (testIds.length === 0) return [];
 
@@ -299,12 +560,12 @@ async function getTestAttemptsForCourse(courseId: string) {
     supabase
       .from('test_attempts')
       .select('*')
-      .in('test_id', testIds)
-  )) as AnyRow[];
+      .in('test_id', testIds),
+  )) as TestAttemptAnalyticsRow[];
 }
 
 export async function getStudentLearningSnapshot(
-  studentId: string
+  studentId: string,
 ): Promise<StudentLearningSnapshot> {
   const generatedAt = new Date().toISOString();
 
@@ -344,78 +605,89 @@ export async function getStudentLearningSnapshot(
       supabase
         .from('course_enrollments')
         .select('*')
-        .eq('student_id', studentId)
-    ) as Promise<AnyRow[]>,
+        .eq('student_id', studentId),
+    ) as Promise<EnrollmentRow[]>,
 
     queryOrThrow(
       supabase
         .from('lesson_progress')
         .select('*')
-        .eq('student_id', studentId)
-    ) as Promise<AnyRow[]>,
+        .eq('student_id', studentId),
+    ) as Promise<LessonProgressAnalyticsRow[]>,
 
     queryOrThrow(
       supabase
         .from('lesson_mini_quiz_attempts' as never)
         .select('*')
-        .eq('student_id', studentId)
-    ) as unknown as Promise<AnyRow[]>,
+        .eq('student_id', studentId),
+    ) as unknown as Promise<MiniQuizAttemptAnalyticsRow[]>,
 
     queryOrThrow(
       supabase
         .from('test_attempts')
         .select('*')
-        .eq('student_id', studentId)
-    ) as Promise<AnyRow[]>,
+        .eq('student_id', studentId),
+    ) as Promise<TestAttemptAnalyticsRow[]>,
 
     queryOrThrow(
       supabase
         .from('student_lesson_bookmarks' as never)
         .select('*')
-        .eq('student_id', studentId)
-    ) as unknown as Promise<AnyRow[]>,
+        .eq('student_id', studentId),
+    ) as unknown as Promise<BookmarkAnalyticsRow[]>,
 
     queryOrThrow(
       supabase
         .from('review_later_items' as never)
         .select('*')
-        .eq('student_id', studentId)
-    ) as unknown as Promise<AnyRow[]>,
+        .eq('student_id', studentId),
+    ) as unknown as Promise<ReviewLaterAnalyticsRow[]>,
   ]);
 
-  const directCourseIds = unique([
-    ...enrollments.map((item) => item.course_id).filter(Boolean),
-    ...rawLessonProgress.map((item) => item.course_id).filter(Boolean),
-    ...rawMiniQuizAttempts.map((item) => item.course_id).filter(Boolean),
-    ...rawBookmarks.map((item) => item.course_id).filter(Boolean),
-    ...rawReviewLaterItems.map((item) => item.course_id).filter(Boolean),
-  ]);
+  const discoveredLessonIds = unique([
+    ...rawLessonProgress.map((item) => item.lesson_id).filter(Boolean),
+    ...rawMiniQuizAttempts.map((item) => item.lesson_id).filter(Boolean),
+    ...rawBookmarks.map((item) => item.lesson_id || item.item_id).filter(Boolean),
+    ...rawReviewLaterItems.map((item) => item.lesson_id || item.item_id).filter(Boolean),
+  ] as string[]);
 
-  const initialLessons = await getCourseLessons(directCourseIds);
-  const initialLessonsById = new Map(initialLessons.map((lesson) => [lesson.id, lesson]));
+  const discoveredLessons = await getLessonsByIds(discoveredLessonIds);
+  const discoveredLessonsById = new Map(
+    discoveredLessons.map((lesson) => [lesson.id, lesson]),
+  );
 
-  const lessonProgress = attachCourseIdFromLesson(rawLessonProgress, initialLessonsById);
-  const miniQuizAttempts = attachCourseIdFromLesson(rawMiniQuizAttempts, initialLessonsById);
-  const bookmarks = attachCourseIdFromLesson(rawBookmarks, initialLessonsById);
-  const reviewLaterItems = attachCourseIdFromLesson(rawReviewLaterItems, initialLessonsById);
+  const lessonProgress = attachCourseIdFromLesson(
+    rawLessonProgress,
+    discoveredLessonsById,
+  );
+  const miniQuizAttempts = attachCourseIdFromLesson(
+    rawMiniQuizAttempts,
+    discoveredLessonsById,
+  );
+  const bookmarks = attachCourseIdFromLesson(rawBookmarks, discoveredLessonsById);
+  const reviewLaterItems = attachCourseIdFromLesson(
+    rawReviewLaterItems,
+    discoveredLessonsById,
+  );
 
   const testCourseMap = await getTestCourseMap(
-    rawTestAttempts.map((attempt) => attempt.test_id).filter(Boolean)
+    rawTestAttempts.map((attempt) => attempt.test_id).filter(Boolean) as string[],
   );
 
   const testAttempts = rawTestAttempts.map((attempt) => ({
     ...attempt,
-    course_id: attempt.course_id || testCourseMap.get(attempt.test_id) || null,
+    course_id: attempt.course_id || testCourseMap.get(attempt.test_id || '') || null,
   }));
 
   const courseIds = unique([
-    ...directCourseIds,
+    ...enrollments.map((item) => item.course_id).filter(Boolean),
+    ...discoveredLessons.map((item) => item.course_id).filter(Boolean),
     ...lessonProgress.map((item) => item.course_id).filter(Boolean),
     ...miniQuizAttempts.map((item) => item.course_id).filter(Boolean),
     ...bookmarks.map((item) => item.course_id).filter(Boolean),
     ...reviewLaterItems.map((item) => item.course_id).filter(Boolean),
     ...testAttempts.map((item) => item.course_id).filter(Boolean),
-  ]);
+  ] as string[]);
 
   const [courseMeta, lessons] = await Promise.all([
     getCourseMeta(courseIds),
@@ -423,28 +695,37 @@ export async function getStudentLearningSnapshot(
   ]);
 
   const lessonsById = new Map(lessons.map((lesson) => [lesson.id, lesson]));
-  const normalizedLessonProgress = attachCourseIdFromLesson(lessonProgress, lessonsById);
-  const normalizedMiniQuizAttempts = attachCourseIdFromLesson(miniQuizAttempts, lessonsById);
+  const normalizedLessonProgress = attachCourseIdFromLesson(
+    lessonProgress,
+    lessonsById,
+  );
+  const normalizedMiniQuizAttempts = attachCourseIdFromLesson(
+    miniQuizAttempts,
+    lessonsById,
+  );
   const normalizedBookmarks = attachCourseIdFromLesson(bookmarks, lessonsById);
-  const normalizedReviewLaterItems = attachCourseIdFromLesson(reviewLaterItems, lessonsById);
+  const normalizedReviewLaterItems = attachCourseIdFromLesson(
+    reviewLaterItems,
+    lessonsById,
+  );
 
   const lessonsByCourse = groupBy(lessons, (lesson) => lesson.course_id || 'unknown');
   const progressByCourse = groupBy(
     getCompletedProgressRows(normalizedLessonProgress),
-    (item) => item.course_id || 'unknown'
+    (item) => item.course_id || 'unknown',
   );
   const miniQuizByCourse = groupBy(
     normalizedMiniQuizAttempts,
-    (item) => item.course_id || 'unknown'
+    (item) => item.course_id || 'unknown',
   );
   const testsByCourse = groupBy(testAttempts, (item) => item.course_id || 'unknown');
   const bookmarksByCourse = groupBy(
     normalizedBookmarks,
-    (item) => item.course_id || 'unknown'
+    (item) => item.course_id || 'unknown',
   );
   const reviewLaterByCourse = groupBy(
     normalizedReviewLaterItems,
-    (item) => item.course_id || 'unknown'
+    (item) => item.course_id || 'unknown',
   );
 
   const courses: StudentCourseAnalyticsView[] = courseIds.map((courseId) => {
@@ -496,11 +777,11 @@ export async function getStudentLearningSnapshot(
 
   const miniQuizAttemptsByLesson = groupBy(
     normalizedMiniQuizAttempts,
-    (attempt) => attempt.lesson_id || 'unknown'
+    (attempt) => attempt.lesson_id || 'unknown',
   );
 
   const reviewLaterLessonIds = new Set(
-    normalizedReviewLaterItems.map((item) => item.lesson_id).filter(Boolean)
+    normalizedReviewLaterItems.map((item) => item.lesson_id).filter(Boolean),
   );
 
   const weakLessons: StudentWeakLessonView[] = Object.entries(miniQuizAttemptsByLesson)
@@ -539,7 +820,7 @@ export async function getStudentLearningSnapshot(
   const totalLessons = courses.reduce((sum, course) => sum + course.totalLessons, 0);
   const completedLessons = courses.reduce(
     (sum, course) => sum + course.completedLessons,
-    0
+    0,
   );
 
   const totals = {
@@ -550,7 +831,7 @@ export async function getStudentLearningSnapshot(
 
     miniQuizAttempts: normalizedMiniQuizAttempts.length,
     miniQuizAvgScore: avg(
-      normalizedMiniQuizAttempts.map((item) => toNumber(item.score))
+      normalizedMiniQuizAttempts.map((item) => toNumber(item.score)),
     ),
     miniQuizPassed: normalizedMiniQuizAttempts.filter((item) => item.passed).length,
     miniQuizFailed: normalizedMiniQuizAttempts.filter((item) => !item.passed).length,
@@ -607,60 +888,33 @@ export async function getTeacherStudentLearningSnapshot(input: {
 }
 
 export async function getCourseAnalyticsStudents(
-  courseId: string
+  courseId: string,
 ): Promise<CourseAnalyticsStudentOptionView[]> {
   if (!courseId) return [];
 
   const generatedCourseMeta = await getCourseMeta([courseId]);
   const courseMeta = generatedCourseMeta.get(courseId);
 
-  const [
-    enrollments,
-    lessons,
-    progress,
-    miniQuizAttempts,
-    testAttempts,
-    bookmarks,
-    reviewLaterItems,
-  ] = await Promise.all([
+  const [enrollments, lessons, testAttempts] = await Promise.all([
     queryOrThrow(
       supabase
         .from('course_enrollments')
         .select('*')
-        .eq('course_id', courseId)
-    ) as Promise<AnyRow[]>,
+        .eq('course_id', courseId),
+    ) as Promise<EnrollmentRow[]>,
 
     getCourseLessons([courseId]),
 
-    queryOrThrow(
-      supabase
-        .from('lesson_progress')
-        .select('*')
-        .eq('course_id', courseId)
-    ) as Promise<AnyRow[]>,
-
-    queryOrThrow(
-      supabase
-        .from('lesson_mini_quiz_attempts' as never)
-        .select('*')
-        .eq('course_id', courseId)
-    ) as unknown as Promise<AnyRow[]>,
-
     getTestAttemptsForCourse(courseId),
+  ]);
 
-    queryOrThrow(
-      supabase
-        .from('student_lesson_bookmarks' as never)
-        .select('*')
-        .eq('course_id', courseId)
-    ) as unknown as Promise<AnyRow[]>,
+  const lessonIds = lessons.map((lesson) => lesson.id);
 
-    queryOrThrow(
-      supabase
-        .from('review_later_items' as never)
-        .select('*')
-        .eq('course_id', courseId)
-    ) as unknown as Promise<AnyRow[]>,
+  const [progress, miniQuizAttempts, bookmarks, reviewLaterItems] = await Promise.all([
+    getLessonProgressByLessonIds({ lessonIds }),
+    getMiniQuizAttemptsByLessonIds({ lessonIds }),
+    getBookmarksByLessonIds({ lessonIds }),
+    getReviewLaterItemsByLessonIds({ lessonIds }),
   ]);
 
   const studentIds = unique([
@@ -670,7 +924,7 @@ export async function getCourseAnalyticsStudents(
     ...testAttempts.map((item) => item.student_id).filter(Boolean),
     ...bookmarks.map((item) => item.student_id).filter(Boolean),
     ...reviewLaterItems.map((item) => item.student_id).filter(Boolean),
-  ]);
+  ] as string[]);
 
   if (studentIds.length === 0) {
     return [];
@@ -680,37 +934,37 @@ export async function getCourseAnalyticsStudents(
     supabase
       .from('profiles')
       .select('user_id, full_name, avatar_url')
-      .in('user_id', studentIds)
-  )) as AnyRow[];
+      .in('user_id', studentIds),
+  )) as ProfileAnalyticsRow[];
 
   const profilesByUserId = new Map(
-    profiles.map((profile) => [profile.user_id, profile])
+    profiles.map((profile) => [profile.user_id, profile]),
   );
 
   const completedProgress = getCompletedProgressRows(progress);
   const progressByStudent = groupBy(
     completedProgress.filter((item) => Boolean(item.student_id)),
-    (item) => item.student_id
+    (item) => item.student_id || 'unknown',
   );
 
   const miniQuizByStudent = groupBy(
     miniQuizAttempts.filter((item) => Boolean(item.student_id)),
-    (item) => item.student_id
+    (item) => item.student_id || 'unknown',
   );
 
   const testsByStudent = groupBy(
     testAttempts.filter((item) => Boolean(item.student_id)),
-    (item) => item.student_id
+    (item) => item.student_id || 'unknown',
   );
 
   const bookmarksByStudent = groupBy(
     bookmarks.filter((item) => Boolean(item.student_id)),
-    (item) => item.student_id
+    (item) => item.student_id || 'unknown',
   );
 
   const reviewLaterByStudent = groupBy(
     reviewLaterItems.filter((item) => Boolean(item.student_id)),
-    (item) => item.student_id
+    (item) => item.student_id || 'unknown',
   );
 
   return studentIds
@@ -724,22 +978,22 @@ export async function getCourseAnalyticsStudents(
       const studentReviewLater = reviewLaterByStudent[studentId] || [];
 
       const completedLessons = countUnique(
-        studentCompletedProgress.map((item) => item.lesson_id)
+        studentCompletedProgress.map((item) => item.lesson_id),
       );
 
       const progressPct = pct(completedLessons, lessons.length);
 
       const miniScores = studentMiniQuizAttempts.map((item) =>
-        toNumber(item.score)
+        toNumber(item.score),
       );
 
       const testScores = studentTestAttempts.map((item) =>
-        toNumber(item.score)
+        toNumber(item.score),
       );
 
       const miniQuizAvgScore = avg(miniScores);
       const miniQuizPassed = studentMiniQuizAttempts.filter(
-        (item) => item.passed
+        (item) => item.passed,
       ).length;
       const miniQuizFailed = studentMiniQuizAttempts.length - miniQuizPassed;
 
@@ -790,66 +1044,53 @@ export async function getCourseAnalyticsStudents(
 }
 
 export async function getCourseLearningSnapshot(
-  courseId: string
+  courseId: string,
 ): Promise<CourseLearningSnapshot> {
   const generatedAt = new Date().toISOString();
 
-  const [
-    courseRows,
-    enrollments,
-    lessons,
-    progress,
-    miniQuizAttempts,
-    testAttempts,
-    bookmarks,
-    reviewLaterItems,
-  ] = await Promise.all([
+  const [courseRows, enrollments, lessons, testAttempts] = await Promise.all([
     queryOrThrow(
       supabase
         .from('courses')
         .select('id, title, subject_id')
-        .eq('id', courseId)
-    ) as Promise<AnyRow[]>,
+        .eq('id', courseId),
+    ) as Promise<
+      Array<{
+        id: string;
+        title: string;
+        subject_id: string | null;
+      }>
+    >,
 
     queryOrThrow(
       supabase
         .from('course_enrollments')
         .select('*')
-        .eq('course_id', courseId)
-    ) as Promise<AnyRow[]>,
+        .eq('course_id', courseId),
+    ) as Promise<EnrollmentRow[]>,
 
     getCourseLessons([courseId]),
 
-    queryOrThrow(
-      supabase
-        .from('lesson_progress')
-        .select('*')
-        .eq('course_id', courseId)
-    ) as Promise<AnyRow[]>,
-
-    queryOrThrow(
-      supabase
-        .from('lesson_mini_quiz_attempts' as never)
-        .select('*')
-        .eq('course_id', courseId)
-    ) as unknown as Promise<AnyRow[]>,
-
     getTestAttemptsForCourse(courseId),
-
-    queryOrThrow(
-      supabase
-        .from('student_lesson_bookmarks' as never)
-        .select('*')
-        .eq('course_id', courseId)
-    ) as unknown as Promise<AnyRow[]>,
-
-    queryOrThrow(
-      supabase
-        .from('review_later_items' as never)
-        .select('*')
-        .eq('course_id', courseId)
-    ) as unknown as Promise<AnyRow[]>,
   ]);
+
+  const lessonIds = lessons.map((lesson) => lesson.id);
+
+  const [progress, miniQuizAttempts, bookmarks, reviewLaterItems, quizzes] =
+    await Promise.all([
+      getLessonProgressByLessonIds({ lessonIds }),
+      getMiniQuizAttemptsByLessonIds({ lessonIds }),
+      getBookmarksByLessonIds({ lessonIds }),
+      getReviewLaterItemsByLessonIds({ lessonIds }),
+      lessonIds.length
+        ? ((queryOrThrow(
+            supabase
+              .from('lesson_mini_quizzes' as never)
+              .select('*')
+              .in('lesson_id', lessonIds),
+          ) as unknown) as Promise<LessonMiniQuizAnalyticsRow[]>)
+        : Promise.resolve([]),
+    ]);
 
   const course = courseRows[0] || null;
 
@@ -858,35 +1099,28 @@ export async function getCourseLearningSnapshot(
         supabase
           .from('subjects')
           .select('id, name_kk, name_ru')
-          .eq('id', course.subject_id)
-      )) as AnyRow[])
+          .eq('id', course.subject_id),
+      )) as SubjectRow[])
     : [];
 
   const subject = subjectRows[0] || null;
-
-  const quizzes = (await queryOrThrow(
-    supabase
-      .from('lesson_mini_quizzes' as never)
-      .select('*')
-      .eq('course_id', courseId)
-  )) as unknown as AnyRow[];
 
   const lessonById = new Map(lessons.map((lesson) => [lesson.id, lesson]));
 
   const attemptsByQuiz = groupBy(
     miniQuizAttempts,
-    (attempt) => attempt.quiz_id || 'unknown'
+    (attempt) => attempt.quiz_id || 'unknown',
   );
 
   const miniQuizzes: CourseMiniQuizAnalyticsView[] = quizzes.map((quiz) => {
     const attempts = attemptsByQuiz[quiz.id] || [];
     const passed = attempts.filter((attempt) => attempt.passed).length;
     const failed = attempts.length - passed;
-    const lesson = lessonById.get(quiz.lesson_id);
+    const lesson = quiz.lesson_id ? lessonById.get(quiz.lesson_id) : null;
 
     return {
       quizId: quiz.id,
-      lessonId: quiz.lesson_id,
+      lessonId: quiz.lesson_id || '',
       lessonTitle: lesson?.title || quiz.title || 'Сабақ',
       attempts: attempts.length,
       avgScore: avg(attempts.map((attempt) => toNumber(attempt.score))),
@@ -900,11 +1134,11 @@ export async function getCourseLearningSnapshot(
   const completedProgress = getCompletedProgressRows(progress);
 
   const enrolledStudentIds = unique(
-    enrollments.map((enrollment) => enrollment.student_id).filter(Boolean)
+    enrollments.map((enrollment) => enrollment.student_id).filter(Boolean) as string[],
   );
 
   const fallbackProgressStudentIds = unique(
-    completedProgress.map((item) => item.student_id).filter(Boolean)
+    completedProgress.map((item) => item.student_id).filter(Boolean) as string[],
   );
 
   const analyticsStudentIds =
@@ -912,18 +1146,18 @@ export async function getCourseLearningSnapshot(
 
   const progressByStudent = groupBy(
     completedProgress.filter((item) => Boolean(item.student_id)),
-    (item) => item.student_id
+    (item) => item.student_id || 'unknown',
   );
 
   const avgProgressPct = analyticsStudentIds.length
     ? Math.round(
         analyticsStudentIds.reduce((sum, studentId) => {
           const studentCompletedLessons = countUnique(
-            (progressByStudent[studentId] || []).map((item) => item.lesson_id)
+            (progressByStudent[studentId] || []).map((item) => item.lesson_id),
           );
 
           return sum + pct(studentCompletedLessons, lessons.length);
-        }, 0) / analyticsStudentIds.length
+        }, 0) / analyticsStudentIds.length,
       )
     : 0;
 
