@@ -21,6 +21,7 @@ type RequestLearningAiOptions = {
 };
 
 type JsonRecord = Record<string, unknown>;
+type LearningAiConversationRole = LearningAiConversationMessage['role'];
 
 function trimTrailingSlash(value: string | undefined) {
   return value?.trim().replace(/\/+$/, '') || '';
@@ -79,16 +80,18 @@ export function isLearningAiConfigured() {
   return Boolean(getLearningAiEndpoint());
 }
 
-function isValidUuidOrEmpty(value: string | undefined) {
+function isValidUuidOrEmpty(value: string | null | undefined) {
   return !value || UUID_RE.test(value);
 }
 
-function normalizeScope(scope: LearningAiRequest['scope']): LearningAiRequest['scope'] | undefined {
+function normalizeScope(
+  scope: LearningAiRequest['scope'],
+): LearningAiRequest['scope'] | undefined {
   if (!scope) {
     return undefined;
   }
 
-  const normalized = {
+  const normalized: NonNullable<LearningAiRequest['scope']> = {
     courseId: cleanText(scope.courseId, 120) || undefined,
     studentId: cleanText(scope.studentId, 120) || undefined,
     subjectId: cleanText(scope.subjectId, 120) || undefined,
@@ -102,8 +105,12 @@ function normalizeScope(scope: LearningAiRequest['scope']): LearningAiRequest['s
   return hasAnyValue ? normalized : undefined;
 }
 
+function normalizeConversationRole(role: unknown): LearningAiConversationRole {
+  return role === 'assistant' ? 'assistant' : 'user';
+}
+
 function normalizeConversationHistory(
-  history: LearningAiRequest['conversationHistory']
+  history: LearningAiRequest['conversationHistory'],
 ): LearningAiConversationMessage[] {
   if (!Array.isArray(history)) {
     return [];
@@ -111,16 +118,19 @@ function normalizeConversationHistory(
 
   return history
     .slice(-MAX_HISTORY_MESSAGES)
-    .map((message) => ({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
+    .map((message): LearningAiConversationMessage => ({
+      role: normalizeConversationRole(message.role),
       content: cleanText(message.content, MAX_HISTORY_MESSAGE_CHARS),
     }))
     .filter((message) => message.content.length > 0);
 }
 
 function normalizeRequest(request: LearningAiRequest): LearningAiRequest {
-  const selectedSuggestionId = cleanText(request.selectedSuggestionId, 160) || undefined;
-  const conversationHistory = normalizeConversationHistory(request.conversationHistory);
+  const selectedSuggestionId =
+    cleanText(request.selectedSuggestionId, 160) || undefined;
+  const conversationHistory = normalizeConversationHistory(
+    request.conversationHistory,
+  );
 
   return {
     ...request,
@@ -141,18 +151,17 @@ function validateLearningAiRequest(request: LearningAiRequest) {
   }
 
   if (
-    (request.mode === 'student_tracker' || request.mode === 'student_course_advisor') &&
+    (request.mode === 'student_tracker' ||
+      request.mode === 'student_course_advisor') &&
     request.role !== 'student'
   ) {
     return 'Бұл AI режимі тек оқушы рөлі үшін қолжетімді.';
   }
 
   if (
-    (
-      request.mode === 'teacher_course_assistant' ||
+    (request.mode === 'teacher_course_assistant' ||
       request.mode === 'teacher_student_assistant' ||
-      request.mode === 'teacher_course_creator_advisor'
-    ) &&
+      request.mode === 'teacher_course_creator_advisor') &&
     request.role !== 'teacher'
   ) {
     return 'Бұл AI режимі тек мұғалім рөлі үшін қолжетімді.';
@@ -228,6 +237,7 @@ function getPydanticErrorMessage(detail: unknown): string | null {
         : '';
 
       if (!msg) return '';
+
       return loc ? `${loc}: ${msg}` : msg;
     })
     .filter(Boolean);
@@ -309,7 +319,7 @@ function getNetworkErrorMessage(error: unknown) {
 
 function createTimeoutSignal(
   externalSignal?: AbortSignal,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
@@ -336,7 +346,9 @@ function normalizeLearningAiResponse(data: LearningAiResponse): LearningAiRespon
   return {
     ...data,
     answer: cleanText(data.answer),
-    contextSummary: data.contextSummary ? cleanText(data.contextSummary, 2_000) : undefined,
+    contextSummary: data.contextSummary
+      ? cleanText(data.contextSummary, 2_000)
+      : undefined,
     warnings: Array.isArray(data.warnings)
       ? data.warnings.map((item) => cleanText(item, 400)).filter(Boolean)
       : [],
@@ -348,7 +360,7 @@ function normalizeLearningAiResponse(data: LearningAiResponse): LearningAiRespon
 
 export async function requestLearningAiAnalysis(
   request: LearningAiRequest,
-  options?: RequestLearningAiOptions
+  options?: RequestLearningAiOptions,
 ): Promise<LearningAiClientResult> {
   const normalizedRequest = normalizeRequest(request);
   const validationError = validateLearningAiRequest(normalizedRequest);
@@ -371,6 +383,7 @@ export async function requestLearningAiAnalysis(
   }
 
   const accessToken = options?.accessToken?.trim();
+
   if (!accessToken) {
     return {
       ok: false,

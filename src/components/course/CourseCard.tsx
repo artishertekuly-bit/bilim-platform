@@ -21,7 +21,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import type { CourseView } from '@/lib/app-data-types';
+import type { CourseAccessType, CourseView } from '@/lib/app-data-types';
 import t from '@/lib/i18n';
 
 export type CourseCardMode = 'student' | 'teacher' | 'admin';
@@ -43,6 +43,8 @@ type CourseCardProps = {
   onCloseInvite?: () => void;
 };
 
+type LegacyCourseAccessType = 'open' | 'closed';
+
 function buildCourseEditPath(courseId: string) {
   return `/create-course?courseId=${encodeURIComponent(courseId)}`;
 }
@@ -51,33 +53,63 @@ function buildCourseDetailPath(courseId: string) {
   return `/courses/${encodeURIComponent(courseId)}`;
 }
 
-function getNormalizedCatalogAccessType(course: CourseView) {
-  const accessType = course.accessType ?? course.access?.accessType ?? 'public_free';
+function normalizeCatalogAccessType(
+  accessType: CourseAccessType | LegacyCourseAccessType | string | null | undefined,
+): CourseAccessType {
+  switch (accessType) {
+    case 'public_free':
+    case 'private_invite':
+    case 'paid':
+    case 'subscription_only':
+    case 'school_only':
+      return accessType;
 
-  if (accessType === 'subscription_only') return 'paid';
-  if (accessType === 'school_only') return 'private_invite';
-  if (accessType === 'closed') return 'private_invite';
-  if (accessType === 'open') return 'public_free';
+    case 'open':
+      return 'public_free';
 
-  return accessType;
+    case 'closed':
+      return 'private_invite';
+
+    default:
+      return 'public_free';
+  }
+}
+
+function getCourseAccessType(course: CourseView): CourseAccessType {
+  return normalizeCatalogAccessType(
+    course.accessType ?? course.access?.accessType ?? 'public_free',
+  );
 }
 
 function getCourseAccessLabel(course: CourseView) {
-  const accessType = getNormalizedCatalogAccessType(course);
+  const accessType = getCourseAccessType(course);
 
-  if (accessType === 'public_free') return 'Ашық';
-  if (accessType === 'private_invite') return 'Жабық';
-  if (accessType === 'paid') return 'Ақылы';
-
-  return 'Белгісіз';
+  switch (accessType) {
+    case 'public_free':
+      return 'Ашық';
+    case 'private_invite':
+      return 'Шақырумен';
+    case 'paid':
+      return 'Ақылы';
+    case 'subscription_only':
+      return 'Жазылым';
+    case 'school_only':
+      return 'Мектеп арқылы';
+    default:
+      return 'Ашық';
+  }
 }
 
 function formatCoursePrice(course: CourseView) {
-  const accessType = getNormalizedCatalogAccessType(course);
+  const accessType = getCourseAccessType(course);
   const price = Number(course.price ?? course.access?.price ?? 0);
   const currency = course.currency ?? course.access?.currency ?? 'KZT';
 
-  if (accessType !== 'paid') return 'Тегін';
+  if (accessType === 'public_free') return 'Тегін';
+  if (accessType === 'private_invite') return 'Кодпен';
+  if (accessType === 'subscription_only') return 'Жазылым';
+  if (accessType === 'school_only') return 'Мектеп';
+
   if (!price) return 'Ақылы';
 
   return `${price.toLocaleString('kk-KZ')} ${currency}`;
@@ -87,9 +119,7 @@ function getStudentActionLabel(course: CourseView) {
   const access = course.access;
 
   if (course.enrolled) return t('course.continue');
-
   if (!access) return t('course.enroll');
-
   if (access.pendingOrderId) return 'Сұраныс қаралуда';
 
   switch (access.unlockAction) {
@@ -102,25 +132,29 @@ function getStudentActionLabel(course: CourseView) {
     case 'request_paid_access':
       return 'Қолжетімділік сұрау';
     case 'subscribe':
-      return 'Ақылы кіру қажет';
+      return 'Жазылым қажет';
     case 'request_school_access':
-      return 'Жабық курс';
+      return 'Мектеп арқылы кіру';
     case 'manage_course':
       return t('common.edit');
-    default:
+    case 'none':
       if (access.accessState === 'draft_or_unpublished') return 'Жарияланбаған';
       if (access.accessState === 'enrollment_closed') return 'Жазылу жабық';
+      return 'Қолжетімсіз';
+    default:
       return 'Қолжетімсіз';
   }
 }
 
-function getStudentActionDisabled(course: CourseView, pendingCourseId?: string | null) {
+function getStudentActionDisabled(
+  course: CourseView,
+  pendingCourseId?: string | null,
+) {
   const access = course.access;
 
   if (pendingCourseId === course.id) return true;
   if (course.enrolled) return false;
   if (!access) return false;
-
   if (access.pendingOrderId) return true;
 
   return (
@@ -177,8 +211,10 @@ export default function CourseCard({
   const isTeacherView = mode === 'teacher';
   const isAdminView = mode === 'admin';
 
+  const accessType = getCourseAccessType(course);
   const actionLabel = getStudentActionLabel(course);
   const actionDisabled = getStudentActionDisabled(course, pendingCourseId);
+
   const showInviteInput =
     isStudentView &&
     inviteCourseId === course.id &&
@@ -195,7 +231,7 @@ export default function CourseCard({
         </div>
 
         <CourseAccessBadge
-          accessType={getNormalizedCatalogAccessType(course)}
+          accessType={accessType}
           className="absolute left-3 top-3"
         />
 
@@ -269,7 +305,7 @@ export default function CourseCard({
             {cardBody}
           </Link>
         ) : (
-          <div className="block">{cardBody}</div>
+          <div>{cardBody}</div>
         )}
 
         {isStudentView ? (
@@ -379,14 +415,20 @@ export default function CourseCard({
             <div className="space-y-3 rounded-3xl border border-border bg-muted/35 p-3 text-[11px] text-muted-foreground">
               <div className="flex flex-wrap items-center gap-2">
                 <CourseStatusBadge status={course.status} />
-                <CourseAccessBadge accessType={getNormalizedCatalogAccessType(course)} />
+                <CourseAccessBadge accessType={accessType} />
               </div>
 
               <div className="rounded-2xl border border-border bg-card px-3 py-2 text-xs leading-5">
                 Қолжетімділік: {getCourseAccessLabel(course)} · {formatCoursePrice(course)}
               </div>
 
-              <Button type="button" variant="outline" size="sm" className="w-full text-xs" asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full text-xs"
+                asChild
+              >
                 <Link to={courseEditPath}>
                   Басқару
                   <ArrowRight size={12} className="ml-1" />

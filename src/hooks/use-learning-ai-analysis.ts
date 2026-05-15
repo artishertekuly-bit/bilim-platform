@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
-import { useAuth } from '@/lib/auth-context';
 import type { AiPromptSubmitPayload } from '@/components/ai-tools/AiPromptShell';
 import {
   isLearningAiConfigured,
@@ -13,6 +12,7 @@ import type {
   LearningAiResponse,
   LearningAiScope,
 } from '@/lib/ai/learning-ai-types';
+import { useAuth } from '@/lib/auth-context';
 
 type LearningAiAnalysisInput = Omit<
   LearningAiRequest,
@@ -34,12 +34,15 @@ type MutationSuccess = {
   requestId: number;
 };
 
+type LearningAiConversationRole = LearningAiConversationMessage['role'];
+
 const MAX_CONVERSATION_HISTORY_MESSAGES = 8;
 const MAX_CONVERSATION_MESSAGE_CHARS = 6000;
 const MAX_PROMPT_CHARS = 4000;
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
+
   return 'AI сұранысын орындау кезінде белгісіз қате болды.';
 }
 
@@ -54,7 +57,9 @@ function cleanText(value: unknown, limit?: number) {
 
 function toOptionalString(value: unknown, limit = 160): string | undefined {
   if (typeof value !== 'string') return undefined;
+
   const normalized = cleanText(value, limit);
+
   return normalized || undefined;
 }
 
@@ -62,21 +67,27 @@ function cleanConversationMessageContent(value: unknown) {
   return cleanText(value, MAX_CONVERSATION_MESSAGE_CHARS);
 }
 
+function normalizeConversationRole(role: unknown): LearningAiConversationRole {
+  return role === 'assistant' ? 'assistant' : 'user';
+}
+
 function normalizeConversationHistory(
-  history: AiPromptSubmitPayload['conversationHistory']
+  history: AiPromptSubmitPayload['conversationHistory'],
 ): LearningAiConversationMessage[] {
   if (!Array.isArray(history)) return [];
 
   return history
     .slice(-MAX_CONVERSATION_HISTORY_MESSAGES)
-    .map((message) => ({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
+    .map((message): LearningAiConversationMessage => ({
+      role: normalizeConversationRole(message.role),
       content: cleanConversationMessageContent(message.content),
     }))
     .filter((message) => message.content.length > 0);
 }
 
-function normalizeScope(scope: LearningAiScope | undefined): LearningAiScope | undefined {
+function normalizeScope(
+  scope: LearningAiScope | undefined,
+): LearningAiScope | undefined {
   if (!scope) return undefined;
 
   const normalized: LearningAiScope = {};
@@ -101,7 +112,7 @@ function normalizeScope(scope: LearningAiScope | undefined): LearningAiScope | u
 function buildLearningAiRequest(
   defaultInput: LearningAiAnalysisInput,
   payload: AiPromptSubmitPayload,
-  override?: LearningAiSubmitOverride
+  override?: LearningAiSubmitOverride,
 ): LearningAiRequest {
   const prompt = cleanText(payload.prompt, MAX_PROMPT_CHARS);
   const selectedSuggestionId = toOptionalString(payload.selectedSuggestionId, 160);
@@ -116,7 +127,7 @@ function buildLearningAiRequest(
     prompt,
     selectedSuggestionId,
     conversationHistory: normalizeConversationHistory(payload.conversationHistory),
-    ...(mergedScope ? { scope: mergedScope } : { scope: undefined }),
+    scope: mergedScope,
   };
 }
 
@@ -151,7 +162,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
       const request = buildLearningAiRequest(
         defaultInputRef.current,
         payload,
-        override
+        override,
       );
 
       if (!request.prompt) {
@@ -214,7 +225,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
   const submit = useCallback(
     async (
       payload: AiPromptSubmitPayload,
-      override?: LearningAiSubmitOverride
+      override?: LearningAiSubmitOverride,
     ) => {
       abortControllerRef.current?.abort();
 
@@ -231,6 +242,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
       }
 
       const prompt = cleanText(payload.prompt, MAX_PROMPT_CHARS);
+
       if (!prompt) {
         setAnswer(null);
         setLastResponse(null);
@@ -254,14 +266,13 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
         });
       } catch {
         // Error state is handled inside onError.
-        // Do not rethrow, because AiPromptShell should not receive an unhandled promise rejection.
       } finally {
         if (activeRequestIdRef.current === requestId) {
           abortControllerRef.current = null;
         }
       }
     },
-    [isConfigured, mutation]
+    [isConfigured, mutation],
   );
 
   const reset = useCallback(() => {

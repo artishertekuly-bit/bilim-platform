@@ -10,19 +10,20 @@ import {
 import { useSearchParams } from 'react-router-dom';
 import type { QueryClient } from '@tanstack/react-query';
 
-import t from '@/lib/i18n';
 import { platformKeys } from '@/hooks/use-platform-data';
 import type {
   CourseAccessType,
   CourseAnnouncementPriority,
+  CourseBuilderModuleView,
   CourseVisibility,
   LessonMiniQuizQuestionType,
+  TeacherCourseWorkspace,
 } from '@/lib/app-data-types';
 import {
   getNextSortOrder,
-  getSortedBySortOrder,
   type CourseStatus,
 } from '@/lib/course-creator/course-builder-utils';
+import t from '@/lib/i18n';
 
 type NewCourseForm = {
   title: string;
@@ -88,9 +89,11 @@ type AnnouncementForm = {
   expiresAt: string;
 };
 
+type CourseBuilderCourse = TeacherCourseWorkspace['courses'][number];
+
 type CourseBuilderControllerInput = {
   userId?: string;
-  workspace: any;
+  workspace?: TeacherCourseWorkspace | null;
   queryClient: QueryClient;
 
   setNewCourse: Dispatch<SetStateAction<NewCourseForm>>;
@@ -133,7 +136,20 @@ const initialAnnouncementForm: AnnouncementForm = {
 function normalizeCourseStatus(status: unknown): CourseStatus {
   if (status === 'archived') return 'archived';
   if (status === 'published') return 'published';
+
   return 'draft';
+}
+
+function sortBySortOrder<T extends { sortOrder: number }>(
+  items: readonly T[] | null | undefined,
+): T[] {
+  return [...(items ?? [])].sort((first, second) => first.sortOrder - second.sortOrder);
+}
+
+function getWorkspaceCourses(
+  workspace?: TeacherCourseWorkspace | null,
+): CourseBuilderCourse[] {
+  return workspace?.courses ?? [];
 }
 
 export function useCourseBuilderController({
@@ -157,30 +173,32 @@ export function useCourseBuilderController({
   const [selectedCourseId, setSelectedCourseId] = useState('');
   const lastSeededCourseId = useRef('');
 
-  const selectedCourse = useMemo(
+  const courses = useMemo(() => getWorkspaceCourses(workspace), [workspace]);
+
+  const selectedCourse = useMemo<CourseBuilderCourse | null>(
     () =>
-      workspace?.courses.find((course: any) => course.id === selectedCourseId) ||
-      workspace?.courses.find((course: any) => course.id === requestedCourseId) ||
-      workspace?.courses[0] ||
+      courses.find((course) => course.id === selectedCourseId) ??
+      courses.find((course) => course.id === requestedCourseId) ??
+      courses[0] ??
       null,
-    [workspace, selectedCourseId, requestedCourseId]
+    [courses, selectedCourseId, requestedCourseId],
   );
 
-  const selectedCourseModules = useMemo(
-    () => getSortedBySortOrder(selectedCourse?.modules || []),
-    [selectedCourse]
+  const selectedCourseModules = useMemo<CourseBuilderModuleView[]>(
+    () => sortBySortOrder<CourseBuilderModuleView>(selectedCourse?.modules),
+    [selectedCourse],
   );
 
   const selectedEditingLesson = useMemo(
     () =>
-      selectedCourse?.modules
-        .flatMap((module: any) => module.lessons)
-        .find((lesson: any) => lesson.id === editingLessonId) || null,
-    [editingLessonId, selectedCourse]
+      selectedCourseModules
+        .flatMap((module) => module.lessons)
+        .find((lesson) => lesson.id === editingLessonId) ?? null,
+    [editingLessonId, selectedCourseModules],
   );
 
   const selectedCourseModuleSignature =
-    selectedCourseModules.map((module: any) => module.id).join('|') || '';
+    selectedCourseModules.map((module) => module.id).join('|') || '';
 
   const defaultModuleId = selectedCourseModules[0]?.id || '';
 
@@ -196,7 +214,7 @@ export function useCourseBuilderController({
 
       setSearchParams(next, { replace: true });
     },
-    [searchParams, setSearchParams]
+    [searchParams, setSearchParams],
   );
 
   const resetMiniQuizQuestionForm = useCallback(() => {
@@ -227,19 +245,19 @@ export function useCourseBuilderController({
       resetLessonSideForms,
       setEditingLessonId,
       syncCourseParam,
-    ]
+    ],
   );
 
   const getNextLessonSortOrder = useCallback(
     (moduleId?: string) => {
       if (!selectedCourse || !moduleId) return '1';
 
-      const module = selectedCourse.modules.find((item: any) => item.id === moduleId);
+      const module = selectedCourse.modules.find((item) => item.id === moduleId);
       if (!module) return '1';
 
-      return getNextSortOrder(module.lessons || []);
+      return getNextSortOrder(module.lessons);
     },
-    [selectedCourse]
+    [selectedCourse],
   );
 
   const resetNewCourse = useCallback(() => {
@@ -273,6 +291,7 @@ export function useCourseBuilderController({
       sortOrder: getNextLessonSortOrder(moduleId),
       isPublished: false,
     });
+
     setEditingLessonId(null);
     resetLessonSideForms();
   }, [
@@ -285,13 +304,15 @@ export function useCourseBuilderController({
 
   const seedEditFromCourse = useCallback(
     (courseId: string) => {
-      const course = workspace?.courses.find((item: any) => item.id === courseId);
+      const course = courses.find((item) => item.id === courseId);
       if (!course) return;
 
-      const sortedModules = getSortedBySortOrder(course.modules || []);
-      const firstModuleId = sortedModules[0]?.id || '';
+      const sortedModules = sortBySortOrder<CourseBuilderModuleView>(course.modules);
+      const firstModule = sortedModules[0] ?? null;
+      const firstModuleId = firstModule?.id ?? '';
 
       selectCourse(courseId);
+
       setCourseEdit({
         title: course.title,
         description: course.description || '',
@@ -305,16 +326,22 @@ export function useCourseBuilderController({
         enrollmentOpen: course.enrollmentOpen ?? true,
         maxStudents: course.maxStudents ? String(course.maxStudents) : '',
       });
-      setLessonForm((prev) => ({
-        ...prev,
+
+      setLessonForm((previous) => ({
+        ...previous,
         moduleId: firstModuleId,
-        sortOrder: firstModuleId
-          ? getNextSortOrder(sortedModules[0]?.lessons || [])
-          : '1',
+        sortOrder: firstModule ? getNextSortOrder(firstModule.lessons) : '1',
       }));
+
       setEditingLessonId(null);
     },
-    [selectCourse, setCourseEdit, setEditingLessonId, setLessonForm, workspace]
+    [
+      courses,
+      selectCourse,
+      setCourseEdit,
+      setEditingLessonId,
+      setLessonForm,
+    ],
   );
 
   const refetchWorkspace = useCallback(async () => {
@@ -342,20 +369,22 @@ export function useCourseBuilderController({
   }, [queryClient, userId]);
 
   useEffect(() => {
-    if (!workspace?.courses?.length) {
+    if (!courses.length) {
       if (selectedCourseId) {
         setSelectedCourseId('');
       }
+
       if (requestedCourseId) {
         syncCourseParam();
       }
+
       return;
     }
 
     const course =
-      workspace.courses.find((item: any) => item.id === requestedCourseId) ||
-      workspace.courses.find((item: any) => item.id === selectedCourseId) ||
-      workspace.courses[0];
+      courses.find((item) => item.id === requestedCourseId) ??
+      courses.find((item) => item.id === selectedCourseId) ??
+      courses[0];
 
     if (!course) return;
 
@@ -366,7 +395,7 @@ export function useCourseBuilderController({
     if (requestedCourseId !== course.id) {
       syncCourseParam(course.id);
     }
-  }, [workspace, requestedCourseId, selectedCourseId, syncCourseParam]);
+  }, [courses, requestedCourseId, selectedCourseId, syncCourseParam]);
 
   useEffect(() => {
     if (!selectedCourse) return;
@@ -392,19 +421,19 @@ export function useCourseBuilderController({
   useEffect(() => {
     if (!selectedCourse) return;
 
-    setLessonForm((prev) => {
+    setLessonForm((previous) => {
       const hasCurrentModule =
-        !!prev.moduleId &&
-        selectedCourse.modules.some((module: any) => module.id === prev.moduleId);
+        Boolean(previous.moduleId) &&
+        selectedCourse.modules.some((module) => module.id === previous.moduleId);
 
-      const nextModuleId = hasCurrentModule ? prev.moduleId : defaultModuleId;
+      const nextModuleId = hasCurrentModule ? previous.moduleId : defaultModuleId;
 
       return {
-        ...prev,
+        ...previous,
         moduleId: nextModuleId,
         sortOrder:
-          prev.moduleId === nextModuleId
-            ? prev.sortOrder
+          previous.moduleId === nextModuleId
+            ? previous.sortOrder
             : getNextLessonSortOrder(nextModuleId),
       };
     });
@@ -419,8 +448,8 @@ export function useCourseBuilderController({
   useEffect(() => {
     if (!selectedCourse || !editingLessonId) return;
 
-    const lessonStillExists = selectedCourse.modules.some((module: any) =>
-      module.lessons.some((lesson: any) => lesson.id === editingLessonId)
+    const lessonStillExists = selectedCourse.modules.some((module) =>
+      module.lessons.some((lesson) => lesson.id === editingLessonId),
     );
 
     if (!lessonStillExists) {
