@@ -1,4 +1,4 @@
-import { CalendarClock, Megaphone, Pencil, Pin, Trash2 } from 'lucide-react';
+import { CalendarClock, Pencil, Pin, Trash2 } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -27,74 +27,56 @@ export function CourseAnnouncementCard({
     <div
       className={`rounded-3xl border p-4 text-sm transition-colors ${
         expired
-          ? 'border-border bg-muted/45 opacity-80'
+          ? 'border-border bg-muted/40 opacity-80'
           : announcement.priority === 'urgent'
-            ? 'border-destructive-muted bg-destructive-soft/55'
+            ? 'border-destructive-muted bg-destructive-soft/45'
             : announcement.priority === 'important'
-              ? 'border-warning-muted bg-warning-soft/55'
+              ? 'border-warning-muted bg-warning-soft/45'
               : 'border-border bg-card'
       }`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-3">
-            <div
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
-                expired
-                  ? 'border-border bg-card text-muted-foreground'
-                  : announcement.priority === 'urgent'
-                    ? 'border-destructive-muted bg-card text-destructive'
-                    : announcement.priority === 'important'
-                      ? 'border-warning-muted bg-card text-warning-foreground'
-                      : 'border-primary-muted bg-primary-soft text-primary'
-              }`}
-            >
-              <Megaphone size={16} />
-            </div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <StatusBadge tone={getAnnouncementPriorityTone(announcement.priority)}>
+              {getAnnouncementPriorityLabel(announcement.priority)}
+            </StatusBadge>
 
-            <div className="min-w-0 flex-1">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <StatusBadge tone={getAnnouncementPriorityTone(announcement.priority)}>
-                  {getAnnouncementPriorityLabel(announcement.priority)}
-                </StatusBadge>
+            {announcement.isPinned ? (
+              <StatusBadge tone="primary">
+                <Pin size={12} />
+                Бекітілген
+              </StatusBadge>
+            ) : null}
 
-                {announcement.isPinned ? (
-                  <StatusBadge tone="primary">
-                    <Pin size={12} />
-                    Бекітілген
-                  </StatusBadge>
-                ) : null}
+            {expired ? (
+              <StatusBadge tone="muted">
+                <CalendarClock size={12} />
+                Мерзімі өткен
+              </StatusBadge>
+            ) : null}
+          </div>
 
-                {expired ? (
-                  <StatusBadge tone="muted">
-                    <CalendarClock size={12} />
-                    Мерзімі өткен
-                  </StatusBadge>
-                ) : null}
-              </div>
+          <p className="font-semibold leading-6 text-foreground">
+            {announcement.title}
+          </p>
 
-              <p className="font-semibold leading-6 text-foreground">
-                {announcement.title}
-              </p>
+          <p className="mt-1 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+            {announcement.body}
+          </p>
 
-              <p className="mt-1 whitespace-pre-line text-xs leading-5 text-muted-foreground">
-                {announcement.body}
-              </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+              <CalendarClock size={11} />
+              {formatDateTime(announcement.publishedAt)}
+            </span>
 
-              <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
-                  <CalendarClock size={11} />
-                  {formatDateTime(announcement.publishedAt)}
-                </span>
-
-                {announcement.expiresAt ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
-                    <CalendarClock size={11} />
-                    {formatDateTime(announcement.expiresAt)}
-                  </span>
-                ) : null}
-              </div>
-            </div>
+            {announcement.expiresAt ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+                <CalendarClock size={11} />
+                {formatDateTime(announcement.expiresAt)}
+              </span>
+            ) : null}
           </div>
         </div>
 

@@ -21,12 +21,12 @@ export default function TeacherProfileCard({
   className,
 }: Props) {
   const teacherName = teacher.fullName?.trim() || 'Мұғалім';
-  const teacherBio = teacher.bio?.trim() || 'Мұғалім туралы ақпарат әлі толтырылмаған.';
+  const teacherBio = teacher.bio?.trim();
 
   return (
     <div
       className={cn(
-        'rounded-3xl border border-border bg-surface-soft/60 shadow-inner-soft',
+        'rounded-3xl border border-border bg-card',
         compact ? 'p-3' : 'p-4',
         className
       )}
@@ -45,19 +45,21 @@ export default function TeacherProfileCard({
           </div>
 
           {typeof teacher.coursesCount === 'number' ? (
-            <div className="mt-1 inline-flex w-fit rounded-full border border-primary-muted bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary">
-              Курстар саны: {teacher.coursesCount}
+            <div className="mt-1 inline-flex w-fit rounded-full border border-border bg-muted/45 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+              {teacher.coursesCount} курс
             </div>
           ) : null}
 
-          <p
-            className={cn(
-              'mt-2 leading-5 text-muted-foreground',
-              compact ? 'line-clamp-2 text-xs' : 'line-clamp-3 text-sm'
-            )}
-          >
-            {teacherBio}
-          </p>
+          {teacherBio ? (
+            <p
+              className={cn(
+                'mt-2 leading-5 text-muted-foreground',
+                compact ? 'line-clamp-2 text-xs' : 'line-clamp-3 text-sm'
+              )}
+            >
+              {teacherBio}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

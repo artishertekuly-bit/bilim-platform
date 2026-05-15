@@ -43,7 +43,7 @@ export default function ProgressBar({
 
   return (
     <div className={cn('w-full', className)}>
-      {(label || showPercent) ? (
+      {label || showPercent ? (
         <div className="mb-1.5 flex items-center justify-between gap-3">
           {label ? (
             <span className="truncate text-xs font-medium text-muted-foreground">
@@ -54,7 +54,7 @@ export default function ProgressBar({
           )}
 
           {showPercent ? (
-            <span className="shrink-0 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-semibold text-foreground">
+            <span className="shrink-0 text-xs font-semibold text-foreground">
               {percent}%
             </span>
           ) : null}
@@ -63,20 +63,17 @@ export default function ProgressBar({
 
       <div
         className={cn(
-          'overflow-hidden rounded-full border border-border bg-muted shadow-inner-soft',
+          'overflow-hidden rounded-full border border-border bg-muted',
           size === 'sm' ? 'h-2' : 'h-2.5'
         )}
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={max}
         aria-valuenow={Math.min(Math.max(value, 0), max)}
-        aria-label={label || 'Progress'}
+        aria-label={label || 'Прогресс'}
       >
         <div
-          className={cn(
-            'h-full rounded-full progress-fill',
-            getToneClassName(tone)
-          )}
+          className={cn('h-full rounded-full', getToneClassName(tone))}
           style={{ width: `${percent}%` }}
         />
       </div>

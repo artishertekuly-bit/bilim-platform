@@ -72,7 +72,7 @@ function FormSection({
   aside?: ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+    <section className="rounded-3xl border border-border bg-card p-4">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
@@ -95,12 +95,10 @@ function FormSection({
 function FieldBlock({
   label,
   children,
-  hint,
   required,
 }: {
   label: ReactNode;
   children: ReactNode;
-  hint?: string;
   required?: boolean;
 }) {
   return (
@@ -110,9 +108,6 @@ function FieldBlock({
         {required ? <span className="ml-1 text-destructive">*</span> : null}
       </Label>
       {children}
-      {hint ? (
-        <p className="text-[11px] leading-5 text-muted-foreground">{hint}</p>
-      ) : null}
     </div>
   );
 }
@@ -277,7 +272,7 @@ export function CourseSettingsCard({
                 ) : (
                   <StatusBadge tone="success">
                     <CheckCircle2 size={12} />
-                    Preview
+                    Көрініс
                   </StatusBadge>
                 )}
               </div>
@@ -304,7 +299,7 @@ export function CourseSettingsCard({
         </FormSection>
 
         <FormSection
-          title="Қолжетімділік және баға"
+          title="Қолжетімділік"
           icon={<KeyRound size={17} />}
           aside={
             <StatusBadge tone={pricingVisible ? 'important' : 'primary'}>
@@ -377,10 +372,7 @@ export function CourseSettingsCard({
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
-            <FieldBlock
-              label="Оқушы лимиті"
-              hint="Бос қалса — шектеусіз."
-            >
+            <FieldBlock label="Оқушы лимиті">
               <Input
                 type="number"
                 min={1}
@@ -432,7 +424,7 @@ export function CourseSettingsCard({
           </div>
         </FormSection>
 
-        <div className="flex justify-end rounded-3xl border border-primary-muted bg-primary-soft/70 p-4">
+        <div className="flex justify-end rounded-3xl border border-primary-muted bg-primary-soft/60 p-4">
           <Button
             type="button"
             onClick={onSaveCourse}

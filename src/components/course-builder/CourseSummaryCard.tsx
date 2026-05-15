@@ -50,7 +50,7 @@ function SummaryRow({
       className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 ${
         emphasized
           ? 'border-accent-muted bg-accent-soft/70'
-          : 'border-border bg-muted/30'
+          : 'border-border bg-muted/25'
       }`}
     >
       <span className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
@@ -120,12 +120,6 @@ export function CourseSummaryCard({
           label="Оқушылар"
           value={selectedCourse.students}
           icon={<Users size={13} />}
-        />
-
-        <SummaryRow
-          label="Қолжетімділік"
-          value={getAccessTypeLabel(accessType)}
-          icon={<KeyRound size={13} />}
         />
 
         {pricingVisible ? (

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   BookOpen,
-  CheckCircle2,
   GraduationCap,
   RotateCcw,
   Search,
@@ -96,12 +95,11 @@ function StudentAvatar({
 }: {
   name: string | null | undefined;
   avatarUrl: string | null | undefined;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md';
 }) {
   const sizeClassName = {
     sm: 'h-10 w-10 text-xs',
     md: 'h-12 w-12 text-sm',
-    lg: 'h-14 w-14 text-base',
   }[size];
 
   return (
@@ -142,15 +140,15 @@ function SmallMetric({
 
   return (
     <div className="rounded-3xl border border-border bg-card p-3">
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         <div
-          className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
         >
           {icon}
         </div>
 
         <div className="min-w-0">
-          <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+          <p className="text-[11px] text-muted-foreground">{label}</p>
           <p className="mt-0.5 text-sm font-semibold text-foreground">{value}</p>
         </div>
       </div>
@@ -175,7 +173,7 @@ function StudentListItem({
       className={`w-full rounded-3xl border p-3 text-left transition-colors active:scale-[0.99] ${
         selected
           ? 'border-primary-muted bg-primary-soft'
-          : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
+          : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/35'
       }`}
     >
       <div className="flex items-start gap-3">
@@ -225,15 +223,15 @@ function InsightCard({
 }) {
   const toneClassName = {
     warning: {
-      card: 'border-warning-muted bg-warning-soft/50',
+      card: 'border-warning-muted bg-warning-soft/45',
       icon: 'border-warning-muted bg-card text-warning-foreground',
     },
     danger: {
-      card: 'border-destructive-muted bg-destructive-soft/50',
+      card: 'border-destructive-muted bg-destructive-soft/45',
       icon: 'border-destructive-muted bg-card text-destructive',
     },
     ai: {
-      card: 'border-ai-border bg-ai-soft/60',
+      card: 'border-ai-border bg-ai-soft/50',
       icon: 'border-ai-border bg-card text-primary',
     },
   }[tone];
@@ -323,8 +321,6 @@ export default function TeacherStudentAnalyticsPanel({
     Boolean(teacherId && courseId && selectedStudentId)
   );
 
-  const selectedCourseSnapshot = selectedSnapshot?.courses?.[0] || null;
-
   return (
     <Card id="teacher-student-analytics" className="scroll-mt-24 overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
@@ -391,7 +387,7 @@ export default function TeacherStudentAnalyticsPanel({
         ) : null}
 
         {!studentsLoading && !studentsError && students.length > 0 ? (
-          <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
+          <div className="grid gap-5 xl:grid-cols-[340px_1fr]">
             <aside className="space-y-3">
               <div className="relative">
                 <Search
@@ -443,7 +439,6 @@ export default function TeacherStudentAnalyticsPanel({
                         <StudentAvatar
                           name={selectedStudent.fullName}
                           avatarUrl={selectedStudent.avatarUrl}
-                          size="md"
                         />
 
                         <div className="min-w-0">
@@ -532,21 +527,19 @@ export default function TeacherStudentAnalyticsPanel({
                     <div className="grid gap-4 xl:grid-cols-2">
                       <section className="rounded-3xl border border-border bg-card p-4">
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-foreground">
-                              Қайталау
-                            </p>
+                          <p className="text-sm font-semibold text-foreground">
+                            Қайталау
+                          </p>
 
-                            <StatusBadge
-                              tone={
-                                selectedSnapshot.recommendations.length
-                                  ? 'warning'
-                                  : 'success'
-                              }
-                            >
-                              {selectedSnapshot.recommendations.length}
-                            </StatusBadge>
-                          </div>
+                          <StatusBadge
+                            tone={
+                              selectedSnapshot.recommendations.length
+                                ? 'warning'
+                                : 'success'
+                            }
+                          >
+                            {selectedSnapshot.recommendations.length}
+                          </StatusBadge>
                         </div>
 
                         {selectedSnapshot.recommendations.length === 0 ? (
@@ -586,21 +579,19 @@ export default function TeacherStudentAnalyticsPanel({
 
                       <section className="rounded-3xl border border-border bg-card p-4">
                         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-foreground">
-                              Қиын сабақтар
-                            </p>
+                          <p className="text-sm font-semibold text-foreground">
+                            Қиын сабақтар
+                          </p>
 
-                            <StatusBadge
-                              tone={
-                                selectedSnapshot.weakLessons.length
-                                  ? 'warning'
-                                  : 'success'
-                              }
-                            >
-                              {selectedSnapshot.weakLessons.length}
-                            </StatusBadge>
-                          </div>
+                          <StatusBadge
+                            tone={
+                              selectedSnapshot.weakLessons.length
+                                ? 'warning'
+                                : 'success'
+                            }
+                          >
+                            {selectedSnapshot.weakLessons.length}
+                          </StatusBadge>
                         </div>
 
                         {selectedSnapshot.weakLessons.length === 0 ? (
@@ -643,12 +634,6 @@ export default function TeacherStudentAnalyticsPanel({
                           </div>
                         )}
                       </section>
-                    </div>
-                  ) : null}
-
-                  {!snapshotLoading && !snapshotError && !selectedCourseSnapshot ? (
-                    <div className="rounded-3xl border border-dashed border-border bg-muted/45 p-4 text-xs leading-5 text-muted-foreground">
-                      Snapshot толық емес.
                     </div>
                   ) : null}
                 </>

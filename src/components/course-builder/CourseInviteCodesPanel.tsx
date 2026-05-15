@@ -3,7 +3,6 @@ import {
   CalendarClock,
   Copy,
   KeyRound,
-  Lock,
   Plus,
   Trash2,
   Users,
@@ -124,52 +123,38 @@ function InviteCodeCard({
     <div
       className={`rounded-3xl border p-4 transition-colors ${
         active
-          ? 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/25'
-          : 'border-border bg-muted/45 opacity-80'
+          ? 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/20'
+          : 'border-border bg-muted/40 opacity-80'
       }`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-3">
-            <div
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
-                active
-                  ? 'border-primary-muted bg-primary-soft text-primary'
-                  : 'border-border bg-card text-muted-foreground'
-              }`}
-            >
-              <KeyRound size={16} />
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="rounded-2xl border border-border bg-muted/35 px-3 py-1.5 font-mono text-sm font-semibold tracking-wide text-foreground">
+              {invite.code}
+            </p>
 
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="rounded-2xl border border-border bg-muted/40 px-3 py-1.5 font-mono text-sm font-semibold tracking-wide text-foreground">
-                  {invite.code}
-                </p>
+            <StatusBadge tone={statusTone}>{statusLabel}</StatusBadge>
+          </div>
 
-                <StatusBadge tone={statusTone}>{statusLabel}</StatusBadge>
-              </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+              <Users size={11} />
+              Қолданылды: {invite.used_count}
+              {invite.max_uses === null ? ' / ∞' : ` / ${invite.max_uses}`}
+            </span>
 
-              <div className="mt-3 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
-                  <Users size={11} />
-                  {invite.used_count}
-                  {invite.max_uses === null ? ' / ∞' : ` / ${invite.max_uses}`}
-                </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+              <Users size={11} />
+              Қалды: {remaining === null ? '∞' : remaining}
+            </span>
 
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
-                  <Users size={11} />
-                  {remaining === null ? '∞' : remaining}
-                </span>
-
-                {invite.expires_at ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1 sm:col-span-2">
-                    <CalendarClock size={11} />
-                    {formatDateTime(invite.expires_at)}
-                  </span>
-                ) : null}
-              </div>
-            </div>
+            {invite.expires_at ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+                <CalendarClock size={11} />
+                {formatDateTime(invite.expires_at)}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -243,16 +228,13 @@ export function CourseInviteCodesPanel({
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <KeyRound size={16} />
-              Шақыру кодтары
-            </CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <KeyRound size={16} />
+            Шақыру кодтары
+          </CardTitle>
 
-            <StatusBadge tone="secondary">
-              <KeyRound size={12} />
-              {courseInvites.length}
-            </StatusBadge>
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge tone="secondary">{courseInvites.length}</StatusBadge>
 
             <StatusBadge tone={inviteCourse ? 'primary' : 'warning'}>
               {inviteCourse ? 'Жабық режим' : 'Қосымша'}
@@ -262,31 +244,15 @@ export function CourseInviteCodesPanel({
       </CardHeader>
 
       <CardContent className="space-y-5 p-4 sm:p-5">
-        {!inviteCourse ? (
-          <div className="rounded-3xl border border-warning-muted bg-warning-soft/70 p-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-warning-muted bg-card text-warning-foreground">
-                <Lock size={17} />
-              </div>
-
-              <p className="text-sm font-semibold text-foreground">
-                Курс жабық режимде емес
-              </p>
+        <section className="rounded-3xl border border-border bg-card p-4">
+          <div className="mb-4 flex min-w-0 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+              <Plus size={17} />
             </div>
-          </div>
-        ) : null}
 
-        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
-                <Plus size={17} />
-              </div>
-
-              <p className="text-sm font-semibold text-foreground">
-                Жаңа код
-              </p>
-            </div>
+            <p className="text-sm font-semibold text-foreground">
+              Жаңа код
+            </p>
           </div>
 
           <div className="space-y-4">

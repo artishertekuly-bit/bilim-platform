@@ -26,45 +26,27 @@ function getToneClasses(tone: StateTone) {
     {
       card: string;
       icon: string;
-      glow: string;
-      badge: string;
-      badgeLabel: string;
     }
   > = {
     default: {
-      card: 'border-border bg-card text-card-foreground shadow-soft',
+      card: 'border-border bg-card text-card-foreground',
       icon: 'border-border bg-muted text-muted-foreground',
-      glow: 'bg-surface-soft/70',
-      badge: 'border-border bg-muted text-muted-foreground',
-      badgeLabel: '',
     },
     success: {
-      card: 'border-success-muted bg-success-soft/70 text-success-foreground shadow-soft',
-      icon: 'border-success-muted bg-card/80 text-success-foreground',
-      glow: 'bg-success-muted/30',
-      badge: 'border-success-muted bg-success-soft text-success-foreground',
-      badgeLabel: 'Дайын',
+      card: 'border-success-muted bg-success-soft/55 text-success-foreground',
+      icon: 'border-success-muted bg-card text-success-foreground',
     },
     warning: {
-      card: 'border-warning-muted bg-warning-soft/70 text-warning-foreground shadow-soft',
-      icon: 'border-warning-muted bg-card/80 text-warning-foreground',
-      glow: 'bg-warning-muted/30',
-      badge: 'border-warning-muted bg-warning-soft text-warning-foreground',
-      badgeLabel: 'Ескерту',
+      card: 'border-warning-muted bg-warning-soft/55 text-warning-foreground',
+      icon: 'border-warning-muted bg-card text-warning-foreground',
     },
     danger: {
-      card: 'border-destructive-muted bg-destructive-soft/70 text-destructive shadow-soft',
-      icon: 'border-destructive-muted bg-card/80 text-destructive',
-      glow: 'bg-destructive-muted/30',
-      badge: 'border-destructive-muted bg-destructive-soft text-destructive',
-      badgeLabel: 'Қате',
+      card: 'border-destructive-muted bg-destructive-soft/55 text-destructive',
+      icon: 'border-destructive-muted bg-card text-destructive',
     },
     ai: {
-      card: 'border-ai-border bg-ai-soft/80 text-ai-foreground shadow-soft',
-      icon: 'border-ai-border bg-card/80 text-primary',
-      glow: 'bg-primary-soft/70',
-      badge: 'border-ai-border bg-ai-soft text-primary',
-      badgeLabel: 'AI',
+      card: 'border-ai-border bg-ai-soft/55 text-ai-foreground',
+      icon: 'border-ai-border bg-card text-primary',
     },
   };
 
@@ -101,7 +83,7 @@ function StateCard({
       aria-live={role === 'alert' ? 'assertive' : role === 'status' ? 'polite' : undefined}
       aria-busy={ariaBusy}
       className={cn(
-        'relative overflow-hidden rounded-3xl border transition-all duration-200 ease-soft',
+        'rounded-3xl border',
         isSmall ? 'p-4' : 'p-5 sm:p-6',
         toneClasses.card,
         className
@@ -109,25 +91,14 @@ function StateCard({
     >
       <div
         className={cn(
-          'pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-3xl',
-          toneClasses.glow
-        )}
-      />
-
-      {tone === 'ai' ? (
-        <div className="pointer-events-none absolute -bottom-12 left-8 h-28 w-28 rounded-full bg-secondary-soft/60 blur-3xl" />
-      ) : null}
-
-      <div
-        className={cn(
-          'relative flex gap-4',
+          'flex gap-4',
           isCentered && 'flex-col items-center text-center',
           isSmall && 'gap-3'
         )}
       >
         <div
           className={cn(
-            'flex shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            'flex shrink-0 items-center justify-center rounded-2xl border',
             isSmall ? 'h-10 w-10' : 'h-11 w-11',
             toneClasses.icon
           )}
@@ -137,32 +108,14 @@ function StateCard({
 
         <div className={cn('min-w-0 flex-1', isCentered && 'flex flex-col items-center')}>
           {title ? (
-            <div
+            <p
               className={cn(
-                'flex flex-wrap items-center gap-2',
-                isCentered && 'justify-center'
+                'font-semibold text-foreground',
+                isSmall ? 'text-sm' : 'text-base'
               )}
             >
-              <p
-                className={cn(
-                  'font-semibold text-foreground',
-                  isSmall ? 'text-sm' : 'text-base'
-                )}
-              >
-                {title}
-              </p>
-
-              {tone !== 'default' ? (
-                <span
-                  className={cn(
-                    'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold',
-                    toneClasses.badge
-                  )}
-                >
-                  {toneClasses.badgeLabel}
-                </span>
-              ) : null}
-            </div>
+              {title}
+            </p>
           ) : null}
 
           {text ? (
@@ -177,7 +130,7 @@ function StateCard({
           ) : null}
 
           {hint ? (
-            <p className="mt-3 max-w-2xl rounded-2xl border border-border bg-card/65 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <p className="mt-3 max-w-2xl rounded-2xl border border-border bg-card px-3 py-2 text-xs leading-5 text-muted-foreground">
               {hint}
             </p>
           ) : null}
@@ -210,8 +163,8 @@ type LoadingStateProps = {
 };
 
 export function LoadingState({
-  title = 'Деректер жүктеліп жатыр',
-  text = 'Аз уақыт күтіңіз.',
+  title = 'Жүктелуде',
+  text,
   hint,
   className,
   align = 'left',
@@ -249,9 +202,9 @@ type ErrorStateProps = {
 };
 
 export function ErrorState({
-  title = 'Бетті жүктеу мүмкін болмады',
+  title = 'Жүктеу мүмкін болмады',
   text,
-  hint = 'Бетті қайта жүктеп көріңіз немесе сәл кейінірек қайталаңыз.',
+  hint,
   action,
   secondaryAction,
   icon,

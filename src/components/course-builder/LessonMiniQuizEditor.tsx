@@ -6,6 +6,7 @@ import {
   HelpCircle,
   ListChecks,
   Pencil,
+  Plus,
   Save,
   Trash2,
   X,
@@ -78,7 +79,7 @@ function EditorSection({
   aside?: ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+    <section className="rounded-3xl border border-border bg-card p-4">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary">
@@ -157,7 +158,7 @@ function MiniQuizQuestionCard({
   onCancelDeleteConfirm: () => void;
 }) {
   return (
-    <div className="rounded-3xl border border-border bg-card p-4 text-sm transition-colors hover:border-primary-muted hover:bg-primary-soft/25">
+    <div className="rounded-3xl border border-border bg-card p-4 text-sm transition-colors hover:border-primary-muted hover:bg-primary-soft/20">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -166,7 +167,6 @@ function MiniQuizQuestionCard({
             <StatusBadge
               tone={question.questionType === 'multiple_choice' ? 'warning' : 'primary'}
             >
-              <HelpCircle size={12} />
               {getMiniQuizQuestionTypeLabel(question.questionType)}
             </StatusBadge>
           </div>
@@ -185,7 +185,7 @@ function MiniQuizQuestionCard({
                   className={`rounded-2xl border px-3 py-2 text-xs ${
                     isCorrect
                       ? 'border-success-muted bg-success-soft text-success-foreground'
-                      : 'border-border bg-muted/45 text-muted-foreground'
+                      : 'border-border bg-muted/35 text-muted-foreground'
                   }`}
                 >
                   <span className="font-semibold">
@@ -204,12 +204,9 @@ function MiniQuizQuestionCard({
           </div>
 
           {question.explanation ? (
-            <div className="mt-3 rounded-2xl border border-border bg-muted/30 p-3">
-              <p className="text-xs font-semibold text-foreground">Түсіндірме</p>
-              <p className="mt-1 whitespace-pre-line text-xs leading-5 text-muted-foreground">
-                {question.explanation}
-              </p>
-            </div>
+            <p className="mt-3 whitespace-pre-line rounded-2xl border border-border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
+              {question.explanation}
+            </p>
           ) : null}
         </div>
 
@@ -356,24 +353,54 @@ export function LessonMiniQuizEditor({
     setQuestionDeleteId(null);
   };
 
+  const handleAddOption = () => {
+    setMiniQuizQuestionForm((previous) => ({
+      ...previous,
+      options: [...previous.options, ''],
+    }));
+  };
+
+  const handleRemoveOption = (optionIndex: number) => {
+    setMiniQuizQuestionForm((previous) => {
+      if (previous.options.length <= 2) return previous;
+
+      return {
+        ...previous,
+        options: previous.options.filter((_, index) => index !== optionIndex),
+        correctAnswer: previous.correctAnswer
+          .flatMap((index) => {
+            if (index === optionIndex) return [];
+            if (index > optionIndex) return [index - 1];
+            return [index];
+          }),
+      };
+    });
+  };
+
   return (
     <Card id="lesson-mini-quiz" className="scroll-mt-24 overflow-hidden">
       <CardHeader className="border-b border-ai-border/70 bg-card pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <ListChecks size={16} />
-              Mini quiz
-            </CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <ListChecks size={16} />
+            Mini quiz
+          </CardTitle>
 
-            {selectedMiniQuiz ? (
-              <StatusBadge tone={selectedMiniQuiz.isPublished ? 'success' : 'completed'}>
-                {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Черновик'}
-              </StatusBadge>
-            ) : (
-              <StatusBadge tone="muted">Қосылмаған</StatusBadge>
-            )}
-          </div>
+          <StatusBadge
+            tone={
+              selectedMiniQuiz
+                ? selectedMiniQuiz.isPublished
+                  ? 'success'
+                  : 'completed'
+                : 'muted'
+            }
+          >
+            {selectedMiniQuiz
+              ? selectedMiniQuiz.isPublished
+                ? 'Жарияланған'
+                : 'Черновик'
+              : 'Қосылмаған'}
+          </StatusBadge>
         </div>
       </CardHeader>
 
@@ -512,226 +539,241 @@ export function LessonMiniQuizEditor({
               </div>
             </EditorSection>
 
-            <EditorSection
-              title={isEditingQuestion ? 'Сұрақты өңдеу' : 'Жаңа сұрақ'}
-              icon={<HelpCircle size={17} />}
-            >
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_120px]">
-                <FieldBlock label="Сұрақ мәтіні" required>
-                  <Input
-                    value={miniQuizQuestionForm.questionText}
-                    onChange={(event) =>
-                      setMiniQuizQuestionForm((previous) => ({
-                        ...previous,
-                        questionText: event.target.value,
-                      }))
-                    }
-                    placeholder="Сұрақ"
-                  />
-                </FieldBlock>
-
-                <FieldBlock label="Сұрақ түрі">
-                  <select
-                    value={miniQuizQuestionForm.questionType}
-                    onChange={(event) =>
-                      setMiniQuizQuestionForm((previous) => ({
-                        ...previous,
-                        questionType: event.target.value as LessonMiniQuizQuestionType,
-                        correctAnswer: [],
-                      }))
-                    }
-                    className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
-                  >
-                    {miniQuizQuestionTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {getMiniQuizQuestionTypeLabel(type)}
-                      </option>
-                    ))}
-                  </select>
-                </FieldBlock>
-
-                <FieldBlock label="Реті">
-                  <Input
-                    type="number"
-                    min={1}
-                    value={miniQuizQuestionForm.sortOrder}
-                    onChange={(event) =>
-                      setMiniQuizQuestionForm((previous) => ({
-                        ...previous,
-                        sortOrder: event.target.value,
-                      }))
-                    }
-                  />
-                </FieldBlock>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold text-foreground">
-                  Жауап нұсқалары
-                </Label>
-
-                <div className="space-y-2">
-                  {miniQuizQuestionForm.options.map((option, optionIndex) => {
-                    const checked =
-                      miniQuizQuestionForm.correctAnswer.includes(optionIndex);
-                    const inputType =
-                      miniQuizQuestionForm.questionType === 'single_choice'
-                        ? 'radio'
-                        : 'checkbox';
-
-                    return (
-                      <div
-                        key={optionIndex}
-                        className={`flex items-center gap-3 rounded-2xl border p-2 transition-colors ${
-                          checked
-                            ? 'border-success-muted bg-success-soft/70'
-                            : 'border-border bg-card'
-                        }`}
-                      >
-                        <input
-                          type={inputType}
-                          name="mini-quiz-correct-answer"
-                          checked={checked}
-                          onChange={() => handleToggleMiniQuizCorrectAnswer(optionIndex)}
-                          className="h-4 w-4 accent-primary"
-                        />
-
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-xs font-semibold text-muted-foreground">
-                          {String.fromCharCode(65 + optionIndex)}
-                        </div>
-
-                        <Input
-                          value={option}
-                          onChange={(event) =>
-                            setMiniQuizQuestionForm((previous) => {
-                              const nextOptions = [...previous.options];
-                              nextOptions[optionIndex] = event.target.value;
-
-                              return {
-                                ...previous,
-                                options: nextOptions,
-                              };
-                            })
-                          }
-                          placeholder={`Жауап ${optionIndex + 1}`}
-                        />
-
-                        {checked ? (
-                          <StatusBadge tone="success">
-                            <CheckCircle2 size={12} />
-                            Дұрыс
-                          </StatusBadge>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <FieldBlock label="Түсіндірме">
-                <Textarea
-                  rows={2}
-                  value={miniQuizQuestionForm.explanation}
-                  onChange={(event) =>
-                    setMiniQuizQuestionForm((previous) => ({
-                      ...previous,
-                      explanation: event.target.value,
-                    }))
-                  }
-                  placeholder="Түсіндірме"
-                />
-              </FieldBlock>
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                {editingMiniQuizQuestionId ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={resetMiniQuizQuestionForm}
-                  >
-                    <X size={14} className="mr-1.5" />
-                    Болдырмау
-                  </Button>
-                ) : null}
-
-                <Button
-                  type="button"
-                  onClick={handleSaveMiniQuizQuestion}
-                  disabled={!canSaveMiniQuizQuestion || savingQuestion}
-                >
-                  <HelpCircle size={14} className="mr-1.5" />
-                  {questionActionLabel}
-                </Button>
-              </div>
-            </EditorSection>
-
-            {!miniQuizLoading && !selectedMiniQuiz ? (
-              <EmptyState
-                title="Mini quiz сақталмаған"
-                text="Баптауды сақтаңыз."
-                compact
-                tone="ai"
-              />
-            ) : null}
-
             {selectedMiniQuiz ? (
-              <section className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 p-3">
-                  <p className="text-sm font-semibold text-foreground">
-                    Сұрақтар
-                  </p>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <StatusBadge
-                      tone={selectedMiniQuiz.isPublished ? 'success' : 'completed'}
-                    >
-                      {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Черновик'}
-                    </StatusBadge>
-
-                    <StatusBadge tone="secondary">
-                      {selectedMiniQuiz.questionsCount} сұрақ
-                    </StatusBadge>
-
-                    <StatusBadge tone="muted">
-                      {selectedMiniQuiz.passingScore}%
-                    </StatusBadge>
-                  </div>
-                </div>
-
-                {selectedMiniQuiz.questions.length === 0 ? (
-                  <EmptyState
-                    title="Сұрақ жоқ"
-                    text="Сұрақ қосыңыз."
-                    compact
-                    tone="ai"
-                  />
-                ) : (
-                  <div className="space-y-2">
-                    {selectedMiniQuiz.questions.map((question, index) => (
-                      <MiniQuizQuestionCard
-                        key={question.id}
-                        question={question}
-                        index={index}
-                        total={selectedMiniQuiz.questions.length}
-                        onEdit={handleEditMiniQuizQuestion}
-                        onDelete={handleConfirmedDeleteQuestion}
-                        onMove={handleMoveMiniQuizQuestion}
-                        disabled={
-                          deleteMiniQuizQuestionPending ||
-                          reorderMiniQuizQuestionsPending
+              <>
+                <EditorSection
+                  title={isEditingQuestion ? 'Сұрақты өңдеу' : 'Жаңа сұрақ'}
+                  icon={<HelpCircle size={17} />}
+                >
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_120px]">
+                    <FieldBlock label="Сұрақ мәтіні" required>
+                      <Input
+                        value={miniQuizQuestionForm.questionText}
+                        onChange={(event) =>
+                          setMiniQuizQuestionForm((previous) => ({
+                            ...previous,
+                            questionText: event.target.value,
+                          }))
                         }
-                        deleteConfirmOpen={questionDeleteId === question.id}
-                        onToggleDeleteConfirm={() =>
-                          setQuestionDeleteId((current) =>
-                            current === question.id ? null : question.id
-                          )
-                        }
-                        onCancelDeleteConfirm={() => setQuestionDeleteId(null)}
+                        placeholder="Сұрақ"
                       />
-                    ))}
+                    </FieldBlock>
+
+                    <FieldBlock label="Сұрақ түрі">
+                      <select
+                        value={miniQuizQuestionForm.questionType}
+                        onChange={(event) =>
+                          setMiniQuizQuestionForm((previous) => ({
+                            ...previous,
+                            questionType: event.target.value as LessonMiniQuizQuestionType,
+                            correctAnswer: [],
+                          }))
+                        }
+                        className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
+                      >
+                        {miniQuizQuestionTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {getMiniQuizQuestionTypeLabel(type)}
+                          </option>
+                        ))}
+                      </select>
+                    </FieldBlock>
+
+                    <FieldBlock label="Реті">
+                      <Input
+                        type="number"
+                        min={1}
+                        value={miniQuizQuestionForm.sortOrder}
+                        onChange={(event) =>
+                          setMiniQuizQuestionForm((previous) => ({
+                            ...previous,
+                            sortOrder: event.target.value,
+                          }))
+                        }
+                      />
+                    </FieldBlock>
                   </div>
-                )}
-              </section>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold text-foreground">
+                      Жауап нұсқалары
+                    </Label>
+
+                    <div className="space-y-2">
+                      {miniQuizQuestionForm.options.map((option, optionIndex) => {
+                        const checked =
+                          miniQuizQuestionForm.correctAnswer.includes(optionIndex);
+                        const inputType =
+                          miniQuizQuestionForm.questionType === 'single_choice'
+                            ? 'radio'
+                            : 'checkbox';
+
+                        return (
+                          <div
+                            key={optionIndex}
+                            className={`flex items-center gap-3 rounded-2xl border p-2 transition-colors ${
+                              checked
+                                ? 'border-success-muted bg-success-soft/70'
+                                : 'border-border bg-card'
+                            }`}
+                          >
+                            <input
+                              type={inputType}
+                              name="mini-quiz-correct-answer"
+                              checked={checked}
+                              onChange={() => handleToggleMiniQuizCorrectAnswer(optionIndex)}
+                              className="h-4 w-4 accent-primary"
+                            />
+
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-xs font-semibold text-muted-foreground">
+                              {String.fromCharCode(65 + optionIndex)}
+                            </div>
+
+                            <Input
+                              value={option}
+                              onChange={(event) =>
+                                setMiniQuizQuestionForm((previous) => {
+                                  const nextOptions = [...previous.options];
+                                  nextOptions[optionIndex] = event.target.value;
+
+                                  return {
+                                    ...previous,
+                                    options: nextOptions,
+                                  };
+                                })
+                              }
+                              placeholder={`Жауап ${optionIndex + 1}`}
+                            />
+
+                            {checked ? (
+                              <StatusBadge tone="success">
+                                <CheckCircle2 size={12} />
+                                Дұрыс
+                              </StatusBadge>
+                            ) : null}
+
+                            {miniQuizQuestionForm.options.length > 2 ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => handleRemoveOption(optionIndex)}
+                                aria-label="Жауап нұсқасын өшіру"
+                              >
+                                <X size={13} />
+                              </Button>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAddOption}
+                    >
+                      <Plus size={14} className="mr-1.5" />
+                      Нұсқа қосу
+                    </Button>
+                  </div>
+
+                  <FieldBlock label="Түсіндірме">
+                    <Textarea
+                      rows={2}
+                      value={miniQuizQuestionForm.explanation}
+                      onChange={(event) =>
+                        setMiniQuizQuestionForm((previous) => ({
+                          ...previous,
+                          explanation: event.target.value,
+                        }))
+                      }
+                      placeholder="Түсіндірме"
+                    />
+                  </FieldBlock>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    {editingMiniQuizQuestionId ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={resetMiniQuizQuestionForm}
+                      >
+                        <X size={14} className="mr-1.5" />
+                        Болдырмау
+                      </Button>
+                    ) : null}
+
+                    <Button
+                      type="button"
+                      onClick={handleSaveMiniQuizQuestion}
+                      disabled={!canSaveMiniQuizQuestion || savingQuestion}
+                    >
+                      <HelpCircle size={14} className="mr-1.5" />
+                      {questionActionLabel}
+                    </Button>
+                  </div>
+                </EditorSection>
+
+                <section className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 p-3">
+                    <p className="text-sm font-semibold text-foreground">
+                      Сұрақтар
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge
+                        tone={selectedMiniQuiz.isPublished ? 'success' : 'completed'}
+                      >
+                        {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Черновик'}
+                      </StatusBadge>
+
+                      <StatusBadge tone="secondary">
+                        {selectedMiniQuiz.questionsCount}
+                      </StatusBadge>
+
+                      <StatusBadge tone="muted">
+                        {selectedMiniQuiz.passingScore}%
+                      </StatusBadge>
+                    </div>
+                  </div>
+
+                  {selectedMiniQuiz.questions.length === 0 ? (
+                    <EmptyState
+                      title="Сұрақ жоқ"
+                      text="Сұрақ қосыңыз."
+                      compact
+                      tone="ai"
+                    />
+                  ) : (
+                    <div className="space-y-2">
+                      {selectedMiniQuiz.questions.map((question, index) => (
+                        <MiniQuizQuestionCard
+                          key={question.id}
+                          question={question}
+                          index={index}
+                          total={selectedMiniQuiz.questions.length}
+                          onEdit={handleEditMiniQuizQuestion}
+                          onDelete={handleConfirmedDeleteQuestion}
+                          onMove={handleMoveMiniQuizQuestion}
+                          disabled={
+                            deleteMiniQuizQuestionPending ||
+                            reorderMiniQuizQuestionsPending
+                          }
+                          deleteConfirmOpen={questionDeleteId === question.id}
+                          onToggleDeleteConfirm={() =>
+                            setQuestionDeleteId((current) =>
+                              current === question.id ? null : question.id
+                            )
+                          }
+                          onCancelDeleteConfirm={() => setQuestionDeleteId(null)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              </>
             ) : null}
           </>
         )}

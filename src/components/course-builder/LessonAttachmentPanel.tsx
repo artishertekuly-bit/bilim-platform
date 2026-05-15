@@ -70,7 +70,9 @@ function InlineDeleteConfirm({
 }) {
   return (
     <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
-      <p className="text-xs font-semibold text-foreground">Материал өшірілсін бе?</p>
+      <p className="text-xs font-semibold text-foreground">
+        Материал өшірілсін бе?
+      </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
@@ -111,7 +113,7 @@ function AttachmentCard({
   const visibleFileLabel = externalUrl || attachment.file.filename || 'Файл жоқ';
 
   return (
-    <div className="rounded-3xl border border-border bg-card p-4 transition-colors hover:border-primary-muted hover:bg-primary-soft/25">
+    <div className="rounded-3xl border border-border bg-card p-4 transition-colors hover:border-primary-muted hover:bg-primary-soft/20">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-3">
@@ -126,14 +128,7 @@ function AttachmentCard({
                 </p>
 
                 <StatusBadge tone={externalUrl ? 'primary' : 'muted'}>
-                  {externalUrl ? (
-                    <>
-                      <ExternalLink size={12} />
-                      Сілтеме
-                    </>
-                  ) : (
-                    'URL жоқ'
-                  )}
+                  {externalUrl ? 'Сілтеме' : 'URL жоқ'}
                 </StatusBadge>
               </div>
 
@@ -143,7 +138,7 @@ function AttachmentCard({
                 </p>
               ) : null}
 
-              <p className="mt-2 truncate rounded-2xl border border-border bg-muted/45 px-3 py-2 text-[11px] text-muted-foreground">
+              <p className="mt-2 truncate rounded-2xl border border-border bg-muted/35 px-3 py-2 text-[11px] text-muted-foreground">
                 {visibleFileLabel}
               </p>
             </div>
@@ -232,17 +227,15 @@ export function LessonAttachmentPanel({
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <Paperclip size={16} />
-              Сабақ материалдары
-            </CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <Paperclip size={16} />
+            Сабақ материалдары
+          </CardTitle>
 
-            <StatusBadge tone="secondary">
-              <FileText size={12} />
-              {lessonAttachments.length}
-            </StatusBadge>
-          </div>
+          <StatusBadge tone="secondary">
+            <FileText size={12} />
+            {lessonAttachments.length}
+          </StatusBadge>
         </div>
       </CardHeader>
 
@@ -255,7 +248,7 @@ export function LessonAttachmentPanel({
           />
         ) : (
           <>
-            <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+            <section className="rounded-3xl border border-border bg-card p-4">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">

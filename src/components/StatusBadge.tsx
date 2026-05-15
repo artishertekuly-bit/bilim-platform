@@ -25,6 +25,14 @@ type OrderStatus =
   | 'completed'
   | string;
 
+type LessonStatus =
+  | 'available'
+  | 'current'
+  | 'completed'
+  | 'locked'
+  | 'draft'
+  | string;
+
 type StatusTone =
   | 'default'
   | 'muted'
@@ -131,7 +139,7 @@ function getAccessMeta(accessType: CourseAccessType): {
 
     default:
       return {
-        label: 'Қолжетімділік белгісіз',
+        label: 'Белгісіз',
         tone: 'muted',
       };
   }
@@ -146,7 +154,7 @@ function getOrderMeta(status: OrderStatus): {
   switch (normalized) {
     case 'pending':
       return {
-        label: 'Сұраныс қаралуда',
+        label: 'Қаралуда',
         tone: 'important',
       };
 
@@ -173,7 +181,52 @@ function getOrderMeta(status: OrderStatus): {
 
     default:
       return {
-        label: normalized || 'Статус белгісіз',
+        label: normalized || 'Белгісіз',
+        tone: 'muted',
+      };
+  }
+}
+
+function getLessonMeta(status: LessonStatus): {
+  label: string;
+  tone: StatusTone;
+} {
+  const normalized = String(status || '').trim().toLowerCase();
+
+  switch (normalized) {
+    case 'completed':
+      return {
+        label: 'Аяқталған',
+        tone: 'success',
+      };
+
+    case 'current':
+      return {
+        label: 'Келесі сабақ',
+        tone: 'primary',
+      };
+
+    case 'locked':
+      return {
+        label: 'Жабық',
+        tone: 'muted',
+      };
+
+    case 'draft':
+      return {
+        label: 'Черновик',
+        tone: 'completed',
+      };
+
+    case 'available':
+      return {
+        label: 'Ашық',
+        tone: 'secondary',
+      };
+
+    default:
+      return {
+        label: normalized || 'Белгісіз',
         tone: 'muted',
       };
   }
@@ -192,8 +245,7 @@ function BaseStatusBadge({
     <Badge
       variant="outline"
       className={cn(
-        'inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold leading-none tracking-wide shadow-none',
-        'transition-all duration-200 ease-soft',
+        'inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold leading-none',
         toneClassName[tone],
         className
       )}
@@ -267,6 +319,22 @@ export function OrderStatusBadge({
   className?: string;
 }) {
   const config = getOrderMeta(status);
+
+  return (
+    <BaseStatusBadge tone={config.tone} className={className}>
+      {config.label}
+    </BaseStatusBadge>
+  );
+}
+
+export function LessonStatusBadge({
+  status,
+  className,
+}: {
+  status: LessonStatus;
+  className?: string;
+}) {
+  const config = getLessonMeta(status);
 
   return (
     <BaseStatusBadge tone={config.tone} className={className}>

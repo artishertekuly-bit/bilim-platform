@@ -5,7 +5,6 @@ import {
   BookOpen,
   CheckCircle2,
   FileText,
-  GraduationCap,
   Lock,
   PlayCircle,
   RotateCcw,
@@ -68,17 +67,17 @@ function LessonStatCard({
   }[tone];
 
   return (
-    <Card interactive className="overflow-hidden">
+    <Card className="overflow-hidden">
       <CardContent className="flex items-center gap-3 p-4 sm:p-5">
         <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
         >
           <Icon size={18} />
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-semibold tracking-tight text-foreground">
             {value}
           </p>
         </div>
@@ -94,7 +93,7 @@ function LessonsPageSkeleton() {
         {Array.from({ length: 4 }).map((_, index) => (
           <div
             key={index}
-            className="rounded-3xl border border-border bg-card p-5 shadow-soft"
+            className="rounded-3xl border border-border bg-card p-5"
           >
             <div className="flex items-center gap-3">
               <SkeletonBlock className="h-11 w-11 rounded-2xl" />
@@ -107,7 +106,7 @@ function LessonsPageSkeleton() {
         ))}
       </div>
 
-      <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
+      <div className="rounded-3xl border border-border bg-card p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <SkeletonBlock className="h-11 w-full rounded-2xl lg:max-w-md" />
 
@@ -128,12 +127,12 @@ function LessonsPageSkeleton() {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
+      <div className="rounded-3xl border border-border bg-card p-5">
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, index) => (
             <div
               key={index}
-              className="rounded-3xl border border-border bg-card p-4 shadow-soft"
+              className="rounded-3xl border border-border bg-card p-4"
             >
               <div className="flex gap-4">
                 <SkeletonBlock className="h-11 w-11 rounded-2xl" />
@@ -171,10 +170,10 @@ function FilterChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] ${
+      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors active:scale-[0.99] ${
         active
-          ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
-          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
+          ? 'border-primary-muted bg-primary-soft text-primary'
+          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary'
       }`}
     >
       {children}
@@ -265,10 +264,6 @@ export default function LessonsPage() {
     ? t('page.lessons.title.student')
     : t('page.lessons.title.admin');
 
-  const pageDescription = isStudent
-    ? t('page.lessons.description.student')
-    : t('page.lessons.description.admin');
-
   const emptyTitle = isStudent
     ? t('page.lessons.empty.title.student')
     : t('page.lessons.empty.title.admin');
@@ -288,12 +283,11 @@ export default function LessonsPage() {
           eyebrow={
             <>
               <FileText size={13} />
-              {isStudent ? 'Оқу материалдары' : 'Сабақтарды басқару'}
+              {isStudent ? 'Сабақтар' : 'Сабақтарды басқару'}
             </>
           }
           icon={<BookOpen size={20} />}
           title={pageTitle}
-          description={pageDescription}
           actions={
             isStudent ? (
               <Button type="button" variant="outline" asChild>
@@ -368,7 +362,7 @@ export default function LessonsPage() {
                     <Input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Сабақ, курс, модуль немесе пән бойынша іздеу..."
+                      placeholder="Сабақ, курс, модуль немесе пән"
                       className="pl-10"
                     />
                   </div>
@@ -402,18 +396,16 @@ export default function LessonsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
-                  <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    {subjects.map((subject) => (
-                      <FilterChip
-                        key={subject}
-                        active={activeSubject === subject}
-                        onClick={() => setActiveSubject(subject)}
-                      >
-                        {subject === 'all' ? t('common.all') : subject}
-                      </FilterChip>
-                    ))}
-                  </div>
+                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                  {subjects.map((subject) => (
+                    <FilterChip
+                      key={subject}
+                      active={activeSubject === subject}
+                      onClick={() => setActiveSubject(subject)}
+                    >
+                      {subject === 'all' ? t('common.all') : subject}
+                    </FilterChip>
+                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -454,27 +446,13 @@ export default function LessonsPage() {
               <Card className="overflow-hidden">
                 <CardContent className="space-y-4 p-4 sm:p-5">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">
-                        {listTitle}
-                      </p>
+                    <p className="text-sm font-semibold text-foreground">
+                      {listTitle}
+                    </p>
 
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {filtered.length} сабақ көрсетіліп тұр
-                      </p>
-                    </div>
-
-                    {hasActiveFilters ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={resetFilters}
-                      >
-                        <RotateCcw size={14} className="mr-1.5" />
-                        Тазалау
-                      </Button>
-                    ) : null}
+                    <span className="rounded-full border border-border bg-muted/45 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                      {filtered.length}
+                    </span>
                   </div>
 
                   <div className="grid gap-3">

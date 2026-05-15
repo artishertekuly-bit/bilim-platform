@@ -5,7 +5,6 @@ import {
   Eye,
   EyeOff,
   RotateCcw,
-  X,
 } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
@@ -19,7 +18,6 @@ function getPublishState(status: CourseStatus) {
       title: 'Жарияланған',
       tone: 'success' as const,
       icon: <CheckCircle2 size={12} />,
-      panelIcon: <Eye size={17} />,
     };
   }
 
@@ -28,7 +26,6 @@ function getPublishState(status: CourseStatus) {
       title: 'Архивте',
       tone: 'muted' as const,
       icon: <Archive size={12} />,
-      panelIcon: <Archive size={17} />,
     };
   }
 
@@ -36,7 +33,6 @@ function getPublishState(status: CourseStatus) {
     title: 'Черновик',
     tone: 'completed' as const,
     icon: <EyeOff size={12} />,
-    panelIcon: <EyeOff size={17} />,
   };
 }
 
@@ -44,23 +40,31 @@ function InlineConfirm({
   title,
   pending,
   confirmLabel,
+  danger,
   onConfirm,
   onCancel,
 }: {
   title: string;
   pending: boolean;
   confirmLabel: string;
+  danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-warning-muted bg-warning-soft/60 p-3">
+    <div
+      className={`rounded-2xl border p-3 ${
+        danger
+          ? 'border-destructive/30 bg-destructive/5'
+          : 'border-warning-muted bg-warning-soft/60'
+      }`}
+    >
       <p className="text-xs font-semibold text-foreground">{title}</p>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
           type="button"
-          variant="outline"
+          variant={danger ? 'destructive' : 'outline'}
           size="sm"
           disabled={pending}
           onClick={onConfirm}
@@ -102,32 +106,18 @@ export function CoursePublishPanel({
     <Card id="publish" className="scroll-mt-24 overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="text-sm font-semibold">
-              Жариялау
-            </CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            Жариялау
+          </CardTitle>
 
-            <StatusBadge tone={state.tone}>
-              {state.icon}
-              {state.title}
-            </StatusBadge>
-          </div>
+          <StatusBadge tone={state.tone}>
+            {state.icon}
+            {state.title}
+          </StatusBadge>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4 p-4 sm:p-5">
-        <div className="rounded-3xl border border-border bg-muted/25 p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
-              {state.panelIcon}
-            </div>
-
-            <p className="text-sm font-semibold text-foreground">
-              {state.title}
-            </p>
-          </div>
-        </div>
-
         {confirmAction === 'unpublish' ? (
           <InlineConfirm
             title="Курс жариялаудан алынсын ба?"
@@ -143,13 +133,14 @@ export function CoursePublishPanel({
             title="Курс архивке жіберілсін бе?"
             pending={pending}
             confirmLabel="Архивке жіберу"
+            danger
             onConfirm={() => changeStatus('archived')}
             onCancel={() => setConfirmAction(null)}
           />
         ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-3xl border border-primary-muted bg-primary-soft/70 p-4">
+          <div className="rounded-3xl border border-primary-muted bg-primary-soft/60 p-4">
             <div className="mb-3">
               <StatusBadge tone="primary">
                 <Eye size={12} />
@@ -185,7 +176,7 @@ export function CoursePublishPanel({
             )}
           </div>
 
-          <div className="rounded-3xl border border-border bg-muted/45 p-4">
+          <div className="rounded-3xl border border-border bg-muted/35 p-4">
             <div className="mb-3">
               <StatusBadge tone={status === 'archived' ? 'important' : 'muted'}>
                 <Archive size={12} />
@@ -218,19 +209,6 @@ export function CoursePublishPanel({
             )}
           </div>
         </div>
-
-        {confirmAction ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setConfirmAction(null)}
-            className="w-full sm:hidden"
-          >
-            <X size={14} className="mr-2" />
-            Жабу
-          </Button>
-        ) : null}
       </CardContent>
     </Card>
   );

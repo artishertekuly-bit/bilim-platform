@@ -13,21 +13,9 @@ import { cn } from '@/lib/utils';
 
 type LessonCardProps = {
   lesson: LessonView;
-  /**
-   * Kept for backward compatibility with LessonsPage.
-   * Lesson completion must happen only inside LessonDetailPage after the mini quiz rules are checked.
-   */
   isStudent?: boolean;
-  /**
-   * Deprecated: ignored intentionally.
-   * Completing a lesson from the list bypasses theory/practice/mini quiz validation.
-   */
   isCompleting?: boolean;
   onOpen?: (lesson: LessonView) => void;
-  /**
-   * Deprecated: ignored intentionally.
-   * Do not complete lessons from the card/list level.
-   */
   onComplete?: (lesson: LessonView) => void;
 };
 
@@ -78,12 +66,10 @@ export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
   return (
     <div
       className={cn(
-        [
-          'group rounded-3xl border p-4 shadow-soft transition-all duration-200 ease-soft',
-          canOpen
-            ? 'cursor-pointer border-border bg-card hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md active:translate-y-0 active:scale-[0.995]'
-            : 'border-border bg-muted/35 opacity-80',
-        ].join(' ')
+        'rounded-3xl border p-4 transition-colors',
+        canOpen
+          ? 'cursor-pointer border-border bg-card hover:border-primary-muted hover:bg-primary-soft/25 active:scale-[0.995]'
+          : 'border-border bg-muted/35 opacity-80'
       )}
       onClick={handleOpen}
       role={canOpen ? 'button' : undefined}
@@ -102,7 +88,7 @@ export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         <div
           className={cn(
-            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border',
             getIconToneClassName(lesson)
           )}
         >
@@ -120,7 +106,7 @@ export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
           </div>
 
           <div className="min-w-0">
-            <h3 className="line-clamp-2 text-sm font-semibold text-foreground transition-colors duration-200 ease-soft group-hover:text-primary">
+            <h3 className="line-clamp-2 text-sm font-semibold text-foreground">
               {lesson.title}
             </h3>
 
@@ -130,16 +116,9 @@ export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
           </div>
 
           {lesson.isLocked ? (
-            <p className="flex items-center gap-1.5 rounded-2xl border border-border bg-card/65 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <p className="inline-flex items-center gap-1.5 rounded-2xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
               <Lock size={13} />
-              Бұл сабаққа кіру үшін алдыңғы шарттарды орындау қажет.
-            </p>
-          ) : null}
-
-          {!lesson.isLocked && !lesson.isCompleted ? (
-            <p className="rounded-2xl border border-primary-muted/70 bg-primary-soft/45 px-3 py-2 text-xs leading-5 text-primary">
-              Сабақты аяқтау үшін сабақты ашып, теорияны оқып, практика мен mini quiz
-              шарттарын орындаңыз.
+              Жабық
             </p>
           ) : null}
         </div>

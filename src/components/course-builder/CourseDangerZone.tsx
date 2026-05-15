@@ -13,34 +13,33 @@ export function CourseDangerZone({
   onDeleteCourse: () => void;
 }) {
   return (
-    <Card className="overflow-hidden border-destructive-muted bg-destructive-soft/45">
+    <Card className="overflow-hidden border-destructive-muted bg-destructive-soft/35">
       <CardHeader className="border-b border-destructive-muted/70 bg-card pb-4">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="text-sm font-semibold text-destructive">
-            Қауіпті әрекеттер
+            Қауіпті әрекет
           </CardTitle>
 
           <StatusBadge tone="danger">
             <AlertTriangle size={12} />
-            Сақ болыңыз
+            Өшіру
           </StatusBadge>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4 p-4 sm:p-5">
-        <div className="rounded-3xl border border-destructive-muted bg-card p-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-destructive-muted bg-destructive-soft text-destructive">
-              <Trash2 size={17} />
-            </div>
-
-            <p className="text-sm font-semibold text-foreground">
-              Курсты толық өшіру
-            </p>
+        <div className="flex items-center gap-3 rounded-3xl border border-destructive-muted bg-card p-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-destructive-muted bg-destructive-soft text-destructive">
+            <Trash2 size={17} />
           </div>
+
+          <p className="text-sm font-semibold text-foreground">
+            Курсты толық өшіру
+          </p>
         </div>
 
         <Button
+          type="button"
           variant="destructive"
           size="sm"
           className="w-full"

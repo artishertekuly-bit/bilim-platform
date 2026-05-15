@@ -49,15 +49,15 @@ function getStatusDotClass(status: CourseProgressLessonStatus) {
 
 function getLockedReasonText(reason: CourseProgressLessonView['lockedReason']) {
   if (reason === 'course_access_required') {
-    return 'Бұл сабаққа кіру үшін курсқа access қажет.';
+    return 'Курсқа қолжетімділік қажет.';
   }
 
   if (reason === 'previous_lesson_required') {
-    return 'Алдыңғы сабақты аяқтағаннан кейін ашылады.';
+    return 'Алдыңғы сабақтан кейін ашылады.';
   }
 
   if (reason === 'lesson_unpublished') {
-    return 'Бұл сабақ әлі жарияланбаған.';
+    return 'Сабақ жарияланбаған.';
   }
 
   return '';
@@ -150,17 +150,17 @@ function CourseStatCard({
   }[tone];
 
   return (
-    <Card interactive className="overflow-hidden">
+    <Card className="overflow-hidden">
       <CardContent className="flex items-center gap-3 p-4 sm:p-5">
         <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
         >
           <Icon size={18} />
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-semibold tracking-tight text-foreground">
             {value}
           </p>
         </div>
@@ -209,43 +209,6 @@ function LessonTimelineStatusBadge({
   );
 }
 
-function TimelineLegend() {
-  const items = [
-    {
-      label: 'Аяқталған',
-      className: 'bg-success',
-    },
-    {
-      label: 'Келесі сабақ',
-      className: 'bg-primary',
-    },
-    {
-      label: 'Ашық',
-      className: 'bg-secondary',
-    },
-    {
-      label: 'Жабық',
-      className: 'bg-muted-foreground',
-    },
-  ];
-
-  return (
-    <Card>
-      <CardContent className="flex flex-wrap gap-3 p-4 sm:p-5">
-        {items.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-center gap-2 rounded-full border border-border bg-surface-soft/70 px-3 py-1.5 text-xs shadow-inner-soft"
-          >
-            <span className={`h-2.5 w-2.5 rounded-full ${item.className}`} />
-            <span className="text-muted-foreground">{item.label}</span>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
 function CurrentLessonCard({
   lesson,
 }: {
@@ -255,18 +218,13 @@ function CurrentLessonCard({
     return (
       <Card>
         <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-foreground">
-              Келесі сабақ анықталмады
-            </p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Барлық ашық сабақ аяқталған немесе курс ішінде сабақ жоқ.
-            </p>
-          </div>
+          <p className="text-sm font-semibold text-foreground">
+            Келесі сабақ жоқ
+          </p>
 
           <Button type="button" variant="outline" asChild>
             <Link to="/courses">
-              Басқа курстарды қарау
+              Курстарға өту
               <ArrowRight size={15} className="ml-2" />
             </Link>
           </Button>
@@ -276,11 +234,11 @@ function CurrentLessonCard({
   }
 
   return (
-    <Card className="ai-soft-panel">
+    <Card className="border-primary-muted bg-primary-soft/55">
       <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone="ai">
+            <StatusBadge tone="primary">
               <PlayCircle size={12} />
               Келесі қадам
             </StatusBadge>
@@ -326,52 +284,47 @@ function AnnouncementCard({
 
   return (
     <div
-      className={`rounded-3xl border p-4 shadow-soft ${
+      className={`rounded-3xl border p-4 ${
         isUrgent
-          ? 'border-destructive-muted bg-destructive-soft/80'
+          ? 'border-destructive-muted bg-destructive-soft/55'
           : isImportant
-            ? 'border-warning-muted bg-warning-soft/80'
+            ? 'border-warning-muted bg-warning-soft/55'
             : 'border-border bg-card'
       }`}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <StatusBadge tone={tone}>
-              <Megaphone size={12} />
-              {getAnnouncementPriorityLabel(announcement.priority)}
-            </StatusBadge>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <StatusBadge tone={tone}>
+          {getAnnouncementPriorityLabel(announcement.priority)}
+        </StatusBadge>
 
-            {announcement.isPinned ? (
-              <StatusBadge tone="primary">
-                <Pin size={12} />
-                Бекітілген
-              </StatusBadge>
-            ) : null}
-          </div>
+        {announcement.isPinned ? (
+          <StatusBadge tone="primary">
+            <Pin size={12} />
+            Бекітілген
+          </StatusBadge>
+        ) : null}
+      </div>
 
-          <h3 className="text-sm font-semibold text-foreground">
-            {announcement.title}
-          </h3>
+      <h3 className="text-sm font-semibold text-foreground">
+        {announcement.title}
+      </h3>
 
-          <p className="mt-2 whitespace-pre-line text-xs leading-5 text-muted-foreground">
-            {announcement.body}
-          </p>
+      <p className="mt-2 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+        {announcement.body}
+      </p>
 
-          <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
-              <CalendarClock size={11} />
-              Жарияланды: {formatDateTime(announcement.publishedAt)}
-            </span>
+      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+          <CalendarClock size={11} />
+          {formatDateTime(announcement.publishedAt)}
+        </span>
 
-            {announcement.expiresAt ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
-                <Clock size={11} />
-                Мерзімі: {formatDateTime(announcement.expiresAt)}
-              </span>
-            ) : null}
-          </div>
-        </div>
+        {announcement.expiresAt ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+            <Clock size={11} />
+            {formatDateTime(announcement.expiresAt)}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -389,18 +342,16 @@ function CourseAnnouncementsPanel({
   if (isLoading) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+        <CardHeader className="border-b border-border/70 bg-card pb-4">
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-              <Megaphone size={16} />
-            </span>
+            <Megaphone size={16} />
             Хабарландырулар
           </CardTitle>
         </CardHeader>
 
         <CardContent className="space-y-3 p-4 sm:p-5">
           {Array.from({ length: 2 }).map((_, index) => (
-            <div key={index} className="rounded-3xl border border-border bg-card p-4 shadow-soft">
+            <div key={index} className="rounded-3xl border border-border bg-card p-4">
               <SkeletonBlock className="h-4 w-32 rounded-full" />
               <SkeletonBlock className="mt-3 h-3 w-4/5 rounded-full" />
               <SkeletonBlock className="mt-2 h-3 w-2/3 rounded-full" />
@@ -414,11 +365,9 @@ function CourseAnnouncementsPanel({
   if (hasError) {
     return (
       <Card className="overflow-hidden">
-        <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+        <CardHeader className="border-b border-border/70 bg-card pb-4">
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-warning-muted bg-warning-soft text-warning-foreground shadow-inner-soft">
-              <Megaphone size={16} />
-            </span>
+            <Megaphone size={16} />
             Хабарландырулар
           </CardTitle>
         </CardHeader>
@@ -438,12 +387,10 @@ function CourseAnnouncementsPanel({
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-              <Megaphone size={16} />
-            </span>
+            <Megaphone size={16} />
             Хабарландырулар
           </CardTitle>
 
@@ -481,7 +428,7 @@ function LessonTimelineItem({
         <div className="absolute left-[18px] top-10 h-full w-px bg-border" />
       ) : null}
 
-      <div className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border bg-card shadow-soft">
+      <div className="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border bg-card">
         <span
           className={`h-2.5 w-2.5 rounded-full ${getStatusDotClass(lesson.status)}`}
         />
@@ -489,12 +436,12 @@ function LessonTimelineItem({
 
       <div className="min-w-0 flex-1 pb-5">
         <div
-          className={`rounded-3xl border p-4 shadow-soft transition-all duration-200 ease-soft ${
+          className={`rounded-3xl border p-4 transition-colors ${
             isCurrent
               ? 'border-primary-muted bg-primary-soft'
               : lesson.isLocked
-                ? 'border-border bg-muted/60'
-                : 'border-border bg-card hover:-translate-y-0.5 hover:border-primary-muted hover:shadow-soft-md'
+                ? 'border-border bg-muted/55'
+                : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/20'
           }`}
         >
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -567,7 +514,7 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -576,17 +523,17 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
               {isCompleted ? (
                 <StatusBadge tone="success">
                   <CheckCircle2 size={12} />
-                  Модуль аяқталған
+                  Аяқталған
                 </StatusBadge>
               ) : null}
             </div>
 
             <p className="mt-1 text-xs text-muted-foreground">
-              {module.completedLessons}/{module.totalLessons} сабақ аяқталған
+              {module.completedLessons}/{module.totalLessons} сабақ
             </p>
           </div>
 
-          <div className="min-w-[180px] rounded-2xl border border-border bg-surface-soft/70 p-3 shadow-inner-soft">
+          <div className="min-w-[180px] rounded-2xl border border-border bg-muted/35 p-3">
             <ProgressBar
               value={module.progressPct}
               label="Прогресс"
@@ -600,8 +547,8 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
       <CardContent className="p-5">
         {module.lessons.length === 0 ? (
           <EmptyState
-            title="Бұл модульде сабақ жоқ"
-            text="Мұғалім сабақ қосқаннан кейін timeline ішінде көрінеді."
+            title="Сабақ жоқ"
+            text="Сабақ қосылғаннан кейін көрінеді."
             compact
           />
         ) : (
@@ -628,48 +575,35 @@ function TeacherAdminCourseNotice({
   courseId: string;
 }) {
   const isAdmin = role === 'admin';
-  const manageHref = isAdmin ? '/manage-courses' : '/create-course';
+  const manageHref = isAdmin
+    ? '/manage-courses'
+    : courseId
+      ? `/create-course?courseId=${encodeURIComponent(courseId)}`
+      : '/create-course';
   const listHref = isAdmin ? '/manage-courses' : '/my-courses';
 
   return (
     <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
         <CardTitle className="flex items-center gap-2 text-base">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-            <GraduationCap size={16} />
-          </span>
+          <GraduationCap size={16} />
           {isAdmin ? 'Әкімші режимі' : 'Мұғалім режимі'}
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-4 p-5">
-        <div className="rounded-3xl border border-border bg-surface-soft/70 p-4 text-sm leading-6 text-muted-foreground">
-          Бұл бет оқушының course roadmap/progress режиміне арналған. Мұғалім немесе
-          әкімші ретінде бұл жерде оқушының жеке progress timeline дерегі
-          қолданылмайды. Курстың модульдері, сабақтары, access баптаулары және
-          материалдары курс басқару бетінде өңделеді.
-        </div>
+      <CardContent className="flex flex-col gap-2 p-5 sm:flex-row">
+        <Button type="button" asChild>
+          <Link to={manageHref}>
+            Курсты басқару
+            <ArrowRight size={15} className="ml-2" />
+          </Link>
+        </Button>
 
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" asChild>
-            <Link to={manageHref}>
-              Курсты басқару
-              <ArrowRight size={15} className="ml-2" />
-            </Link>
-          </Button>
-
-          <Button type="button" variant="outline" asChild>
-            <Link to={listHref}>
-              Курстар тізімі
-            </Link>
-          </Button>
-
-          {courseId ? (
-            <Button type="button" variant="ghost" asChild>
-              <Link to="/dashboard">Dashboard</Link>
-            </Button>
-          ) : null}
-        </div>
+        <Button type="button" variant="outline" asChild>
+          <Link to={listHref}>
+            Курстар тізімі
+          </Link>
+        </Button>
       </CardContent>
     </Card>
   );
@@ -723,7 +657,7 @@ export default function CourseDetailPage() {
           eyebrow={
             <>
               <GraduationCap size={13} />
-              {isStudent ? 'Курс прогресі' : 'Курс режимі'}
+              {isStudent ? 'Курс прогресі' : 'Курс'}
             </>
           }
           icon={<GraduationCap size={20} />}
@@ -731,9 +665,7 @@ export default function CourseDetailPage() {
           description={
             timeline
               ? `${timeline.subjectName} · ${timeline.teacherName}`
-              : isTeacherOrAdmin
-                ? 'Мұғалім/әкімші үшін оқушы progress timeline бөлек қолданылмайды.'
-                : 'Курс roadmap жүктелуде...'
+              : undefined
           }
           actions={
             isStudent && nextLesson && !nextLesson.isLocked ? (
@@ -745,7 +677,13 @@ export default function CourseDetailPage() {
               </Button>
             ) : isTeacherOrAdmin ? (
               <Button type="button" variant="outline" asChild>
-                <Link to={user?.role === 'admin' ? '/manage-courses' : '/create-course'}>
+                <Link
+                  to={
+                    user?.role === 'admin'
+                      ? '/manage-courses'
+                      : `/create-course?courseId=${encodeURIComponent(courseId)}`
+                  }
+                >
                   Курсты басқару
                   <ArrowRight size={15} className="ml-2" />
                 </Link>
@@ -797,7 +735,7 @@ export default function CourseDetailPage() {
         {isStudent && !isLoading && !error && !timeline ? (
           <EmptyState
             title="Курс табылмады"
-            text="Курс өшірілген немесе сізде оған кіру рұқсаты жоқ болуы мүмкін."
+            text="Курс өшірілген немесе кіру рұқсаты жоқ болуы мүмкін."
             action={
               <Button type="button" asChild>
                 <Link to="/courses">
@@ -854,20 +792,13 @@ export default function CourseDetailPage() {
                   size="md"
                   tone="primary"
                 />
-
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  Сабақтар ретімен ашылады. Алдыңғы сабақ аяқталмаса, келесі сабақ
-                  уақытша құлыпталады.
-                </p>
               </CardContent>
             </Card>
-
-            <TimelineLegend />
 
             {timeline.modules.length === 0 ? (
               <EmptyState
                 title="Курста модуль жоқ"
-                text="Мұғалім модуль және сабақ қосқаннан кейін roadmap осы жерде көрінеді."
+                text="Модуль және сабақ қосылғаннан кейін көрінеді."
                 action={
                   <Button type="button" variant="outline" asChild>
                     <Link to="/courses">

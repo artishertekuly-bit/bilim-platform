@@ -66,7 +66,7 @@ function LessonMetaPill({
   children: ReactNode;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/70 px-2.5 py-1 text-[11px] text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/55 px-2.5 py-1 text-[11px] text-muted-foreground">
       {icon}
       <span>{children}</span>
     </span>
@@ -226,16 +226,14 @@ export function ModuleListPanel({
     <Card id="modules-lessons" className="scroll-mt-24 overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="text-base font-semibold">
-              {t('page.teacher_course_builder.section.modules_lessons')}
-            </CardTitle>
+          <CardTitle className="text-base font-semibold">
+            {t('page.teacher_course_builder.section.modules_lessons')}
+          </CardTitle>
 
-            <StatusBadge tone="primary">
-              <Layers3 size={12} />
-              {selectedCourseModules.length} модуль
-            </StatusBadge>
-          </div>
+          <StatusBadge tone="primary">
+            <Layers3 size={12} />
+            {selectedCourseModules.length}
+          </StatusBadge>
         </div>
       </CardHeader>
 
@@ -257,7 +255,7 @@ export function ModuleListPanel({
                   key={module.id}
                   className="overflow-hidden rounded-3xl border border-border bg-card"
                 >
-                  <div className="border-b border-border/70 bg-muted/25 p-4">
+                  <div className="border-b border-border/70 bg-muted/20 p-4">
                     <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
@@ -278,7 +276,7 @@ export function ModuleListPanel({
 
                         <StatusBadge tone="secondary">
                           <BookOpen size={12} />
-                          {sortedLessons.length} сабақ
+                          {sortedLessons.length}
                         </StatusBadge>
 
                         <Button
@@ -340,7 +338,7 @@ export function ModuleListPanel({
 
                   <div className="space-y-2 p-4">
                     {sortedLessons.length === 0 ? (
-                      <div className="rounded-3xl border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground">
+                      <div className="rounded-3xl border border-dashed border-border bg-muted/25 p-4 text-xs text-muted-foreground">
                         {t('page.teacher_course_builder.empty.lessons_inline')}
                       </div>
                     ) : (
@@ -350,16 +348,12 @@ export function ModuleListPanel({
                         return (
                           <div
                             key={lesson.id}
-                            className="rounded-3xl border border-border bg-card p-3 transition-colors hover:border-primary-muted hover:bg-primary-soft/30"
+                            className="rounded-3xl border border-border bg-card p-3 transition-colors hover:border-primary-muted hover:bg-primary-soft/20"
                           >
                             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                              <button
-                                type="button"
-                                onClick={() => onStartEditLesson(lesson.id)}
-                                className="min-w-0 flex-1 text-left"
-                              >
+                              <div className="min-w-0 flex-1">
                                 <div className="flex items-start gap-3">
-                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border bg-muted/40 text-muted-foreground">
+                                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border bg-muted/35 text-muted-foreground">
                                     <FileText size={15} />
                                   </div>
 
@@ -410,9 +404,19 @@ export function ModuleListPanel({
                                     </div>
                                   </div>
                                 </div>
-                              </button>
+                              </div>
 
                               <div className="flex shrink-0 items-center gap-1.5">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="icon-sm"
+                                  onClick={() => onStartEditLesson(lesson.id)}
+                                  aria-label="Сабақты өңдеу"
+                                >
+                                  <Pencil size={14} />
+                                </Button>
+
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -493,7 +497,7 @@ export function ModuleListPanel({
           </div>
         )}
 
-        <div className="rounded-3xl border border-dashed border-primary-muted bg-primary-soft/40 p-4">
+        <div className="rounded-3xl border border-dashed border-primary-muted bg-primary-soft/35 p-4">
           <div className="mb-3 flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary">
               <Plus size={17} />

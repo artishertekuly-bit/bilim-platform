@@ -149,14 +149,13 @@ export function CourseAnnouncementsPanel({
     <Card id="announcements" className="scroll-mt-24 overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="flex items-center gap-2 text-base font-semibold">
-              <Megaphone size={16} />
-              Хабарландырулар
-            </CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base font-semibold">
+            <Megaphone size={16} />
+            Хабарландырулар
+          </CardTitle>
 
+          <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone="secondary">
-              <Megaphone size={12} />
               {courseAnnouncements.length}
             </StatusBadge>
 
@@ -168,7 +167,7 @@ export function CourseAnnouncementsPanel({
       </CardHeader>
 
       <CardContent className="space-y-5 p-4 sm:p-5">
-        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+        <section className="rounded-3xl border border-border bg-card p-4">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
@@ -264,8 +263,8 @@ export function CourseAnnouncementsPanel({
             <div
               className={`rounded-3xl border p-4 transition-colors ${
                 announcementForm.isPinned
-                  ? 'border-primary-muted bg-primary-soft/70'
-                  : 'border-border bg-muted/30'
+                  ? 'border-primary-muted bg-primary-soft/60'
+                  : 'border-border bg-muted/25'
               }`}
             >
               <div className="flex items-center justify-between gap-4">

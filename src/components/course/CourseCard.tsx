@@ -98,11 +98,11 @@ function getStudentActionLabel(course: CourseView) {
     case 'enroll':
       return 'Курсты бастау';
     case 'redeem_invite':
-      return 'Invite code енгізу';
+      return 'Шақыру кодын енгізу';
     case 'request_paid_access':
-      return 'Access сұрау';
+      return 'Қолжетімділік сұрау';
     case 'subscribe':
-      return 'Ақылы access қажет';
+      return 'Ақылы кіру қажет';
     case 'request_school_access':
       return 'Жабық курс';
     case 'manage_course':
@@ -151,7 +151,7 @@ function MetricItem({
       className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none ${
         emphasized
           ? 'border-accent-muted bg-accent-soft text-accent-foreground'
-          : 'border-border bg-surface-soft/70 text-muted-foreground'
+          : 'border-border bg-muted/55 text-muted-foreground'
       }`}
     >
       <span className="shrink-0">{icon}</span>
@@ -189,15 +189,9 @@ export default function CourseCard({
 
   const cardBody = (
     <>
-      <div className="relative flex h-32 items-center justify-center overflow-hidden border-b border-border bg-surface-soft">
-        <div className="pointer-events-none absolute inset-0 opacity-90 dark:opacity-55">
-          <div className="absolute -left-12 -top-12 h-32 w-32 rounded-full bg-primary-soft blur-2xl" />
-          <div className="absolute -right-12 top-4 h-32 w-32 rounded-full bg-secondary-soft blur-2xl" />
-          <div className="absolute bottom-0 left-1/3 h-24 w-24 rounded-full bg-accent-soft blur-2xl" />
-        </div>
-
-        <div className="relative flex h-14 w-14 items-center justify-center rounded-3xl border border-primary-muted bg-card/85 text-primary shadow-soft transition-transform duration-200 ease-soft group-hover:scale-[1.03]">
-          <BookOpen size={26} />
+      <div className="relative flex h-28 items-center justify-center overflow-hidden border-b border-border bg-muted/35">
+        <div className="flex h-14 w-14 items-center justify-center rounded-3xl border border-primary-muted bg-card text-primary">
+          <BookOpen size={25} />
         </div>
 
         <CourseAccessBadge
@@ -212,17 +206,19 @@ export default function CourseCard({
 
       <CardContent className="space-y-4 p-4">
         <div>
-          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-surface-soft/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             <span className="truncate">{course.subjectName || 'Жалпы курс'}</span>
           </span>
 
-          <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground transition-colors duration-200 ease-soft group-hover:text-primary">
+          <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
             {course.title}
           </h3>
 
-          <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
-            {course.description || t('page.course_catalog.no_description')}
-          </p>
+          {course.description ? (
+            <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
+              {course.description}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -241,9 +237,9 @@ export default function CourseCard({
         </div>
 
         {course.access?.accessState === 'enrollment_closed' ? (
-          <div className="flex items-center gap-2 rounded-2xl border border-warning-muted bg-warning-soft/65 px-3 py-2 text-[11px] font-medium text-warning-foreground">
+          <div className="flex items-center gap-2 rounded-2xl border border-warning-muted bg-warning-soft/55 px-3 py-2 text-[11px] font-medium text-warning-foreground">
             <Lock size={12} />
-            Курсқа жазылу уақытша жабық
+            Жазылу жабық
           </div>
         ) : null}
 
@@ -262,7 +258,7 @@ export default function CourseCard({
   );
 
   return (
-    <Card interactive className="group overflow-hidden border-border/80 bg-card/95">
+    <Card className="overflow-hidden border-border bg-card">
       <div className="relative">
         {isStudentView && canOpenCourseDetail(course) ? (
           <Link to={courseDetailPath} className="block">
@@ -280,10 +276,10 @@ export default function CourseCard({
           <button
             type="button"
             disabled={pendingBookmarkCourseId === course.id}
-            className={`absolute right-3 top-3 z-10 rounded-2xl border p-2 shadow-soft backdrop-blur transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60 ${
+            className={`absolute right-3 top-3 z-10 rounded-2xl border p-2 transition-colors disabled:pointer-events-none disabled:opacity-60 ${
               course.bookmarked
                 ? 'border-primary-muted bg-primary text-primary-foreground'
-                : 'border-border bg-card/85 text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
+                : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
             }`}
             onClick={(event) => {
               event.preventDefault();
@@ -305,7 +301,7 @@ export default function CourseCard({
 
         <div className="space-y-3 px-4 pb-4">
           {isStudentView && course.enrolled ? (
-            <div className="space-y-3 rounded-3xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
+            <div className="space-y-3 rounded-3xl border border-border bg-muted/35 p-3">
               <ProgressBar value={course.progress} size="sm" tone="success" />
 
               <Button type="button" size="sm" className="w-full text-xs" asChild>
@@ -318,16 +314,16 @@ export default function CourseCard({
           ) : isStudentView ? (
             <>
               {showInviteInput ? (
-                <div className="space-y-3 rounded-3xl border border-primary-muted bg-primary-soft/70 p-3 shadow-inner-soft">
+                <div className="space-y-3 rounded-3xl border border-primary-muted bg-primary-soft/60 p-3">
                   <div className="flex items-center gap-2 text-xs font-semibold text-primary">
                     <KeyRound size={13} />
-                    Invite code
+                    Шақыру коды
                   </div>
 
                   <Input
                     value={inviteCode}
                     onChange={(event) => onInviteCodeChange?.(event.target.value)}
-                    placeholder="Мысалы: ABC123XYZ"
+                    placeholder="ABC123XYZ"
                     className="h-9 text-xs uppercase"
                   />
 
@@ -380,14 +376,14 @@ export default function CourseCard({
               </Link>
             </Button>
           ) : isAdminView ? (
-            <div className="space-y-3 rounded-3xl border border-border bg-surface-soft/60 p-3 text-[11px] text-muted-foreground shadow-inner-soft">
+            <div className="space-y-3 rounded-3xl border border-border bg-muted/35 p-3 text-[11px] text-muted-foreground">
               <div className="flex flex-wrap items-center gap-2">
                 <CourseStatusBadge status={course.status} />
                 <CourseAccessBadge accessType={getNormalizedCatalogAccessType(course)} />
               </div>
 
-              <div className="rounded-2xl border border-border bg-card/75 px-3 py-2 text-xs leading-5">
-                Access: {getCourseAccessLabel(course)} · {formatCoursePrice(course)}
+              <div className="rounded-2xl border border-border bg-card px-3 py-2 text-xs leading-5">
+                Қолжетімділік: {getCourseAccessLabel(course)} · {formatCoursePrice(course)}
               </div>
 
               <Button type="button" variant="outline" size="sm" className="w-full text-xs" asChild>

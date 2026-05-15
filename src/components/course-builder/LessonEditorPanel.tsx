@@ -5,7 +5,6 @@ import {
   ListOrdered,
   PlayCircle,
   Save,
-  Sparkles,
   ToggleRight,
   X,
 } from 'lucide-react';
@@ -74,7 +73,7 @@ function EditorSection({
   aside?: ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+    <section className="rounded-3xl border border-border bg-card p-4">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
@@ -123,8 +122,7 @@ export function LessonEditorPanel({
             </CardTitle>
 
             <StatusBadge tone={isEditing ? 'primary' : 'secondary'}>
-              {isEditing ? <Save size={12} /> : <Sparkles size={12} />}
-              {isEditing ? 'Өңдеу' : 'Жаңа сабақ'}
+              {isEditing ? 'Өңдеу' : 'Жаңа'}
             </StatusBadge>
 
             <StatusBadge tone={lessonForm.isPublished ? 'success' : 'completed'}>
@@ -196,6 +194,7 @@ export function LessonEditorPanel({
             >
               <Input
                 type="number"
+                min={1}
                 value={lessonForm.sortOrder}
                 onChange={(event) =>
                   setLessonForm((previous) => ({
@@ -305,7 +304,7 @@ export function LessonEditorPanel({
           </div>
         </EditorSection>
 
-        <div className="flex flex-col gap-2 rounded-3xl border border-primary-muted bg-primary-soft/70 p-4 sm:flex-row sm:justify-end">
+        <div className="flex flex-col gap-2 rounded-3xl border border-primary-muted bg-primary-soft/60 p-4 sm:flex-row sm:justify-end">
           <Button
             type="button"
             onClick={onSaveLesson}
@@ -318,17 +317,17 @@ export function LessonEditorPanel({
               : t('page.teacher_course_builder.action.add_lesson')}
           </Button>
 
-          {isEditing ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onResetLessonForm}
-              className="w-full sm:w-auto"
-            >
-              <X size={15} className="mr-2" />
-              {t('page.teacher_course_builder.action.clear_form')}
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onResetLessonForm}
+            className="w-full sm:w-auto"
+          >
+            <X size={15} className="mr-2" />
+            {isEditing
+              ? t('page.teacher_course_builder.action.clear_form')
+              : 'Болдырмау'}
+          </Button>
         </div>
       </CardContent>
     </Card>

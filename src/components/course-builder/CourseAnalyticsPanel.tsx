@@ -3,7 +3,6 @@ import {
   BarChart3,
   BookOpen,
   CheckCircle2,
-  ListChecks,
   RotateCcw,
   Target,
   TrendingDown,
@@ -54,16 +53,16 @@ function MetricCard({
 
   return (
     <div className="rounded-3xl border border-border bg-card p-4">
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-3">
         <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
         >
           {icon}
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-xl font-semibold tracking-tight text-foreground">
             {value}
           </p>
         </div>
@@ -196,19 +195,13 @@ export default function CourseAnalyticsPanel({
               <div className="grid gap-4 xl:grid-cols-2">
                 <section className="rounded-3xl border border-border bg-card p-4">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-foreground">
-                        Шағын тест нәтижелері
-                      </p>
+                    <p className="text-sm font-semibold text-foreground">
+                      Шағын тест нәтижелері
+                    </p>
 
-                      <StatusBadge tone={getScoreTone(snapshot.totals.miniQuizAvgScore)}>
-                        {formatPercent(snapshot.totals.miniQuizAvgScore)}
-                      </StatusBadge>
-                    </div>
-
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary">
-                      <ListChecks size={17} />
-                    </div>
+                    <StatusBadge tone={getScoreTone(snapshot.totals.miniQuizAvgScore)}>
+                      {formatPercent(snapshot.totals.miniQuizAvgScore)}
+                    </StatusBadge>
                   </div>
 
                   {snapshot.miniQuizzes.length === 0 ? (
@@ -230,6 +223,7 @@ export default function CourseAnalyticsPanel({
                               <p className="line-clamp-1 text-sm font-semibold text-foreground">
                                 {quiz.lessonTitle}
                               </p>
+
                               <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                                 Тапсырды: {quiz.attempts} · Өтті: {quiz.passed} · Өтпеді:{' '}
                                 {quiz.failed}
@@ -256,21 +250,15 @@ export default function CourseAnalyticsPanel({
 
                 <section className="rounded-3xl border border-border bg-card p-4">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-foreground">
-                        Қиын сабақтар
-                      </p>
+                    <p className="text-sm font-semibold text-foreground">
+                      Қиын сабақтар
+                    </p>
 
-                      <StatusBadge
-                        tone={snapshot.difficultLessons.length ? 'warning' : 'success'}
-                      >
-                        {snapshot.difficultLessons.length}
-                      </StatusBadge>
-                    </div>
-
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-warning-muted bg-warning-soft text-warning-foreground">
-                      <TrendingDown size={17} />
-                    </div>
+                    <StatusBadge
+                      tone={snapshot.difficultLessons.length ? 'warning' : 'success'}
+                    >
+                      {snapshot.difficultLessons.length}
+                    </StatusBadge>
                   </div>
 
                   {snapshot.difficultLessons.length === 0 ? (
@@ -284,7 +272,7 @@ export default function CourseAnalyticsPanel({
                       {snapshot.difficultLessons.slice(0, 6).map((lesson) => (
                         <div
                           key={lesson.lessonId}
-                          className="rounded-3xl border border-warning-muted bg-warning-soft/50 p-3"
+                          className="rounded-3xl border border-warning-muted bg-warning-soft/45 p-3"
                         >
                           <div className="flex items-start gap-3">
                             <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-warning-muted bg-card text-warning-foreground">

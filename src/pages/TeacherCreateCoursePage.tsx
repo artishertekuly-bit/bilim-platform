@@ -17,13 +17,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
-  EmptyState,
   ErrorState,
 } from '@/components/common/DataState';
 import { useToast } from '@/hooks/use-toast';
 import { BuilderStatCard } from '@/components/course-builder/BuilderStatCard';
 import { CourseAnnouncementsPanel } from '@/components/course-builder/CourseAnnouncementsPanel';
-import { CourseBuilderStepper } from '@/components/course-builder/CourseBuilderStepper';
 import { TeacherCourseBuilderSkeleton } from '@/components/course-builder/TeacherCourseBuilderSkeleton';
 import { LessonMiniQuizEditor } from '@/components/course-builder/LessonMiniQuizEditor';
 import { CourseMaterialsPanel } from '@/components/course-builder/CourseMaterialsPanel';
@@ -60,6 +58,8 @@ import {
   GraduationCap,
   KeyRound,
   LayoutDashboard,
+  Pencil,
+  Plus,
   RotateCcw,
   Trash2,
   X,
@@ -79,6 +79,9 @@ export default function TeacherCreateCoursePage() {
   const queryClient = useQueryClient();
   const { data: subjects } = useSubjects();
 
+  const [courseWorkspaceOpen, setCourseWorkspaceOpen] = useState(false);
+  const [courseEditOpen, setCourseEditOpen] = useState(false);
+  const [lessonEditorOpen, setLessonEditorOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
@@ -144,6 +147,9 @@ export default function TeacherCreateCoursePage() {
     setAnnouncementForm,
     setEditingAnnouncementId,
   });
+
+  const activeCourse = courseWorkspaceOpen ? selectedCourse : null;
+  const activeCourseModules = activeCourse ? selectedCourseModules : [];
 
   const {
     data: courseAssets,
@@ -292,8 +298,8 @@ export default function TeacherCreateCoursePage() {
 
   const courseCount = workspace?.courses?.length || 0;
 
-  const selectedCourseLessonCount =
-    selectedCourse?.modules.reduce(
+  const activeCourseLessonCount =
+    activeCourse?.modules.reduce(
       (sum, module) => sum + (module.lessons?.length || 0),
       0
     ) || 0;
@@ -302,17 +308,61 @@ export default function TeacherCreateCoursePage() {
     ? formatPrice(parsePrice(courseEdit.price || '0'), normalizeCurrency(courseEdit.currency))
     : 'Тегін';
 
-  const selectedCourseTitle = selectedCourse?.title?.trim() || '';
+  const selectedCourseTitle = activeCourse?.title?.trim() || '';
   const deleteConfirmMatches =
     !!selectedCourseTitle && deleteConfirmText.trim() === selectedCourseTitle;
 
   useEffect(() => {
     setDeleteConfirmOpen(false);
     setDeleteConfirmText('');
+    setCourseEditOpen(false);
+    setLessonEditorOpen(false);
   }, [selectedCourse?.id]);
 
+  useEffect(() => {
+    if (!selectedCourse) {
+      setCourseWorkspaceOpen(false);
+    }
+  }, [selectedCourse]);
+
+  const handleSelectCourse = (courseId: string) => {
+    seedEditFromCourse(courseId);
+    setCourseWorkspaceOpen(true);
+    setCourseEditOpen(false);
+    setLessonEditorOpen(false);
+  };
+
+  const handleCreateCourse = () => {
+    setCourseWorkspaceOpen(true);
+    createMutation.mutate();
+  };
+
+  const handleOpenCourseEdit = () => {
+    setCourseEditOpen((current) => !current);
+    setLessonEditorOpen(false);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmText('');
+  };
+
+  const handleOpenNewLesson = () => {
+    resetLessonForm();
+    setLessonEditorOpen(true);
+    setCourseEditOpen(false);
+  };
+
+  const handleStartEditLesson = (lessonId: string) => {
+    startEditLesson(lessonId);
+    setLessonEditorOpen(true);
+    setCourseEditOpen(false);
+  };
+
+  const handleCloseLessonEditor = () => {
+    resetLessonForm();
+    setLessonEditorOpen(false);
+  };
+
   const handleDeleteCourse = () => {
-    if (!selectedCourse) return;
+    if (!activeCourse) return;
 
     if (!deleteConfirmMatches) {
       toast({
@@ -323,7 +373,7 @@ export default function TeacherCreateCoursePage() {
       return;
     }
 
-    deleteCourseMutation.mutate(selectedCourse.id);
+    deleteCourseMutation.mutate(activeCourse.id);
     setDeleteConfirmOpen(false);
     setDeleteConfirmText('');
   };
@@ -341,7 +391,7 @@ export default function TeacherCreateCoursePage() {
           icon={<GraduationCap size={20} />}
           title={t('page.teacher_course_builder.title')}
           actions={
-            selectedCourse ? (
+            activeCourse ? (
               <StatusBadge tone={getCourseStatusTone(courseEdit.status)}>
                 {courseStatusLabels[courseEdit.status]}
               </StatusBadge>
@@ -377,26 +427,24 @@ export default function TeacherCreateCoursePage() {
               />
               <BuilderStatCard
                 label="Модульдер"
-                value={selectedCourseModules.length}
+                value={activeCourseModules.length}
                 icon={<FileText size={17} />}
               />
               <BuilderStatCard
                 label="Сабақтар"
-                value={selectedCourseLessonCount}
+                value={activeCourseLessonCount}
                 icon={<CheckCircle2 size={17} />}
               />
               <BuilderStatCard
                 label="Қолжетімділік"
-                value={selectedCourse ? getAccessTypeLabel(courseEdit.accessType) : '—'}
+                value={activeCourse ? getAccessTypeLabel(courseEdit.accessType) : '—'}
                 icon={<KeyRound size={17} />}
               />
             </div>
 
-            <CourseBuilderStepper hasSelectedCourse={!!selectedCourse} />
-
             <div className="space-y-6">
               <section className="space-y-4">
-                <SectionTitle>1. Курсты бастау</SectionTitle>
+                <SectionTitle>Курс құру</SectionTitle>
 
                 <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
                   <CourseBasicCreateCard
@@ -405,276 +453,366 @@ export default function TeacherCreateCoursePage() {
                     subjectOptions={subjectOptions}
                     canCreateCourse={canCreateCourse}
                     creating={createMutation.isPending}
-                    onCreateCourse={() => createMutation.mutate()}
+                    onCreateCourse={handleCreateCourse}
                   />
 
                   <CourseManageList
                     courses={workspace?.courses || []}
-                    selectedCourseId={selectedCourse?.id || null}
+                    selectedCourseId={activeCourse?.id || null}
                     courseStatusLabels={courseStatusLabels}
-                    onSelectCourse={seedEditFromCourse}
+                    onSelectCourse={handleSelectCourse}
                   />
                 </div>
               </section>
 
-              {selectedCourse ? (
+              {activeCourse ? (
                 <div className="space-y-6">
                   <section className="space-y-4">
-                    <SectionTitle>2. Негізгі баптаулар</SectionTitle>
+                    <SectionTitle>Таңдалған курс</SectionTitle>
 
                     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-                      <CourseSettingsCard
-                        courseEdit={courseEdit}
-                        setCourseEdit={setCourseEdit}
-                        subjectOptions={subjectOptions}
+                      <Card className="overflow-hidden">
+                        <CardContent className="space-y-4 p-4 sm:p-5">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <StatusBadge tone={getCourseStatusTone(courseEdit.status)}>
+                                  {courseStatusLabels[courseEdit.status]}
+                                </StatusBadge>
+
+                                <StatusBadge tone="primary">
+                                  {getAccessTypeLabel(courseEdit.accessType)}
+                                </StatusBadge>
+                              </div>
+
+                              <h3 className="mt-2 line-clamp-2 text-lg font-semibold text-foreground">
+                                {activeCourse.title}
+                              </h3>
+                            </div>
+
+                            <div className="flex shrink-0 flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant={courseEditOpen ? 'default' : 'outline'}
+                                onClick={handleOpenCourseEdit}
+                              >
+                                <Pencil size={15} className="mr-2" />
+                                Курсты өңдеу
+                              </Button>
+
+                              <Button
+                                type="button"
+                                onClick={handleOpenNewLesson}
+                                disabled={activeCourseModules.length === 0}
+                              >
+                                <Plus size={15} className="mr-2" />
+                                Сабақ қосу
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <CourseSummaryCard
+                        selectedCourse={activeCourse}
+                        moduleCount={activeCourseModules.length}
+                        lessonCount={activeCourseLessonCount}
+                        accessType={courseEdit.accessType}
                         selectedCoursePrice={selectedCoursePrice}
-                        updating={updateCourseMutation.isPending}
-                        onSaveCourse={() => updateCourseMutation.mutate()}
                       />
-
-                      <div className="space-y-4">
-                        <CourseSummaryCard
-                          selectedCourse={selectedCourse}
-                          moduleCount={selectedCourseModules.length}
-                          lessonCount={selectedCourseLessonCount}
-                          accessType={courseEdit.accessType}
-                          selectedCoursePrice={selectedCoursePrice}
-                        />
-
-                        <CourseAnalyticsPanel
-                          courseId={selectedCourse.id}
-                          teacherId={user?.id || ''}
-                        />
-                      </div>
                     </div>
                   </section>
 
-                  <section className="space-y-4">
-                    <SectionTitle>3. Оқу құрылымы</SectionTitle>
+                  {courseEditOpen ? (
+                    <section className="space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <SectionTitle>Курсты өңдеу</SectionTitle>
 
-                    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
-                      <ModuleListPanel
-                        selectedCourseModules={selectedCourseModules}
-                        moduleForm={moduleForm}
-                        setModuleForm={setModuleForm}
-                        canAddModule={canAddModule}
-                        reorderModulesPending={reorderModulesMutation.isPending}
-                        deleteModulePending={deleteModuleMutation.isPending}
-                        reorderLessonsPending={reorderLessonsMutation.isPending}
-                        deleteLessonPending={deleteLessonMutation.isPending}
-                        onAddModule={() => addModuleMutation.mutate()}
-                        onUpdateModuleTitle={(moduleId, title) =>
-                          updateModuleTitleMutation.mutate({ moduleId, title })
-                        }
-                        onReorderModule={(moduleId, direction) =>
-                          reorderModulesMutation.mutate({ moduleId, direction })
-                        }
-                        onDeleteModule={(moduleId) => deleteModuleMutation.mutate(moduleId)}
-                        onStartEditLesson={startEditLesson}
-                        onReorderLesson={(moduleId, lessonId, direction) =>
-                          reorderLessonsMutation.mutate({ moduleId, lessonId, direction })
-                        }
-                        onDeleteLesson={(input) => deleteLessonMutation.mutate(input)}
-                      />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setCourseEditOpen(false);
+                            setDeleteConfirmOpen(false);
+                            setDeleteConfirmText('');
+                          }}
+                        >
+                          <X size={14} className="mr-2" />
+                          Жабу
+                        </Button>
+                      </div>
 
-                      <div className="space-y-4 xl:sticky xl:top-20 xl:self-start">
+                      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+                        <CourseSettingsCard
+                          courseEdit={courseEdit}
+                          setCourseEdit={setCourseEdit}
+                          subjectOptions={subjectOptions}
+                          selectedCoursePrice={selectedCoursePrice}
+                          updating={updateCourseMutation.isPending}
+                          onSaveCourse={() => updateCourseMutation.mutate()}
+                        />
+
+                        <div className="space-y-4">
+                          <CourseAnalyticsPanel
+                            courseId={activeCourse.id}
+                            teacherId={user?.id || ''}
+                          />
+
+                          <CoursePublishPanel
+                            courseId={activeCourse.id}
+                            status={courseEdit.status}
+                            pending={quickStatusMutation.isPending}
+                            onChangeStatus={(input) => quickStatusMutation.mutate(input)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 xl:grid-cols-2">
+                        <CourseAnnouncementsPanel
+                          announcementForm={announcementForm}
+                          setAnnouncementForm={setAnnouncementForm}
+                          editingAnnouncementId={editingAnnouncementId}
+                          courseAnnouncements={courseAnnouncements || []}
+                          courseAnnouncementsLoading={courseAnnouncementsLoading}
+                          onResetAnnouncementForm={resetAnnouncementForm}
+                          onSaveAnnouncement={handleSaveAnnouncement}
+                          onEditAnnouncement={handleEditAnnouncement}
+                          onDeleteAnnouncement={handleDeleteAnnouncement}
+                          canSaveAnnouncement={canSaveAnnouncement}
+                          creatingAnnouncement={createAnnouncementMutation.isPending}
+                          updatingAnnouncement={updateAnnouncementMutation.isPending}
+                          deletingAnnouncement={deleteAnnouncementMutation.isPending}
+                        />
+
+                        <CourseMaterialsPanel
+                          courseAssetForm={courseAssetForm}
+                          setCourseAssetForm={setCourseAssetForm}
+                          onCreateCourseAsset={handleCreateCourseAsset}
+                          canCreateCourseAsset={canCreateCourseAsset}
+                          courseAssets={courseAssets || []}
+                          courseAssetsLoading={courseAssetsLoading}
+                          deleteCourseAssetPending={deleteCourseAssetMutation.isPending}
+                          onDeleteCourseAsset={handleDeleteCourseAsset}
+                        />
+
+                        <CourseInviteCodesPanel
+                          accessType={courseEdit.accessType}
+                          inviteForm={inviteForm}
+                          setInviteForm={setInviteForm}
+                          courseInvites={courseInvites || []}
+                          courseInvitesLoading={courseInvitesLoading}
+                          createInvitePending={createInviteMutation.isPending}
+                          deactivateInvitePending={deactivateInviteMutation.isPending}
+                          onCreateInvite={handleCreateInvite}
+                          onDeactivateInvite={handleDeactivateInvite}
+                          onCopyInviteCode={copyInviteCode}
+                        />
+
+                        <div className="space-y-4">
+                          <CourseDangerZone
+                            deleting={deleteCourseMutation.isPending}
+                            onDeleteCourse={() => setDeleteConfirmOpen(true)}
+                          />
+
+                          {deleteConfirmOpen ? (
+                            <Card className="border-destructive/35 bg-destructive/5">
+                              <CardContent className="space-y-4 p-5">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex items-start gap-3">
+                                    <span className="mt-0.5 rounded-2xl bg-destructive/10 p-2 text-destructive">
+                                      <AlertTriangle size={18} />
+                                    </span>
+
+                                    <div>
+                                      <h3 className="text-sm font-semibold text-foreground">
+                                        Курсты өшіру
+                                      </h3>
+
+                                      <p className="mt-1 text-xs font-semibold text-foreground">
+                                        {selectedCourseTitle}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setDeleteConfirmOpen(false);
+                                      setDeleteConfirmText('');
+                                    }}
+                                    aria-label="Жабу"
+                                  >
+                                    <X size={16} />
+                                  </Button>
+                                </div>
+
+                                <input
+                                  value={deleteConfirmText}
+                                  onChange={(event) =>
+                                    setDeleteConfirmText(event.target.value)
+                                  }
+                                  placeholder="Курс атауын енгізіңіз"
+                                  className="h-10 w-full rounded-2xl border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                                />
+
+                                <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setDeleteConfirmOpen(false);
+                                      setDeleteConfirmText('');
+                                    }}
+                                  >
+                                    Болдырмау
+                                  </Button>
+
+                                  <Button
+                                    type="button"
+                                    variant="destructive"
+                                    onClick={handleDeleteCourse}
+                                    disabled={
+                                      !deleteConfirmMatches ||
+                                      deleteCourseMutation.isPending
+                                    }
+                                  >
+                                    <Trash2 size={15} className="mr-2" />
+                                    Толық өшіру
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ) : null}
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {lessonEditorOpen ? (
+                    <section id="lesson-editor-block" className="space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <SectionTitle>
+                          {editingLessonId ? 'Сабақты өңдеу' : 'Жаңа сабақ'}
+                        </SectionTitle>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleCloseLessonEditor}
+                        >
+                          <X size={14} className="mr-2" />
+                          Жабу
+                        </Button>
+                      </div>
+
+                      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
                         <LessonEditorPanel
                           editingLessonId={editingLessonId}
                           lessonForm={lessonForm}
                           setLessonForm={setLessonForm}
-                          selectedCourseModules={selectedCourseModules}
+                          selectedCourseModules={activeCourseModules}
                           getNextLessonSortOrder={getNextLessonSortOrder}
                           canSaveLesson={canSaveLesson}
                           onSaveLesson={() => addOrUpdateLessonMutation.mutate()}
-                          onResetLessonForm={resetLessonForm}
+                          onResetLessonForm={handleCloseLessonEditor}
                         />
 
-                        <LessonMiniQuizEditor
-                          editingLessonId={editingLessonId}
-                          selectedEditingLesson={selectedEditingLesson}
-                          miniQuizLoading={miniQuizLoading}
-                          miniQuizForm={miniQuizForm}
-                          setMiniQuizForm={setMiniQuizForm}
-                          selectedMiniQuiz={selectedMiniQuiz}
-                          handleDeleteMiniQuiz={handleDeleteMiniQuiz}
-                          deleteMiniQuizPending={deleteMiniQuizMutation.isPending}
-                          handleSaveMiniQuiz={handleSaveMiniQuiz}
-                          canSaveMiniQuiz={canSaveMiniQuiz}
-                          upsertMiniQuizPending={upsertMiniQuizMutation.isPending}
-                          miniQuizQuestionForm={miniQuizQuestionForm}
-                          setMiniQuizQuestionForm={setMiniQuizQuestionForm}
-                          editingMiniQuizQuestionId={editingMiniQuizQuestionId}
-                          resetMiniQuizQuestionForm={resetMiniQuizQuestionForm}
-                          handleSaveMiniQuizQuestion={handleSaveMiniQuizQuestion}
-                          canSaveMiniQuizQuestion={canSaveMiniQuizQuestion}
-                          updateMiniQuizQuestionPending={updateMiniQuizQuestionMutation.isPending}
-                          createMiniQuizQuestionPending={createMiniQuizQuestionMutation.isPending}
-                          handleToggleMiniQuizCorrectAnswer={handleToggleMiniQuizCorrectAnswer}
-                          handleEditMiniQuizQuestion={handleEditMiniQuizQuestion}
-                          handleDeleteMiniQuizQuestion={handleDeleteMiniQuizQuestion}
-                          handleMoveMiniQuizQuestion={handleMoveMiniQuizQuestion}
-                          deleteMiniQuizQuestionPending={deleteMiniQuizQuestionMutation.isPending}
-                          reorderMiniQuizQuestionsPending={reorderMiniQuizQuestionsMutation.isPending}
-                        />
-
-                        <LessonAttachmentPanel
-                          editingLessonId={editingLessonId}
-                          selectedEditingLesson={selectedEditingLesson}
-                          lessonAttachmentForm={lessonAttachmentForm}
-                          setLessonAttachmentForm={setLessonAttachmentForm}
-                          handleCreateLessonAttachment={handleCreateLessonAttachment}
-                          canCreateLessonAttachment={canCreateLessonAttachment}
-                          createLessonAttachmentPending={createLessonAttachmentMutation.isPending}
-                          lessonAttachmentsLoading={lessonAttachmentsLoading}
-                          lessonAttachments={lessonAttachments || []}
-                          handleDeleteLessonAttachment={handleDeleteLessonAttachment}
-                          deleteLessonAttachmentPending={deleteLessonAttachmentMutation.isPending}
-                        />
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="space-y-4">
-                    <SectionTitle>4. Қосымша басқару</SectionTitle>
-
-                    <div className="grid gap-4 xl:grid-cols-2">
-                      <CourseAnnouncementsPanel
-                        announcementForm={announcementForm}
-                        setAnnouncementForm={setAnnouncementForm}
-                        editingAnnouncementId={editingAnnouncementId}
-                        courseAnnouncements={courseAnnouncements || []}
-                        courseAnnouncementsLoading={courseAnnouncementsLoading}
-                        onResetAnnouncementForm={resetAnnouncementForm}
-                        onSaveAnnouncement={handleSaveAnnouncement}
-                        onEditAnnouncement={handleEditAnnouncement}
-                        onDeleteAnnouncement={handleDeleteAnnouncement}
-                        canSaveAnnouncement={canSaveAnnouncement}
-                        creatingAnnouncement={createAnnouncementMutation.isPending}
-                        updatingAnnouncement={updateAnnouncementMutation.isPending}
-                        deletingAnnouncement={deleteAnnouncementMutation.isPending}
-                      />
-
-                      <CourseMaterialsPanel
-                        courseAssetForm={courseAssetForm}
-                        setCourseAssetForm={setCourseAssetForm}
-                        onCreateCourseAsset={handleCreateCourseAsset}
-                        canCreateCourseAsset={canCreateCourseAsset}
-                        courseAssets={courseAssets || []}
-                        courseAssetsLoading={courseAssetsLoading}
-                        deleteCourseAssetPending={deleteCourseAssetMutation.isPending}
-                        onDeleteCourseAsset={handleDeleteCourseAsset}
-                      />
-
-                      <CourseInviteCodesPanel
-                        accessType={courseEdit.accessType}
-                        inviteForm={inviteForm}
-                        setInviteForm={setInviteForm}
-                        courseInvites={courseInvites || []}
-                        courseInvitesLoading={courseInvitesLoading}
-                        createInvitePending={createInviteMutation.isPending}
-                        deactivateInvitePending={deactivateInviteMutation.isPending}
-                        onCreateInvite={handleCreateInvite}
-                        onDeactivateInvite={handleDeactivateInvite}
-                        onCopyInviteCode={copyInviteCode}
-                      />
-
-                      <CoursePublishPanel
-                        courseId={selectedCourse.id}
-                        status={courseEdit.status}
-                        pending={quickStatusMutation.isPending}
-                        onChangeStatus={(input) => quickStatusMutation.mutate(input)}
-                      />
-                    </div>
-                  </section>
-
-                  <section className="space-y-4">
-                    <SectionTitle>5. Қауіпті әрекеттер</SectionTitle>
-
-                    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-                      <CourseDangerZone
-                        deleting={deleteCourseMutation.isPending}
-                        onDeleteCourse={() => setDeleteConfirmOpen(true)}
-                      />
-
-                      {deleteConfirmOpen ? (
-                        <Card className="border-destructive/35 bg-destructive/5">
-                          <CardContent className="space-y-4 p-5">
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="flex items-start gap-3">
-                                <span className="mt-0.5 rounded-2xl bg-destructive/10 p-2 text-destructive">
-                                  <AlertTriangle size={18} />
-                                </span>
-
-                                <div>
-                                  <h3 className="text-sm font-semibold text-foreground">
-                                    Курсты өшіру
-                                  </h3>
-
-                                  <p className="mt-1 text-xs font-semibold text-foreground">
-                                    {selectedCourseTitle}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  setDeleteConfirmOpen(false);
-                                  setDeleteConfirmText('');
-                                }}
-                                aria-label="Жабу"
-                              >
-                                <X size={16} />
-                              </Button>
-                            </div>
-
-                            <input
-                              value={deleteConfirmText}
-                              onChange={(event) => setDeleteConfirmText(event.target.value)}
-                              placeholder="Курс атауын енгізіңіз"
-                              className="h-10 w-full rounded-2xl border border-input bg-background px-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        {editingLessonId ? (
+                          <div className="space-y-4">
+                            <LessonMiniQuizEditor
+                              editingLessonId={editingLessonId}
+                              selectedEditingLesson={selectedEditingLesson}
+                              miniQuizLoading={miniQuizLoading}
+                              miniQuizForm={miniQuizForm}
+                              setMiniQuizForm={setMiniQuizForm}
+                              selectedMiniQuiz={selectedMiniQuiz}
+                              handleDeleteMiniQuiz={handleDeleteMiniQuiz}
+                              deleteMiniQuizPending={deleteMiniQuizMutation.isPending}
+                              handleSaveMiniQuiz={handleSaveMiniQuiz}
+                              canSaveMiniQuiz={canSaveMiniQuiz}
+                              upsertMiniQuizPending={upsertMiniQuizMutation.isPending}
+                              miniQuizQuestionForm={miniQuizQuestionForm}
+                              setMiniQuizQuestionForm={setMiniQuizQuestionForm}
+                              editingMiniQuizQuestionId={editingMiniQuizQuestionId}
+                              resetMiniQuizQuestionForm={resetMiniQuizQuestionForm}
+                              handleSaveMiniQuizQuestion={handleSaveMiniQuizQuestion}
+                              canSaveMiniQuizQuestion={canSaveMiniQuizQuestion}
+                              updateMiniQuizQuestionPending={
+                                updateMiniQuizQuestionMutation.isPending
+                              }
+                              createMiniQuizQuestionPending={
+                                createMiniQuizQuestionMutation.isPending
+                              }
+                              handleToggleMiniQuizCorrectAnswer={
+                                handleToggleMiniQuizCorrectAnswer
+                              }
+                              handleEditMiniQuizQuestion={handleEditMiniQuizQuestion}
+                              handleDeleteMiniQuizQuestion={handleDeleteMiniQuizQuestion}
+                              handleMoveMiniQuizQuestion={handleMoveMiniQuizQuestion}
+                              deleteMiniQuizQuestionPending={
+                                deleteMiniQuizQuestionMutation.isPending
+                              }
+                              reorderMiniQuizQuestionsPending={
+                                reorderMiniQuizQuestionsMutation.isPending
+                              }
                             />
 
-                            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => {
-                                  setDeleteConfirmOpen(false);
-                                  setDeleteConfirmText('');
-                                }}
-                              >
-                                Болдырмау
-                              </Button>
+                            <LessonAttachmentPanel
+                              editingLessonId={editingLessonId}
+                              selectedEditingLesson={selectedEditingLesson}
+                              lessonAttachmentForm={lessonAttachmentForm}
+                              setLessonAttachmentForm={setLessonAttachmentForm}
+                              handleCreateLessonAttachment={handleCreateLessonAttachment}
+                              canCreateLessonAttachment={canCreateLessonAttachment}
+                              createLessonAttachmentPending={
+                                createLessonAttachmentMutation.isPending
+                              }
+                              lessonAttachmentsLoading={lessonAttachmentsLoading}
+                              lessonAttachments={lessonAttachments || []}
+                              handleDeleteLessonAttachment={handleDeleteLessonAttachment}
+                              deleteLessonAttachmentPending={
+                                deleteLessonAttachmentMutation.isPending
+                              }
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
+                  ) : null}
 
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                onClick={handleDeleteCourse}
-                                disabled={!deleteConfirmMatches || deleteCourseMutation.isPending}
-                              >
-                                <Trash2 size={15} className="mr-2" />
-                                Толық өшіру
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ) : null}
-                    </div>
+                  <section className="space-y-4">
+                    <SectionTitle>Сабақ құрылымы</SectionTitle>
+
+                    <ModuleListPanel
+                      selectedCourseModules={activeCourseModules}
+                      moduleForm={moduleForm}
+                      setModuleForm={setModuleForm}
+                      canAddModule={canAddModule}
+                      reorderModulesPending={reorderModulesMutation.isPending}
+                      deleteModulePending={deleteModuleMutation.isPending}
+                      reorderLessonsPending={reorderLessonsMutation.isPending}
+                      deleteLessonPending={deleteLessonMutation.isPending}
+                      onAddModule={() => addModuleMutation.mutate()}
+                      onUpdateModuleTitle={(moduleId, title) =>
+                        updateModuleTitleMutation.mutate({ moduleId, title })
+                      }
+                      onReorderModule={(moduleId, direction) =>
+                        reorderModulesMutation.mutate({ moduleId, direction })
+                      }
+                      onDeleteModule={(moduleId) => deleteModuleMutation.mutate(moduleId)}
+                      onStartEditLesson={handleStartEditLesson}
+                      onReorderLesson={(moduleId, lessonId, direction) =>
+                        reorderLessonsMutation.mutate({ moduleId, lessonId, direction })
+                      }
+                      onDeleteLesson={(input) => deleteLessonMutation.mutate(input)}
+                    />
                   </section>
                 </div>
-              ) : (
-                <Card className="border-dashed">
-                  <CardContent className="py-10">
-                    <EmptyState
-                      title={t('page.teacher_course_builder.empty.select_course_title')}
-                      text={t('page.teacher_course_builder.empty.select_course_text')}
-                    />
-                  </CardContent>
-                </Card>
-              )}
+              ) : null}
             </div>
           </>
         ) : null}

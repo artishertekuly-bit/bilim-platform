@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import {
   BookOpen,
-  CheckCircle2,
   FileText,
   KeyRound,
   Tag,
@@ -59,7 +58,7 @@ function CourseMetaPill({
       className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${
         emphasized
           ? 'border-accent-muted bg-accent-soft text-accent-foreground'
-          : 'border-border bg-muted/70 text-muted-foreground'
+          : 'border-border bg-muted/55 text-muted-foreground'
       }`}
     >
       {icon}
@@ -121,7 +120,7 @@ export function CourseManageList({
                   className={`w-full rounded-3xl border p-4 text-left transition-colors active:scale-[0.99] ${
                     selected
                       ? 'border-primary-muted bg-primary-soft'
-                      : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
+                      : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/35'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -131,7 +130,7 @@ export function CourseManageList({
                           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
                             selected
                               ? 'border-primary-muted bg-card text-primary'
-                              : 'border-border bg-muted/70 text-muted-foreground'
+                              : 'border-border bg-muted/55 text-muted-foreground'
                           }`}
                         >
                           <BookOpen size={16} />
@@ -144,7 +143,6 @@ export function CourseManageList({
 
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             <StatusBadge tone={getStatusTone(status)}>
-                              <CheckCircle2 size={12} />
                               {courseStatusLabels[status] || course.status}
                             </StatusBadge>
 
@@ -179,15 +177,13 @@ export function CourseManageList({
                     </div>
 
                     <span
-                      className={`mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
                         selected
-                          ? 'border-primary bg-primary'
-                          : 'border-muted-foreground/30 bg-card'
+                          ? 'border-primary-muted bg-card text-primary'
+                          : 'border-border bg-muted/45 text-muted-foreground'
                       }`}
                     >
-                      {selected ? (
-                        <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
-                      ) : null}
+                      {selected ? 'Таңдалды' : 'Ашу'}
                     </span>
                   </div>
                 </button>

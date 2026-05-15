@@ -5,7 +5,6 @@ import {
   ArrowRight,
   BookOpen,
   Bookmark,
-  Filter,
   Plus,
   RotateCcw,
   Search,
@@ -58,9 +57,9 @@ function getModeEyebrow({
   isTeacherView: boolean;
   isAdminView: boolean;
 }) {
-  if (isTeacherView) return 'Мұғалім кеңістігі';
-  if (isAdminView) return 'Admin басқару';
-  return 'Курс каталогы';
+  if (isTeacherView) return 'Мұғалім';
+  if (isAdminView) return 'Әкімші';
+  return 'Курстар';
 }
 
 export default function CourseCatalogPage() {
@@ -114,7 +113,7 @@ export default function CourseCatalogPage() {
   const enrollMutation = useMutation({
     mutationFn: async (courseId: string) => {
       if (!user?.id) {
-        throw new Error('Authentication required');
+        throw new Error('Кіру қажет');
       }
 
       setPendingCourseId(courseId);
@@ -154,7 +153,7 @@ export default function CourseCatalogPage() {
       bookmarked: boolean;
     }) => {
       if (!user?.id) {
-        throw new Error('Authentication required');
+        throw new Error('Кіру қажет');
       }
 
       setPendingBookmarkCourseId(courseId);
@@ -265,8 +264,8 @@ export default function CourseCatalogPage() {
         await invalidateCatalogData();
 
         toast({
-          title: 'Access сұранысы жіберілді',
-          description: 'Admin растағаннан кейін курс ашылады.',
+          title: 'Қолжетімділік сұранысы жіберілді',
+          description: 'Расталғаннан кейін курс ашылады.',
         });
       } catch (requestError) {
         toast({
@@ -288,7 +287,7 @@ export default function CourseCatalogPage() {
       title: 'Курс қолжетімсіз',
       description:
         access?.accessState === 'requires_invite'
-          ? 'Бұл жабық курс. Мұғалім берген invite code қажет.'
+          ? 'Бұл жабық курс. Шақыру коды қажет.'
           : 'Бұл курсқа қазір кіру мүмкін емес.',
       variant: 'destructive',
     });
@@ -297,7 +296,7 @@ export default function CourseCatalogPage() {
   const handleRedeemInvite = async (course: CourseView) => {
     if (!inviteCode.trim()) {
       toast({
-        title: 'Invite code енгізіңіз',
+        title: 'Шақыру кодын енгізіңіз',
         variant: 'destructive',
       });
       return;
@@ -317,18 +316,18 @@ export default function CourseCatalogPage() {
       setInviteCode('');
 
       toast({
-        title: 'Invite қабылданды',
-        description: 'Курс сізге ашылды.',
+        title: 'Шақыру коды қабылданды',
+        description: 'Курс ашылды.',
       });
 
       navigate(buildCourseDetailPath(course.id));
     } catch (inviteError) {
       toast({
-        title: 'Invite code қате',
+        title: 'Шақыру коды қате',
         description:
           inviteError instanceof Error
             ? inviteError.message
-            : 'Invite code арқылы курс ашу мүмкін болмады.',
+            : 'Курсты ашу мүмкін болмады.',
         variant: 'destructive',
       });
     } finally {
@@ -341,12 +340,6 @@ export default function CourseCatalogPage() {
     : isAdminView
       ? t('nav.manage_courses')
       : t('course.catalog');
-
-  const pageDescription = isTeacherView
-    ? t('page.course_catalog.description.teacher')
-    : isAdminView
-      ? t('page.course_catalog.description.admin')
-      : t('page.course_catalog.description.student');
 
   const emptyTitle = isTeacherView
     ? t('page.course_catalog.empty.teacher_title')
@@ -377,7 +370,6 @@ export default function CourseCatalogPage() {
           }
           icon={<BookOpen size={20} />}
           title={pageTitle}
-          description={pageDescription}
           actions={
             isTeacherView ? (
               <Button type="button" asChild>
@@ -414,7 +406,7 @@ export default function CourseCatalogPage() {
         ) : null}
 
         {!isLoading && !error ? (
-          <Card className="overflow-hidden border-border/80 bg-card/95 shadow-soft">
+          <Card className="overflow-hidden border-border bg-card">
             <CardContent className="space-y-4 p-4 sm:p-5">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-center">
@@ -446,13 +438,13 @@ export default function CourseCatalogPage() {
 
                     {isTeacherView ? (
                       <Badge variant="secondary" className="text-[11px]">
-                        Мұғалім курстары
+                        Мұғалім
                       </Badge>
                     ) : null}
 
                     {isAdminView ? (
                       <Badge variant="warning" className="text-[11px]">
-                        Admin mode
+                        Әкімші
                       </Badge>
                     ) : null}
                   </div>
@@ -487,33 +479,26 @@ export default function CourseCatalogPage() {
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
-                <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold text-muted-foreground">
-                  <Filter size={14} />
-                  Пән бойынша сүзгі
-                </div>
+              <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {subjectFilters.map((subject) => {
+                  const active = activeSubject === subject.value;
 
-                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {subjectFilters.map((subject) => {
-                    const active = activeSubject === subject.value;
-
-                    return (
-                      <button
-                        key={subject.value}
-                        type="button"
-                        onClick={() => setActiveSubject(subject.value)}
-                        aria-pressed={active}
-                        className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] ${
-                          active
-                            ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
-                            : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
-                        }`}
-                      >
-                        {subject.label}
-                      </button>
-                    );
-                  })}
-                </div>
+                  return (
+                    <button
+                      key={subject.value}
+                      type="button"
+                      onClick={() => setActiveSubject(subject.value)}
+                      aria-pressed={active}
+                      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors active:scale-[0.99] ${
+                        active
+                          ? 'border-primary-muted bg-primary-soft text-primary'
+                          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary'
+                      }`}
+                    >
+                      {subject.label}
+                    </button>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -535,7 +520,7 @@ export default function CourseCatalogPage() {
               ) : isStudentView ? (
                 <Button type="button" variant="outline" asChild>
                   <Link to="/dashboard">
-                    Dashboard-қа қайту
+                    Басты бетке қайту
                     <ArrowRight size={15} className="ml-2" />
                   </Link>
                 </Button>
