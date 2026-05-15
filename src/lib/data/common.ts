@@ -2,6 +2,24 @@ import { supabase } from '@/integrations/supabase/client';
 
 export type Locale = 'kk' | 'ru';
 
+type SupabaseErrorLike = {
+  message: string;
+  code?: string;
+  details?: string | null;
+  hint?: string | null;
+};
+
+type QueryResponse<T> = {
+  data: T;
+  error: SupabaseErrorLike | null;
+};
+
+type ExecResponse = {
+  error: SupabaseErrorLike | null;
+};
+
+/* ================= LOCALIZATION ================= */
+
 export function localizedText(locale: Locale, kk: string, ru: string) {
   return locale === 'ru' ? ru : kk;
 }
@@ -35,34 +53,35 @@ export function recentTestActionLabel(locale: Locale) {
 }
 
 export function analyticsDerivedTopicLabel(locale: Locale) {
-  return localizedText(locale, 'Талдау деректері негізінде', 'На основе аналитических данных');
+  return localizedText(
+    locale,
+    'Талдау деректері негізінде',
+    'На основе аналитических данных',
+  );
 }
 
-export function isSoftSchemaError(message: string) {
-  return /does not exist|schema cache|column .* does not exist/i.test(message);
+/* ================= ERROR HELPERS ================= */
+
+function formatSupabaseError(error: SupabaseErrorLike) {
+  const parts = [
+    error.message,
+    error.details ? `Details: ${error.details}` : null,
+    error.hint ? `Hint: ${error.hint}` : null,
+    error.code ? `Code: ${error.code}` : null,
+  ].filter(Boolean);
+
+  return parts.join(' | ');
 }
 
-export async function deleteContentReviewsSafe(contentId: string) {
-  const { error } = await supabase
-    .from('content_reviews')
-    .delete()
-    .eq('content_id', contentId);
+/* ================= SUPABASE HELPERS ================= */
 
-  if (error && !isSoftSchemaError(error.message || '')) {
-    throw new Error(error.message);
-  }
-}
-
-/**
- * For SELECT / INSERT ... .select() / RPC calls where data is required.
- */
 export async function queryOrThrow<T>(
-  promise: PromiseLike<{ data: T; error: { message: string } | null }>
+  promise: PromiseLike<QueryResponse<T>>,
 ): Promise<Exclude<T, null | undefined>> {
   const { data, error } = await promise;
 
   if (error) {
-    throw new Error(error.message);
+    throw new Error(formatSupabaseError(error));
   }
 
   if (data === null || data === undefined) {
@@ -72,9 +91,39 @@ export async function queryOrThrow<T>(
   return data as Exclude<T, null | undefined>;
 }
 
+export async function maybeQueryOrThrow<T>(
+  promise: PromiseLike<QueryResponse<T>>,
+): Promise<T | null> {
+  const { data, error } = await promise;
+
+  if (error) {
+    throw new Error(formatSupabaseError(error));
+  }
+
+  return data ?? null;
+}
+
 export async function execOrThrow(
-  promise: PromiseLike<{ error: { message: string } | null }>
+  promise: PromiseLike<ExecResponse>,
 ): Promise<void> {
   const { error } = await promise;
-  if (error) throw new Error(error.message);
+
+  if (error) {
+    throw new Error(formatSupabaseError(error));
+  }
+}
+
+/* ================= CONTENT REVIEW HELPERS ================= */
+
+export async function deleteContentReviewsSafe(contentId: string) {
+  if (!contentId.trim()) {
+    throw new Error('Content ID бос болмауы керек.');
+  }
+
+  await execOrThrow(
+    supabase
+      .from('content_reviews')
+      .delete()
+      .eq('content_id', contentId),
+  );
 }

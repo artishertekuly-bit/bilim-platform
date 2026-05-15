@@ -1,5 +1,10 @@
 import { supabase } from '@/integrations/supabase/client';
 import type {
+  Json,
+  Tables,
+  TablesInsert,
+} from '@/integrations/supabase/types';
+import type {
   CourseAssetRow,
   CourseAssetView,
   CreateCourseAssetPayload,
@@ -27,6 +32,8 @@ import type {
   UpsertLessonNotePayload,
 } from '@/lib/app-data-types';
 
+/* ================= TYPES ================= */
+
 type SupabaseResponse<T> = {
   data: T | null;
   error: {
@@ -37,36 +44,39 @@ type SupabaseResponse<T> = {
   } | null;
 };
 
-type LessonLiteRow = {
-  id: string;
-  title: string;
-  module_id: string;
-  sort_order: number | null;
-  is_published?: boolean | null;
-};
+type LessonLiteRow = Pick<
+  Tables<'lessons'>,
+  'id' | 'title' | 'module_id' | 'sort_order' | 'is_published'
+>;
 
-type ModuleLiteRow = {
-  id: string;
-  title: string;
-  course_id: string;
-  sort_order: number | null;
-};
+type ModuleLiteRow = Pick<
+  Tables<'modules'>,
+  'id' | 'title' | 'course_id' | 'sort_order'
+>;
 
-type CourseLiteRow = {
-  id: string;
-  title: string;
-  subject_id: string | null;
-  status?: string | null;
-};
+type CourseLiteRow = Pick<
+  Tables<'courses'>,
+  'id' | 'title' | 'subject_id' | 'status'
+>;
 
-type SubjectLiteRow = {
-  id: string;
-  name?: string | null;
-  title?: string | null;
-  name_kk?: string | null;
-  name_ru?: string | null;
-  name_en?: string | null;
-};
+type SubjectLiteRow = Pick<
+  Tables<'subjects'>,
+  'id' | 'name_kk' | 'name_ru'
+>;
+
+type LessonProgressLiteRow = Pick<
+  Tables<'lesson_progress'>,
+  'lesson_id' | 'is_completed' | 'completed_at'
+>;
+
+type FileAssetInsert = TablesInsert<'file_assets'>;
+type StudentLessonNoteInsert = TablesInsert<'student_lesson_notes'>;
+type StudentLessonBookmarkInsert = TablesInsert<'student_lesson_bookmarks'>;
+type ReviewLaterItemInsert = TablesInsert<'review_later_items'>;
+type LessonAttachmentInsert = TablesInsert<'lesson_attachments'>;
+type CourseAssetInsert = TablesInsert<'course_assets'>;
+
+/* ================= SUPABASE HELPERS ================= */
 
 async function unwrap<T>(request: PromiseLike<SupabaseResponse<T>>): Promise<T> {
   const { data, error } = await request;
@@ -75,10 +85,16 @@ async function unwrap<T>(request: PromiseLike<SupabaseResponse<T>>): Promise<T> 
     throw new Error(error.message || 'Supabase request failed');
   }
 
-  return data as T;
+  if (data === null) {
+    throw new Error('Supabase response data is empty.');
+  }
+
+  return data;
 }
 
-async function unwrapMaybe<T>(request: PromiseLike<SupabaseResponse<T>>): Promise<T | null> {
+async function unwrapMaybe<T>(
+  request: PromiseLike<SupabaseResponse<T>>,
+): Promise<T | null> {
   const { data, error } = await request;
 
   if (error) {
@@ -86,6 +102,34 @@ async function unwrapMaybe<T>(request: PromiseLike<SupabaseResponse<T>>): Promis
   }
 
   return data || null;
+}
+
+async function execute(request: PromiseLike<SupabaseResponse<unknown>>) {
+  const { error } = await request;
+
+  if (error) {
+    throw new Error(error.message || 'Supabase request failed');
+  }
+}
+
+/* ================= BASIC HELPERS ================= */
+
+function unique<T>(items: T[]) {
+  return Array.from(new Set(items));
+}
+
+function uniqueStrings(items: Array<string | null | undefined>) {
+  return unique(items.filter(Boolean) as string[]);
+}
+
+function normalizeText(value: unknown) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeNullableText(value: unknown) {
+  const normalized = normalizeText(value);
+
+  return normalized || null;
 }
 
 function normalizeExternalUrl(value: string) {
@@ -124,19 +168,21 @@ function normalizeFilename(value: string, fallbackUrl?: string) {
         return decodeURIComponent(lastPart);
       }
     } catch {
-      // Ignore and use fallback below.
+      // Fallback below.
     }
   }
 
   return 'Қосымша материал';
 }
 
-function assertPositiveSortOrder(value: number | undefined) {
-  if (value === undefined) return;
+function normalizeSortOrder(value: number | undefined) {
+  if (value === undefined || value === null) return 1;
 
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error('Sort order 1 немесе одан жоғары бүтін сан болуы керек.');
   }
+
+  return value;
 }
 
 function normalizeSizeBytes(value: number | null | undefined) {
@@ -149,18 +195,31 @@ function normalizeSizeBytes(value: number | null | undefined) {
   return Math.round(value);
 }
 
+function normalizeMetadata(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+
+  return {};
+}
+
+function toJson(value: unknown): Json {
+  return value as Json;
+}
+
 function getSubjectName(subject?: SubjectLiteRow | null) {
   if (!subject) return 'Пән көрсетілмеген';
 
-  return (
-    subject.name_kk ||
-    subject.name ||
-    subject.title ||
-    subject.name_ru ||
-    subject.name_en ||
-    'Пән көрсетілмеген'
-  );
+  return subject.name_kk || subject.name_ru || 'Пән көрсетілмеген';
 }
+
+function assertNonEmptyId(value: string, label: string) {
+  if (!value.trim()) {
+    throw new Error(`${label} бос болмауы керек.`);
+  }
+}
+
+/* ================= MAPPERS ================= */
 
 function mapFileAsset(row: FileAssetRow): FileAssetView {
   return {
@@ -173,7 +232,7 @@ function mapFileAsset(row: FileAssetRow): FileAssetView {
     filename: row.filename,
     mimeType: row.mime_type,
     sizeBytes: row.size_bytes,
-    metadata: row.metadata,
+    metadata: normalizeMetadata(row.metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -181,7 +240,7 @@ function mapFileAsset(row: FileAssetRow): FileAssetView {
 
 function mapLessonAttachment(
   row: LessonAttachmentRow,
-  file: FileAssetRow
+  file: FileAssetRow,
 ): LessonAttachmentView {
   const fileView = mapFileAsset(file);
 
@@ -228,13 +287,15 @@ function mapReviewLaterItem(row: ReviewLaterItemRow): ReviewLaterItemView {
   };
 }
 
-async function getCourseIdForLesson(lessonId: string) {
-  const db = supabase as any;
+/* ================= DATA HELPERS ================= */
 
-  const courseId = await unwrap<string>(
-    db.rpc('get_lesson_course_id', {
+async function getCourseIdForLesson(lessonId: string) {
+  assertNonEmptyId(lessonId, 'Lesson ID');
+
+  const courseId = await unwrap<string | null>(
+    supabase.rpc('get_lesson_course_id', {
       p_lesson_id: lessonId,
-    })
+    }),
   );
 
   if (!courseId) {
@@ -245,58 +306,42 @@ async function getCourseIdForLesson(lessonId: string) {
 }
 
 async function getFileAssetsByIds(fileAssetIds: string[]) {
-  const uniqueIds = [...new Set(fileAssetIds)].filter(Boolean);
+  const uniqueIds = uniqueStrings(fileAssetIds);
 
   if (uniqueIds.length === 0) {
     return new Map<string, FileAssetRow>();
   }
 
-  const db = supabase as any;
-
   const rows = await unwrap<FileAssetRow[]>(
-    db
+    supabase
       .from('file_assets')
       .select('*')
-      .in('id', uniqueIds)
+      .in('id', uniqueIds),
   );
 
-  return new Map((rows || []).map((row) => [row.id, row]));
+  return new Map(rows.map((row) => [row.id, row]));
 }
 
-async function getCompletedLessonIdsSafe(studentId: string, lessonIds: string[]) {
-  const uniqueLessonIds = [...new Set(lessonIds)].filter(Boolean);
+async function getCompletedLessonIds(studentId: string, lessonIds: string[]) {
+  const uniqueLessonIds = uniqueStrings(lessonIds);
 
   if (!studentId || uniqueLessonIds.length === 0) {
     return new Set<string>();
   }
 
-  const db = supabase as any;
-
-  try {
-    const { data, error } = await db
+  const rows = await unwrap<LessonProgressLiteRow[]>(
+    supabase
       .from('lesson_progress')
       .select('lesson_id, is_completed, completed_at')
       .eq('student_id', studentId)
-      .in('lesson_id', uniqueLessonIds);
+      .in('lesson_id', uniqueLessonIds),
+  );
 
-    if (error) {
-      console.warn('[learning-space-actions] lesson_progress lookup failed', error);
-      return new Set<string>();
-    }
-
-    return new Set(
-      ((data || []) as Array<{
-        lesson_id: string;
-        is_completed?: boolean | null;
-        completed_at?: string | null;
-      }>)
-        .filter((row) => row.is_completed === true || Boolean(row.completed_at))
-        .map((row) => row.lesson_id)
-    );
-  } catch (error) {
-    console.warn('[learning-space-actions] lesson_progress lookup failed', error);
-    return new Set<string>();
-  }
+  return new Set(
+    rows
+      .filter((row) => row.is_completed === true || Boolean(row.completed_at))
+      .map((row) => row.lesson_id),
+  );
 }
 
 async function getExistingReviewLaterItem(input: {
@@ -304,11 +349,11 @@ async function getExistingReviewLaterItem(input: {
   lessonId?: string | null;
   testQuestionId?: string | null;
   itemId?: string | null;
-  itemType?: string | null;
+  itemType?: ReviewLaterItemRow['item_type'] | null;
 }) {
-  const db = supabase as any;
+  assertNonEmptyId(input.studentId, 'Student ID');
 
-  let query = db
+  let query = supabase
     .from('review_later_items')
     .select('*')
     .eq('student_id', input.studentId);
@@ -334,44 +379,45 @@ export async function getLessonLearningState(input: {
   studentId: string;
   lessonId: string;
 }): Promise<LessonLearningState> {
-  const { studentId, lessonId } = input;
-  const db = supabase as any;
+  assertNonEmptyId(input.studentId, 'Student ID');
+  assertNonEmptyId(input.lessonId, 'Lesson ID');
 
-  const courseId = await getCourseIdForLesson(lessonId);
+  const courseId = await getCourseIdForLesson(input.lessonId);
 
-  const [note, bookmark, reviewLaterItem, attachments, courseAssets] = await Promise.all([
-    unwrapMaybe<StudentLessonNoteRow>(
-      db
-        .from('student_lesson_notes')
-        .select('*')
-        .eq('student_id', studentId)
-        .eq('lesson_id', lessonId)
-        .maybeSingle()
-    ),
-    unwrapMaybe<StudentLessonBookmarkRow>(
-      db
-        .from('student_lesson_bookmarks')
-        .select('*')
-        .eq('student_id', studentId)
-        .eq('lesson_id', lessonId)
-        .maybeSingle()
-    ),
-    unwrapMaybe<ReviewLaterItemRow>(
-      db
-        .from('review_later_items')
-        .select('*')
-        .eq('student_id', studentId)
-        .eq('lesson_id', lessonId)
-        .maybeSingle()
-    ),
-    getLessonAttachments(lessonId),
-    getCourseAssets(courseId),
-  ]);
+  const [note, bookmark, reviewLaterItem, attachments, courseAssets] =
+    await Promise.all([
+      unwrapMaybe<StudentLessonNoteRow>(
+        supabase
+          .from('student_lesson_notes')
+          .select('*')
+          .eq('student_id', input.studentId)
+          .eq('lesson_id', input.lessonId)
+          .maybeSingle(),
+      ),
+      unwrapMaybe<StudentLessonBookmarkRow>(
+        supabase
+          .from('student_lesson_bookmarks')
+          .select('*')
+          .eq('student_id', input.studentId)
+          .eq('lesson_id', input.lessonId)
+          .maybeSingle(),
+      ),
+      unwrapMaybe<ReviewLaterItemRow>(
+        supabase
+          .from('review_later_items')
+          .select('*')
+          .eq('student_id', input.studentId)
+          .eq('lesson_id', input.lessonId)
+          .maybeSingle(),
+      ),
+      getLessonAttachments(input.lessonId),
+      getCourseAssets(courseId),
+    ]);
 
   return {
-    lessonId,
+    lessonId: input.lessonId,
     courseId,
-    studentId,
+    studentId: input.studentId,
 
     note,
     noteContent: note?.content || '',
@@ -390,73 +436,76 @@ export async function getLessonLearningState(input: {
 /* ================= NOTES ================= */
 
 export async function upsertLessonNote(
-  input: UpsertLessonNotePayload
+  input: UpsertLessonNotePayload,
 ): Promise<StudentLessonNoteRow> {
-  const db = supabase as any;
+  assertNonEmptyId(input.studentId, 'Student ID');
+  assertNonEmptyId(input.lessonId, 'Lesson ID');
+  assertNonEmptyId(input.courseId, 'Course ID');
+
+  const payload: StudentLessonNoteInsert = {
+    student_id: input.studentId,
+    lesson_id: input.lessonId,
+    course_id: input.courseId,
+    content: input.content,
+  };
 
   return unwrap<StudentLessonNoteRow>(
-    db
+    supabase
       .from('student_lesson_notes')
-      .upsert(
-        {
-          student_id: input.studentId,
-          lesson_id: input.lessonId,
-          course_id: input.courseId,
-          content: input.content,
-        },
-        {
-          onConflict: 'student_id,lesson_id',
-        }
-      )
+      .upsert(payload, {
+        onConflict: 'student_id,lesson_id',
+      })
       .select('*')
-      .single()
+      .single(),
   );
 }
 
 export async function deleteLessonNote(input: DeleteLessonNotePayload) {
-  const db = supabase as any;
+  assertNonEmptyId(input.studentId, 'Student ID');
+  assertNonEmptyId(input.lessonId, 'Lesson ID');
 
-  await unwrap<unknown>(
-    db
+  await execute(
+    supabase
       .from('student_lesson_notes')
       .delete()
       .eq('student_id', input.studentId)
-      .eq('lesson_id', input.lessonId)
+      .eq('lesson_id', input.lessonId),
   );
 }
 
 /* ================= LESSON BOOKMARKS ================= */
 
 export async function toggleLessonBookmark(
-  input: ToggleLessonBookmarkPayload
+  input: ToggleLessonBookmarkPayload,
 ): Promise<StudentLessonBookmarkRow | null> {
-  const db = supabase as any;
+  assertNonEmptyId(input.studentId, 'Student ID');
+  assertNonEmptyId(input.lessonId, 'Lesson ID');
+  assertNonEmptyId(input.courseId, 'Course ID');
 
   if (input.bookmarked) {
+    const payload: StudentLessonBookmarkInsert = {
+      student_id: input.studentId,
+      lesson_id: input.lessonId,
+      course_id: input.courseId,
+    };
+
     return unwrap<StudentLessonBookmarkRow>(
-      db
+      supabase
         .from('student_lesson_bookmarks')
-        .upsert(
-          {
-            student_id: input.studentId,
-            lesson_id: input.lessonId,
-            course_id: input.courseId,
-          },
-          {
-            onConflict: 'student_id,lesson_id',
-          }
-        )
+        .upsert(payload, {
+          onConflict: 'student_id,lesson_id',
+        })
         .select('*')
-        .single()
+        .single(),
     );
   }
 
-  await unwrap<unknown>(
-    db
+  await execute(
+    supabase
       .from('student_lesson_bookmarks')
       .delete()
       .eq('student_id', input.studentId)
-      .eq('lesson_id', input.lessonId)
+      .eq('lesson_id', input.lessonId),
   );
 
   return null;
@@ -465,70 +514,66 @@ export async function toggleLessonBookmark(
 export async function getSavedLessons(studentId: string): Promise<SavedLessonView[]> {
   if (!studentId) return [];
 
-  const db = supabase as any;
-
   const bookmarks = await unwrap<StudentLessonBookmarkRow[]>(
-    db
+    supabase
       .from('student_lesson_bookmarks')
       .select('*')
       .eq('student_id', studentId)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }),
   );
 
-  if (!bookmarks?.length) return [];
+  if (bookmarks.length === 0) return [];
 
-  const lessonIds = [...new Set(bookmarks.map((bookmark) => bookmark.lesson_id))];
+  const lessonIds = uniqueStrings(bookmarks.map((bookmark) => bookmark.lesson_id));
 
   const lessons = await unwrap<LessonLiteRow[]>(
-    db
+    supabase
       .from('lessons')
-      .select('id,title,module_id,sort_order,is_published')
-      .in('id', lessonIds)
+      .select('id, title, module_id, sort_order, is_published')
+      .in('id', lessonIds),
   );
 
-  const lessonsById = new Map((lessons || []).map((lesson) => [lesson.id, lesson]));
-  const moduleIds = [...new Set((lessons || []).map((lesson) => lesson.module_id).filter(Boolean))];
+  const lessonsById = new Map(lessons.map((lesson) => [lesson.id, lesson]));
+  const moduleIds = uniqueStrings(lessons.map((lesson) => lesson.module_id));
 
   const modules = moduleIds.length
     ? await unwrap<ModuleLiteRow[]>(
-        db
+        supabase
           .from('modules')
-          .select('id,title,course_id,sort_order')
-          .in('id', moduleIds)
+          .select('id, title, course_id, sort_order')
+          .in('id', moduleIds),
       )
     : [];
 
-  const modulesById = new Map((modules || []).map((module) => [module.id, module]));
-  const courseIds = [
-    ...new Set([
-      ...bookmarks.map((bookmark) => bookmark.course_id).filter(Boolean),
-      ...(modules || []).map((module) => module.course_id).filter(Boolean),
-    ]),
-  ];
+  const modulesById = new Map(modules.map((module) => [module.id, module]));
+  const courseIds = uniqueStrings([
+    ...bookmarks.map((bookmark) => bookmark.course_id),
+    ...modules.map((module) => module.course_id),
+  ]);
 
   const courses = courseIds.length
     ? await unwrap<CourseLiteRow[]>(
-        db
+        supabase
           .from('courses')
-          .select('id,title,subject_id,status')
-          .in('id', courseIds)
+          .select('id, title, subject_id, status')
+          .in('id', courseIds),
       )
     : [];
 
-  const coursesById = new Map((courses || []).map((course) => [course.id, course]));
-  const subjectIds = [...new Set((courses || []).map((course) => course.subject_id).filter(Boolean))];
+  const coursesById = new Map(courses.map((course) => [course.id, course]));
+  const subjectIds = uniqueStrings(courses.map((course) => course.subject_id));
 
   const subjects = subjectIds.length
     ? await unwrap<SubjectLiteRow[]>(
-        db
+        supabase
           .from('subjects')
-          .select('*')
-          .in('id', subjectIds)
+          .select('id, name_kk, name_ru')
+          .in('id', subjectIds),
       )
     : [];
 
-  const subjectsById = new Map((subjects || []).map((subject) => [subject.id, subject]));
-  const completedLessonIds = await getCompletedLessonIdsSafe(studentId, lessonIds);
+  const subjectsById = new Map(subjects.map((subject) => [subject.id, subject]));
+  const completedLessonIds = await getCompletedLessonIds(studentId, lessonIds);
 
   return bookmarks
     .map((bookmark) => {
@@ -564,23 +609,24 @@ export async function getSavedLessons(studentId: string): Promise<SavedLessonVie
 }
 
 export async function removeSavedLesson(input: RemoveSavedLessonPayload) {
-  const db = supabase as any;
+  assertNonEmptyId(input.studentId, 'Student ID');
+  assertNonEmptyId(input.lessonId, 'Lesson ID');
 
-  await unwrap<unknown>(
-    db
+  await execute(
+    supabase
       .from('student_lesson_bookmarks')
       .delete()
       .eq('student_id', input.studentId)
-      .eq('lesson_id', input.lessonId)
+      .eq('lesson_id', input.lessonId),
   );
 }
 
 /* ================= REVIEW LATER ================= */
 
 export async function toggleReviewLater(
-  input: ToggleReviewLaterPayload
+  input: ToggleReviewLaterPayload,
 ): Promise<ReviewLaterItemRow | null> {
-  const db = supabase as any;
+  assertNonEmptyId(input.studentId, 'Student ID');
 
   const courseId =
     input.courseId ||
@@ -603,145 +649,155 @@ export async function toggleReviewLater(
   if (!input.reviewLater) {
     if (!existing) return null;
 
-    await unwrap<unknown>(
-      db
+    await execute(
+      supabase
         .from('review_later_items')
         .delete()
-        .eq('id', existing.id)
+        .eq('id', existing.id),
     );
 
     return null;
   }
 
-  const payload = {
+  const payload: ReviewLaterItemInsert = {
     student_id: input.studentId,
     item_type: input.itemType,
     item_id: itemId,
     course_id: courseId,
     lesson_id: input.lessonId || null,
     test_question_id: input.testQuestionId || null,
-    title: input.title || null,
-    note: input.note || null,
+    title: normalizeNullableText(input.title),
+    note: normalizeNullableText(input.note),
   };
 
   if (existing) {
     return unwrap<ReviewLaterItemRow>(
-      db
+      supabase
         .from('review_later_items')
         .update(payload)
         .eq('id', existing.id)
         .select('*')
-        .single()
+        .single(),
     );
   }
 
   return unwrap<ReviewLaterItemRow>(
-    db
+    supabase
       .from('review_later_items')
       .insert(payload)
       .select('*')
-      .single()
+      .single(),
   );
 }
 
 export async function getReviewLaterItems(studentId: string): Promise<ReviewLaterItemView[]> {
-  const db = supabase as any;
+  if (!studentId) return [];
 
   const rows = await unwrap<ReviewLaterItemRow[]>(
-    db
+    supabase
       .from('review_later_items')
       .select('*')
       .eq('student_id', studentId)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }),
   );
 
-  return (rows || []).map(mapReviewLaterItem);
+  return rows.map(mapReviewLaterItem);
 }
 
 /* ================= FILE ASSETS ================= */
 
 export async function createExternalFileAsset(
-  input: CreateExternalFileAssetPayload
+  input: CreateExternalFileAssetPayload,
 ): Promise<FileAssetRow> {
-  const db = supabase as any;
+  assertNonEmptyId(input.ownerId, 'Owner ID');
+
   const externalUrl = normalizeExternalUrl(input.externalUrl);
   const filename = normalizeFilename(input.filename, externalUrl);
   const sizeBytes = normalizeSizeBytes(input.sizeBytes);
 
+  const payload: FileAssetInsert = {
+    owner_id: input.ownerId,
+    visibility: input.visibility || 'course',
+    storage_bucket: null,
+    storage_path: null,
+    external_url: externalUrl,
+    filename,
+    mime_type: input.mimeType || null,
+    size_bytes: sizeBytes,
+    metadata: toJson(input.metadata || {}),
+  };
+
   return unwrap<FileAssetRow>(
-    db
+    supabase
       .from('file_assets')
-      .insert({
-        owner_id: input.ownerId,
-        visibility: input.visibility || 'course',
-        external_url: externalUrl,
-        filename,
-        mime_type: input.mimeType || null,
-        size_bytes: sizeBytes,
-        metadata: input.metadata || {},
-      })
+      .insert(payload)
       .select('*')
-      .single()
+      .single(),
   );
 }
 
 export async function deleteFileAsset(input: DeleteFileAssetPayload | string) {
   const fileAssetId = typeof input === 'string' ? input : input.fileAssetId;
-  const db = supabase as any;
 
-  await unwrap<unknown>(
-    db
+  assertNonEmptyId(fileAssetId, 'File asset ID');
+
+  await execute(
+    supabase
       .from('file_assets')
       .delete()
-      .eq('id', fileAssetId)
+      .eq('id', fileAssetId),
   );
 }
 
 /* ================= LESSON ATTACHMENTS ================= */
 
 export async function getLessonAttachments(lessonId: string): Promise<LessonAttachmentView[]> {
-  const db = supabase as any;
+  if (!lessonId) return [];
 
   const rows = await unwrap<LessonAttachmentRow[]>(
-    db
+    supabase
       .from('lesson_attachments')
       .select('*')
       .eq('lesson_id', lessonId)
       .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: true }),
   );
 
-  const filesById = await getFileAssetsByIds((rows || []).map((row) => row.file_asset_id));
+  const filesById = await getFileAssetsByIds(rows.map((row) => row.file_asset_id));
 
-  return (rows || [])
+  return rows
     .map((row) => {
       const file = filesById.get(row.file_asset_id);
+
       return file ? mapLessonAttachment(row, file) : null;
     })
     .filter((item): item is LessonAttachmentView => item !== null);
 }
 
 export async function createLessonAttachment(
-  input: CreateLessonAttachmentPayload
+  input: CreateLessonAttachmentPayload,
 ): Promise<LessonAttachmentView> {
-  const db = supabase as any;
+  assertNonEmptyId(input.lessonId, 'Lesson ID');
+  assertNonEmptyId(input.courseId, 'Course ID');
+  assertNonEmptyId(input.fileAssetId, 'File asset ID');
+  assertNonEmptyId(input.createdBy, 'Created by');
 
-  assertPositiveSortOrder(input.sortOrder);
+  const payload: LessonAttachmentInsert = {
+    lesson_id: input.lessonId,
+    course_id: input.courseId,
+    file_asset_id: input.fileAssetId,
+    created_by: input.createdBy,
+    title: normalizeNullableText(input.title),
+    description: normalizeNullableText(input.description),
+    sort_order: normalizeSortOrder(input.sortOrder),
+  };
 
   const row = await unwrap<LessonAttachmentRow>(
-    db
+    supabase
       .from('lesson_attachments')
-      .insert({
-        lesson_id: input.lessonId,
-        course_id: input.courseId,
-        file_asset_id: input.fileAssetId,
-        created_by: input.createdBy,
-        title: input.title || null,
-        description: input.description || null,
-        sort_order: input.sortOrder || 1,
-      })
+      .insert(payload)
       .select('*')
-      .single()
+      .single(),
   );
 
   const filesById = await getFileAssetsByIds([row.file_asset_id]);
@@ -755,7 +811,7 @@ export async function createLessonAttachment(
 }
 
 export async function createLessonExternalAttachment(
-  input: CreateLessonExternalAttachmentPayload
+  input: CreateLessonExternalAttachmentPayload,
 ): Promise<LessonAttachmentView> {
   const fileAsset = await createExternalFileAsset({
     ownerId: input.ownerId,
@@ -783,63 +839,67 @@ export async function createLessonExternalAttachment(
 }
 
 export async function deleteLessonAttachment(
-  input: DeleteLessonAttachmentPayload | string
+  input: DeleteLessonAttachmentPayload | string,
 ) {
   const attachmentId = typeof input === 'string' ? input : input.attachmentId;
-  const db = supabase as any;
 
-  await unwrap<unknown>(
-    db
+  assertNonEmptyId(attachmentId, 'Attachment ID');
+
+  await execute(
+    supabase
       .from('lesson_attachments')
       .delete()
-      .eq('id', attachmentId)
+      .eq('id', attachmentId),
   );
 }
 
 /* ================= COURSE ASSETS ================= */
 
 export async function getCourseAssets(courseId: string): Promise<CourseAssetView[]> {
-  const db = supabase as any;
+  if (!courseId) return [];
 
   const rows = await unwrap<CourseAssetRow[]>(
-    db
+    supabase
       .from('course_assets')
       .select('*')
       .eq('course_id', courseId)
       .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: true }),
   );
 
-  const filesById = await getFileAssetsByIds((rows || []).map((row) => row.file_asset_id));
+  const filesById = await getFileAssetsByIds(rows.map((row) => row.file_asset_id));
 
-  return (rows || [])
+  return rows
     .map((row) => {
       const file = filesById.get(row.file_asset_id);
+
       return file ? mapCourseAsset(row, file) : null;
     })
     .filter((item): item is CourseAssetView => item !== null);
 }
 
 export async function createCourseAsset(
-  input: CreateCourseAssetPayload
+  input: CreateCourseAssetPayload,
 ): Promise<CourseAssetView> {
-  const db = supabase as any;
+  assertNonEmptyId(input.courseId, 'Course ID');
+  assertNonEmptyId(input.fileAssetId, 'File asset ID');
+  assertNonEmptyId(input.createdBy, 'Created by');
 
-  assertPositiveSortOrder(input.sortOrder);
+  const payload: CourseAssetInsert = {
+    course_id: input.courseId,
+    file_asset_id: input.fileAssetId,
+    created_by: input.createdBy,
+    title: normalizeNullableText(input.title),
+    description: normalizeNullableText(input.description),
+    sort_order: normalizeSortOrder(input.sortOrder),
+  };
 
   const row = await unwrap<CourseAssetRow>(
-    db
+    supabase
       .from('course_assets')
-      .insert({
-        course_id: input.courseId,
-        file_asset_id: input.fileAssetId,
-        created_by: input.createdBy,
-        title: input.title || null,
-        description: input.description || null,
-        sort_order: input.sortOrder || 1,
-      })
+      .insert(payload)
       .select('*')
-      .single()
+      .single(),
   );
 
   const filesById = await getFileAssetsByIds([row.file_asset_id]);
@@ -853,7 +913,7 @@ export async function createCourseAsset(
 }
 
 export async function createCourseExternalAsset(
-  input: CreateCourseExternalAssetPayload
+  input: CreateCourseExternalAssetPayload,
 ): Promise<CourseAssetView> {
   const fileAsset = await createExternalFileAsset({
     ownerId: input.ownerId,
@@ -880,12 +940,13 @@ export async function createCourseExternalAsset(
 
 export async function deleteCourseAsset(input: DeleteCourseAssetPayload | string) {
   const assetId = typeof input === 'string' ? input : input.assetId;
-  const db = supabase as any;
 
-  await unwrap<unknown>(
-    db
+  assertNonEmptyId(assetId, 'Course asset ID');
+
+  await execute(
+    supabase
       .from('course_assets')
       .delete()
-      .eq('id', assetId)
+      .eq('id', assetId),
   );
 }

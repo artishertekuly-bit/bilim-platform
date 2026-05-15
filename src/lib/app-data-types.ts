@@ -3,151 +3,41 @@ import type {
   Tables,
 } from '@/integrations/supabase/types';
 
-/**
- * Supabase generated aliases.
- * Бұларды осы жерде alias қылып ұстаймыз, себебі generated types.ts ішінде
- * ContentStatus / QuestionType бөлек export болмауы мүмкін.
- */
+/* ================= GENERATED ALIASES ================= */
+
 export type ContentStatus = Enums<'content_status'>;
 export type QuestionType = Enums<'question_type'>;
 
-/**
- * MVP 1–3 access/payment foundation types.
- *
- * Ескерту:
- * Бұлар SQL migration-дағы enum мәндерімен бірдей болуы керек.
- * Supabase types.ts қайта generate болғаннан кейін де осы union-дар frontend layer үшін тұрақты API болып қала береді.
- */
-export type CourseAccessType =
-  | 'public_free'
-  | 'private_invite'
-  | 'paid'
-  | 'subscription_only'
-  | 'school_only';
+export type CourseAccessType = Enums<'course_access_type'>;
+export type CourseVisibility = Enums<'course_visibility'>;
 
-export type CourseVisibility = 'public' | 'unlisted' | 'private';
+export type EntitlementResourceType = Enums<'entitlement_resource_type'>;
+export type EntitlementSource = Enums<'entitlement_source'>;
+export type EntitlementStatus = Enums<'entitlement_status'>;
 
-export type EntitlementResourceType =
-  | 'course'
-  | 'subscription'
-  | 'ai_feature'
-  | 'consultation'
-  | 'certificate';
+export type OrderProductType = Enums<'order_product_type'>;
+export type OrderStatus = Enums<'order_status'>;
+export type PaymentStatus = Enums<'payment_status'>;
 
-export type EntitlementSource =
-  | 'free'
-  | 'invite'
-  | 'manual'
-  | 'paid_order'
-  | 'subscription'
-  | 'school'
-  | 'admin_grant';
-
-export type EntitlementStatus = 'active' | 'revoked' | 'expired';
-
-export type OrderProductType =
-  | 'course'
-  | 'subscription'
-  | 'ai_credits'
-  | 'consultation'
-  | 'certificate';
-
-export type OrderStatus =
-  | 'pending'
-  | 'approved'
-  | 'cancelled'
-  | 'refunded';
-
-export type PaymentStatus =
-  | 'pending'
-  | 'succeeded'
-  | 'failed'
-  | 'refunded'
-  | 'cancelled';
+export type ReviewLaterItemType = Enums<'review_later_item_type'>;
+export type FileAssetVisibility = Enums<'file_asset_visibility'>;
 
 export type CurrencyCode = 'KZT' | 'USD' | 'EUR' | 'RUB' | string;
-
 export type JsonRecord = Record<string, unknown>;
 
-/**
- * MVP 2 learning-space types.
- */
-export type ReviewLaterItemType =
-  | 'lesson'
-  | 'test_question'
-  | 'custom';
+/* ================= APP-LEVEL UNIONS ================= */
 
-export type FileAssetVisibility =
-  | 'private'
-  | 'course'
-  | 'public';
-
-/**
- * Course announcements.
- */
 export type CourseAnnouncementPriority =
   | 'normal'
   | 'important'
   | 'urgent';
 
-/**
- * Lesson mini quiz.
- */
 export type LessonMiniQuizQuestionType =
   | 'single_choice'
   | 'multiple_choice';
 
-/**
- * Existing Supabase rows.
- */
-export type SubjectRow = Tables<'subjects'>;
-export type CourseBookmarkRow = Tables<'course_bookmarks'>;
-
-/**
- * CourseRow-ға жаңа column-дарды intersection арқылы қостық.
- *
- * Себебі Supabase generated types.ts әлі жаңартылмаған болса,
- * Tables<'courses'> ішінде access_type / price / visibility болмайды.
- * Бірақ frontend type layer осы жаңа өрістерді қазірден тани береді.
- */
-export type CourseRow = Tables<'courses'> & {
-  access_type?: CourseAccessType;
-  visibility?: CourseVisibility;
-  price?: number;
-  currency?: CurrencyCode;
-  published_at?: string | null;
-  enrollment_open?: boolean;
-  max_students?: number | null;
-};
-
-export type LessonRow = Tables<'lessons'>;
-export type TestRow = Tables<'tests'>;
-export type AchievementRow = Tables<'achievements'>;
-export type TestQuestionRow = Tables<'test_questions'>;
-
 export type CourseViewStatus = ContentStatus | 'unknown';
 
-export type SubjectMap = Record<string, SubjectRow>;
-
-export type ProfileMap = Record<
-  string,
-  {
-    full_name: string;
-    avatar_url: string | null;
-    bio?: string | null;
-  }
->;
-
-/**
- * MVP 1: Course access state.
- *
- * Бұл UI-да қандай кнопка шығатынын анықтауға керек:
- * - enroll
- * - invite code енгізу
- * - paid access request
- * - course жабық
- * - мұғалім/admin ретінде басқару
- */
 export type CourseAccessState =
   | 'owner'
   | 'admin'
@@ -178,6 +68,70 @@ export type LessonLockedReason =
   | 'previous_lesson_required'
   | 'lesson_unpublished'
   | 'none';
+
+export type CourseProgressLessonStatus =
+  | 'completed'
+  | 'current'
+  | 'locked'
+  | 'available';
+
+export type LearningRiskLevel =
+  | 'low'
+  | 'medium'
+  | 'high';
+
+export type LearningRecommendationType =
+  | 'review_lesson'
+  | 'retake_quiz'
+  | 'continue_course'
+  | 'ask_teacher'
+  | 'practice_more';
+
+/* ================= SUPABASE ROW ALIASES ================= */
+
+export type SubjectRow = Tables<'subjects'>;
+export type CourseRow = Tables<'courses'>;
+export type LessonRow = Tables<'lessons'>;
+export type TestRow = Tables<'tests'>;
+export type AchievementRow = Tables<'achievements'>;
+export type TestQuestionRow = Tables<'test_questions'>;
+export type CourseBookmarkRow = Tables<'course_bookmarks'>;
+
+export type CourseInviteRow = Tables<'course_invites'>;
+export type CourseInviteRedemptionRow = Tables<'course_invite_redemptions'>;
+
+export type EntitlementRow = Tables<'entitlements'>;
+export type OrderRow = Tables<'orders'>;
+export type PaymentRow = Tables<'payments'>;
+
+export type StudentLessonNoteRow = Tables<'student_lesson_notes'>;
+export type StudentLessonBookmarkRow = Tables<'student_lesson_bookmarks'>;
+export type ReviewLaterItemRow = Tables<'review_later_items'>;
+
+export type FileAssetRow = Tables<'file_assets'>;
+export type LessonAttachmentRow = Tables<'lesson_attachments'>;
+export type CourseAssetRow = Tables<'course_assets'>;
+
+export type CourseAnnouncementRow = Tables<'course_announcements'>;
+
+export type LessonMiniQuizRow = Tables<'lesson_mini_quizzes'>;
+export type LessonMiniQuizQuestionRow = Tables<'lesson_mini_quiz_questions'>;
+export type LessonMiniQuizAttemptRow = Tables<'lesson_mini_quiz_attempts'>;
+
+/* ================= SHARED MAPS ================= */
+
+export type SubjectMap = Record<string, SubjectRow>;
+
+export type ProfileMap = Record<
+  string,
+  {
+    full_name: string;
+    avatar_url: string | null;
+    bio?: string | null;
+  }
+>;
+
+/* ================= COURSE / ACCESS VIEWS ================= */
 
 export interface CourseAccessView {
   accessType: CourseAccessType;
@@ -222,9 +176,6 @@ export interface CourseView {
   status: CourseViewStatus;
   bookmarked: boolean;
 
-  /**
-   * MVP 1 access fields.
-   */
   accessType?: CourseAccessType;
   visibility?: CourseVisibility;
   price?: number;
@@ -234,24 +185,15 @@ export interface CourseView {
   maxStudents?: number | null;
   access?: CourseAccessView;
 
-  /**
-   * MVP 2 optional course assets.
-   * Course assets міндетті емес. Мұғалім жүктесе ғана көрсетіледі.
-   */
   courseAssetsCount?: number;
   courseAssets?: CourseAssetView[];
 }
 
+/* ================= LESSON VIEWS ================= */
+
 export interface LessonView {
   id: string;
 
-  /**
-   * Course/module/subject identifiers.
-   *
-   * Бұлар optional қалдырылды, себебі кей ескі query/result mapping-терде
-   * бұл өрістер әлі толтырылмауы мүмкін. student-data.ts түзетілгеннен кейін
-   * олар нақты мәнмен қайтарылады.
-   */
   courseId?: string;
   moduleId?: string;
   subjectId?: string | null;
@@ -264,20 +206,46 @@ export interface LessonView {
   isCompleted: boolean;
   isLocked: boolean;
 
-  /**
-   * MVP 1: lesson lock енді тек progress емес,
-   * course access арқылы да анықталуы мүмкін.
-   */
   lockedReason?: LessonLockedReason;
 
-  /**
-   * MVP 2 student learning-space indicators.
-   */
   bookmarked?: boolean;
   reviewLater?: boolean;
   hasNotes?: boolean;
   attachmentsCount?: number;
 }
+
+export interface LessonDetailView {
+  id: string;
+
+  courseId?: string;
+  moduleId?: string;
+  subjectId?: string | null;
+
+  title: string;
+  subjectName: string;
+  moduleTitle: string;
+  courseTitle: string;
+  contentBody: string | null;
+  practiceContent: string | null;
+  mediaUrl: string | null;
+  sortOrder: number;
+  isCompleted: boolean;
+  isLocked: boolean;
+  lockedReason?: LessonLockedReason;
+
+  bookmarked?: boolean;
+  hasNotes?: boolean;
+  reviewLater?: boolean;
+  attachmentsCount?: number;
+  learningState?: LessonLearningState;
+  attachments?: LessonAttachmentView[];
+  courseAssets?: CourseAssetView[];
+
+  miniQuiz?: LessonMiniQuizView | null;
+  latestMiniQuizAttempt?: LessonMiniQuizAttemptView | null;
+}
+
+/* ================= TEST VIEWS ================= */
 
 export interface TestCatalogItem {
   id: string;
@@ -302,11 +270,10 @@ export interface TestAttemptBreakdownItem {
   isCorrect: boolean;
   questionOrder: number;
 
-  /**
-   * MVP 2: test question-ды кейін қайталауға сақтау.
-   */
   reviewLater?: boolean;
 }
+
+/* ================= DASHBOARD VIEWS ================= */
 
 export interface LeaderboardView {
   id: string;
@@ -341,49 +308,6 @@ export interface DashboardStudentData {
     weakSubject: string | null;
     totalTests: number;
   };
-}
-
-export interface LessonDetailView {
-  id: string;
-
-  /**
-   * Course/module/subject identifiers.
-   *
-   * LessonDetailPage ішінде courseId керек:
-   * - roadmap link
-   * - note/bookmark/reviewLater payload
-   * - mini quiz submit payload
-   */
-  courseId?: string;
-  moduleId?: string;
-  subjectId?: string | null;
-
-  title: string;
-  subjectName: string;
-  moduleTitle: string;
-  courseTitle: string;
-  contentBody: string | null;
-  practiceContent: string | null;
-  mediaUrl: string | null;
-  sortOrder: number;
-  isCompleted: boolean;
-  isLocked: boolean;
-  lockedReason?: LessonLockedReason;
-
-  /**
-   * MVP 2 үшін орын.
-   * Notes/bookmarks/files осы detail view-ға байланысады.
-   */
-  bookmarked?: boolean;
-  hasNotes?: boolean;
-  reviewLater?: boolean;
-  attachmentsCount?: number;
-  learningState?: LessonLearningState;
-  attachments?: LessonAttachmentView[];
-  courseAssets?: CourseAssetView[];
-
-  miniQuiz?: LessonMiniQuizView | null;
-  latestMiniQuizAttempt?: LessonMiniQuizAttemptView | null;
 }
 
 export interface TeacherStudentCourseRow {
@@ -422,6 +346,8 @@ export interface TeacherDashboardData {
   };
 }
 
+/* ================= COURSE BUILDER VIEWS ================= */
+
 export interface CourseBuilderLessonView {
   id: string;
   moduleId: string;
@@ -433,9 +359,6 @@ export interface CourseBuilderLessonView {
   isPublished: boolean;
   subjectId: string | null;
 
-  /**
-   * MVP 2: lesson-level optional attachments.
-   */
   attachmentsCount?: number;
   attachments?: LessonAttachmentView[];
 
@@ -460,9 +383,6 @@ export interface TeacherCourseWorkspace {
       thumbnailUrl: string | null;
       modules: CourseBuilderModuleView[];
 
-      /**
-       * Teacher course builder ішінде курс access баптаулары көрінуі керек.
-       */
       accessType: CourseAccessType;
       visibility: CourseVisibility;
       price: number;
@@ -471,9 +391,6 @@ export interface TeacherCourseWorkspace {
       enrollmentOpen: boolean;
       maxStudents: number | null;
 
-      /**
-       * MVP 2: course-level optional assets.
-       */
       courseAssetsCount?: number;
       courseAssets?: CourseAssetView[];
     }
@@ -486,6 +403,7 @@ export interface TeacherTestWorkspace {
       createdBy: string;
       status: ContentStatus;
       subjectId: string | null;
+      courseId?: string | null;
       questions: TestQuestionRow[];
     }
   >;
@@ -502,35 +420,7 @@ export interface ModerationItem {
   extra: string;
 }
 
-/**
- * MVP 1: Invite system rows.
- *
- * Бұларды қолмен жазып отырмыз.
- * Кейін Supabase types.ts қайта generate болса, Tables<'course_invites'> ретінде ауыстыруға болады.
- */
-export interface CourseInviteRow {
-  id: string;
-  course_id: string;
-  code: string;
-  created_by: string;
-  max_uses: number | null;
-  used_count: number;
-  expires_at: string | null;
-  is_active: boolean;
-  access_grants_entitlement: boolean;
-  metadata: JsonRecord;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CourseInviteRedemptionRow {
-  id: string;
-  invite_id: string;
-  course_id: string;
-  student_id: string;
-  entitlement_id: string | null;
-  redeemed_at: string;
-}
+/* ================= INVITES / ENTITLEMENTS / ORDERS ================= */
 
 export interface CourseInviteView {
   id: string;
@@ -546,25 +436,6 @@ export interface CourseInviteView {
   createdAt: string;
 }
 
-/**
- * MVP 1 + MVP 3: Entitlement system.
- */
-export interface EntitlementRow {
-  id: string;
-  user_id: string;
-  resource_type: EntitlementResourceType;
-  resource_id: string;
-  source: EntitlementSource;
-  source_id: string | null;
-  status: EntitlementStatus;
-  valid_from: string;
-  valid_until: string | null;
-  created_by: string | null;
-  metadata: JsonRecord;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface EntitlementView {
   id: string;
   userId: string;
@@ -577,41 +448,6 @@ export interface EntitlementView {
   validUntil: string | null;
   isActive: boolean;
   createdAt: string;
-}
-
-/**
- * MVP 3: Order / Payment skeleton.
- *
- * Нақты payment gateway жоқ.
- * Бұл manual approve және future payment integration үшін керек.
- */
-export interface OrderRow {
-  id: string;
-  buyer_id: string;
-  product_type: OrderProductType;
-  product_id: string;
-  status: OrderStatus;
-  amount: number;
-  currency: CurrencyCode;
-  approved_by: string | null;
-  approved_at: string | null;
-  metadata: JsonRecord;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface PaymentRow {
-  id: string;
-  order_id: string;
-  provider: string;
-  provider_payment_id: string | null;
-  status: PaymentStatus;
-  amount: number;
-  currency: CurrencyCode;
-  paid_at: string | null;
-  metadata: JsonRecord;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface OrderView {
@@ -640,88 +476,8 @@ export interface PaymentView {
   createdAt: string;
 }
 
-/**
- * MVP 2: Student learning-space rows.
- *
- * Бұларды қолмен жазып отырмыз.
- * Кейін Supabase types.ts қайта generate болса, Tables<'...'> ретінде ауыстыруға болады.
- */
+/* ================= FILE / ASSET VIEWS ================= */
 
-export interface StudentLessonNoteRow {
-  id: string;
-  student_id: string;
-  lesson_id: string;
-  course_id: string;
-  content: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface StudentLessonBookmarkRow {
-  id: string;
-  student_id: string;
-  lesson_id: string;
-  course_id: string;
-  created_at: string;
-}
-
-export interface ReviewLaterItemRow {
-  id: string;
-  student_id: string;
-  item_type: ReviewLaterItemType;
-  item_id: string | null;
-  course_id: string | null;
-  lesson_id: string | null;
-  test_question_id: string | null;
-  title: string | null;
-  note: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface FileAssetRow {
-  id: string;
-  owner_id: string;
-  visibility: FileAssetVisibility;
-  storage_bucket: string | null;
-  storage_path: string | null;
-  external_url: string | null;
-  filename: string;
-  mime_type: string | null;
-  size_bytes: number | null;
-  metadata: JsonRecord;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface LessonAttachmentRow {
-  id: string;
-  lesson_id: string;
-  course_id: string;
-  file_asset_id: string;
-  created_by: string;
-  title: string | null;
-  description: string | null;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CourseAssetRow {
-  id: string;
-  course_id: string;
-  file_asset_id: string;
-  created_by: string;
-  title: string | null;
-  description: string | null;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-}
-
-/**
- * MVP 2: Student-facing views.
- */
 export interface FileAssetView {
   id: string;
   ownerId: string;
@@ -760,6 +516,16 @@ export interface CourseAssetView {
   createdAt: string;
 }
 
+export interface TeacherLessonAttachmentView extends LessonAttachmentView {
+  createdBy: string;
+}
+
+export interface TeacherCourseAssetView extends CourseAssetView {
+  createdBy: string;
+}
+
+/* ================= STUDENT LEARNING SPACE ================= */
+
 export interface LessonLearningState {
   lessonId: string;
   courseId: string;
@@ -777,12 +543,6 @@ export interface LessonLearningState {
   attachments: LessonAttachmentView[];
   courseAssets: CourseAssetView[];
 }
-
-export type CourseProgressLessonStatus =
-  | 'completed'
-  | 'current'
-  | 'locked'
-  | 'available';
 
 export interface CourseProgressLessonView {
   id: string;
@@ -818,30 +578,38 @@ export interface CourseProgressTimelineView {
   modules: CourseProgressModuleView[];
 }
 
-/**
- * MVP 2: Course announcements.
- *
- * Мұғалім курсқа хабарландыру жариялайды.
- * Оқушы access бар курстың хабарландыруын ғана көреді.
- */
-export interface CourseAnnouncementRow {
-  id: string;
+export interface SavedLessonView {
+  bookmarkId: string;
+  lessonId: string;
+  courseId: string;
+  moduleId: string;
 
-  course_id: string;
-  author_id: string;
+  lessonTitle: string;
+  moduleTitle: string;
+  courseTitle: string;
+  subjectName: string;
 
-  title: string;
-  body: string;
+  sortOrder: number;
+  isCompleted: boolean;
+  isLocked: boolean;
 
-  priority: CourseAnnouncementPriority;
-  is_pinned: boolean;
-
-  published_at: string;
-  expires_at: string | null;
-
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
 }
+
+export interface ReviewLaterItemView {
+  id: string;
+  itemType: ReviewLaterItemType;
+  itemId: string | null;
+  courseId: string | null;
+  lessonId: string | null;
+  testQuestionId: string | null;
+  title: string;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* ================= COURSE ANNOUNCEMENTS ================= */
 
 export interface CourseAnnouncementView {
   id: string;
@@ -867,65 +635,7 @@ export interface CourseAnnouncementView {
   updatedAt: string;
 }
 
-/**
- * MVP 2: Lesson Mini Quiz.
- *
- * Сабақ соңындағы қысқа тест.
- * Бір lesson-ға бір mini quiz беріледі.
- */
-export interface LessonMiniQuizRow {
-  id: string;
-
-  lesson_id: string;
-  course_id: string;
-  created_by: string;
-
-  title: string;
-  description: string | null;
-
-  is_published: boolean;
-  passing_score: number;
-
-  created_at: string;
-  updated_at: string;
-}
-
-export interface LessonMiniQuizQuestionRow {
-  id: string;
-
-  quiz_id: string;
-
-  question_text: string;
-  question_type: LessonMiniQuizQuestionType;
-
-  options: unknown;
-  correct_answer: unknown;
-
-  explanation: string | null;
-  sort_order: number;
-
-  created_at: string;
-  updated_at: string;
-}
-
-export interface LessonMiniQuizAttemptRow {
-  id: string;
-
-  quiz_id: string;
-  lesson_id: string;
-  course_id: string;
-  student_id: string;
-
-  score: number;
-  correct_count: number;
-  total_questions: number;
-
-  passed: boolean;
-  answers: unknown;
-
-  completed_at: string;
-  created_at: string;
-}
+/* ================= LESSON MINI QUIZ ================= */
 
 export interface LessonMiniQuizQuestionView {
   id: string;
@@ -995,61 +705,8 @@ export interface LessonMiniQuizSubmitResult {
   }>;
 }
 
-/**
- * MVP 2: Saved lessons / Bookmarks page.
- *
- * Оқушы сақтап қойған сабақтарын бөлек бетте көреді.
- */
-export interface SavedLessonView {
-  bookmarkId: string;
-  lessonId: string;
-  courseId: string;
-  moduleId: string;
+/* ================= RPC RESPONSES ================= */
 
-  lessonTitle: string;
-  moduleTitle: string;
-  courseTitle: string;
-  subjectName: string;
-
-  sortOrder: number;
-  isCompleted: boolean;
-  isLocked: boolean;
-
-  createdAt: string;
-}
-
-export interface RemoveSavedLessonPayload {
-  studentId: string;
-  lessonId: string;
-}
-
-/**
- * MVP 2: Teacher-facing attachment workspace.
- */
-export interface TeacherLessonAttachmentView extends LessonAttachmentView {
-  createdBy: string;
-}
-
-export interface TeacherCourseAssetView extends CourseAssetView {
-  createdBy: string;
-}
-
-export interface ReviewLaterItemView {
-  id: string;
-  itemType: ReviewLaterItemType;
-  itemId: string | null;
-  courseId: string | null;
-  lessonId: string | null;
-  testQuestionId: string | null;
-  title: string;
-  note: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * RPC responses.
- */
 export type RpcMutationResponse = {
   lesson_id?: string;
   course_id?: string;
@@ -1058,9 +715,6 @@ export type RpcMutationResponse = {
   correct_count?: number;
   total_questions?: number;
 
-  /**
-   * complete_lesson RPC қайтаратын progress деректері.
-   */
   completed_lessons?: number;
   total_lessons?: number;
   progress_pct?: number;
@@ -1084,9 +738,8 @@ export interface CourseAccessCheckResponse {
   accessState: CourseAccessState;
 }
 
-/**
- * Form payloads.
- */
+/* ================= PAYLOADS ================= */
+
 export interface CourseAccessSettingsPayload {
   accessType: CourseAccessType;
   visibility: CourseVisibility;
@@ -1115,10 +768,6 @@ export interface ManualGrantCourseAccessPayload {
   courseId: string;
   reason?: string | null;
 }
-
-/**
- * MVP 2 payloads.
- */
 
 export interface CreateCourseAnnouncementPayload {
   courseId: string;
@@ -1208,10 +857,6 @@ export interface SubmitLessonMiniQuizPayload {
   courseId: string;
   studentId: string;
 
-  /**
-   * key = questionId
-   * value = selected option indexes
-   */
   answers: Record<string, number[]>;
 }
 
@@ -1225,11 +870,6 @@ export interface UpsertLessonNotePayload {
 export interface DeleteLessonNotePayload {
   studentId: string;
   lessonId: string;
-
-  /**
-   * Кей handler-лер delete кезінде courseId жіберуі мүмкін.
-   * Data layer бұл өрісті optional ретінде қабылдайды.
-   */
   courseId?: string | null;
 }
 
@@ -1318,24 +958,12 @@ export interface DeleteFileAssetPayload {
   fileAssetId: string;
 }
 
-/**
- * Outcome-based analytics.
- *
- * Бұл analytics оқушыны бақыламайды.
- * Тек оқу нәтижелері, progress, quiz/test attempts, saved/review later деректерімен жұмыс істейді.
- */
+export interface RemoveSavedLessonPayload {
+  studentId: string;
+  lessonId: string;
+}
 
-export type LearningRiskLevel =
-  | 'low'
-  | 'medium'
-  | 'high';
-
-export type LearningRecommendationType =
-  | 'review_lesson'
-  | 'retake_quiz'
-  | 'continue_course'
-  | 'ask_teacher'
-  | 'practice_more';
+/* ================= ANALYTICS ================= */
 
 export interface LearningRecommendationView {
   id: string;

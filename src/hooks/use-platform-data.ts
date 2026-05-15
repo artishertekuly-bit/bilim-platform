@@ -98,15 +98,29 @@ import type {
   UpsertLessonNotePayload,
 } from '@/lib/app-data-types';
 
+type QueryKeyInput = readonly unknown[];
+
 function resolveLocale(locale?: Locale): Locale {
   return locale ?? getLocale();
 }
 
-const courseKey = (userId?: string, teacherId?: string, locale?: Locale) =>
-  ['courses', resolveLocale(locale), userId ?? 'anon', teacherId ?? 'all'] as const;
+function courseKey(userId?: string, teacherId?: string, locale?: Locale) {
+  return ['courses', resolveLocale(locale), userId ?? 'anon', teacherId ?? 'all'] as const;
+}
 
-const testsKey = (userId?: string, locale?: Locale) =>
-  ['tests', resolveLocale(locale), userId ?? 'all'] as const;
+function testsKey(userId?: string, locale?: Locale) {
+  return ['tests', resolveLocale(locale), userId ?? 'all'] as const;
+}
+
+async function invalidateMany(queryClient: QueryClient, keys: QueryKeyInput[]) {
+  await Promise.all(
+    keys.map((queryKey) =>
+      queryClient.invalidateQueries({
+        queryKey,
+      }),
+    ),
+  );
+}
 
 export const platformKeys = {
   studentLearningSnapshotBase: ['student-learning-snapshot'] as const,
@@ -117,7 +131,7 @@ export const platformKeys = {
   teacherStudentLearningSnapshot: (
     teacherId: string,
     studentId: string,
-    courseId?: string | null
+    courseId?: string | null,
   ) =>
     [
       'teacher-student-learning-snapshot',
@@ -159,7 +173,11 @@ export const platformKeys = {
 
   courseAnnouncementsBase: ['course-announcements'] as const,
   courseAnnouncements: (courseId: string, includeExpired = false) =>
-    ['course-announcements', courseId, includeExpired ? 'with-expired' : 'active'] as const,
+    [
+      'course-announcements',
+      courseId,
+      includeExpired ? 'with-expired' : 'active',
+    ] as const,
 
   courseProgressBase: ['course-progress'] as const,
   courseProgress: (studentId: string, courseId: string, locale?: Locale) =>
@@ -181,7 +199,7 @@ export const platformKeys = {
   lessonMiniQuiz: (
     lessonId: string,
     userId?: string,
-    includeUnpublished = false
+    includeUnpublished = false,
   ) =>
     [
       'lesson-mini-quiz',
@@ -263,6 +281,45 @@ export const platformKeys = {
     ['users', resolveLocale(locale)] as const,
 };
 
+async function invalidateLearningAnalyticsCaches(
+  queryClient: QueryClient,
+  input?: {
+    studentId?: string;
+    teacherId?: string;
+    courseId?: string;
+  },
+) {
+  const keys: QueryKeyInput[] = [
+    platformKeys.studentLearningSnapshotBase,
+    platformKeys.teacherStudentLearningSnapshotBase,
+    platformKeys.courseLearningSnapshotBase,
+    platformKeys.courseAnalyticsStudentsBase,
+  ];
+
+  if (input?.studentId) {
+    keys.push(platformKeys.studentLearningSnapshot(input.studentId));
+  }
+
+  if (input?.courseId) {
+    keys.push(
+      platformKeys.courseLearningSnapshot(input.courseId),
+      platformKeys.courseAnalyticsStudents(input.courseId),
+    );
+  }
+
+  if (input?.teacherId && input?.studentId) {
+    keys.push(
+      platformKeys.teacherStudentLearningSnapshot(
+        input.teacherId,
+        input.studentId,
+        input.courseId,
+      ),
+    );
+  }
+
+  await invalidateMany(queryClient, keys);
+}
+
 async function invalidateCourseAccessCaches(
   queryClient: QueryClient,
   input?: {
@@ -270,167 +327,62 @@ async function invalidateCourseAccessCaches(
     teacherId?: string;
     courseId?: string;
     locale?: Locale;
-  }
+  },
 ) {
   const activeLocale = resolveLocale(input?.locale);
 
-  const tasks: Array<Promise<unknown>> = [
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.coursesBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseProgressBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.teacherCourseWorkspaceBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.studentDashboardBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonDetailBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonLearningStateBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonAttachmentsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseAssetsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.reviewLaterItemsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.savedLessonsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.myOrdersBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.pendingOrdersBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.adminDashboard,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.moderationQueue,
-    }),
+  const keys: QueryKeyInput[] = [
+    platformKeys.coursesBase,
+    platformKeys.courseProgressBase,
+    platformKeys.teacherCourseWorkspaceBase,
+    platformKeys.studentDashboardBase,
+    platformKeys.lessonsBase,
+    platformKeys.lessonDetailBase,
+    platformKeys.lessonLearningStateBase,
+    platformKeys.lessonAttachmentsBase,
+    platformKeys.courseAssetsBase,
+    platformKeys.reviewLaterItemsBase,
+    platformKeys.savedLessonsBase,
+    platformKeys.myOrdersBase,
+    platformKeys.pendingOrdersBase,
+    platformKeys.adminDashboard,
+    platformKeys.moderationQueue,
   ];
 
   if (input?.userId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.studentDashboard(input.userId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.myOrders(input.userId),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.reviewLaterItems(input.userId),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.savedLessons(input.userId),
-      })
+    keys.push(
+      platformKeys.studentDashboard(input.userId, activeLocale),
+      platformKeys.myOrders(input.userId),
+      platformKeys.reviewLaterItems(input.userId),
+      platformKeys.savedLessons(input.userId),
     );
   }
 
   if (input?.teacherId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherDashboard(input.teacherId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseCatalogTeacher(input.teacherId, activeLocale),
-      })
+    keys.push(
+      platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
+      platformKeys.teacherDashboard(input.teacherId, activeLocale),
+      platformKeys.courseCatalogTeacher(input.teacherId, activeLocale),
     );
   }
 
   if (input?.courseId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseInvites(input.courseId),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseAssets(input.courseId),
-      })
+    keys.push(
+      platformKeys.courseInvites(input.courseId),
+      platformKeys.courseAssets(input.courseId),
+      platformKeys.courseLearningSnapshot(input.courseId),
+      platformKeys.courseAnalyticsStudents(input.courseId),
     );
   }
 
-
-  tasks.push(
+  await Promise.all([
+    invalidateMany(queryClient, keys),
     invalidateLearningAnalyticsCaches(queryClient, {
       studentId: input?.userId,
       teacherId: input?.teacherId,
       courseId: input?.courseId,
-    })
-  );
-
-  await Promise.all(tasks);
-}
-
-async function invalidateLearningAnalyticsCaches(
-  queryClient: QueryClient,
-  input?: {
-    studentId?: string;
-    teacherId?: string;
-    courseId?: string;
-  }
-) {
-  const tasks: Array<Promise<unknown>> = [
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.studentLearningSnapshotBase,
     }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.teacherStudentLearningSnapshotBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseLearningSnapshotBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseAnalyticsStudentsBase,
-    }),
-  ];
-
-  if (input?.studentId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.studentLearningSnapshot(input.studentId),
-      })
-    );
-  }
-
-  if (input?.courseId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseLearningSnapshot(input.courseId),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseAnalyticsStudents(input.courseId),
-      })
-    );
-  }
-
-  if (input?.teacherId && input?.studentId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherStudentLearningSnapshot(
-          input.teacherId,
-          input.studentId,
-          input.courseId
-        ),
-      })
-    );
-  }
-
-  await Promise.all(tasks);
+  ]);
 }
 
 async function invalidateCourseAnnouncementCaches(
@@ -439,48 +391,32 @@ async function invalidateCourseAnnouncementCaches(
     courseId?: string;
     teacherId?: string;
     locale?: Locale;
-  }
+  },
 ) {
   const activeLocale = resolveLocale(input?.locale);
 
-  const tasks: Array<Promise<unknown>> = [
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseAnnouncementsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.coursesBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.teacherCourseWorkspaceBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.studentDashboardBase,
-    }),
+  const keys: QueryKeyInput[] = [
+    platformKeys.courseAnnouncementsBase,
+    platformKeys.coursesBase,
+    platformKeys.teacherCourseWorkspaceBase,
+    platformKeys.studentDashboardBase,
   ];
 
   if (input?.courseId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseAnnouncements(input.courseId, false),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseAnnouncements(input.courseId, true),
-      })
+    keys.push(
+      platformKeys.courseAnnouncements(input.courseId, false),
+      platformKeys.courseAnnouncements(input.courseId, true),
     );
   }
 
   if (input?.teacherId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherDashboard(input.teacherId, activeLocale),
-      })
+    keys.push(
+      platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
+      platformKeys.teacherDashboard(input.teacherId, activeLocale),
     );
   }
 
-  await Promise.all(tasks);
+  await invalidateMany(queryClient, keys);
 }
 
 async function invalidateLearningSpaceCaches(
@@ -491,122 +427,72 @@ async function invalidateLearningSpaceCaches(
     lessonId?: string;
     courseId?: string;
     locale?: Locale;
-  }
+  },
 ) {
   const activeLocale = resolveLocale(input?.locale);
 
-  const tasks: Array<Promise<unknown>> = [
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonLearningStateBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonDetailBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseProgressBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonAttachmentsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseAssetsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.reviewLaterItemsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.savedLessonsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.studentDashboardBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.teacherCourseWorkspaceBase,
-    }),
+  const keys: QueryKeyInput[] = [
+    platformKeys.lessonLearningStateBase,
+    platformKeys.lessonDetailBase,
+    platformKeys.courseProgressBase,
+    platformKeys.lessonsBase,
+    platformKeys.lessonAttachmentsBase,
+    platformKeys.courseAssetsBase,
+    platformKeys.reviewLaterItemsBase,
+    platformKeys.savedLessonsBase,
+    platformKeys.studentDashboardBase,
+    platformKeys.teacherCourseWorkspaceBase,
   ];
 
   if (input?.studentId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.studentDashboard(input.studentId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.reviewLaterItems(input.studentId),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.savedLessons(input.studentId),
-      })
+    keys.push(
+      platformKeys.studentDashboard(input.studentId, activeLocale),
+      platformKeys.reviewLaterItems(input.studentId),
+      platformKeys.savedLessons(input.studentId),
+      platformKeys.studentLearningSnapshot(input.studentId),
     );
   }
 
   if (input?.studentId && input?.lessonId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonLearningState(input.studentId, input.lessonId),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonDetail(input.lessonId, input.studentId, activeLocale),
-      })
+    keys.push(
+      platformKeys.lessonLearningState(input.studentId, input.lessonId),
+      platformKeys.lessonDetail(input.lessonId, input.studentId, activeLocale),
     );
   }
 
   if (input?.studentId && input?.courseId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseProgress(
-          input.studentId,
-          input.courseId,
-          activeLocale
-        ),
-      })
-    );
+    keys.push(platformKeys.courseProgress(input.studentId, input.courseId, activeLocale));
   }
 
   if (input?.lessonId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonAttachments(input.lessonId),
-      })
-    );
+    keys.push(platformKeys.lessonAttachments(input.lessonId));
   }
 
   if (input?.courseId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseAssets(input.courseId),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.coursesBase,
-      })
+    keys.push(
+      platformKeys.courseAssets(input.courseId),
+      platformKeys.coursesBase,
+      platformKeys.courseLearningSnapshot(input.courseId),
+      platformKeys.courseAnalyticsStudents(input.courseId),
     );
   }
 
   if (input?.teacherId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherDashboard(input.teacherId, activeLocale),
-      })
+    keys.push(
+      platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
+      platformKeys.teacherDashboard(input.teacherId, activeLocale),
     );
   }
 
-
-  tasks.push(
+  await Promise.all([
+    invalidateMany(queryClient, keys),
     invalidateLearningAnalyticsCaches(queryClient, {
       studentId: input?.studentId,
       teacherId: input?.teacherId,
       courseId: input?.courseId,
-    })
-  );
-
-  await Promise.all(tasks);
+    }),
+  ]);
 }
-
 
 async function invalidateLessonMiniQuizCaches(
   queryClient: QueryClient,
@@ -616,103 +502,69 @@ async function invalidateLessonMiniQuizCaches(
     studentId?: string;
     teacherId?: string;
     locale?: Locale;
-  }
+  },
 ) {
   const activeLocale = resolveLocale(input?.locale);
 
-  const tasks: Array<Promise<unknown>> = [
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonMiniQuizBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonDetailBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonLearningStateBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.courseProgressBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.lessonsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.teacherCourseWorkspaceBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.studentDashboardBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.analyticsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.achievementsBase,
-    }),
-    queryClient.invalidateQueries({
-      queryKey: platformKeys.leaderboard,
-    }),
+  const keys: QueryKeyInput[] = [
+    platformKeys.lessonMiniQuizBase,
+    platformKeys.lessonDetailBase,
+    platformKeys.lessonLearningStateBase,
+    platformKeys.courseProgressBase,
+    platformKeys.lessonsBase,
+    platformKeys.teacherCourseWorkspaceBase,
+    platformKeys.studentDashboardBase,
+    platformKeys.analyticsBase,
+    platformKeys.achievementsBase,
+    platformKeys.leaderboard,
   ];
 
   if (input?.lessonId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonMiniQuiz(input.lessonId, input.studentId, false),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonMiniQuiz(input.lessonId, input.teacherId, true),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonMiniQuiz(input.lessonId, undefined, true),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonAttachments(input.lessonId),
-      })
+    keys.push(
+      platformKeys.lessonMiniQuiz(input.lessonId, input.studentId, false),
+      platformKeys.lessonMiniQuiz(input.lessonId, input.teacherId, true),
+      platformKeys.lessonMiniQuiz(input.lessonId, undefined, true),
+      platformKeys.lessonAttachments(input.lessonId),
     );
   }
 
   if (input?.studentId && input?.lessonId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonDetail(input.lessonId, input.studentId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.lessonLearningState(input.studentId, input.lessonId),
-      })
+    keys.push(
+      platformKeys.lessonDetail(input.lessonId, input.studentId, activeLocale),
+      platformKeys.lessonLearningState(input.studentId, input.lessonId),
     );
   }
 
   if (input?.studentId && input?.courseId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.courseProgress(input.studentId, input.courseId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.studentDashboard(input.studentId, activeLocale),
-      })
+    keys.push(
+      platformKeys.courseProgress(input.studentId, input.courseId, activeLocale),
+      platformKeys.studentDashboard(input.studentId, activeLocale),
+      platformKeys.studentLearningSnapshot(input.studentId),
+    );
+  }
+
+  if (input?.courseId) {
+    keys.push(
+      platformKeys.courseLearningSnapshot(input.courseId),
+      platformKeys.courseAnalyticsStudents(input.courseId),
     );
   }
 
   if (input?.teacherId) {
-    tasks.push(
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherDashboard(input.teacherId, activeLocale),
-      })
+    keys.push(
+      platformKeys.teacherCourseWorkspace(input.teacherId, activeLocale),
+      platformKeys.teacherDashboard(input.teacherId, activeLocale),
     );
   }
 
-
-  tasks.push(
+  await Promise.all([
+    invalidateMany(queryClient, keys),
     invalidateLearningAnalyticsCaches(queryClient, {
       studentId: input?.studentId,
       teacherId: input?.teacherId,
       courseId: input?.courseId,
-    })
-  );
-
-  await Promise.all(tasks);
+    }),
+  ]);
 }
 
 /* ================= READ QUERIES ================= */
@@ -739,7 +591,7 @@ export function useCourseCatalog(
   userId?: string,
   teacherId?: string,
   enabled = true,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const activeLocale = resolveLocale(locale);
 
@@ -761,7 +613,7 @@ export function useCourseInvites(courseId: string, enabled = true) {
 export function useCourseAnnouncements(
   courseId: string,
   enabled = true,
-  includeExpired = false
+  includeExpired = false,
 ) {
   return useQuery({
     queryKey: platformKeys.courseAnnouncements(courseId, includeExpired),
@@ -778,7 +630,7 @@ export function useCourseProgressTimeline(
   studentId: string,
   courseId: string,
   enabled = true,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const activeLocale = resolveLocale(locale);
 
@@ -789,12 +641,7 @@ export function useCourseProgressTimeline(
   });
 }
 
-/* ================= OUTCOME ANALYTICS SNAPSHOTS ================= */
-
-export function useStudentLearningSnapshot(
-  studentId: string,
-  enabled = true
-) {
+export function useStudentLearningSnapshot(studentId: string, enabled = true) {
   return useQuery({
     queryKey: platformKeys.studentLearningSnapshot(studentId),
     queryFn: () => getStudentLearningSnapshot(studentId),
@@ -808,13 +655,13 @@ export function useTeacherStudentLearningSnapshot(
     studentId: string;
     courseId?: string | null;
   },
-  enabled = true
+  enabled = true,
 ) {
   return useQuery({
     queryKey: platformKeys.teacherStudentLearningSnapshot(
       input.teacherId,
       input.studentId,
-      input.courseId
+      input.courseId,
     ),
     queryFn: () =>
       getTeacherStudentLearningSnapshot({
@@ -826,10 +673,7 @@ export function useTeacherStudentLearningSnapshot(
   });
 }
 
-export function useCourseLearningSnapshot(
-  courseId: string,
-  enabled = true
-) {
+export function useCourseLearningSnapshot(courseId: string, enabled = true) {
   return useQuery({
     queryKey: platformKeys.courseLearningSnapshot(courseId),
     queryFn: () => getCourseLearningSnapshot(courseId),
@@ -837,17 +681,13 @@ export function useCourseLearningSnapshot(
   });
 }
 
-export function useCourseAnalyticsStudents(
-  courseId: string,
-  enabled = true
-) {
+export function useCourseAnalyticsStudents(courseId: string, enabled = true) {
   return useQuery({
     queryKey: platformKeys.courseAnalyticsStudents(courseId),
     queryFn: () => getCourseAnalyticsStudents(courseId),
     enabled: enabled && !!courseId,
   });
 }
-
 
 export function useLessons(userId?: string, enabled = true, locale?: Locale) {
   const activeLocale = resolveLocale(locale);
@@ -863,7 +703,7 @@ export function useLessonDetail(
   lessonId: string,
   userId?: string,
   enabled = true,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const activeLocale = resolveLocale(locale);
 
@@ -877,7 +717,7 @@ export function useLessonDetail(
 export function useLessonLearningState(
   studentId: string,
   lessonId: string,
-  enabled = true
+  enabled = true,
 ) {
   return useQuery({
     queryKey: platformKeys.lessonLearningState(studentId, lessonId),
@@ -890,13 +730,8 @@ export function useLessonMiniQuiz(
   lessonId: string,
   userId?: string,
   enabled = true,
-  includeUnpublished = false
+  includeUnpublished = false,
 ) {
-  /**
-   * includeUnpublished=true teacher/admin preview үшін қолданылады.
-   * Бұл режимде userId мәнін studentId ретінде жібермейміз, әйтпесе
-   * мұғалім/admin id-і "student latest attempt" ретінде қате қолданылуы мүмкін.
-   */
   const studentIdForAttempt = includeUnpublished ? undefined : userId;
 
   return useQuery({
@@ -1036,7 +871,7 @@ export function useParentLinkRequests(userId: string, enabled = true, locale?: L
 export function useIncomingParentLinkRequests(
   userId: string,
   enabled = true,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const activeLocale = resolveLocale(locale);
 
@@ -1093,7 +928,6 @@ export function useUsers(enabled = true, locale?: Locale) {
   });
 }
 
-
 /* ================= COURSE ANNOUNCEMENT MUTATIONS ================= */
 
 type CreateCourseAnnouncementMutationInput =
@@ -1104,7 +938,7 @@ type CreateCourseAnnouncementMutationInput =
 
 export function useCreateCourseAnnouncementMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1114,8 +948,7 @@ export function useCreateCourseAnnouncementMutation(
       teacherId: _teacherId,
       locale: _locale,
       ...payload
-    }: CreateCourseAnnouncementMutationInput) =>
-      createCourseAnnouncement(payload),
+    }: CreateCourseAnnouncementMutationInput) => createCourseAnnouncement(payload),
     onSuccess: async (announcement, variables) => {
       await invalidateCourseAnnouncementCaches(queryClient, {
         courseId: announcement.course_id || variables.courseId,
@@ -1135,7 +968,7 @@ type UpdateCourseAnnouncementMutationInput =
 
 export function useUpdateCourseAnnouncementMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1146,8 +979,7 @@ export function useUpdateCourseAnnouncementMutation(
       teacherId: _teacherId,
       locale: _locale,
       ...payload
-    }: UpdateCourseAnnouncementMutationInput) =>
-      updateCourseAnnouncement(payload),
+    }: UpdateCourseAnnouncementMutationInput) => updateCourseAnnouncement(payload),
     onSuccess: async (announcement, variables) => {
       await invalidateCourseAnnouncementCaches(queryClient, {
         courseId: announcement.course_id || variables.courseId,
@@ -1167,7 +999,7 @@ type DeleteCourseAnnouncementMutationInput =
 
 export function useDeleteCourseAnnouncementMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1178,8 +1010,7 @@ export function useDeleteCourseAnnouncementMutation(
       teacherId: _teacherId,
       locale: _locale,
       ...payload
-    }: DeleteCourseAnnouncementMutationInput) =>
-      deleteCourseAnnouncement(payload),
+    }: DeleteCourseAnnouncementMutationInput) => deleteCourseAnnouncement(payload),
     onSuccess: async (_, variables) => {
       await invalidateCourseAnnouncementCaches(queryClient, {
         courseId: variables.courseId,
@@ -1202,7 +1033,7 @@ type UpdateCourseAccessSettingsMutationInput =
 
 export function useUpdateCourseAccessSettingsMutation(
   userId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1370,19 +1201,16 @@ export function useManualGrantCourseAccessMutation(adminId?: string, locale?: Lo
       await invalidateCourseAccessCaches(queryClient, {
         userId: entitlement.user_id,
         teacherId: adminId,
-        courseId: entitlement.resource_type === 'course'
-          ? entitlement.resource_id
-          : undefined,
+        courseId:
+          entitlement.resource_type === 'course'
+            ? entitlement.resource_id
+            : undefined,
         locale: resolvedLocale,
       });
 
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.usersByLocale(resolvedLocale),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.adminDashboardByLocale(resolvedLocale),
-        }),
+      await invalidateMany(queryClient, [
+        platformKeys.usersByLocale(resolvedLocale),
+        platformKeys.adminDashboardByLocale(resolvedLocale),
       ]);
     },
   });
@@ -1400,21 +1228,14 @@ export function useManualApproveOrderMutation(adminId?: string, locale?: Locale)
         locale: activeLocale,
       });
 
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.pendingOrders,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.adminDashboardByLocale(activeLocale),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.usersByLocale(activeLocale),
-        }),
+      await invalidateMany(queryClient, [
+        platformKeys.pendingOrders,
+        platformKeys.adminDashboardByLocale(activeLocale),
+        platformKeys.usersByLocale(activeLocale),
       ]);
     },
   });
 }
-
 
 /* ================= LESSON MINI QUIZ MUTATIONS ================= */
 
@@ -1426,7 +1247,7 @@ type UpsertLessonMiniQuizMutationInput =
 
 export function useUpsertLessonMiniQuizMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1458,7 +1279,7 @@ type DeleteLessonMiniQuizMutationInput =
 
 export function useDeleteLessonMiniQuizMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1492,7 +1313,7 @@ type CreateLessonMiniQuizQuestionMutationInput =
 
 export function useCreateLessonMiniQuizQuestionMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1527,7 +1348,7 @@ type UpdateLessonMiniQuizQuestionMutationInput =
 
 export function useUpdateLessonMiniQuizQuestionMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1562,7 +1383,7 @@ type DeleteLessonMiniQuizQuestionMutationInput =
 
 export function useDeleteLessonMiniQuizQuestionMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1597,7 +1418,7 @@ type ReorderLessonMiniQuizQuestionsMutationInput =
 
 export function useReorderLessonMiniQuizQuestionsMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1647,7 +1468,7 @@ export function useSubmitLessonMiniQuizMutation(locale?: Locale) {
   });
 }
 
-/* ================= MVP 2 LEARNING SPACE MUTATIONS ================= */
+/* ================= LEARNING SPACE MUTATIONS ================= */
 
 type UpsertLessonNoteMutationInput =
   UpsertLessonNotePayload & {
@@ -1775,7 +1596,7 @@ export function useToggleReviewLaterMutation(locale?: Locale) {
         locale: variables.locale ?? activeLocale,
       });
 
-      queryClient.invalidateQueries({
+      await queryClient.invalidateQueries({
         queryKey: platformKeys.testsBase,
       });
     },
@@ -1790,7 +1611,7 @@ type CreateLessonExternalAttachmentMutationInput =
 
 export function useCreateLessonExternalAttachmentMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1823,7 +1644,7 @@ type DeleteLessonAttachmentMutationInput =
 
 export function useDeleteLessonAttachmentMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1855,7 +1676,7 @@ type CreateCourseExternalAssetMutationInput =
 
 export function useCreateCourseExternalAssetMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1885,7 +1706,7 @@ type DeleteCourseAssetMutationInput =
 
 export function useDeleteCourseAssetMutation(
   teacherId?: string,
-  locale?: Locale
+  locale?: Locale,
 ) {
   const queryClient = useQueryClient();
   const activeLocale = resolveLocale(locale);
@@ -1922,27 +1743,17 @@ export function useAcceptParentLinkRequestMutation(userId?: string, locale?: Loc
     mutationFn: async ({
       requestId,
       locale: mutationLocale,
-    }: StudentParentLinkRequestActionInput) => {
-      const resolvedLocale = resolveLocale(mutationLocale ?? activeLocale);
-      return acceptParentLinkRequest(requestId, resolvedLocale);
-    },
+    }: StudentParentLinkRequestActionInput) =>
+      acceptParentLinkRequest(requestId, resolveLocale(mutationLocale ?? activeLocale)),
     onSuccess: async (_, variables) => {
       const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
 
-      await Promise.all([
+      await invalidateMany(queryClient, [
         userId
-          ? queryClient.invalidateQueries({
-              queryKey: platformKeys.incomingParentLinkRequests(userId, resolvedLocale),
-            })
-          : queryClient.invalidateQueries({
-              queryKey: platformKeys.incomingParentLinkRequestsBase,
-            }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.parentDashboardBase,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.parentLinkRequestsBase,
-        }),
+          ? platformKeys.incomingParentLinkRequests(userId, resolvedLocale)
+          : platformKeys.incomingParentLinkRequestsBase,
+        platformKeys.parentDashboardBase,
+        platformKeys.parentLinkRequestsBase,
       ]);
     },
   });
@@ -1956,24 +1767,16 @@ export function useDeclineParentLinkRequestMutation(userId?: string, locale?: Lo
     mutationFn: async ({
       requestId,
       locale: mutationLocale,
-    }: StudentParentLinkRequestActionInput) => {
-      const resolvedLocale = resolveLocale(mutationLocale ?? activeLocale);
-      return declineParentLinkRequest(requestId, resolvedLocale);
-    },
+    }: StudentParentLinkRequestActionInput) =>
+      declineParentLinkRequest(requestId, resolveLocale(mutationLocale ?? activeLocale)),
     onSuccess: async (_, variables) => {
       const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
 
-      await Promise.all([
+      await invalidateMany(queryClient, [
         userId
-          ? queryClient.invalidateQueries({
-              queryKey: platformKeys.incomingParentLinkRequests(userId, resolvedLocale),
-            })
-          : queryClient.invalidateQueries({
-              queryKey: platformKeys.incomingParentLinkRequestsBase,
-            }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.parentLinkRequestsBase,
-        }),
+          ? platformKeys.incomingParentLinkRequests(userId, resolvedLocale)
+          : platformKeys.incomingParentLinkRequestsBase,
+        platformKeys.parentLinkRequestsBase,
       ]);
     },
   });
@@ -1989,39 +1792,19 @@ export function useRequestParentLinkMutation(userId?: string, locale?: Locale) {
   const activeLocale = resolveLocale(locale);
 
   return useMutation({
-    mutationFn: async ({ childEmail, locale: mutationLocale }: RequestParentLinkInput) => {
-      const resolvedLocale = resolveLocale(mutationLocale ?? activeLocale);
-      return requestParentLink(childEmail, resolvedLocale);
-    },
+    mutationFn: async ({ childEmail, locale: mutationLocale }: RequestParentLinkInput) =>
+      requestParentLink(childEmail, resolveLocale(mutationLocale ?? activeLocale)),
     onSuccess: async (_, variables) => {
       const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
 
-      if (userId) {
-        await Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: platformKeys.parentLinkRequests(userId, resolvedLocale),
-          }),
-          queryClient.invalidateQueries({
-            queryKey: platformKeys.parentDashboard(userId, resolvedLocale),
-          }),
-          queryClient.invalidateQueries({
-            queryKey: platformKeys.incomingParentLinkRequestsBase,
-          }),
-        ]);
-
-        return;
-      }
-
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.parentLinkRequestsBase,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.parentDashboardBase,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.incomingParentLinkRequestsBase,
-        }),
+      await invalidateMany(queryClient, [
+        userId
+          ? platformKeys.parentLinkRequests(userId, resolvedLocale)
+          : platformKeys.parentLinkRequestsBase,
+        userId
+          ? platformKeys.parentDashboard(userId, resolvedLocale)
+          : platformKeys.parentDashboardBase,
+        platformKeys.incomingParentLinkRequestsBase,
       ]);
     },
   });
@@ -2040,39 +1823,19 @@ export function useCancelParentLinkRequestMutation(userId?: string, locale?: Loc
     mutationFn: async ({
       requestId,
       locale: mutationLocale,
-    }: CancelParentLinkRequestInput) => {
-      const resolvedLocale = resolveLocale(mutationLocale ?? activeLocale);
-      return cancelParentLinkRequest(requestId, resolvedLocale);
-    },
+    }: CancelParentLinkRequestInput) =>
+      cancelParentLinkRequest(requestId, resolveLocale(mutationLocale ?? activeLocale)),
     onSuccess: async (_, variables) => {
       const resolvedLocale = resolveLocale(variables.locale ?? activeLocale);
 
-      if (userId) {
-        await Promise.all([
-          queryClient.invalidateQueries({
-            queryKey: platformKeys.parentLinkRequests(userId, resolvedLocale),
-          }),
-          queryClient.invalidateQueries({
-            queryKey: platformKeys.parentDashboard(userId, resolvedLocale),
-          }),
-          queryClient.invalidateQueries({
-            queryKey: platformKeys.incomingParentLinkRequestsBase,
-          }),
-        ]);
-
-        return;
-      }
-
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.parentLinkRequestsBase,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.parentDashboardBase,
-        }),
-        queryClient.invalidateQueries({
-          queryKey: platformKeys.incomingParentLinkRequestsBase,
-        }),
+      await invalidateMany(queryClient, [
+        userId
+          ? platformKeys.parentLinkRequests(userId, resolvedLocale)
+          : platformKeys.parentLinkRequestsBase,
+        userId
+          ? platformKeys.parentDashboard(userId, resolvedLocale)
+          : platformKeys.parentDashboardBase,
+        platformKeys.incomingParentLinkRequestsBase,
       ]);
     },
   });

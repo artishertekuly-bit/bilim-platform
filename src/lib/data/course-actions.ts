@@ -1,15 +1,14 @@
 import { supabase } from '@/integrations/supabase/client';
 import type {
+  Json,
   Tables,
   TablesInsert,
+  TablesUpdate,
 } from '@/integrations/supabase/types';
 import type {
   CourseAccessSettingsPayload,
-  CourseAccessType,
-  CourseAnnouncementRow,
+  CourseAnnouncementPriority,
   CourseAnnouncementView,
-  CourseInviteRow,
-  CourseVisibility,
   CreateCourseAnnouncementPayload,
   CreateCourseInvitePayload,
   CreateLessonMiniQuizQuestionPayload,
@@ -17,17 +16,13 @@ import type {
   DeleteLessonMiniQuizPayload,
   DeleteLessonMiniQuizQuestionPayload,
   EntitlementRow,
-  LessonMiniQuizAttemptRow,
   LessonMiniQuizAttemptView,
-  LessonMiniQuizQuestionRow,
   LessonMiniQuizQuestionType,
   LessonMiniQuizQuestionView,
-  LessonMiniQuizRow,
   LessonMiniQuizSubmitResult,
   LessonMiniQuizView,
   ManualApproveOrderResponse,
   ManualGrantCourseAccessPayload,
-  OrderRow,
   RedeemCourseInvitePayload,
   RedeemCourseInviteResponse,
   ReorderLessonMiniQuizQuestionsPayload,
@@ -39,31 +34,145 @@ import type {
 } from '@/lib/app-data-types';
 import { execOrThrow, localizedText, queryOrThrow } from './common';
 
+/* ================= TYPES ================= */
+
+type CourseRow = Tables<'courses'>;
+type CourseInsert = TablesInsert<'courses'>;
+type CoursePatch = TablesUpdate<'courses'>;
 type CourseStatus = Tables<'courses'>['status'];
+type CourseAccessType = Tables<'courses'>['access_type'];
+type CourseVisibility = Tables<'courses'>['visibility'];
 
-type CoursePatch = Partial<Tables<'courses'>> & {
-  access_type?: CourseAccessType;
-  visibility?: CourseVisibility;
-  price?: number;
-  currency?: string;
-  published_at?: string | null;
-  enrollment_open?: boolean;
-  max_students?: number | null;
+type ModuleRow = Tables<'modules'>;
+type ModulePatch = TablesUpdate<'modules'>;
+
+type LessonRow = Tables<'lessons'>;
+type LessonPatch = TablesUpdate<'lessons'>;
+
+type SubjectInsert = TablesInsert<'subjects'>;
+
+type CourseAnnouncementRow = Tables<'course_announcements'>;
+type CourseAnnouncementInsert = TablesInsert<'course_announcements'>;
+type CourseAnnouncementPatch = TablesUpdate<'course_announcements'>;
+
+type CourseInviteRow = Tables<'course_invites'>;
+type CourseInvitePatch = TablesUpdate<'course_invites'>;
+
+type LessonMiniQuizRow = Tables<'lesson_mini_quizzes'>;
+type LessonMiniQuizInsert = TablesInsert<'lesson_mini_quizzes'>;
+type LessonMiniQuizPatch = TablesUpdate<'lesson_mini_quizzes'>;
+
+type LessonMiniQuizQuestionRow = Tables<'lesson_mini_quiz_questions'>;
+type LessonMiniQuizQuestionInsert = TablesInsert<'lesson_mini_quiz_questions'>;
+type LessonMiniQuizQuestionPatch = TablesUpdate<'lesson_mini_quiz_questions'>;
+
+type LessonMiniQuizAttemptRow = Tables<'lesson_mini_quiz_attempts'>;
+type LessonMiniQuizAttemptInsert = TablesInsert<'lesson_mini_quiz_attempts'>;
+
+type OrderRow = Tables<'orders'>;
+type EntitlementDbRow = Tables<'entitlements'>;
+
+type CurrentUserContext = {
+  userId: string;
+  isTeacher: boolean;
+  isAdmin: boolean;
 };
 
-type CourseInsert = TablesInsert<'courses'> & {
-  access_type?: CourseAccessType;
-  visibility?: CourseVisibility;
-  price?: number;
-  currency?: string;
-  enrollment_open?: boolean;
-  max_students?: number | null;
-};
+/* ================= NORMALIZE ================= */
 
-/* ================= HELPERS ================= */
+function normalizeText(value: unknown) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeNullableText(value: unknown) {
+  const normalized = normalizeText(value);
+
+  return normalized || null;
+}
 
 function normalizeCurrency(currency?: string | null) {
-  return (currency || 'KZT').trim().toUpperCase();
+  return normalizeText(currency || 'KZT').toUpperCase();
+}
+
+function normalizePositiveInteger(value: unknown, fallback = 1) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.round(parsed);
+}
+
+function normalizeOptionalPositiveInteger(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(
+      localizedText(
+        'kk',
+        'Мән бос немесе 1-ден жоғары бүтін сан болуы керек.',
+        'Значение должно быть пустым или целым числом больше 0.',
+      ),
+    );
+  }
+
+  return parsed;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item) => normalizeText(item)).filter(Boolean);
+}
+
+function normalizeNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+
+  return [...new Set(value.map(Number))]
+    .filter((item) => Number.isInteger(item) && item >= 0)
+    .sort((a, b) => a - b);
+}
+
+function normalizeMiniQuizAnswers(value: unknown): Record<string, number[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([questionId, answer]) => [
+      questionId,
+      normalizeNumberArray(answer),
+    ]),
+  );
+}
+
+function normalizeAnnouncementPriority(value: unknown): CourseAnnouncementPriority {
+  if (value === 'important' || value === 'urgent') {
+    return value;
+  }
+
+  return 'normal';
+}
+
+function normalizeLessonMiniQuizQuestionType(
+  value: unknown,
+): LessonMiniQuizQuestionType {
+  return value === 'multiple_choice' ? 'multiple_choice' : 'single_choice';
+}
+
+function toJson(value: unknown): Json {
+  return value as Json;
+}
+
+/* ================= ASSERTIONS ================= */
+
+function assertNonEmptyId(value: string, label: string) {
+  if (!value.trim()) {
+    throw new Error(`${label} бос болмауы керек.`);
+  }
 }
 
 function assertCurrency(currency: string) {
@@ -104,7 +213,119 @@ function assertMaxStudents(maxStudents: number | null | undefined) {
   }
 }
 
-async function getCurrentUserId() {
+function assertCourseTitle(title: string) {
+  if (!title) {
+    throw new Error('Курс атауы міндетті.');
+  }
+}
+
+function assertModuleTitle(title: string) {
+  if (!title) {
+    throw new Error('Модуль атауы міндетті.');
+  }
+}
+
+function assertLessonTitle(title: string) {
+  if (!title) {
+    throw new Error('Сабақ атауы міндетті.');
+  }
+}
+
+function assertSubjectPayload(input: {
+  slug: string;
+  nameKk: string;
+}) {
+  if (!input.slug) {
+    throw new Error('Пән slug міндетті.');
+  }
+
+  if (!input.nameKk) {
+    throw new Error('Пән атауы міндетті.');
+  }
+}
+
+function assertAnnouncementText(title: string, body: string) {
+  if (!title) {
+    throw new Error(
+      localizedText(
+        'kk',
+        'Хабарландыру тақырыбы міндетті.',
+        'Заголовок объявления обязателен.',
+      ),
+    );
+  }
+
+  if (!body) {
+    throw new Error(
+      localizedText(
+        'kk',
+        'Хабарландыру мәтіні міндетті.',
+        'Текст объявления обязателен.',
+      ),
+    );
+  }
+}
+
+function assertMiniQuizBase(input: {
+  title: string;
+  passingScore: number;
+}) {
+  if (!input.title) {
+    throw new Error('Mini quiz атауы міндетті.');
+  }
+
+  if (
+    !Number.isInteger(input.passingScore) ||
+    input.passingScore < 0 ||
+    input.passingScore > 100
+  ) {
+    throw new Error('Passing score 0 мен 100 аралығында болуы керек.');
+  }
+}
+
+function assertMiniQuizQuestion(input: {
+  questionText: string;
+  questionType: LessonMiniQuizQuestionType;
+  options: string[];
+  correctAnswer: number[];
+}) {
+  if (!input.questionText) {
+    throw new Error('Сұрақ мәтіні міндетті.');
+  }
+
+  if (input.options.length < 2) {
+    throw new Error('Кемінде 2 жауап нұсқасы болуы керек.');
+  }
+
+  if (input.correctAnswer.length === 0) {
+    throw new Error('Дұрыс жауап таңдалуы керек.');
+  }
+
+  const invalidIndex = input.correctAnswer.some(
+    (index) => index < 0 || index >= input.options.length,
+  );
+
+  if (invalidIndex) {
+    throw new Error('Дұрыс жауап индексі жауап нұсқаларына сәйкес емес.');
+  }
+
+  if (input.questionType === 'single_choice' && input.correctAnswer.length !== 1) {
+    throw new Error('Single choice сұрақта бір ғана дұрыс жауап болуы керек.');
+  }
+}
+
+function arraysEqualAsSet(a: number[], b: number[]) {
+  const left = [...a].sort((x, y) => x - y);
+  const right = [...b].sort((x, y) => x - y);
+
+  if (left.length !== right.length) return false;
+
+  return left.every((value, index) => value === right[index]);
+}
+
+/* ================= AUTH / OWNERSHIP ================= */
+
+async function getCurrentUserContext(): Promise<CurrentUserContext> {
   const {
     data: { user },
     error,
@@ -118,23 +339,59 @@ async function getCurrentUserId() {
     throw new Error('Авторизация қажет.');
   }
 
-  return user.id;
+  const [teacherResult, adminResult] = await Promise.all([
+    supabase.rpc('has_role', {
+      _user_id: user.id,
+      _role: 'teacher',
+    }),
+    supabase.rpc('has_role', {
+      _user_id: user.id,
+      _role: 'admin',
+    }),
+  ]);
+
+  if (teacherResult.error) {
+    throw new Error(teacherResult.error.message);
+  }
+
+  if (adminResult.error) {
+    throw new Error(adminResult.error.message);
+  }
+
+  return {
+    userId: user.id,
+    isTeacher: Boolean(teacherResult.data),
+    isAdmin: Boolean(adminResult.data),
+  };
+}
+
+async function getCurrentUserId() {
+  const context = await getCurrentUserContext();
+
+  return context.userId;
+}
+
+async function assertCanCreateCourse() {
+  const context = await getCurrentUserContext();
+
+  if (!context.isTeacher && !context.isAdmin) {
+    throw new Error('Курс құру үшін мұғалім немесе admin рөлі қажет.');
+  }
+
+  return context;
 }
 
 async function assertCourseOwner(courseId: string) {
   const trimmedCourseId = courseId.trim();
 
-  if (!trimmedCourseId) {
-    throw new Error('Course ID бос болмауы керек.');
-  }
+  assertNonEmptyId(trimmedCourseId, 'Course ID');
 
-  const userId = await getCurrentUserId();
+  const context = await getCurrentUserContext();
 
   const { data, error } = await supabase
     .from('courses')
-    .select('id, teacher_id')
+    .select('id, teacher_id, subject_id')
     .eq('id', trimmedCourseId)
-    .eq('teacher_id', userId)
     .maybeSingle();
 
   if (error) {
@@ -142,29 +399,30 @@ async function assertCourseOwner(courseId: string) {
   }
 
   if (!data) {
+    throw new Error('Курс табылмады.');
+  }
+
+  if (!context.isAdmin && data.teacher_id !== context.userId) {
     throw new Error('Бұл курсты өңдеуге рұқсатыңыз жоқ.');
   }
 
   return {
-    userId,
+    ...context,
     courseId: data.id,
+    teacherId: data.teacher_id,
+    subjectId: data.subject_id,
   };
 }
 
 async function assertModuleOwner(moduleId: string) {
   const trimmedModuleId = moduleId.trim();
 
-  if (!trimmedModuleId) {
-    throw new Error('Module ID бос болмауы керек.');
-  }
-
-  const userId = await getCurrentUserId();
+  assertNonEmptyId(trimmedModuleId, 'Module ID');
 
   const { data, error } = await supabase
     .from('modules')
-    .select('id, course_id, courses!inner(id, teacher_id)')
+    .select('id, course_id')
     .eq('id', trimmedModuleId)
-    .eq('courses.teacher_id', userId)
     .maybeSingle();
 
   if (error) {
@@ -172,35 +430,26 @@ async function assertModuleOwner(moduleId: string) {
   }
 
   if (!data) {
-    throw new Error('Бұл модульді өңдеуге рұқсатыңыз жоқ.');
+    throw new Error('Модуль табылмады.');
   }
 
-  const row = data as unknown as {
-    id: string;
-    course_id: string;
-  };
+  const owner = await assertCourseOwner(data.course_id);
 
   return {
-    userId,
-    moduleId: row.id,
-    courseId: row.course_id,
+    ...owner,
+    moduleId: data.id,
   };
 }
 
 async function assertLessonOwner(lessonId: string) {
   const trimmedLessonId = lessonId.trim();
 
-  if (!trimmedLessonId) {
-    throw new Error('Lesson ID бос болмауы керек.');
-  }
-
-  const userId = await getCurrentUserId();
+  assertNonEmptyId(trimmedLessonId, 'Lesson ID');
 
   const { data, error } = await supabase
     .from('lessons')
-    .select('id, module_id, modules!inner(id, course_id, courses!inner(id, teacher_id))')
+    .select('id, module_id')
     .eq('id', trimmedLessonId)
-    .eq('modules.courses.teacher_id', userId)
     .maybeSingle();
 
   if (error) {
@@ -208,40 +457,25 @@ async function assertLessonOwner(lessonId: string) {
   }
 
   if (!data) {
-    throw new Error('Бұл сабақты өңдеуге рұқсатыңыз жоқ.');
+    throw new Error('Сабақ табылмады.');
   }
 
-  const row = data as unknown as {
-    id: string;
-    module_id: string;
-    modules?: {
-      course_id?: string;
-    };
-  };
-
-  const courseId = row.modules?.course_id;
-
-  if (!courseId) {
-    throw new Error('Сабақтың courseId анықталмады.');
-  }
+  const owner = await assertModuleOwner(data.module_id);
 
   return {
-    userId,
-    lessonId: row.id,
-    moduleId: row.module_id,
-    courseId,
+    ...owner,
+    lessonId: data.id,
+    moduleId: data.module_id,
   };
 }
 
 async function assertCourseAnnouncementOwner(announcementId: string) {
   const trimmedAnnouncementId = announcementId.trim();
 
-  if (!trimmedAnnouncementId) {
-    throw new Error('Announcement ID бос болмауы керек.');
-  }
+  assertNonEmptyId(trimmedAnnouncementId, 'Announcement ID');
 
   const { data, error } = await supabase
-    .from('course_announcements' as never)
+    .from('course_announcements')
     .select('id, course_id')
     .eq('id', trimmedAnnouncementId)
     .maybeSingle();
@@ -254,25 +488,18 @@ async function assertCourseAnnouncementOwner(announcementId: string) {
     throw new Error('Хабарландыру табылмады.');
   }
 
-  const row = data as unknown as {
-    id: string;
-    course_id: string;
-  };
+  await assertCourseOwner(data.course_id);
 
-  await assertCourseOwner(row.course_id);
-
-  return row;
+  return data;
 }
 
 async function assertCourseInviteOwner(inviteId: string) {
   const trimmedInviteId = inviteId.trim();
 
-  if (!trimmedInviteId) {
-    throw new Error('Invite ID бос болмауы керек.');
-  }
+  assertNonEmptyId(trimmedInviteId, 'Invite ID');
 
   const { data, error } = await supabase
-    .from('course_invites' as never)
+    .from('course_invites')
     .select('id, course_id')
     .eq('id', trimmedInviteId)
     .maybeSingle();
@@ -285,25 +512,18 @@ async function assertCourseInviteOwner(inviteId: string) {
     throw new Error('Invite табылмады.');
   }
 
-  const row = data as unknown as {
-    id: string;
-    course_id: string;
-  };
+  await assertCourseOwner(data.course_id);
 
-  await assertCourseOwner(row.course_id);
-
-  return row;
+  return data;
 }
 
 async function assertLessonMiniQuizOwner(quizId: string) {
   const trimmedQuizId = quizId.trim();
 
-  if (!trimmedQuizId) {
-    throw new Error('Quiz ID бос болмауы керек.');
-  }
+  assertNonEmptyId(trimmedQuizId, 'Quiz ID');
 
   const { data, error } = await supabase
-    .from('lesson_mini_quizzes' as never)
+    .from('lesson_mini_quizzes')
     .select('id, lesson_id, course_id')
     .eq('id', trimmedQuizId)
     .maybeSingle();
@@ -316,26 +536,18 @@ async function assertLessonMiniQuizOwner(quizId: string) {
     throw new Error('Mini quiz табылмады.');
   }
 
-  const row = data as unknown as {
-    id: string;
-    lesson_id: string;
-    course_id: string;
-  };
+  await assertCourseOwner(data.course_id);
 
-  await assertCourseOwner(row.course_id);
-
-  return row;
+  return data;
 }
 
 async function assertLessonMiniQuizQuestionOwner(questionId: string) {
   const trimmedQuestionId = questionId.trim();
 
-  if (!trimmedQuestionId) {
-    throw new Error('Question ID бос болмауы керек.');
-  }
+  assertNonEmptyId(trimmedQuestionId, 'Question ID');
 
   const { data, error } = await supabase
-    .from('lesson_mini_quiz_questions' as never)
+    .from('lesson_mini_quiz_questions')
     .select('id, quiz_id')
     .eq('id', trimmedQuestionId)
     .maybeSingle();
@@ -348,19 +560,16 @@ async function assertLessonMiniQuizQuestionOwner(questionId: string) {
     throw new Error('Mini quiz сұрағы табылмады.');
   }
 
-  const row = data as unknown as {
-    id: string;
-    quiz_id: string;
-  };
+  await assertLessonMiniQuizOwner(data.quiz_id);
 
-  await assertLessonMiniQuizOwner(row.quiz_id);
-
-  return row;
+  return data;
 }
 
+/* ================= HELPERS ================= */
+
 function normalizeAccessSettings(input: CourseAccessSettingsPayload) {
-  const accessType = input.accessType;
-  const visibility = input.visibility;
+  const accessType = input.accessType as CourseAccessType;
+  const visibility = input.visibility as CourseVisibility;
   const price = Number(input.price ?? 0);
   const currency = normalizeCurrency(input.currency);
   const enrollmentOpen = input.enrollmentOpen;
@@ -391,7 +600,7 @@ function normalizeAccessSettings(input: CourseAccessSettingsPayload) {
 }
 
 function normalizeInviteCode(code: string) {
-  const normalized = code.trim().toUpperCase();
+  const normalized = normalizeText(code).toUpperCase();
 
   if (normalized.length < 6) {
     throw new Error(
@@ -404,28 +613,6 @@ function normalizeInviteCode(code: string) {
   }
 
   return normalized;
-}
-
-function assertAnnouncementText(title: string, body: string) {
-  if (!title.trim()) {
-    throw new Error(
-      localizedText(
-        'kk',
-        'Хабарландыру тақырыбы міндетті.',
-        'Заголовок объявления обязателен.',
-      ),
-    );
-  }
-
-  if (!body.trim()) {
-    throw new Error(
-      localizedText(
-        'kk',
-        'Хабарландыру мәтіні міндетті.',
-        'Текст объявления обязателен.',
-      ),
-    );
-  }
 }
 
 function isExpiredAnnouncement(expiresAt: string | null) {
@@ -459,7 +646,7 @@ function mapCourseAnnouncementView(
     title: row.title,
     body: row.body,
 
-    priority: row.priority,
+    priority: normalizeAnnouncementPriority(row.priority),
     isPinned: row.is_pinned,
 
     publishedAt: row.published_at,
@@ -471,92 +658,6 @@ function mapCourseAnnouncementView(
   };
 }
 
-function normalizeStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.map((item) => String(item ?? '').trim()).filter(Boolean);
-}
-
-function normalizeNumberArray(value: unknown): number[] {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .map((item) => Number(item))
-    .filter((item) => Number.isInteger(item) && item >= 0);
-}
-
-function normalizeMiniQuizAnswers(value: unknown): Record<string, number[]> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([questionId, answer]) => [
-      questionId,
-      normalizeNumberArray(answer),
-    ]),
-  );
-}
-
-function arraysEqualAsSet(a: number[], b: number[]) {
-  const left = [...a].sort((x, y) => x - y);
-  const right = [...b].sort((x, y) => x - y);
-
-  if (left.length !== right.length) return false;
-
-  return left.every((value, index) => value === right[index]);
-}
-
-function assertMiniQuizBase(input: {
-  title: string;
-  passingScore: number;
-}) {
-  if (!input.title.trim()) {
-    throw new Error('Mini quiz атауы міндетті.');
-  }
-
-  if (
-    !Number.isInteger(input.passingScore) ||
-    input.passingScore < 0 ||
-    input.passingScore > 100
-  ) {
-    throw new Error('Passing score 0 мен 100 аралығында болуы керек.');
-  }
-}
-
-function assertMiniQuizQuestion(input: {
-  questionText: string;
-  questionType: LessonMiniQuizQuestionType;
-  options: string[];
-  correctAnswer: number[];
-}) {
-  if (!input.questionText.trim()) {
-    throw new Error('Сұрақ мәтіні міндетті.');
-  }
-
-  const options = input.options.map((item) => item.trim()).filter(Boolean);
-
-  if (options.length < 2) {
-    throw new Error('Кемінде 2 жауап нұсқасы болуы керек.');
-  }
-
-  if (input.questionType === 'single_choice' && input.correctAnswer.length !== 1) {
-    throw new Error('Single choice сұрақта бір ғана дұрыс жауап болуы керек.');
-  }
-
-  if (input.correctAnswer.length === 0) {
-    throw new Error('Дұрыс жауап таңдалуы керек.');
-  }
-
-  const invalidIndex = input.correctAnswer.some(
-    (index) => !Number.isInteger(index) || index < 0 || index >= options.length,
-  );
-
-  if (invalidIndex) {
-    throw new Error('Дұрыс жауап индексі жауап нұсқаларына сәйкес емес.');
-  }
-}
-
 function mapLessonMiniQuizQuestionView(
   row: LessonMiniQuizQuestionRow,
 ): LessonMiniQuizQuestionView {
@@ -565,7 +666,7 @@ function mapLessonMiniQuizQuestionView(
     quizId: row.quiz_id,
 
     questionText: row.question_text,
-    questionType: row.question_type,
+    questionType: normalizeLessonMiniQuizQuestionType(row.question_type),
 
     options: normalizeStringArray(row.options),
     correctAnswer: normalizeNumberArray(row.correct_answer),
@@ -630,6 +731,16 @@ function mapLessonMiniQuizView(
   };
 }
 
+function assertOrderedIds(ids: string[], label: string) {
+  const normalizedIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+
+  if (normalizedIds.length !== ids.length) {
+    throw new Error(`${label}: бос немесе қайталанған ID бар.`);
+  }
+
+  return normalizedIds;
+}
+
 /* ================= UPDATE ================= */
 
 export async function updateCourse(input: {
@@ -646,14 +757,27 @@ export async function updateCourse(input: {
   enrollmentOpen?: boolean;
   maxStudents?: number | null;
 }) {
-  const { userId } = await assertCourseOwner(input.courseId);
+  const { userId, isAdmin } = await assertCourseOwner(input.courseId);
 
   const patch: CoursePatch = {};
 
-  if (input.title !== undefined) patch.title = input.title;
-  if (input.description !== undefined) patch.description = input.description;
-  if (input.subjectId !== undefined) patch.subject_id = input.subjectId;
-  if (input.thumbnailUrl !== undefined) patch.thumbnail_url = input.thumbnailUrl;
+  if (input.title !== undefined) {
+    const title = normalizeText(input.title);
+    assertCourseTitle(title);
+    patch.title = title;
+  }
+
+  if (input.description !== undefined) {
+    patch.description = normalizeNullableText(input.description);
+  }
+
+  if (input.subjectId !== undefined) {
+    patch.subject_id = input.subjectId || null;
+  }
+
+  if (input.thumbnailUrl !== undefined) {
+    patch.thumbnail_url = normalizeNullableText(input.thumbnailUrl);
+  }
 
   if (input.status !== undefined) {
     patch.status = input.status;
@@ -686,11 +810,13 @@ export async function updateCourse(input: {
     patch.max_students = input.maxStudents;
   }
 
-  const { error } = await supabase
-    .from('courses')
-    .update(patch as never)
-    .eq('id', input.courseId)
-    .eq('teacher_id', userId);
+  let query = supabase.from('courses').update(patch).eq('id', input.courseId);
+
+  if (!isAdmin) {
+    query = query.eq('teacher_id', userId);
+  }
+
+  const { error } = await query;
 
   if (error) throw new Error(error.message);
 }
@@ -700,25 +826,28 @@ export async function updateCourseAccessSettings(
     courseId: string;
   },
 ) {
-  const { userId } = await assertCourseOwner(input.courseId);
+  const { userId, isAdmin } = await assertCourseOwner(input.courseId);
   const settings = normalizeAccessSettings(input);
 
-  return queryOrThrow(
-    supabase
-      .from('courses')
-      .update({
-        access_type: settings.accessType,
-        visibility: settings.visibility,
-        price: settings.price,
-        currency: settings.currency,
-        enrollment_open: settings.enrollmentOpen,
-        max_students: settings.maxStudents,
-      } as never)
-      .eq('id', input.courseId)
-      .eq('teacher_id', userId)
-      .select('*')
-      .single(),
-  ) as Promise<Tables<'courses'>>;
+  const patch: CoursePatch = {
+    access_type: settings.accessType,
+    visibility: settings.visibility,
+    price: settings.price,
+    currency: settings.currency,
+    enrollment_open: settings.enrollmentOpen,
+    max_students: settings.maxStudents,
+  };
+
+  let query = supabase
+    .from('courses')
+    .update(patch)
+    .eq('id', input.courseId);
+
+  if (!isAdmin) {
+    query = query.eq('teacher_id', userId);
+  }
+
+  return queryOrThrow(query.select('*').single()) as Promise<CourseRow>;
 }
 
 export async function updateModule(input: {
@@ -728,10 +857,17 @@ export async function updateModule(input: {
 }) {
   await assertModuleOwner(input.moduleId);
 
-  const patch: Partial<Tables<'modules'>> = {};
+  const patch: ModulePatch = {};
 
-  if (input.title !== undefined) patch.title = input.title;
-  if (input.sortOrder !== undefined) patch.sort_order = input.sortOrder;
+  if (input.title !== undefined) {
+    const title = normalizeText(input.title);
+    assertModuleTitle(title);
+    patch.title = title;
+  }
+
+  if (input.sortOrder !== undefined) {
+    patch.sort_order = normalizePositiveInteger(input.sortOrder);
+  }
 
   const { error } = await supabase
     .from('modules')
@@ -752,14 +888,33 @@ export async function updateLesson(input: {
 }) {
   await assertLessonOwner(input.lessonId);
 
-  const patch: Partial<Tables<'lessons'>> = {};
+  const patch: LessonPatch = {};
 
-  if (input.title !== undefined) patch.title = input.title;
-  if (input.contentBody !== undefined) patch.content_body = input.contentBody;
-  if (input.practiceContent !== undefined) patch.practice_content = input.practiceContent;
-  if (input.mediaUrl !== undefined) patch.media_url = input.mediaUrl;
-  if (input.sortOrder !== undefined) patch.sort_order = input.sortOrder;
-  if (input.isPublished !== undefined) patch.is_published = input.isPublished;
+  if (input.title !== undefined) {
+    const title = normalizeText(input.title);
+    assertLessonTitle(title);
+    patch.title = title;
+  }
+
+  if (input.contentBody !== undefined) {
+    patch.content_body = normalizeNullableText(input.contentBody);
+  }
+
+  if (input.practiceContent !== undefined) {
+    patch.practice_content = normalizeNullableText(input.practiceContent);
+  }
+
+  if (input.mediaUrl !== undefined) {
+    patch.media_url = normalizeNullableText(input.mediaUrl);
+  }
+
+  if (input.sortOrder !== undefined) {
+    patch.sort_order = normalizePositiveInteger(input.sortOrder);
+  }
+
+  if (input.isPublished !== undefined) {
+    patch.is_published = input.isPublished;
+  }
 
   const { error } = await supabase
     .from('lessons')
@@ -784,17 +939,14 @@ export async function createCourse(input: {
   enrollmentOpen?: boolean;
   maxStudents?: number | null;
 }) {
-  const teacherId = await getCurrentUserId();
+  const context = await assertCanCreateCourse();
 
-  if (input.teacherId && input.teacherId !== teacherId) {
+  if (!context.isAdmin && input.teacherId && input.teacherId !== context.userId) {
     throw new Error('Курсты тек ағымдағы мұғалім аккаунтымен құруға болады.');
   }
 
-  const title = input.title.trim();
-
-  if (!title) {
-    throw new Error('Курс атауы міндетті.');
-  }
+  const title = normalizeText(input.title);
+  assertCourseTitle(title);
 
   const currency = normalizeCurrency(input.currency);
   const price = Number(input.price ?? 0);
@@ -817,9 +969,9 @@ export async function createCourse(input: {
 
   const payload: CourseInsert = {
     title,
-    description: input.description?.trim() || null,
+    description: normalizeNullableText(input.description),
     subject_id: input.subjectId || null,
-    teacher_id: teacherId,
+    teacher_id: context.isAdmin && input.teacherId ? input.teacherId : context.userId,
     status: input.status || 'draft',
     access_type: accessType,
     visibility: input.visibility || 'public',
@@ -832,10 +984,10 @@ export async function createCourse(input: {
   return queryOrThrow(
     supabase
       .from('courses')
-      .insert(payload as never)
+      .insert(payload)
       .select('*')
       .single(),
-  ) as Promise<Tables<'courses'>>;
+  ) as Promise<CourseRow>;
 }
 
 export async function createModule(input: {
@@ -845,23 +997,22 @@ export async function createModule(input: {
 }) {
   await assertCourseOwner(input.courseId);
 
-  const title = input.title.trim();
+  const title = normalizeText(input.title);
+  assertModuleTitle(title);
 
-  if (!title) {
-    throw new Error('Модуль атауы міндетті.');
-  }
+  const payload: TablesInsert<'modules'> = {
+    course_id: input.courseId,
+    title,
+    sort_order: normalizePositiveInteger(input.sortOrder),
+  };
 
   return queryOrThrow(
     supabase
       .from('modules')
-      .insert({
-        course_id: input.courseId,
-        title,
-        sort_order: input.sortOrder || 1,
-      })
+      .insert(payload)
       .select('*')
       .single(),
-  );
+  ) as Promise<ModuleRow>;
 }
 
 export async function createLesson(input: {
@@ -876,28 +1027,27 @@ export async function createLesson(input: {
 }) {
   await assertModuleOwner(input.moduleId);
 
-  const title = input.title.trim();
+  const title = normalizeText(input.title);
+  assertLessonTitle(title);
 
-  if (!title) {
-    throw new Error('Сабақ атауы міндетті.');
-  }
+  const payload: TablesInsert<'lessons'> = {
+    module_id: input.moduleId,
+    subject_id: input.subjectId || null,
+    title,
+    content_body: normalizeNullableText(input.contentBody),
+    practice_content: normalizeNullableText(input.practiceContent),
+    media_url: normalizeNullableText(input.mediaUrl),
+    sort_order: normalizePositiveInteger(input.sortOrder),
+    is_published: input.isPublished ?? false,
+  };
 
   return queryOrThrow(
     supabase
       .from('lessons')
-      .insert({
-        module_id: input.moduleId,
-        subject_id: input.subjectId || null,
-        title,
-        content_body: input.contentBody?.trim() || null,
-        practice_content: input.practiceContent?.trim() || null,
-        media_url: input.mediaUrl?.trim() || null,
-        sort_order: input.sortOrder || 1,
-        is_published: input.isPublished ?? false,
-      })
+      .insert(payload)
       .select('*')
       .single(),
-  );
+  ) as Promise<LessonRow>;
 }
 
 export async function createSubject(input: {
@@ -906,27 +1056,23 @@ export async function createSubject(input: {
   nameRu?: string;
   sortOrder?: number;
 }) {
-  const slug = input.slug.trim();
-  const nameKk = input.nameKk.trim();
-  const nameRu = input.nameRu?.trim() || null;
+  const slug = normalizeText(input.slug);
+  const nameKk = normalizeText(input.nameKk);
+  const nameRu = normalizeNullableText(input.nameRu);
 
-  if (!slug) {
-    throw new Error('Пән slug міндетті.');
-  }
+  assertSubjectPayload({ slug, nameKk });
 
-  if (!nameKk) {
-    throw new Error('Пән атауы міндетті.');
-  }
+  const payload: SubjectInsert = {
+    slug,
+    name_kk: nameKk,
+    name_ru: nameRu,
+    sort_order: normalizePositiveInteger(input.sortOrder),
+  };
 
   return queryOrThrow(
     supabase
       .from('subjects')
-      .insert({
-        slug,
-        name_kk: nameKk,
-        name_ru: nameRu,
-        sort_order: input.sortOrder || 1,
-      })
+      .insert(payload)
       .select('*')
       .single(),
   );
@@ -935,7 +1081,7 @@ export async function createSubject(input: {
 /* ================= STATUS ================= */
 
 export async function updateCourseStatus(courseId: string, status: CourseStatus) {
-  const { userId } = await assertCourseOwner(courseId);
+  const { userId, isAdmin } = await assertCourseOwner(courseId);
 
   const patch: CoursePatch = { status };
 
@@ -943,11 +1089,13 @@ export async function updateCourseStatus(courseId: string, status: CourseStatus)
     patch.published_at = new Date().toISOString();
   }
 
-  const { error } = await supabase
-    .from('courses')
-    .update(patch as never)
-    .eq('id', courseId)
-    .eq('teacher_id', userId);
+  let query = supabase.from('courses').update(patch).eq('id', courseId);
+
+  if (!isAdmin) {
+    query = query.eq('teacher_id', userId);
+  }
+
+  const { error } = await query;
 
   if (error) throw new Error(error.message);
 }
@@ -955,31 +1103,30 @@ export async function updateCourseStatus(courseId: string, status: CourseStatus)
 /* ================= COURSE ACCESS ================= */
 
 export async function canAccessCourse(courseId: string, userId?: string) {
-  const args = userId
-    ? {
-        p_course_id: courseId,
-        p_user_id: userId,
-      }
-    : {
-        p_course_id: courseId,
-      };
+  assertNonEmptyId(courseId, 'Course ID');
 
   return queryOrThrow(
-    supabase.rpc('can_access_course' as never, args as never),
+    supabase.rpc('can_access_course', {
+      p_course_id: courseId,
+      ...(userId ? { p_user_id: userId } : {}),
+    }),
   ) as Promise<boolean>;
 }
 
 export async function userHasActiveEntitlement(input: {
   userId: string;
-  resourceType: 'course' | 'subscription' | 'ai_feature' | 'consultation' | 'certificate';
+  resourceType: Tables<'entitlements'>['resource_type'];
   resourceId: string;
 }) {
+  assertNonEmptyId(input.userId, 'User ID');
+  assertNonEmptyId(input.resourceId, 'Resource ID');
+
   return queryOrThrow(
-    supabase.rpc('user_has_active_entitlement' as never, {
+    supabase.rpc('user_has_active_entitlement', {
       p_user_id: input.userId,
       p_resource_type: input.resourceType,
       p_resource_id: input.resourceId,
-    } as never),
+    }),
   ) as Promise<boolean>;
 }
 
@@ -988,15 +1135,15 @@ export async function userHasActiveEntitlement(input: {
 export async function getCourseAnnouncements(input: {
   courseId: string;
   includeExpired?: boolean;
-}) {
-  const courseId = input.courseId.trim();
+}): Promise<CourseAnnouncementView[]> {
+  const courseId = normalizeText(input.courseId);
 
   if (!courseId) {
     return [];
   }
 
   let query = supabase
-    .from('course_announcements' as never)
+    .from('course_announcements')
     .select('*')
     .eq('course_id', courseId)
     .order('is_pinned', { ascending: false })
@@ -1006,7 +1153,7 @@ export async function getCourseAnnouncements(input: {
     query = query.or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`);
   }
 
-  const rows = (await queryOrThrow(query)) as unknown as CourseAnnouncementRow[];
+  const rows = await queryOrThrow(query);
 
   if (rows.length === 0) {
     return [];
@@ -1056,29 +1203,31 @@ export async function getCourseAnnouncements(input: {
 export async function createCourseAnnouncement(
   input: CreateCourseAnnouncementPayload,
 ) {
-  await assertCourseOwner(input.courseId);
+  const owner = await assertCourseOwner(input.courseId);
 
-  const title = input.title.trim();
-  const body = input.body.trim();
+  const title = normalizeText(input.title);
+  const body = normalizeText(input.body);
 
   assertAnnouncementText(title, body);
 
+  const payload: CourseAnnouncementInsert = {
+    course_id: input.courseId,
+    author_id: owner.userId,
+    title,
+    body,
+    priority: input.priority || 'normal',
+    is_pinned: input.isPinned ?? false,
+    published_at: input.publishedAt || new Date().toISOString(),
+    expires_at: input.expiresAt || null,
+  };
+
   return queryOrThrow(
     supabase
-      .from('course_announcements' as never)
-      .insert({
-        course_id: input.courseId,
-        author_id: input.authorId,
-        title,
-        body,
-        priority: input.priority || 'normal',
-        is_pinned: input.isPinned ?? false,
-        published_at: input.publishedAt || new Date().toISOString(),
-        expires_at: input.expiresAt || null,
-      } as never)
+      .from('course_announcements')
+      .insert(payload)
       .select('*')
       .single(),
-  ) as unknown as Promise<CourseAnnouncementRow>;
+  ) as Promise<CourseAnnouncementRow>;
 }
 
 export async function updateCourseAnnouncement(
@@ -1086,26 +1235,28 @@ export async function updateCourseAnnouncement(
 ) {
   await assertCourseAnnouncementOwner(input.announcementId);
 
-  const title = input.title.trim();
-  const body = input.body.trim();
+  const title = normalizeText(input.title);
+  const body = normalizeText(input.body);
 
   assertAnnouncementText(title, body);
 
+  const patch: CourseAnnouncementPatch = {
+    title,
+    body,
+    priority: input.priority,
+    is_pinned: input.isPinned,
+    published_at: input.publishedAt || new Date().toISOString(),
+    expires_at: input.expiresAt || null,
+  };
+
   return queryOrThrow(
     supabase
-      .from('course_announcements' as never)
-      .update({
-        title,
-        body,
-        priority: input.priority,
-        is_pinned: input.isPinned,
-        published_at: input.publishedAt || new Date().toISOString(),
-        expires_at: input.expiresAt || null,
-      } as never)
+      .from('course_announcements')
+      .update(patch)
       .eq('id', input.announcementId)
       .select('*')
       .single(),
-  ) as unknown as Promise<CourseAnnouncementRow>;
+  ) as Promise<CourseAnnouncementRow>;
 }
 
 export async function deleteCourseAnnouncement(
@@ -1118,7 +1269,7 @@ export async function deleteCourseAnnouncement(
 
   await execOrThrow(
     supabase
-      .from('course_announcements' as never)
+      .from('course_announcements')
       .delete()
       .eq('id', announcementId),
   );
@@ -1131,7 +1282,7 @@ export async function getLessonMiniQuiz(input: {
   studentId?: string;
   includeUnpublished?: boolean;
 }) {
-  const lessonId = input.lessonId.trim();
+  const lessonId = normalizeText(input.lessonId);
 
   if (!lessonId) {
     return {
@@ -1145,7 +1296,7 @@ export async function getLessonMiniQuiz(input: {
   }
 
   let quizQuery = supabase
-    .from('lesson_mini_quizzes' as never)
+    .from('lesson_mini_quizzes')
     .select('*')
     .eq('lesson_id', lessonId);
 
@@ -1166,23 +1317,21 @@ export async function getLessonMiniQuiz(input: {
     };
   }
 
-  const quiz = quizRow as unknown as LessonMiniQuizRow;
-
-  const questions = (await queryOrThrow(
+  const questions = await queryOrThrow(
     supabase
-      .from('lesson_mini_quiz_questions' as never)
+      .from('lesson_mini_quiz_questions')
       .select('*')
-      .eq('quiz_id', quiz.id)
+      .eq('quiz_id', quizRow.id)
       .order('sort_order', { ascending: true }),
-  )) as unknown as LessonMiniQuizQuestionRow[];
+  );
 
   let latestAttempt: LessonMiniQuizAttemptView | null = null;
 
   if (input.studentId) {
     const { data: attemptRow, error: attemptError } = await supabase
-      .from('lesson_mini_quiz_attempts' as never)
+      .from('lesson_mini_quiz_attempts')
       .select('*')
-      .eq('quiz_id', quiz.id)
+      .eq('quiz_id', quizRow.id)
       .eq('student_id', input.studentId)
       .order('completed_at', { ascending: false })
       .limit(1)
@@ -1192,13 +1341,11 @@ export async function getLessonMiniQuiz(input: {
       throw new Error(attemptError.message);
     }
 
-    latestAttempt = attemptRow
-      ? mapLessonMiniQuizAttemptView(attemptRow as unknown as LessonMiniQuizAttemptRow)
-      : null;
+    latestAttempt = attemptRow ? mapLessonMiniQuizAttemptView(attemptRow) : null;
   }
 
   return {
-    quiz: mapLessonMiniQuizView(quiz, questions),
+    quiz: mapLessonMiniQuizView(quizRow, questions),
     latestAttempt,
   };
 }
@@ -1210,33 +1357,32 @@ export async function upsertLessonMiniQuiz(input: UpsertLessonMiniQuizPayload) {
     throw new Error('Mini quiz courseId lesson-ға сәйкес емес.');
   }
 
-  const title = input.title.trim();
+  const title = normalizeText(input.title);
 
   assertMiniQuizBase({
     title,
     passingScore: input.passingScore,
   });
 
+  const payload: LessonMiniQuizInsert = {
+    lesson_id: input.lessonId,
+    course_id: input.courseId,
+    created_by: lessonOwner.userId,
+    title,
+    description: normalizeNullableText(input.description),
+    is_published: input.isPublished,
+    passing_score: input.passingScore,
+  };
+
   return queryOrThrow(
     supabase
-      .from('lesson_mini_quizzes' as never)
-      .upsert(
-        {
-          lesson_id: input.lessonId,
-          course_id: input.courseId,
-          created_by: lessonOwner.userId,
-          title,
-          description: input.description?.trim() || null,
-          is_published: input.isPublished,
-          passing_score: input.passingScore,
-        } as never,
-        {
-          onConflict: 'lesson_id',
-        },
-      )
+      .from('lesson_mini_quizzes')
+      .upsert(payload, {
+        onConflict: 'lesson_id',
+      })
       .select('*')
       .single(),
-  ) as unknown as Promise<LessonMiniQuizRow>;
+  ) as Promise<LessonMiniQuizRow>;
 }
 
 export async function deleteLessonMiniQuiz(input: DeleteLessonMiniQuizPayload | string) {
@@ -1246,7 +1392,7 @@ export async function deleteLessonMiniQuiz(input: DeleteLessonMiniQuizPayload | 
 
   await execOrThrow(
     supabase
-      .from('lesson_mini_quizzes' as never)
+      .from('lesson_mini_quizzes')
       .delete()
       .eq('id', quizId),
   );
@@ -1257,31 +1403,35 @@ export async function createLessonMiniQuizQuestion(
 ) {
   await assertLessonMiniQuizOwner(input.quizId);
 
-  const options = input.options.map((item) => item.trim()).filter(Boolean);
+  const questionText = normalizeText(input.questionText);
+  const options = normalizeStringArray(input.options);
   const correctAnswer = normalizeNumberArray(input.correctAnswer);
+  const questionType = input.questionType;
 
   assertMiniQuizQuestion({
-    questionText: input.questionText,
-    questionType: input.questionType,
+    questionText,
+    questionType,
     options,
     correctAnswer,
   });
 
+  const payload: LessonMiniQuizQuestionInsert = {
+    quiz_id: input.quizId,
+    question_text: questionText,
+    question_type: questionType,
+    options: toJson(options),
+    correct_answer: toJson(correctAnswer),
+    explanation: normalizeNullableText(input.explanation),
+    sort_order: normalizePositiveInteger(input.sortOrder),
+  };
+
   return queryOrThrow(
     supabase
-      .from('lesson_mini_quiz_questions' as never)
-      .insert({
-        quiz_id: input.quizId,
-        question_text: input.questionText.trim(),
-        question_type: input.questionType,
-        options,
-        correct_answer: correctAnswer,
-        explanation: input.explanation?.trim() || null,
-        sort_order: input.sortOrder || 1,
-      } as never)
+      .from('lesson_mini_quiz_questions')
+      .insert(payload)
       .select('*')
       .single(),
-  ) as unknown as Promise<LessonMiniQuizQuestionRow>;
+  ) as Promise<LessonMiniQuizQuestionRow>;
 }
 
 export async function updateLessonMiniQuizQuestion(
@@ -1289,31 +1439,35 @@ export async function updateLessonMiniQuizQuestion(
 ) {
   await assertLessonMiniQuizQuestionOwner(input.questionId);
 
-  const options = input.options.map((item) => item.trim()).filter(Boolean);
+  const questionText = normalizeText(input.questionText);
+  const options = normalizeStringArray(input.options);
   const correctAnswer = normalizeNumberArray(input.correctAnswer);
+  const questionType = input.questionType;
 
   assertMiniQuizQuestion({
-    questionText: input.questionText,
-    questionType: input.questionType,
+    questionText,
+    questionType,
     options,
     correctAnswer,
   });
 
+  const patch: LessonMiniQuizQuestionPatch = {
+    question_text: questionText,
+    question_type: questionType,
+    options: toJson(options),
+    correct_answer: toJson(correctAnswer),
+    explanation: normalizeNullableText(input.explanation),
+    sort_order: normalizePositiveInteger(input.sortOrder),
+  };
+
   return queryOrThrow(
     supabase
-      .from('lesson_mini_quiz_questions' as never)
-      .update({
-        question_text: input.questionText.trim(),
-        question_type: input.questionType,
-        options,
-        correct_answer: correctAnswer,
-        explanation: input.explanation?.trim() || null,
-        sort_order: input.sortOrder,
-      } as never)
+      .from('lesson_mini_quiz_questions')
+      .update(patch)
       .eq('id', input.questionId)
       .select('*')
       .single(),
-  ) as unknown as Promise<LessonMiniQuizQuestionRow>;
+  ) as Promise<LessonMiniQuizQuestionRow>;
 }
 
 export async function deleteLessonMiniQuizQuestion(
@@ -1325,7 +1479,7 @@ export async function deleteLessonMiniQuizQuestion(
 
   await execOrThrow(
     supabase
-      .from('lesson_mini_quiz_questions' as never)
+      .from('lesson_mini_quiz_questions')
       .delete()
       .eq('id', questionId),
   );
@@ -1336,43 +1490,57 @@ export async function reorderLessonMiniQuizQuestions(
 ) {
   await assertLessonMiniQuizOwner(input.quizId);
 
-  const rows = (await queryOrThrow(
+  const orderedQuestionIds = assertOrderedIds(
+    input.orderedQuestionIds,
+    'Mini quiz сұрақтары',
+  );
+
+  if (orderedQuestionIds.length === 0) {
+    return;
+  }
+
+  const rows = await queryOrThrow(
     supabase
-      .from('lesson_mini_quiz_questions' as never)
+      .from('lesson_mini_quiz_questions')
       .select('id, quiz_id')
-      .in('id', input.orderedQuestionIds),
-  )) as unknown as Array<{
-    id: string;
-    quiz_id: string;
-  }>;
+      .in('id', orderedQuestionIds),
+  );
 
   const validIds = new Set(
     rows.filter((row) => row.quiz_id === input.quizId).map((row) => row.id),
   );
 
-  if (validIds.size !== input.orderedQuestionIds.length) {
+  if (validIds.size !== orderedQuestionIds.length) {
     throw new Error('Mini quiz сұрақтары қате.');
   }
 
   await Promise.all(
-    input.orderedQuestionIds.map((questionId, index) =>
-      queryOrThrow(
+    orderedQuestionIds.map((questionId, index) => {
+      const patch: LessonMiniQuizQuestionPatch = {
+        sort_order: index + 1,
+      };
+
+      return queryOrThrow(
         supabase
-          .from('lesson_mini_quiz_questions' as never)
-          .update({
-            sort_order: index + 1,
-          } as never)
+          .from('lesson_mini_quiz_questions')
+          .update(patch)
           .eq('id', questionId)
           .select('id')
           .single(),
-      ),
-    ),
+      );
+    }),
   );
 }
 
 export async function submitLessonMiniQuiz(
   input: SubmitLessonMiniQuizPayload,
 ): Promise<LessonMiniQuizSubmitResult> {
+  const currentUserId = await getCurrentUserId();
+
+  if (currentUserId !== input.studentId) {
+    throw new Error('Mini quiz attempt тек ағымдағы оқушы аккаунтымен жіберіледі.');
+  }
+
   const { quiz } = await getLessonMiniQuiz({
     lessonId: input.lessonId,
     studentId: input.studentId,
@@ -1385,6 +1553,10 @@ export async function submitLessonMiniQuiz(
 
   if (quiz.id !== input.quizId) {
     throw new Error('Mini quiz lesson-ға сәйкес емес.');
+  }
+
+  if (quiz.courseId !== input.courseId) {
+    throw new Error('Mini quiz courseId сәйкес емес.');
   }
 
   if (quiz.questions.length === 0) {
@@ -1414,23 +1586,25 @@ export async function submitLessonMiniQuiz(
     totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
   const passed = score >= quiz.passingScore;
 
-  const attemptRow = (await queryOrThrow(
+  const payload: LessonMiniQuizAttemptInsert = {
+    quiz_id: quiz.id,
+    lesson_id: input.lessonId,
+    course_id: input.courseId,
+    student_id: input.studentId,
+    score,
+    correct_count: correctCount,
+    total_questions: totalQuestions,
+    passed,
+    answers: toJson(normalizedAnswers),
+  };
+
+  const attemptRow = await queryOrThrow(
     supabase
-      .from('lesson_mini_quiz_attempts' as never)
-      .insert({
-        quiz_id: quiz.id,
-        lesson_id: input.lessonId,
-        course_id: input.courseId,
-        student_id: input.studentId,
-        score,
-        correct_count: correctCount,
-        total_questions: totalQuestions,
-        passed,
-        answers: normalizedAnswers,
-      } as never)
+      .from('lesson_mini_quiz_attempts')
+      .insert(payload)
       .select('*')
       .single(),
-  )) as unknown as LessonMiniQuizAttemptRow;
+  );
 
   return {
     attempt: mapLessonMiniQuizAttemptView(attemptRow),
@@ -1456,11 +1630,11 @@ export async function createCourseInvite(input: CreateCourseInvitePayload) {
   }
 
   return queryOrThrow(
-    supabase.rpc('create_course_invite' as never, {
+    supabase.rpc('create_course_invite', {
       p_course_id: input.courseId,
       p_max_uses: input.maxUses ?? null,
       p_expires_at: input.expiresAt ?? null,
-    } as never),
+    }),
   ) as Promise<CourseInviteRow>;
 }
 
@@ -1471,10 +1645,10 @@ export async function redeemCourseInvite(
   const normalizedCode = normalizeInviteCode(code);
 
   return queryOrThrow(
-    supabase.rpc('redeem_course_invite' as never, {
+    supabase.rpc('redeem_course_invite', {
       p_code: normalizedCode,
-    } as never),
-  ) as Promise<RedeemCourseInviteResponse>;
+    }),
+  ) as unknown as Promise<RedeemCourseInviteResponse>;
 }
 
 export async function getCourseInvites(courseId: string) {
@@ -1482,7 +1656,7 @@ export async function getCourseInvites(courseId: string) {
 
   return queryOrThrow(
     supabase
-      .from('course_invites' as never)
+      .from('course_invites')
       .select('*')
       .eq('course_id', courseId)
       .order('created_at', { ascending: false }),
@@ -1495,12 +1669,14 @@ export async function setCourseInviteActive(input: {
 }) {
   await assertCourseInviteOwner(input.inviteId);
 
+  const patch: CourseInvitePatch = {
+    is_active: input.isActive,
+  };
+
   return queryOrThrow(
     supabase
-      .from('course_invites' as never)
-      .update({
-        is_active: input.isActive,
-      } as never)
+      .from('course_invites')
+      .update(patch)
       .eq('id', input.inviteId)
       .select('*')
       .single(),
@@ -1521,10 +1697,12 @@ export async function requestPaidCourseAccess(
 ) {
   const courseId = typeof input === 'string' ? input : input.courseId;
 
+  assertNonEmptyId(courseId, 'Course ID');
+
   return queryOrThrow(
-    supabase.rpc('request_paid_course_access' as never, {
+    supabase.rpc('request_paid_course_access', {
       p_course_id: courseId,
-    } as never),
+    }),
   ) as Promise<OrderRow>;
 }
 
@@ -1534,26 +1712,28 @@ export async function manualGrantCourseAccess(
   await assertCourseOwner(input.courseId);
 
   return queryOrThrow(
-    supabase.rpc('manual_grant_course_access' as never, {
+    supabase.rpc('manual_grant_course_access', {
       p_user_id: input.userId,
       p_course_id: input.courseId,
       p_reason: input.reason ?? null,
-    } as never),
-  ) as Promise<EntitlementRow>;
+    }),
+  ) as unknown as Promise<EntitlementRow | EntitlementDbRow>;
 }
 
 export async function manualApproveOrder(orderId: string) {
+  assertNonEmptyId(orderId, 'Order ID');
+
   return queryOrThrow(
-    supabase.rpc('manual_approve_order' as never, {
+    supabase.rpc('manual_approve_order', {
       p_order_id: orderId,
-    } as never),
-  ) as Promise<ManualApproveOrderResponse>;
+    }),
+  ) as unknown as Promise<ManualApproveOrderResponse>;
 }
 
 export async function getMyOrders() {
   return queryOrThrow(
     supabase
-      .from('orders' as never)
+      .from('orders')
       .select('*')
       .order('created_at', { ascending: false }),
   ) as Promise<OrderRow[]>;
@@ -1562,7 +1742,7 @@ export async function getMyOrders() {
 export async function getPendingOrdersForAdmin() {
   return queryOrThrow(
     supabase
-      .from('orders' as never)
+      .from('orders')
       .select('*')
       .eq('status', 'pending')
       .order('created_at', { ascending: false }),
@@ -1575,9 +1755,9 @@ export async function deleteLesson(lessonId: string) {
   await assertLessonOwner(lessonId);
 
   await execOrThrow(
-    supabase.rpc('delete_lesson_deep' as never, {
+    supabase.rpc('delete_lesson_deep', {
       p_lesson_id: lessonId,
-    } as never),
+    }),
   );
 }
 
@@ -1585,20 +1765,20 @@ export async function deleteModule(moduleId: string) {
   await assertModuleOwner(moduleId);
 
   await execOrThrow(
-    supabase.rpc('delete_module_deep' as never, {
+    supabase.rpc('delete_module_deep', {
       p_module_id: moduleId,
-    } as never),
+    }),
   );
 }
 
 export async function deleteCourse(courseId: string) {
   await assertCourseOwner(courseId);
 
-  const result = await supabase.rpc('delete_course_deep' as never, {
-    p_course_id: courseId,
-  } as never);
-
-  await execOrThrow(Promise.resolve(result));
+  await execOrThrow(
+    supabase.rpc('delete_course_deep', {
+      p_course_id: courseId,
+    }),
+  );
 }
 
 /* ================= REORDER ================= */
@@ -1606,43 +1786,33 @@ export async function deleteCourse(courseId: string) {
 export async function reorderModules(courseId: string, orderedModuleIds: string[]) {
   await assertCourseOwner(courseId);
 
-  const modules = await queryOrThrow(
-    supabase.from('modules').select('id, course_id').in('id', orderedModuleIds),
-  );
+  const normalizedIds = assertOrderedIds(orderedModuleIds, 'Модульдер');
 
-  const validIds = new Set(
-    modules.filter((module) => module.course_id === courseId).map((module) => module.id),
-  );
-
-  if (validIds.size !== orderedModuleIds.length) {
-    throw new Error(localizedText('kk', 'Модульдер қате', 'Некорректные модули'));
+  if (normalizedIds.length === 0) {
+    return;
   }
 
-  await Promise.all(
-    orderedModuleIds.map((id, index) =>
-      updateModule({ moduleId: id, sortOrder: index + 1 }),
-    ),
+  await execOrThrow(
+    supabase.rpc('reorder_modules', {
+      p_course_id: courseId,
+      p_module_ids: normalizedIds,
+    }),
   );
 }
 
 export async function reorderLessons(moduleId: string, orderedLessonIds: string[]) {
   await assertModuleOwner(moduleId);
 
-  const lessons = await queryOrThrow(
-    supabase.from('lessons').select('id, module_id').in('id', orderedLessonIds),
-  );
+  const normalizedIds = assertOrderedIds(orderedLessonIds, 'Сабақтар');
 
-  const validIds = new Set(
-    lessons.filter((lesson) => lesson.module_id === moduleId).map((lesson) => lesson.id),
-  );
-
-  if (validIds.size !== orderedLessonIds.length) {
-    throw new Error(localizedText('kk', 'Сабақтар қате', 'Некорректные уроки'));
+  if (normalizedIds.length === 0) {
+    return;
   }
 
-  await Promise.all(
-    orderedLessonIds.map((id, index) =>
-      updateLesson({ lessonId: id, sortOrder: index + 1 }),
-    ),
+  await execOrThrow(
+    supabase.rpc('reorder_lessons', {
+      p_module_id: moduleId,
+      p_lesson_ids: normalizedIds,
+    }),
   );
 }

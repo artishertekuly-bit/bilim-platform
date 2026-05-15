@@ -1,94 +1,163 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { Tables } from '@/integrations/supabase/types';
 
-import { queryOrThrow, type Locale } from './common';
+import {
+  localizedText,
+  noDescriptionLabel,
+  noTopicLabel,
+  queryOrThrow,
+  type Locale,
+  unknownLabel,
+  unknownTeacherLabel,
+} from './common';
 
 import type { ModerationItem, SubjectMap } from '@/lib/app-data-types';
 import { getSubjects, subjectLabel } from './student-data';
 
-function unknownLabel(locale: Locale) {
-  return locale === 'ru' ? 'Не указано' : 'Белгісіз';
-}
+/* ================= TYPES ================= */
 
-function unknownTeacherLabel(locale: Locale) {
-  return locale === 'ru' ? 'Преподаватель не указан' : 'Мұғалім көрсетілмеген';
-}
+type UserRoleRow = Pick<Tables<'user_roles'>, 'user_id' | 'role' | 'created_at'>;
+type ProfileRow = Pick<Tables<'profiles'>, 'user_id' | 'full_name' | 'avatar_url'>;
 
-function noDescriptionLabel(locale: Locale) {
-  return locale === 'ru' ? 'Описание отсутствует' : 'Сипаттама жоқ';
-}
+type CourseRow = Tables<'courses'>;
+type LessonRow = Tables<'lessons'>;
+type TestRow = Tables<'tests'>;
+type TestAttemptRow = Tables<'test_attempts'>;
+type ContentReviewRow = Tables<'content_reviews'>;
 
-function noTopicLabel(locale: Locale) {
-  return locale === 'ru' ? 'Тема не указана' : 'Тақырып көрсетілмеген';
-}
+type TestQuestionCountRow = Pick<Tables<'test_questions'>, 'id' | 'test_id'>;
 
-function localizedText(locale: Locale, kk: string, ru: string) {
-  return locale === 'ru' ? ru : kk;
-}
+/* ================= HELPERS ================= */
 
 function truncateText(value: string | null | undefined, limit = 70) {
-  const text = (value || '').trim();
+  const text = String(value || '').trim();
+
   if (!text) return '';
+
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
+
+function getAverageScore(rows: Array<{ score: number | null }>) {
+  const scoredRows = rows.filter((row) => row.score !== null);
+
+  if (scoredRows.length === 0) return 0;
+
+  return Math.round(
+    scoredRows.reduce((sum, row) => sum + Number(row.score || 0), 0) /
+      scoredRows.length,
+  );
+}
+
+function groupTestsBySubjectId(rows: TestRow[]) {
+  const map = new Map<string, TestRow[]>();
+
+  rows.forEach((test) => {
+    if (!test.subject_id) return;
+
+    const current = map.get(test.subject_id) || [];
+    current.push(test);
+    map.set(test.subject_id, current);
+  });
+
+  return map;
+}
+
+function groupAttemptsByTestId(rows: TestAttemptRow[]) {
+  const map = new Map<string, TestAttemptRow[]>();
+
+  rows.forEach((attempt) => {
+    const current = map.get(attempt.test_id) || [];
+    current.push(attempt);
+    map.set(attempt.test_id, current);
+  });
+
+  return map;
+}
+
+function getQuestionCountMap(rows: TestQuestionCountRow[]) {
+  const map = new Map<string, number>();
+
+  rows.forEach((question) => {
+    map.set(question.test_id, (map.get(question.test_id) || 0) + 1);
+  });
+
+  return map;
+}
+
+function getProfileNameMap(rows: Array<Pick<ProfileRow, 'user_id' | 'full_name'>>) {
+  return new Map(rows.map((profile) => [profile.user_id, profile.full_name]));
+}
+
+function compareCreatedAtDesc(a: { createdAt: string }, b: { createdAt: string }) {
+  return b.createdAt.localeCompare(a.createdAt);
+}
+
+/* ================= ADMIN DASHBOARD ================= */
 
 export async function getAdminDashboard(locale: Locale = 'kk') {
   const [roles, courses, lessons, tests, reviews, subjects, attempts] =
     await Promise.all([
-      queryOrThrow(supabase.from('user_roles').select('role')),
-      queryOrThrow(supabase.from('courses').select('*')),
-      queryOrThrow(supabase.from('lessons').select('*')),
-      queryOrThrow(supabase.from('tests').select('*')),
+      queryOrThrow(
+        supabase
+          .from('user_roles')
+          .select('user_id, role, created_at'),
+      ) as Promise<UserRoleRow[]>,
+
+      queryOrThrow(
+        supabase
+          .from('courses')
+          .select('*'),
+      ) as Promise<CourseRow[]>,
+
+      queryOrThrow(
+        supabase
+          .from('lessons')
+          .select('*'),
+      ) as Promise<LessonRow[]>,
+
+      queryOrThrow(
+        supabase
+          .from('tests')
+          .select('*'),
+      ) as Promise<TestRow[]>,
+
       queryOrThrow(
         supabase
           .from('content_reviews')
           .select('*')
-          .order('reviewed_at', { ascending: false })
-      ),
+          .order('reviewed_at', { ascending: false }),
+      ) as Promise<ContentReviewRow[]>,
+
       getSubjects(),
-      queryOrThrow(supabase.from('test_attempts').select('*')),
+
+      queryOrThrow(
+        supabase
+          .from('test_attempts')
+          .select('*'),
+      ) as Promise<TestAttemptRow[]>,
     ]);
 
-  const courseRows = courses as Tables<'courses'>[];
-  const lessonRows = lessons as Tables<'lessons'>[];
-  const testRows = tests as Tables<'tests'>[];
-  const attemptRows = attempts as Tables<'test_attempts'>[];
-
-  const testsBySubjectId = new Map<string, Tables<'tests'>[]>();
-  testRows.forEach((test) => {
-    if (!test.subject_id) return;
-    const current = testsBySubjectId.get(test.subject_id) || [];
-    current.push(test);
-    testsBySubjectId.set(test.subject_id, current);
-  });
-
-  const attemptsByTestId = new Map<string, Tables<'test_attempts'>[]>();
-  attemptRows.forEach((attempt) => {
-    const current = attemptsByTestId.get(attempt.test_id) || [];
-    current.push(attempt);
-    attemptsByTestId.set(attempt.test_id, current);
-  });
+  const testsBySubjectId = groupTestsBySubjectId(tests);
+  const attemptsByTestId = groupAttemptsByTestId(attempts);
 
   const subjectStats = subjects.map((subject) => {
-    const subjectCourses = courseRows.filter((course) => course.subject_id === subject.id);
+    const subjectCourses = courses.filter(
+      (course) => course.subject_id === subject.id,
+    );
+
     const subjectTests = testsBySubjectId.get(subject.id) || [];
 
     const subjectAttempts = subjectTests.flatMap((test) =>
-      (attemptsByTestId.get(test.id) || []).filter((attempt) => attempt.score !== null)
+      (attemptsByTestId.get(test.id) || []).filter(
+        (attempt) => attempt.score !== null,
+      ),
     );
 
     return {
       name: subjectLabel(subject, locale),
       courses: subjectCourses.length,
-      lessons: lessonRows.filter((lesson) => lesson.subject_id === subject.id).length,
-      avgScore: subjectAttempts.length
-        ? Math.round(
-            subjectAttempts.reduce(
-              (sum, item) => sum + Number(item.score || 0),
-              0
-            ) / subjectAttempts.length
-          )
-        : 0,
+      lessons: lessons.filter((lesson) => lesson.subject_id === subject.id).length,
+      avgScore: getAverageScore(subjectAttempts),
     };
   });
 
@@ -102,62 +171,63 @@ export async function getAdminDashboard(locale: Locale = 'kk') {
   return {
     stats: {
       totalStudents: roleCounts.students,
-      totalCourses: courseRows.length,
-      totalLessons: lessonRows.length,
-      totalTests: testRows.length,
+      totalCourses: courses.length,
+      totalLessons: lessons.length,
+      totalTests: tests.length,
     },
     roleCounts,
     contentStatus: {
-      published: courseRows.filter((row) => row.status === 'published').length,
-      underReview: courseRows.filter((row) => row.status === 'under_review').length,
-      draft: courseRows.filter((row) => row.status === 'draft').length,
-      archived: courseRows.filter((row) => row.status === 'archived').length,
+      published: courses.filter((row) => row.status === 'published').length,
+      underReview: courses.filter((row) => row.status === 'under_review').length,
+      draft: courses.filter((row) => row.status === 'draft').length,
+      archived: courses.filter((row) => row.status === 'archived').length,
     },
     pendingReviews: reviews.filter((review) => review.status === 'under_review'),
     subjectStats,
   };
 }
 
+/* ================= MODERATION ================= */
+
 export async function getModerationQueue(
-  locale: Locale = 'kk'
+  locale: Locale = 'kk',
 ): Promise<ModerationItem[]> {
   const [subjects, courses, tests, profiles, questions] = await Promise.all([
     getSubjects(),
+
     queryOrThrow(
       supabase
         .from('courses')
         .select('*')
-        .order('created_at', { ascending: false })
-    ),
+        .order('created_at', { ascending: false }),
+    ) as Promise<CourseRow[]>,
+
     queryOrThrow(
       supabase
         .from('tests')
         .select('*')
-        .order('created_at', { ascending: false })
-    ),
+        .order('created_at', { ascending: false }),
+    ) as Promise<TestRow[]>,
+
     queryOrThrow(
-      supabase.from('profiles').select('user_id, full_name')
-    ),
+      supabase
+        .from('profiles')
+        .select('user_id, full_name'),
+    ) as Promise<Array<Pick<ProfileRow, 'user_id' | 'full_name'>>>,
+
     queryOrThrow(
-      supabase.from('test_questions').select('id, test_id')
-    ),
+      supabase
+        .from('test_questions')
+        .select('id, test_id'),
+    ) as Promise<TestQuestionCountRow[]>,
   ]);
 
   const subjectMap = Object.fromEntries(
-    subjects.map((subject) => [subject.id, subject])
+    subjects.map((subject) => [subject.id, subject]),
   ) as SubjectMap;
 
-  const profileMap = Object.fromEntries(
-    profiles.map((profile) => [profile.user_id, profile.full_name])
-  );
-
-  const questionCountMap = new Map<string, number>();
-  questions.forEach((question) => {
-    questionCountMap.set(
-      question.test_id,
-      (questionCountMap.get(question.test_id) || 0) + 1
-    );
-  });
+  const profileNameByUserId = getProfileNameMap(profiles);
+  const questionCountByTestId = getQuestionCountMap(questions);
 
   const items: ModerationItem[] = [
     ...courses.map((course) => ({
@@ -166,9 +236,10 @@ export async function getModerationQueue(
       title: course.title,
       subjectName: subjectLabel(
         course.subject_id ? subjectMap[course.subject_id] : null,
-        locale
+        locale,
       ),
-      authorName: profileMap[course.teacher_id] || unknownTeacherLabel(locale),
+      authorName:
+        profileNameByUserId.get(course.teacher_id) || unknownTeacherLabel(locale),
       status: course.status,
       createdAt: course.created_at,
       extra: truncateText(course.description, 70) || noDescriptionLabel(locale),
@@ -180,21 +251,24 @@ export async function getModerationQueue(
       title: test.title,
       subjectName: subjectLabel(
         test.subject_id ? subjectMap[test.subject_id] : null,
-        locale
+        locale,
       ),
-      authorName: profileMap[test.created_by] || unknownTeacherLabel(locale),
+      authorName:
+        profileNameByUserId.get(test.created_by) || unknownTeacherLabel(locale),
       status: test.status,
       createdAt: test.created_at,
-      extra: `${
-        questionCountMap.get(test.id) || 0
-      } ${localizedText(locale, 'сұрақ', 'вопросов')} · ${
-        test.topic || noTopicLabel(locale)
-      }`,
+      extra: `${questionCountByTestId.get(test.id) || 0} ${localizedText(
+        locale,
+        'сұрақ',
+        'вопросов',
+      )} · ${test.topic || noTopicLabel(locale)}`,
     })),
   ];
 
-  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return items.sort(compareCreatedAtDesc);
 }
+
+/* ================= USERS ================= */
 
 export async function getUsersWithRoles(locale: Locale = 'kk') {
   const [roles, profiles] = await Promise.all([
@@ -202,24 +276,27 @@ export async function getUsersWithRoles(locale: Locale = 'kk') {
       supabase
         .from('user_roles')
         .select('user_id, role, created_at')
-        .order('created_at', { ascending: false })
-    ),
+        .order('created_at', { ascending: false }),
+    ) as Promise<UserRoleRow[]>,
+
     queryOrThrow(
       supabase
         .from('profiles')
-        .select('user_id, full_name, avatar_url')
-    ),
+        .select('user_id, full_name, avatar_url'),
+    ) as Promise<ProfileRow[]>,
   ]);
 
-  const profileMap = Object.fromEntries(
-    profiles.map((item) => [item.user_id, item])
-  );
+  const profileMap = new Map(profiles.map((item) => [item.user_id, item]));
 
-  return roles.map((role) => ({
-    userId: role.user_id,
-    role: role.role,
-    createdAt: role.created_at,
-    fullName: profileMap[role.user_id]?.full_name || unknownLabel(locale),
-    avatarUrl: profileMap[role.user_id]?.avatar_url || null,
-  }));
+  return roles.map((role) => {
+    const profile = profileMap.get(role.user_id);
+
+    return {
+      userId: role.user_id,
+      role: role.role,
+      createdAt: role.created_at,
+      fullName: profile?.full_name || unknownLabel(locale),
+      avatarUrl: profile?.avatar_url || null,
+    };
+  });
 }
