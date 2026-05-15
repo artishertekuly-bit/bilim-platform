@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { BrainCircuit, RotateCcw, Sparkles } from 'lucide-react';
 
 import AiPromptShell, {
   type AiPromptSubmitPayload,
+  type AiPromptSuggestion,
 } from '@/components/ai-tools/AiPromptShell';
 import DashboardLayout from '@/components/DashboardLayout';
 import { EmptyState } from '@/components/common/DataState';
@@ -19,6 +20,42 @@ type LearningAiAnalysisMeta = {
   warnings?: string[];
   followUpPrompts?: string[];
 };
+
+const TRACKER_SUGGESTIONS: AiPromptSuggestion[] = [
+  {
+    id: 'tracker-review-topic',
+    label: 'Қайталау',
+    prompt: 'Қай тақырыпты қайталауым керек?',
+  },
+  {
+    id: 'tracker-study-plan',
+    label: 'Оқу жоспары',
+    prompt: 'Маған қысқа оқу жоспарын құр.',
+  },
+  {
+    id: 'tracker-weak-topic',
+    label: 'Әлсіз тұс',
+    prompt: 'Менің әлсіз тақырыптарымды түсіндір.',
+  },
+];
+
+const COURSE_ADVISOR_SUGGESTIONS: AiPromptSuggestion[] = [
+  {
+    id: 'advisor-course',
+    label: 'Курс таңдау',
+    prompt: 'Маған қандай курс оқуға болады?',
+  },
+  {
+    id: 'advisor-direction',
+    label: 'Бағыт',
+    prompt: 'Маған қандай оқу бағытын таңдаған дұрыс?',
+  },
+  {
+    id: 'advisor-next-skill',
+    label: 'Келесі дағды',
+    prompt: 'Келесі қандай дағдыны үйренген дұрыс?',
+  },
+];
 
 const COURSE_ADVISOR_DIRECT_PHRASES = [
   'қандай курс',
@@ -73,10 +110,12 @@ const ADVISOR_ACTION_KEYWORDS = [
 const LEARNING_ANALYSIS_KEYWORDS = [
   'progress',
   'прогресс',
+  'ілгерілеу',
   'нәтиже',
   'mini quiz',
   'мини quiz',
   'мини тест',
+  'шағын тест',
   'тест',
   'қайталау',
   'қайталауым',
@@ -116,23 +155,18 @@ function shouldUseStudentCourseAdvisor(prompt: string) {
     return true;
   }
 
-  const hasLearningAnalysisIntent = includesAny(
-    normalized,
-    LEARNING_ANALYSIS_KEYWORDS
-  );
-
-  if (hasLearningAnalysisIntent) {
+  if (includesAny(normalized, LEARNING_ANALYSIS_KEYWORDS)) {
     return false;
   }
 
   const hasCourseOrFutureIntent = includesAny(
     normalized,
-    COURSE_OR_FUTURE_KEYWORDS
+    COURSE_OR_FUTURE_KEYWORDS,
   );
 
   const hasAdvisorActionIntent = includesAny(
     normalized,
-    ADVISOR_ACTION_KEYWORDS
+    ADVISOR_ACTION_KEYWORDS,
   );
 
   return hasCourseOrFutureIntent && hasAdvisorActionIntent;
@@ -140,10 +174,10 @@ function shouldUseStudentCourseAdvisor(prompt: string) {
 
 function getAnswerTitle(mode: TrackerMode) {
   if (mode === 'student_course_advisor') {
-    return 'Курс бойынша AI кеңес';
+    return 'Курс бойынша кеңес';
   }
 
-  return 'AI Tracker жауабы';
+  return 'Оқу бойынша жауап';
 }
 
 function getEmptyAnswerText(mode: TrackerMode) {
@@ -151,7 +185,23 @@ function getEmptyAnswerText(mode: TrackerMode) {
     return 'Қандай курс немесе бағыт таңдауға болатынын сұраңыз.';
   }
 
-  return 'Оқу анализі, қайталау жоспары немесе қиын тақырып туралы сұрағыңызды жазыңыз.';
+  return 'Оқу нәтижесі, қайталау жоспары немесе қиын тақырып туралы сұраңыз.';
+}
+
+function getPlaceholder(mode: TrackerMode) {
+  if (mode === 'student_course_advisor') {
+    return 'Мысалы: Маған қандай курс оқуға болады?';
+  }
+
+  return 'Мысалы: Қай тақырыпты қайталауым керек?';
+}
+
+function getContextDescription(mode: TrackerMode) {
+  if (mode === 'student_course_advisor') {
+    return 'Курс және бағыт таңдауға арналған кеңес.';
+  }
+
+  return 'Оқу нәтижелері мен тапсырмаларға сүйенген талдау.';
 }
 
 export default function AiTrackerPage() {
@@ -173,6 +223,14 @@ export default function AiTrackerPage() {
 
   const trackerAiMeta = trackerAi as typeof trackerAi & LearningAiAnalysisMeta;
 
+  const suggestions = useMemo(
+    () =>
+      activeMode === 'student_course_advisor'
+        ? COURSE_ADVISOR_SUGGESTIONS
+        : TRACKER_SUGGESTIONS,
+    [activeMode],
+  );
+
   const handleSubmit = useCallback(
     async (payload: AiPromptSubmitPayload) => {
       if (!user?.id || !isStudent) {
@@ -193,7 +251,7 @@ export default function AiTrackerPage() {
         },
       });
     },
-    [isStudent, trackerAi, user?.id]
+    [isStudent, trackerAi, user?.id],
   );
 
   const handleReset = useCallback(() => {
@@ -202,9 +260,9 @@ export default function AiTrackerPage() {
   }, [trackerAi]);
 
   const disabledReason = !trackerAi.isConfigured
-    ? 'AI backend endpoint әлі қосылмаған.'
+    ? 'AI сервері қосылмаған.'
     : !canUseAiTracker
-      ? 'AI Tracker тек оқушы аккаунты үшін қолжетімді.'
+      ? 'Бұл бөлім тек оқушы аккаунтына арналған.'
       : undefined;
 
   return (
@@ -218,8 +276,7 @@ export default function AiTrackerPage() {
             </>
           }
           icon={<BrainCircuit size={20} />}
-          title="AI Tracker"
-          description="Оқу анализі, қайталау жоспары немесе курс бағыты бойынша сұрақ қойыңыз."
+          title="AI оқу көмекшісі"
           actions={
             <Button
               type="button"
@@ -236,27 +293,31 @@ export default function AiTrackerPage() {
         {!user ? (
           <EmptyState
             title="Аккаунт анықталмады"
-            text="AI Tracker қолдану үшін жүйеге кіру керек."
+            text="AI оқу көмекшісін қолдану үшін жүйеге кіріңіз."
             tone="ai"
           />
         ) : null}
 
         {user && !isStudent ? (
           <EmptyState
-            title="Бұл бет оқушы режиміне арналған"
-            text="Мұғалім үшін AI Assistant немесе AI Tracker-дің мұғалімге арналған бөлімін қолданыңыз."
+            title="Бұл бөлім оқушыға арналған"
+            text="Мұғалім үшін AI көмекші бөлімін қолданыңыз."
             tone="ai"
           />
         ) : null}
 
-        {user ? (
+        {canUseAiTracker ? (
           <AiPromptShell
-            title="AI Tracker"
-            description="Сұрағыңызды жазыңыз. AI оқу дерегіне немесе курс каталогына сүйеніп қысқа әрі нақты жауап береді."
-            placeholder="Мысалы: Қай тақырыпты қайталауым керек?"
-            suggestions={[]}
-            contextLabel="AI чат"
-            contextDescription="Оқу progress-і туралы сұрасаңыз — AI Tracker, курс/бағыт таңдауды сұрасаңыз — Course Advisor режимі автоматты қолданылады."
+            title="AI оқу көмекшісі"
+            description="Оқу, қайталау немесе курс бағыты бойынша сұрақ қойыңыз."
+            placeholder={getPlaceholder(activeMode)}
+            suggestions={suggestions}
+            contextLabel={
+              activeMode === 'student_course_advisor'
+                ? 'Курс таңдауы'
+                : 'Оқу талдауы'
+            }
+            contextDescription={getContextDescription(activeMode)}
             disabled={Boolean(disabledReason)}
             disabledReason={disabledReason}
             isSubmitting={trackerAi.isSubmitting}

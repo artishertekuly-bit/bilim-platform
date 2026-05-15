@@ -32,29 +32,6 @@ export const LEARNING_AI_CONFIDENCE_VALUES = [
 export type LearningAiConfidence =
   (typeof LEARNING_AI_CONFIDENCE_VALUES)[number];
 
-export type LearningAiScope = {
-  /**
-   * Analysis modes:
-   * - teacher_course_assistant requires courseId
-   * - teacher_student_assistant requires courseId + studentId
-   *
-   * Advisor modes:
-   * - student_course_advisor does not require courseId
-   * - teacher_course_creator_advisor does not require courseId
-   */
-  courseId?: string | null;
-  studentId?: string | null;
-
-  /**
-   * Optional advisor hints.
-   * These are not required, but can be used by UI filters later.
-   */
-  subjectId?: string | null;
-  subjectName?: string | null;
-  gradeLevel?: string | null;
-  targetAudience?: string | null;
-};
-
 export const LEARNING_AI_CONVERSATION_ROLES = [
   'user',
   'assistant',
@@ -62,6 +39,16 @@ export const LEARNING_AI_CONVERSATION_ROLES = [
 
 export type LearningAiConversationRole =
   (typeof LEARNING_AI_CONVERSATION_ROLES)[number];
+
+export type LearningAiScope = {
+  courseId?: string | null;
+  studentId?: string | null;
+
+  subjectId?: string | null;
+  subjectName?: string | null;
+  gradeLevel?: string | null;
+  targetAudience?: string | null;
+};
 
 export type LearningAiConversationMessage = {
   role: LearningAiConversationRole;
@@ -74,12 +61,6 @@ export type LearningAiRequest = {
   prompt: string;
   selectedSuggestionId?: string | null;
   scope?: LearningAiScope;
-
-  /**
-   * Short chat memory for continuation / clarification logic.
-   *
-   * Frontend should send only the latest few messages, not the full infinite chat.
-   */
   conversationHistory?: LearningAiConversationMessage[];
 };
 
@@ -88,9 +69,6 @@ export type LearningAiUsedContext = {
   courseId?: string | null;
   studentId?: string | null;
 
-  /**
-   * Frontend-friendly metadata returned by backend when available.
-   */
   courseTitle?: string | null;
   studentName?: string | null;
   subjectName?: string | null;
@@ -103,10 +81,6 @@ export type LearningAiResponse = {
   mode: LearningAiMode;
   usedContext: LearningAiUsedContext;
 
-  /**
-   * Optional chat UI metadata.
-   * Do not render contextSummary as a raw analytics report.
-   */
   contextSummary?: string | null;
   confidence?: LearningAiConfidence | null;
   warnings?: string[];
@@ -129,36 +103,37 @@ export type LearningAiClientResult =
   | LearningAiClientSuccess
   | LearningAiClientFailure;
 
+function isOneOf<const T extends readonly string[]>(
+  values: T,
+  value: unknown,
+): value is T[number] {
+  return typeof value === 'string' && values.includes(value);
+}
+
 export function isLearningAiMode(value: unknown): value is LearningAiMode {
-  return (
-    typeof value === 'string' &&
-    (LEARNING_AI_MODES as readonly string[]).includes(value)
-  );
+  return isOneOf(LEARNING_AI_MODES, value);
 }
 
 export function isLearningAiRole(value: unknown): value is LearningAiRole {
-  return (
-    typeof value === 'string' &&
-    (LEARNING_AI_ROLES as readonly string[]).includes(value)
-  );
+  return isOneOf(LEARNING_AI_ROLES, value);
 }
 
 export function isLearningAiContextSource(
-  value: unknown
+  value: unknown,
 ): value is LearningAiContextSource {
-  return (
-    typeof value === 'string' &&
-    (LEARNING_AI_CONTEXT_SOURCES as readonly string[]).includes(value)
-  );
+  return isOneOf(LEARNING_AI_CONTEXT_SOURCES, value);
 }
 
 export function isLearningAiConfidence(
-  value: unknown
+  value: unknown,
 ): value is LearningAiConfidence {
-  return (
-    typeof value === 'string' &&
-    (LEARNING_AI_CONFIDENCE_VALUES as readonly string[]).includes(value)
-  );
+  return isOneOf(LEARNING_AI_CONFIDENCE_VALUES, value);
+}
+
+export function isLearningAiConversationRole(
+  value: unknown,
+): value is LearningAiConversationRole {
+  return isOneOf(LEARNING_AI_CONVERSATION_ROLES, value);
 }
 
 export function isStudentLearningAiMode(mode: LearningAiMode): boolean {
@@ -174,7 +149,44 @@ export function isTeacherLearningAiMode(mode: LearningAiMode): boolean {
 }
 
 export function getRequiredLearningAiRole(
-  mode: LearningAiMode
+  mode: LearningAiMode,
 ): LearningAiRole {
   return isStudentLearningAiMode(mode) ? 'student' : 'teacher';
+}
+
+export function isLearningAiModeRoleValid(input: {
+  mode: LearningAiMode;
+  role: LearningAiRole;
+}) {
+  return getRequiredLearningAiRole(input.mode) === input.role;
+}
+
+export function requiresLearningAiCourseId(mode: LearningAiMode) {
+  return mode === 'teacher_course_assistant' || mode === 'teacher_student_assistant';
+}
+
+export function requiresLearningAiStudentId(mode: LearningAiMode) {
+  return mode === 'teacher_student_assistant';
+}
+
+export function getLearningAiContextSourceForMode(
+  mode: LearningAiMode,
+): LearningAiContextSource {
+  if (mode === 'student_tracker') {
+    return 'student_learning_snapshot';
+  }
+
+  if (mode === 'student_course_advisor') {
+    return 'student_course_advisor_context';
+  }
+
+  if (mode === 'teacher_course_assistant') {
+    return 'course_learning_snapshot';
+  }
+
+  if (mode === 'teacher_student_assistant') {
+    return 'teacher_student_learning_snapshot';
+  }
+
+  return 'teacher_course_creator_context';
 }

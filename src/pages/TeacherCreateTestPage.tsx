@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams, Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import DashboardLayout from '@/components/DashboardLayout';
 import PageHeader from '@/components/common/PageHeader';
 import StatusBadge from '@/components/common/StatusBadge';
 import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@/components/common/DataState';
+
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import {
@@ -23,40 +29,35 @@ import {
   useTeacherCourseWorkspace,
   useTeacherTestsWorkspace,
 } from '@/hooks/use-platform-data';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  EmptyState,
-  ErrorState,
-  LoadingState,
-} from '@/components/common/DataState';
 import { useToast } from '@/hooks/use-toast';
-import { Switch } from '@/components/ui/switch';
-import {
-  ArrowDown,
-  ArrowUp,
-  CheckCircle2,
-  ClipboardList,
-  Clock,
-  FileText,
-  LayoutDashboard,
-  Plus,
-  RotateCcw,
-  Settings,
-  Sparkles,
-  Trash2,
-  X,
-} from 'lucide-react';
 import {
   clearPendingAiQuestionImport,
   getPendingAiQuestionImport,
   type PendingAiQuestionImport,
 } from '@/lib/ai-question-import';
 
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+
+import {
+  ArrowDown,
+  ArrowUp,
+  ClipboardList,
+  FileText,
+  LayoutDashboard,
+  Plus,
+  RotateCcw,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
+
 const statuses = ['draft', 'under_review', 'published', 'archived'] as const;
+
 type TestStatus = (typeof statuses)[number];
 
 type CourseOption = {
@@ -79,6 +80,7 @@ function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   const next = [...items];
   const [moved] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, moved);
+
   return next;
 }
 
@@ -99,11 +101,11 @@ function getSortedQuestions<T extends { sort_order: number }>(questions: T[] = [
 
 function getNextSortOrder<T extends { sort_order: number }>(
   questions: T[] = [],
-  extra = 1
+  extra = 1,
 ) {
   const maxSortOrder = questions.reduce(
     (max, question) => Math.max(max, Number(question.sort_order) || 0),
-    0
+    0,
   );
 
   return String(maxSortOrder + extra);
@@ -113,6 +115,7 @@ function getTestStatusTone(status: TestStatus) {
   if (status === 'published') return 'success' as const;
   if (status === 'under_review') return 'warning' as const;
   if (status === 'archived') return 'muted' as const;
+
   return 'info' as const;
 }
 
@@ -164,8 +167,8 @@ function parseCorrectAnswerIndexes(value: string) {
       value
         .split(',')
         .map((item) => Number(item.trim()) - 1)
-        .filter((item) => Number.isFinite(item) && item >= 0)
-    )
+        .filter((item) => Number.isFinite(item) && item >= 0),
+    ),
   );
 }
 
@@ -181,109 +184,63 @@ function getOptionLinesForEditor(value: string) {
 
 function TestBuilderSkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-3xl border bg-card p-4 sm:p-5">
-            <div className="flex items-center gap-3">
-              <SkeletonBlock className="h-11 w-11 rounded-2xl" />
-              <div className="space-y-2">
-                <SkeletonBlock className="h-3 w-24" />
-                <SkeletonBlock className="h-7 w-16" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="space-y-4">
+        <div className="rounded-3xl border bg-card p-4 sm:p-5">
+          <SkeletonBlock className="h-5 w-40" />
 
-      <div className="rounded-3xl border bg-card p-3 sm:p-4">
-        <div className="grid gap-2 md:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, index) => (
-            <SkeletonBlock key={index} className="h-16 w-full rounded-3xl" />
-          ))}
+          <div className="mt-5 space-y-3">
+            <SkeletonBlock className="h-10 w-full rounded-2xl" />
+            <SkeletonBlock className="h-10 w-full rounded-2xl" />
+            <SkeletonBlock className="h-10 w-full rounded-2xl" />
+            <SkeletonBlock className="h-10 w-full rounded-2xl" />
+          </div>
+        </div>
+
+        <div className="rounded-3xl border bg-card p-4 sm:p-5">
+          <SkeletonBlock className="h-5 w-44" />
+
+          <div className="mt-5 space-y-2">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <SkeletonBlock key={index} className="h-16 w-full rounded-3xl" />
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-        <div className="space-y-4">
+      <div className="space-y-4">
+        <div className="rounded-3xl border bg-card p-4 sm:p-5">
+          <SkeletonBlock className="h-5 w-44" />
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <SkeletonBlock className="h-10 w-full rounded-2xl" />
+            <SkeletonBlock className="h-10 w-full rounded-2xl" />
+            <SkeletonBlock className="h-10 w-full rounded-2xl" />
+            <SkeletonBlock className="h-10 w-full rounded-2xl" />
+          </div>
+        </div>
+
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
           <div className="rounded-3xl border bg-card p-4 sm:p-5">
             <SkeletonBlock className="h-5 w-40" />
-            <div className="mt-5 space-y-3">
-              <SkeletonBlock className="h-10 w-full rounded-2xl" />
-              <SkeletonBlock className="h-10 w-full rounded-2xl" />
-              <SkeletonBlock className="h-10 w-full rounded-2xl" />
-              <SkeletonBlock className="h-10 w-full rounded-2xl" />
-            </div>
-          </div>
 
-          <div className="rounded-3xl border bg-card p-4 sm:p-5">
-            <SkeletonBlock className="h-5 w-44" />
-            <div className="mt-5 space-y-2">
+            <div className="mt-5 space-y-3">
               {Array.from({ length: 5 }).map((_, index) => (
                 <SkeletonBlock key={index} className="h-16 w-full rounded-3xl" />
               ))}
             </div>
           </div>
-        </div>
 
-        <div className="space-y-4">
           <div className="rounded-3xl border bg-card p-4 sm:p-5">
             <SkeletonBlock className="h-5 w-44" />
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
+
+            <div className="mt-5 space-y-3">
+              <SkeletonBlock className="h-24 w-full rounded-2xl" />
+              <SkeletonBlock className="h-40 w-full rounded-2xl" />
               <SkeletonBlock className="h-10 w-full rounded-2xl" />
-              <SkeletonBlock className="h-10 w-full rounded-2xl" />
-              <SkeletonBlock className="h-10 w-full rounded-2xl" />
-              <SkeletonBlock className="h-10 w-full rounded-2xl" />
+              <SkeletonBlock className="h-24 w-full rounded-2xl" />
             </div>
           </div>
-
-          <div className="grid gap-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <div className="rounded-3xl border bg-card p-4 sm:p-5">
-              <SkeletonBlock className="h-5 w-40" />
-              <div className="mt-5 space-y-3">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <SkeletonBlock key={index} className="h-16 w-full rounded-3xl" />
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-3xl border bg-card p-4 sm:p-5">
-              <SkeletonBlock className="h-5 w-44" />
-              <div className="mt-5 space-y-3">
-                <SkeletonBlock className="h-24 w-full rounded-2xl" />
-                <SkeletonBlock className="h-40 w-full rounded-2xl" />
-                <SkeletonBlock className="h-10 w-full rounded-2xl" />
-                <SkeletonBlock className="h-24 w-full rounded-2xl" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BuilderStatCard({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string | number;
-  icon: ReactNode;
-}) {
-  return (
-    <div className="rounded-3xl border bg-card p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
-          {icon}
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 truncate text-xl font-semibold text-foreground">
-            {value}
-          </p>
         </div>
       </div>
     </div>
@@ -305,6 +262,7 @@ function FieldBlock({
         {label}
         {required ? <span className="ml-1 text-destructive">*</span> : null}
       </Label>
+
       {children}
     </div>
   );
@@ -354,133 +312,13 @@ function InlineConfirm({
   );
 }
 
-function scrollToBuilderSection(id: string) {
-  const element = document.getElementById(id);
-
-  if (!element) return;
-
-  element.scrollIntoView({
-    behavior: 'smooth',
-    block: 'start',
-  });
-}
-
-function TestBuilderStepper({
-  hasSelectedTest,
-  hasPendingAiImport,
-}: {
-  hasSelectedTest: boolean;
-  hasPendingAiImport: boolean;
-}) {
-  const steps = [
-    {
-      id: 'new-test',
-      number: '1',
-      title: 'Тест',
-      icon: <Plus size={16} />,
-      disabled: false,
-    },
-    {
-      id: 'test-settings',
-      number: '2',
-      title: 'Баптаулар',
-      icon: <Settings size={16} />,
-      disabled: !hasSelectedTest,
-    },
-    {
-      id: 'questions',
-      number: '3',
-      title: 'Сұрақтар',
-      icon: <ClipboardList size={16} />,
-      disabled: !hasSelectedTest,
-    },
-    {
-      id: 'question-editor',
-      number: '4',
-      title: 'Редактор',
-      icon: <FileText size={16} />,
-      disabled: !hasSelectedTest,
-    },
-    {
-      id: 'ai-import',
-      number: '5',
-      title: 'AI импорт',
-      icon: <Sparkles size={16} />,
-      disabled: !hasPendingAiImport,
-    },
-  ];
-
-  return (
-    <Card>
-      <CardContent className="p-3 sm:p-4">
-        <div className="grid gap-2 md:grid-cols-5">
-          {steps.map((step) => {
-            const enabled = !step.disabled;
-
-            return (
-              <button
-                key={step.id}
-                type="button"
-                disabled={step.disabled}
-                onClick={() => scrollToBuilderSection(step.id)}
-                aria-disabled={step.disabled}
-                className={`rounded-3xl border p-3 text-left transition-colors active:scale-[0.99] ${
-                  enabled
-                    ? 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
-                    : 'cursor-not-allowed bg-muted/40 opacity-60'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${
-                      enabled
-                        ? 'border-primary-muted bg-primary-soft text-primary'
-                        : 'border-border bg-card/70 text-muted-foreground'
-                    }`}
-                  >
-                    {step.icon}
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={`inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
-                          enabled
-                            ? 'bg-card text-primary ring-1 ring-primary-muted'
-                            : 'bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        {step.number}
-                      </span>
-
-                      <p
-                        className={`truncate text-xs font-semibold ${
-                          enabled ? 'text-foreground' : 'text-muted-foreground'
-                        }`}
-                      >
-                        {step.title}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function TeacherCreateTestPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: subjects } = useSubjects();
-  const {
-    data: courseWorkspace,
-    isFetching: courseWorkspaceFetching,
-  } = useTeacherCourseWorkspace(user?.id || '', !!user?.id);
+  const { data: courseWorkspace, isFetching: courseWorkspaceFetching } =
+    useTeacherCourseWorkspace(user?.id || '', !!user?.id);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const requestedTestId = searchParams.get('testId') || '';
@@ -535,22 +373,22 @@ export default function TeacherCreateTestPage() {
       workspace?.tests.find((test) => test.id === requestedTestId) ||
       workspace?.tests[0] ||
       null,
-    [workspace, selectedTestId, requestedTestId]
+    [workspace, selectedTestId, requestedTestId],
   );
 
   const sortedSelectedQuestions = useMemo(
     () => getSortedQuestions(selectedTest?.questions || []),
-    [selectedTest]
+    [selectedTest],
   );
 
   const questionOptions = useMemo(
     () => getOptionLinesForEditor(questionForm.optionsText),
-    [questionForm.optionsText]
+    [questionForm.optionsText],
   );
 
   const correctAnswerIndexes = useMemo(
     () => parseCorrectAnswerIndexes(questionForm.correctAnswer),
-    [questionForm.correctAnswer]
+    [questionForm.correctAnswer],
   );
 
   const statusLabels: Record<TestStatus, string> = {
@@ -565,8 +403,7 @@ export default function TeacherCreateTestPage() {
       ? t('page.teacher_test_builder.question_type.multiple')
       : t('page.teacher_test_builder.question_type.single');
 
-  const hasPendingAiImport =
-    !!pendingAiImport && pendingAiImport.questions.length > 0;
+  const hasPendingAiImport = !!pendingAiImport && pendingAiImport.questions.length > 0;
 
   const syncTestParam = useCallback(
     (testId?: string) => {
@@ -580,12 +417,12 @@ export default function TeacherCreateTestPage() {
 
       setSearchParams(next, { replace: true });
     },
-    [searchParams, setSearchParams]
+    [searchParams, setSearchParams],
   );
 
   const getNextQuestionSortOrder = useCallback(
     (test = selectedTest, extra = 1) => getNextSortOrder(test?.questions || [], extra),
-    [selectedTest]
+    [selectedTest],
   );
 
   const resetQuestionForm = useCallback(
@@ -594,7 +431,7 @@ export default function TeacherCreateTestPage() {
       setQuestionDeleteId(null);
       setQuestionForm(buildQuestionForm(nextSortOrder || getNextQuestionSortOrder()));
     },
-    [getNextQuestionSortOrder]
+    [getNextQuestionSortOrder],
   );
 
   const selectTest = (testId: string) => {
@@ -633,10 +470,21 @@ export default function TeacherCreateTestPage() {
       ...prev,
       title: prev.title || pendingAiImport.titleSuggestion || '',
       topic: prev.topic || pendingAiImport.topic || '',
-      subjectId: prev.subjectId || '',
       duration: prev.duration || '20',
     }));
   }, [pendingAiImport]);
+
+  useEffect(() => {
+    if (newTest.courseId || courseOptions.length !== 1) return;
+
+    const onlyCourse = courseOptions[0];
+
+    setNewTest((previous) => ({
+      ...previous,
+      courseId: onlyCourse.id,
+      subjectId: onlyCourse.subjectId || previous.subjectId,
+    }));
+  }, [courseOptions, newTest.courseId]);
 
   useEffect(() => {
     if (!newTest.courseId || courseOptions.some((course) => course.id === newTest.courseId)) {
@@ -654,9 +502,11 @@ export default function TeacherCreateTestPage() {
       if (selectedTestId) {
         setSelectedTestId('');
       }
+
       if (requestedTestId) {
         syncTestParam();
       }
+
       return;
     }
 
@@ -700,7 +550,7 @@ export default function TeacherCreateTestPage() {
     if (!selectedTest || !editingQuestionId) return;
 
     const questionStillExists = selectedTest.questions.some(
-      (q) => q.id === editingQuestionId
+      (question) => question.id === editingQuestionId,
     );
 
     if (!questionStillExists) {
@@ -711,14 +561,20 @@ export default function TeacherCreateTestPage() {
   const refetch = async () => {
     await Promise.all([
       queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherTestsWorkspace(user?.id || ''),
+        queryKey: platformKeys.teacherTestsWorkspaceBase,
       }),
       queryClient.invalidateQueries({
-        queryKey: platformKeys.teacherDashboard(user?.id || ''),
+        queryKey: platformKeys.teacherDashboardBase,
       }),
-      queryClient.invalidateQueries({ queryKey: ['tests'] }),
-      queryClient.invalidateQueries({ queryKey: platformKeys.moderationQueue }),
-      queryClient.invalidateQueries({ queryKey: platformKeys.adminDashboard }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.testsBase,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.moderationQueue,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: platformKeys.adminDashboard,
+      }),
     ]);
   };
 
@@ -727,7 +583,7 @@ export default function TeacherCreateTestPage() {
     const explanation = questionForm.explanation.trim();
 
     if (!questionText) {
-      throw new Error('Сұрақ мәтіні міндетті');
+      throw new Error('Сұрақ мәтіні міндетті.');
     }
 
     const options = questionForm.optionsText
@@ -744,25 +600,25 @@ export default function TeacherCreateTestPage() {
         questionForm.correctAnswer
           .split(',')
           .map((value) => Number(value.trim()) - 1)
-          .filter((value) => Number.isFinite(value) && value >= 0)
-      )
+          .filter((value) => Number.isFinite(value) && value >= 0),
+      ),
     );
 
     if (correct.length === 0) {
       throw new Error(
-        t('page.teacher_test_builder.validation.correct_answer_required')
+        t('page.teacher_test_builder.validation.correct_answer_required'),
       );
     }
 
     if (correct.some((value) => value >= options.length)) {
       throw new Error(
-        t('page.teacher_test_builder.validation.correct_answer_range')
+        t('page.teacher_test_builder.validation.correct_answer_range'),
       );
     }
 
     if (!questionForm.multiple && correct.length > 1) {
       throw new Error(
-        t('page.teacher_test_builder.validation.single_answer_only')
+        t('page.teacher_test_builder.validation.single_answer_only'),
       );
     }
 
@@ -776,7 +632,7 @@ export default function TeacherCreateTestPage() {
 
   const createTestMutation = useMutation({
     mutationFn: async () => {
-      if (!user) throw new Error('User not found');
+      if (!user) throw new Error('Пайдаланушы табылмады.');
 
       return createTest({
         title: newTest.title.trim(),
@@ -789,28 +645,38 @@ export default function TeacherCreateTestPage() {
       });
     },
     onSuccess: async (test) => {
-      setNewTest({ title: '', topic: '', duration: '20', subjectId: '', courseId: '' });
+      setNewTest({
+        title: '',
+        topic: '',
+        duration: '20',
+        subjectId: '',
+        courseId: '',
+      });
+
       await refetch();
       selectTest(test.id);
 
       toast({
         title: t('page.teacher_test_builder.toast.create_test_title'),
         description: pendingAiImport
-          ? 'AI сұрақтарды осы тестке импорттауға болады.'
+          ? 'AI сұрақтарды осы тестке қосуға болады.'
           : undefined,
       });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description: t('page.teacher_test_builder.toast.error_text'),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('page.teacher_test_builder.toast.error_text'),
         variant: 'destructive',
       }),
   });
 
   const updateTestMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedTest) throw new Error('Test not selected');
+      if (!selectedTest) throw new Error('Тест таңдалмаған.');
 
       return updateTest({
         testId: selectedTest.id,
@@ -825,10 +691,13 @@ export default function TeacherCreateTestPage() {
       await refetch();
       toast({ title: t('page.teacher_test_builder.toast.update_test_title') });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description: t('page.teacher_test_builder.toast.error_text'),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('page.teacher_test_builder.toast.error_text'),
         variant: 'destructive',
       }),
   });
@@ -838,8 +707,7 @@ export default function TeacherCreateTestPage() {
       await deleteTest(testId);
     },
     onSuccess: async (_data, testId) => {
-      const nextTestId =
-        workspace?.tests.find((test) => test.id !== testId)?.id || '';
+      const nextTestId = workspace?.tests.find((test) => test.id !== testId)?.id || '';
 
       setEditingQuestionId(null);
       setDeleteTestConfirmOpen(false);
@@ -857,9 +725,7 @@ export default function TeacherCreateTestPage() {
 
       toast({ title: t('page.teacher_test_builder.toast.delete_test_title') });
     },
-    onError: (error) => {
-      console.error('[deleteTestMutation error]', error);
-
+    onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
         description:
@@ -867,16 +733,14 @@ export default function TeacherCreateTestPage() {
             ? error.message
             : t('page.teacher_test_builder.toast.error_text'),
         variant: 'destructive',
-      });
-    },
+      }),
   });
 
   const saveQuestionMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedTest) throw new Error('Test not selected');
+      if (!selectedTest) throw new Error('Тест таңдалмаған.');
 
-      const { questionText, explanation, options, correct } =
-        parseQuestionPayload();
+      const { questionText, explanation, options, correct } = parseQuestionPayload();
 
       if (editingQuestionId) {
         return updateTestQuestion({
@@ -886,9 +750,7 @@ export default function TeacherCreateTestPage() {
           correctAnswer: correct,
           explanation: explanation || null,
           sortOrder: Number(questionForm.sortOrder) || 1,
-          questionType: questionForm.multiple
-            ? 'multiple_choice'
-            : 'single_choice',
+          questionType: questionForm.multiple ? 'multiple_choice' : 'single_choice',
         });
       }
 
@@ -898,11 +760,8 @@ export default function TeacherCreateTestPage() {
         options,
         correctAnswer: correct,
         explanation,
-        sortOrder:
-          Number(questionForm.sortOrder) || selectedTest.questions.length + 1,
-        questionType: questionForm.multiple
-          ? 'multiple_choice'
-          : 'single_choice',
+        sortOrder: Number(questionForm.sortOrder) || selectedTest.questions.length + 1,
+        questionType: questionForm.multiple ? 'multiple_choice' : 'single_choice',
       });
     },
     onSuccess: async () => {
@@ -938,7 +797,7 @@ export default function TeacherCreateTestPage() {
       questionId: string;
       remainingIds: string[];
     }) => {
-      if (!selectedTest) throw new Error('Test not selected');
+      if (!selectedTest) throw new Error('Тест таңдалмаған.');
 
       await deleteTestQuestion(questionId);
 
@@ -955,10 +814,13 @@ export default function TeacherCreateTestPage() {
         title: t('page.teacher_test_builder.toast.delete_question_title'),
       });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description: t('page.teacher_test_builder.toast.error_text'),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('page.teacher_test_builder.toast.error_text'),
         variant: 'destructive',
       }),
   });
@@ -971,9 +833,9 @@ export default function TeacherCreateTestPage() {
       questionId: string;
       direction: 'up' | 'down';
     }) => {
-      if (!selectedTest) throw new Error('Test not selected');
+      if (!selectedTest) throw new Error('Тест таңдалмаған.');
 
-      const currentIndex = sortedSelectedQuestions.findIndex((q) => q.id === questionId);
+      const currentIndex = sortedSelectedQuestions.findIndex((question) => question.id === questionId);
       const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
 
       if (
@@ -984,11 +846,9 @@ export default function TeacherCreateTestPage() {
         return;
       }
 
-      const nextOrder = moveItem(
-        sortedSelectedQuestions,
-        currentIndex,
-        nextIndex
-      ).map((q) => q.id);
+      const nextOrder = moveItem(sortedSelectedQuestions, currentIndex, nextIndex).map(
+        (question) => question.id,
+      );
 
       await reorderTestQuestions(selectedTest.id, nextOrder);
     },
@@ -998,10 +858,13 @@ export default function TeacherCreateTestPage() {
         title: t('page.teacher_test_builder.toast.reorder_questions_title'),
       });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description: t('page.teacher_test_builder.toast.error_text'),
+        description:
+          error instanceof Error
+            ? error.message
+            : t('page.teacher_test_builder.toast.error_text'),
         variant: 'destructive',
       }),
   });
@@ -1009,11 +872,11 @@ export default function TeacherCreateTestPage() {
   const importAiQuestionsMutation = useMutation({
     mutationFn: async () => {
       if (!selectedTest) {
-        throw new Error('Алдымен импорт жасалатын тестті таңдаңыз.');
+        throw new Error('Алдымен сұрақ қосылатын тестті таңдаңыз.');
       }
 
       if (!pendingAiImport || pendingAiImport.questions.length === 0) {
-        throw new Error('Импорттайтын AI сұрақтар табылмады.');
+        throw new Error('Қосылатын AI сұрақтар табылмады.');
       }
 
       const startSortOrder =
@@ -1043,11 +906,11 @@ export default function TeacherCreateTestPage() {
       resetQuestionForm();
 
       toast({
-        title: 'AI сұрақтар импортталды',
+        title: 'AI сұрақтар қосылды',
         description:
           skipped > 0
-            ? `${importedCount} сұрақ импортталды, ${skipped} сұрақ кірмеді.`
-            : `${importedCount} сұрақ импортталды.`,
+            ? `${importedCount} сұрақ қосылды, ${skipped} сұрақ өтпеді.`
+            : `${importedCount} сұрақ қосылды.`,
       });
     },
     onError: (error) =>
@@ -1117,6 +980,7 @@ export default function TeacherCreateTestPage() {
         .flatMap((index) => {
           if (index === optionIndex) return [];
           if (index > optionIndex) return [index - 1];
+
           return [index];
         })
         .map((index) => index + 1)
@@ -1219,49 +1083,13 @@ export default function TeacherCreateTestPage() {
           />
         ) : null}
 
-        {!workspaceLoading && !workspaceError ? (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <BuilderStatCard
-                label="Тесттер"
-                value={testsCount}
-                icon={<ClipboardList size={17} />}
-              />
-              <BuilderStatCard
-                label="Сұрақтар"
-                value={sortedSelectedQuestions.length}
-                icon={<FileText size={17} />}
-              />
-              <BuilderStatCard
-                label="Ұзақтығы"
-                value={
-                  selectedTest
-                    ? `${selectedTest.durationMinutes || Number(testEdit.duration || 0) || 0} мин`
-                    : '—'
-                }
-                icon={<Clock size={17} />}
-              />
-              <BuilderStatCard
-                label="Статус"
-                value={selectedTest ? statusLabels[testEdit.status] : '—'}
-                icon={<CheckCircle2 size={17} />}
-              />
-            </div>
-
-            <TestBuilderStepper
-              hasSelectedTest={!!selectedTest}
-              hasPendingAiImport={hasPendingAiImport}
-            />
-          </>
-        ) : null}
-
         {pendingAiImport ? (
-          <Card id="ai-import" className="scroll-mt-24 border-primary-muted bg-primary-soft/45">
+          <Card className="border-primary-muted bg-primary-soft/45">
             <CardHeader className="border-b border-primary-muted/70 bg-card pb-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
                   <Sparkles size={16} className="text-primary" />
-                  AI импорт
+                  AI сұрақтарды қосу
                 </CardTitle>
 
                 <StatusBadge tone="primary">
@@ -1279,7 +1107,7 @@ export default function TeacherCreateTestPage() {
 
                   {pendingAiImport.skippedCount > 0 ? (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Кірмегені: {pendingAiImport.skippedCount}
+                      Өтпеген сұрақтар: {pendingAiImport.skippedCount}
                     </p>
                   ) : null}
 
@@ -1297,9 +1125,7 @@ export default function TeacherCreateTestPage() {
                     disabled={!canImportAiQuestions}
                   >
                     <ClipboardList size={16} className="mr-2" />
-                    {importAiQuestionsMutation.isPending
-                      ? 'Импортталуда...'
-                      : 'Импорттау'}
+                    {importAiQuestionsMutation.isPending ? 'Қосылуда...' : 'Қосу'}
                   </Button>
 
                   <Button type="button" variant="outline" onClick={dismissPendingAiImport}>
@@ -1321,721 +1147,726 @@ export default function TeacherCreateTestPage() {
           </Card>
         ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-          <div className="space-y-6">
-            <Card id="new-test" className="scroll-mt-24 overflow-hidden">
-              <CardHeader className="border-b border-border/70 bg-card pb-4">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base font-semibold">
-                    {t('page.teacher_test_builder.section.new_test')}
-                  </CardTitle>
+        {!workspaceLoading && !workspaceError ? (
+          <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+            <div className="space-y-6">
+              <Card className="overflow-hidden">
+                <CardHeader className="border-b border-border/70 bg-card pb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="text-base font-semibold">
+                      {t('page.teacher_test_builder.section.new_test')}
+                    </CardTitle>
 
-                  <StatusBadge tone={canCreateTest ? 'success' : 'muted'}>
-                    {canCreateTest ? 'Дайын' : 'Міндетті'}
-                  </StatusBadge>
-                </div>
-              </CardHeader>
+                    <StatusBadge tone={canCreateTest ? 'success' : 'muted'}>
+                      {canCreateTest ? 'Дайын' : 'Міндетті'}
+                    </StatusBadge>
+                  </div>
+                </CardHeader>
 
-              <CardContent className="space-y-4 p-4 sm:p-5">
-                <FieldBlock label="Курс" required>
-                  <select
-                    value={newTest.courseId}
-                    onChange={(event) => {
-                      const courseId = event.target.value;
-                      const course = courseOptions.find((item) => item.id === courseId);
-
-                      setNewTest((previous) => ({
-                        ...previous,
-                        courseId,
-                        subjectId: course?.subjectId || previous.subjectId,
-                      }));
-                    }}
-                    disabled={courseWorkspaceFetching || courseOptions.length === 0}
-                    className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <option value="">
-                      {courseWorkspaceFetching
-                        ? 'Курстар жүктелуде...'
-                        : courseOptions.length === 0
-                          ? 'Алдымен курс құрыңыз'
-                          : 'Курс таңдаңыз'}
-                    </option>
-
-                    {courseOptions.map((course) => (
-                      <option key={course.id} value={course.id}>
-                        {course.title}
-                        {course.subjectName ? ` · ${course.subjectName}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </FieldBlock>
-
-                <FieldBlock
-                  label={t('page.teacher_test_builder.field.test_title')}
-                  required
-                >
-                  <Input
-                    value={newTest.title}
-                    onChange={(event) =>
-                      setNewTest((previous) => ({
-                        ...previous,
-                        title: event.target.value,
-                      }))
-                    }
-                    placeholder={t('page.teacher_test_builder.placeholder.test_title')}
-                  />
-                </FieldBlock>
-
-                <FieldBlock label={t('page.teacher_test_builder.field.topic')}>
-                  <Input
-                    value={newTest.topic}
-                    onChange={(event) =>
-                      setNewTest((previous) => ({
-                        ...previous,
-                        topic: event.target.value,
-                      }))
-                    }
-                    placeholder={t('page.teacher_test_builder.placeholder.topic')}
-                  />
-                </FieldBlock>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <FieldBlock label={t('page.teacher_test_builder.field.duration')}>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={newTest.duration}
-                      onChange={(event) =>
-                        setNewTest((previous) => ({
-                          ...previous,
-                          duration: event.target.value,
-                        }))
-                      }
-                    />
-                  </FieldBlock>
-
-                  <FieldBlock
-                    label={t('page.teacher_test_builder.field.subject')}
-                    required
-                  >
+                <CardContent className="space-y-4 p-4 sm:p-5">
+                  <FieldBlock label="Курс" required>
                     <select
-                      value={newTest.subjectId}
-                      onChange={(event) =>
+                      value={newTest.courseId}
+                      onChange={(event) => {
+                        const courseId = event.target.value;
+                        const course = courseOptions.find((item) => item.id === courseId);
+
                         setNewTest((previous) => ({
                           ...previous,
-                          subjectId: event.target.value,
-                        }))
-                      }
-                      className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                          courseId,
+                          subjectId: course?.subjectId || previous.subjectId,
+                        }));
+                      }}
+                      disabled={courseWorkspaceFetching || courseOptions.length === 0}
+                      className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <option value="">
-                        {t('page.teacher_test_builder.placeholder.select_subject')}
+                        {courseWorkspaceFetching
+                          ? 'Курстар жүктелуде...'
+                          : courseOptions.length === 0
+                            ? 'Алдымен курс құрыңыз'
+                            : 'Курс таңдаңыз'}
                       </option>
-                      {(subjects || []).map((subject) => (
-                        <option key={subject.id} value={subject.id}>
-                          {subject.name_kk}
+
+                      {courseOptions.map((course) => (
+                        <option key={course.id} value={course.id}>
+                          {course.title}
+                          {course.subjectName ? ` · ${course.subjectName}` : ''}
                         </option>
                       ))}
                     </select>
                   </FieldBlock>
-                </div>
 
-                <Button
-                  className="w-full"
-                  onClick={() => createTestMutation.mutate()}
-                  disabled={!canCreateTest}
-                >
-                  <Plus size={15} className="mr-2" />
-                  {createTestMutation.isPending
-                    ? t('page.teacher_test_builder.action.saving')
-                    : t('page.teacher_test_builder.action.create_test')}
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card className="overflow-hidden">
-              <CardHeader className="border-b border-border/70 bg-card pb-4">
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle className="text-base font-semibold">
-                    {t('page.teacher_test_builder.section.manage_tests')}
-                  </CardTitle>
-
-                  <StatusBadge tone="muted">{testsCount}</StatusBadge>
-                </div>
-              </CardHeader>
-
-              <CardContent className="p-4 sm:p-5">
-                <div className="max-h-[640px] space-y-2 overflow-auto pr-1">
-                  {workspaceLoading ? (
-                    <LoadingState text={t('page.teacher_test_builder.loading.tests')} />
-                  ) : workspaceError ? (
-                    <ErrorState text={t('page.teacher_test_builder.error.tests')} />
-                  ) : !(workspace?.tests?.length) ? (
-                    <EmptyState
-                      title={t('page.teacher_test_builder.empty.tests_title')}
-                      text={t('page.teacher_test_builder.empty.tests_text')}
-                      compact
+                  <FieldBlock
+                    label={t('page.teacher_test_builder.field.test_title')}
+                    required
+                  >
+                    <Input
+                      value={newTest.title}
+                      onChange={(event) =>
+                        setNewTest((previous) => ({
+                          ...previous,
+                          title: event.target.value,
+                        }))
+                      }
+                      placeholder={t('page.teacher_test_builder.placeholder.test_title')}
                     />
-                  ) : (
-                    workspace.tests.map((test) => (
-                      <button
-                        key={test.id}
-                        type="button"
-                        onClick={() => seedEditFromTest(test.id)}
-                        aria-pressed={selectedTest?.id === test.id}
-                        className={`w-full rounded-3xl border p-4 text-left transition-colors active:scale-[0.99] ${
-                          selectedTest?.id === test.id
-                            ? 'border-primary-muted bg-primary-soft'
-                            : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
-                        }`}
+                  </FieldBlock>
+
+                  <FieldBlock label={t('page.teacher_test_builder.field.topic')}>
+                    <Input
+                      value={newTest.topic}
+                      onChange={(event) =>
+                        setNewTest((previous) => ({
+                          ...previous,
+                          topic: event.target.value,
+                        }))
+                      }
+                      placeholder={t('page.teacher_test_builder.placeholder.topic')}
+                    />
+                  </FieldBlock>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <FieldBlock label={t('page.teacher_test_builder.field.duration')}>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={newTest.duration}
+                        onChange={(event) =>
+                          setNewTest((previous) => ({
+                            ...previous,
+                            duration: event.target.value,
+                          }))
+                        }
+                      />
+                    </FieldBlock>
+
+                    <FieldBlock
+                      label={t('page.teacher_test_builder.field.subject')}
+                      required
+                    >
+                      <select
+                        value={newTest.subjectId}
+                        onChange={(event) =>
+                          setNewTest((previous) => ({
+                            ...previous,
+                            subjectId: event.target.value,
+                          }))
+                        }
+                        className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                       >
-                        <p className="truncate text-sm font-semibold text-foreground">
-                          {test.title}
-                        </p>
+                        <option value="">
+                          {t('page.teacher_test_builder.placeholder.select_subject')}
+                        </option>
 
-                        <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                          {[
-                            test.subjectName,
-                            `${test.questionCount} ${t(
-                              'page.teacher_test_builder.questions_label'
-                            )}`,
-                            statusLabels[test.status as TestStatus] || test.status,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </p>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                        {(subjects || []).map((subject) => (
+                          <option key={subject.id} value={subject.id}>
+                            {subject.name_kk}
+                          </option>
+                        ))}
+                      </select>
+                    </FieldBlock>
+                  </div>
 
-          {workspaceLoading ? (
-            <LoadingState text={t('page.teacher_test_builder.loading.test_editor')} />
-          ) : selectedTest ? (
-            <div className="space-y-6">
-              <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
-                <Card id="test-settings" className="scroll-mt-24 overflow-hidden">
-                  <CardHeader className="border-b border-border/70 bg-card pb-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <CardTitle className="text-base font-semibold">
-                        Тест баптаулары
-                      </CardTitle>
+                  <Button
+                    className="w-full"
+                    onClick={() => createTestMutation.mutate()}
+                    disabled={!canCreateTest}
+                  >
+                    <Plus size={15} className="mr-2" />
+                    {createTestMutation.isPending
+                      ? t('page.teacher_test_builder.action.saving')
+                      : t('page.teacher_test_builder.action.create_test')}
+                  </Button>
+                </CardContent>
+              </Card>
 
-                      <StatusBadge tone={getTestStatusTone(testEdit.status)}>
-                        {statusLabels[testEdit.status]}
-                      </StatusBadge>
-                    </div>
-                  </CardHeader>
+              <Card className="overflow-hidden">
+                <CardHeader className="border-b border-border/70 bg-card pb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="text-base font-semibold">
+                      {t('page.teacher_test_builder.section.manage_tests')}
+                    </CardTitle>
 
-                  <CardContent className="space-y-4 p-4 sm:p-5">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="md:col-span-2">
-                        <FieldBlock
-                          label={t('page.teacher_test_builder.field.test_title')}
-                          required
+                    <StatusBadge tone="muted">{testsCount}</StatusBadge>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="p-4 sm:p-5">
+                  <div className="max-h-[640px] space-y-2 overflow-auto pr-1">
+                    {workspaceLoading ? (
+                      <LoadingState text={t('page.teacher_test_builder.loading.tests')} />
+                    ) : workspaceError ? (
+                      <ErrorState text={t('page.teacher_test_builder.error.tests')} />
+                    ) : !(workspace?.tests?.length) ? (
+                      <EmptyState
+                        title={t('page.teacher_test_builder.empty.tests_title')}
+                        text={t('page.teacher_test_builder.empty.tests_text')}
+                        compact
+                      />
+                    ) : (
+                      workspace.tests.map((test) => (
+                        <button
+                          key={test.id}
+                          type="button"
+                          onClick={() => seedEditFromTest(test.id)}
+                          aria-pressed={selectedTest?.id === test.id}
+                          className={`w-full rounded-3xl border p-4 text-left transition-colors active:scale-[0.99] ${
+                            selectedTest?.id === test.id
+                              ? 'border-primary-muted bg-primary-soft'
+                              : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
+                          }`}
                         >
+                          <p className="truncate text-sm font-semibold text-foreground">
+                            {test.title}
+                          </p>
+
+                          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                            {[
+                              test.subjectName,
+                              `${test.questionCount} ${t(
+                                'page.teacher_test_builder.questions_label',
+                              )}`,
+                              statusLabels[test.status as TestStatus] || test.status,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </p>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {selectedTest ? (
+              <div className="space-y-6">
+                <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <Card className="overflow-hidden">
+                    <CardHeader className="border-b border-border/70 bg-card pb-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <CardTitle className="text-base font-semibold">
+                          Тест баптаулары
+                        </CardTitle>
+
+                        <StatusBadge tone={getTestStatusTone(testEdit.status)}>
+                          {statusLabels[testEdit.status]}
+                        </StatusBadge>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent className="space-y-4 p-4 sm:p-5">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="md:col-span-2">
+                          <FieldBlock
+                            label={t('page.teacher_test_builder.field.test_title')}
+                            required
+                          >
+                            <Input
+                              value={testEdit.title}
+                              onChange={(event) =>
+                                setTestEdit((previous) => ({
+                                  ...previous,
+                                  title: event.target.value,
+                                }))
+                              }
+                            />
+                          </FieldBlock>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <FieldBlock label={t('page.teacher_test_builder.field.topic')}>
+                            <Input
+                              value={testEdit.topic}
+                              onChange={(event) =>
+                                setTestEdit((previous) => ({
+                                  ...previous,
+                                  topic: event.target.value,
+                                }))
+                              }
+                            />
+                          </FieldBlock>
+                        </div>
+
+                        <FieldBlock label={t('page.teacher_test_builder.field.duration')}>
                           <Input
-                            value={testEdit.title}
+                            type="number"
+                            min={1}
+                            value={testEdit.duration}
                             onChange={(event) =>
                               setTestEdit((previous) => ({
                                 ...previous,
-                                title: event.target.value,
+                                duration: event.target.value,
                               }))
                             }
                           />
                         </FieldBlock>
-                      </div>
 
-                      <div className="md:col-span-2">
-                        <FieldBlock label={t('page.teacher_test_builder.field.topic')}>
-                          <Input
-                            value={testEdit.topic}
-                            onChange={(event) =>
-                              setTestEdit((previous) => ({
-                                ...previous,
-                                topic: event.target.value,
-                              }))
-                            }
-                          />
-                        </FieldBlock>
-                      </div>
-
-                      <FieldBlock label={t('page.teacher_test_builder.field.duration')}>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={testEdit.duration}
-                          onChange={(event) =>
-                            setTestEdit((previous) => ({
-                              ...previous,
-                              duration: event.target.value,
-                            }))
-                          }
-                        />
-                      </FieldBlock>
-
-                      <FieldBlock label={t('page.teacher_test_builder.field.status')}>
-                        <select
-                          value={testEdit.status}
-                          onChange={(event) =>
-                            setTestEdit((previous) => ({
-                              ...previous,
-                              status: event.target.value as TestStatus,
-                            }))
-                          }
-                          className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                        >
-                          {statuses.map((status) => (
-                            <option key={status} value={status}>
-                              {statusLabels[status]}
-                            </option>
-                          ))}
-                        </select>
-                      </FieldBlock>
-
-                      <div className="md:col-span-2">
-                        <FieldBlock label={t('page.teacher_test_builder.field.subject')}>
+                        <FieldBlock label={t('page.teacher_test_builder.field.status')}>
                           <select
-                            value={testEdit.subjectId}
+                            value={testEdit.status}
                             onChange={(event) =>
                               setTestEdit((previous) => ({
                                 ...previous,
-                                subjectId: event.target.value,
+                                status: event.target.value as TestStatus,
                               }))
                             }
                             className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                           >
-                            <option value="">
-                              {t('page.teacher_test_builder.placeholder.select_subject')}
-                            </option>
-                            {(subjects || []).map((subject) => (
-                              <option key={subject.id} value={subject.id}>
-                                {subject.name_kk}
+                            {statuses.map((status) => (
+                              <option key={status} value={status}>
+                                {statusLabels[status]}
                               </option>
                             ))}
                           </select>
                         </FieldBlock>
-                      </div>
-                    </div>
 
-                    <div className="flex justify-end pt-1">
-                      <Button
-                        onClick={() => updateTestMutation.mutate()}
-                        disabled={updateTestMutation.isPending}
-                      >
-                        {updateTestMutation.isPending
-                          ? t('page.teacher_test_builder.action.saving')
-                          : t('page.teacher_test_builder.action.save_test')}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                        <div className="md:col-span-2">
+                          <FieldBlock label={t('page.teacher_test_builder.field.subject')}>
+                            <select
+                              value={testEdit.subjectId}
+                              onChange={(event) =>
+                                setTestEdit((previous) => ({
+                                  ...previous,
+                                  subjectId: event.target.value,
+                                }))
+                              }
+                              className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                            >
+                              <option value="">
+                                {t('page.teacher_test_builder.placeholder.select_subject')}
+                              </option>
 
-                <div className="space-y-4">
-                  <Card className="overflow-hidden">
-                    <CardHeader className="border-b border-border/70 bg-card pb-3">
-                      <CardTitle className="text-sm font-semibold">
-                        Қысқаша мәлімет
-                      </CardTitle>
-                    </CardHeader>
-
-                    <CardContent className="space-y-2 p-4 text-sm">
-                      <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
-                        <span className="text-muted-foreground">Сұрақтар</span>
-                        <span className="font-medium">{selectedTest.questionCount}</span>
+                              {(subjects || []).map((subject) => (
+                                <option key={subject.id} value={subject.id}>
+                                  {subject.name_kk}
+                                </option>
+                              ))}
+                            </select>
+                          </FieldBlock>
+                        </div>
                       </div>
 
-                      <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
-                        <span className="text-muted-foreground">Пән</span>
-                        <span className="font-medium">{selectedTest.subjectName || '—'}</span>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
-                        <span className="text-muted-foreground">Статус</span>
-                        <span className="font-medium">
-                          {statusLabels[selectedTest.status as TestStatus] || selectedTest.status}
-                        </span>
+                      <div className="flex justify-end pt-1">
+                        <Button
+                          onClick={() => updateTestMutation.mutate()}
+                          disabled={updateTestMutation.isPending}
+                        >
+                          {updateTestMutation.isPending
+                            ? t('page.teacher_test_builder.action.saving')
+                            : t('page.teacher_test_builder.action.save_test')}
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>
 
-                  <Card className="overflow-hidden border-destructive/30">
-                    <CardHeader className="border-b border-destructive/20 bg-card pb-3">
-                      <CardTitle className="text-sm font-semibold text-destructive">
-                        Қауіпті әрекет
-                      </CardTitle>
+                  <div className="space-y-4">
+                    <Card className="overflow-hidden">
+                      <CardHeader className="border-b border-border/70 bg-card pb-3">
+                        <CardTitle className="text-sm font-semibold">
+                          Қысқаша мәлімет
+                        </CardTitle>
+                      </CardHeader>
+
+                      <CardContent className="space-y-2 p-4 text-sm">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
+                          <span className="text-muted-foreground">Сұрақтар</span>
+                          <span className="font-medium">
+                            {selectedTest.questionCount}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
+                          <span className="text-muted-foreground">Пән</span>
+                          <span className="font-medium">
+                            {selectedTest.subjectName || '—'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
+                          <span className="text-muted-foreground">Статус</span>
+                          <span className="font-medium">
+                            {statusLabels[selectedTest.status as TestStatus] ||
+                              selectedTest.status}
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="overflow-hidden border-destructive/30">
+                      <CardHeader className="border-b border-destructive/20 bg-card pb-3">
+                        <CardTitle className="text-sm font-semibold text-destructive">
+                          Өшіру
+                        </CardTitle>
+                      </CardHeader>
+
+                      <CardContent className="space-y-3 p-4">
+                        {deleteTestConfirmOpen ? (
+                          <InlineConfirm
+                            title="Тест өшірілсін бе?"
+                            confirmLabel="Өшіру"
+                            pending={deleteTestMutation.isPending}
+                            variant="danger"
+                            onConfirm={() => deleteTestMutation.mutate(selectedTest.id)}
+                            onCancel={() => setDeleteTestConfirmOpen(false)}
+                          />
+                        ) : null}
+
+                        <Button
+                          variant={deleteTestConfirmOpen ? 'outline' : 'destructive'}
+                          size="sm"
+                          className="w-full"
+                          onClick={() =>
+                            setDeleteTestConfirmOpen((previous) => !previous)
+                          }
+                          disabled={deleteTestMutation.isPending}
+                        >
+                          {deleteTestConfirmOpen ? (
+                            <X size={14} className="mr-1.5" />
+                          ) : (
+                            <Trash2 size={14} className="mr-1.5" />
+                          )}
+                          {deleteTestConfirmOpen
+                            ? 'Жабу'
+                            : t('page.teacher_test_builder.action.delete_test')}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+
+                <div className="grid gap-6 border-t pt-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                  <Card className="overflow-hidden">
+                    <CardHeader className="border-b border-border/70 bg-card pb-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <CardTitle className="text-base font-semibold">
+                          {t('page.teacher_test_builder.section.questions')}
+                        </CardTitle>
+
+                        <StatusBadge tone="muted">
+                          {sortedSelectedQuestions.length}
+                        </StatusBadge>
+                      </div>
                     </CardHeader>
 
-                    <CardContent className="space-y-3 p-4">
-                      {deleteTestConfirmOpen ? (
-                        <InlineConfirm
-                          title="Тест өшірілсін бе?"
-                          confirmLabel="Өшіру"
-                          pending={deleteTestMutation.isPending}
-                          variant="danger"
-                          onConfirm={() => deleteTestMutation.mutate(selectedTest.id)}
-                          onCancel={() => setDeleteTestConfirmOpen(false)}
+                    <CardContent className="max-h-[680px] space-y-3 overflow-auto p-4 pr-1 sm:p-5">
+                      {sortedSelectedQuestions.length === 0 ? (
+                        <EmptyState
+                          title={t('page.teacher_test_builder.empty.questions_title')}
+                          text={t('page.teacher_test_builder.empty.questions_text')}
+                          compact
                         />
-                      ) : null}
+                      ) : (
+                        sortedSelectedQuestions.map((question, index) => {
+                          const deleteOpen = questionDeleteId === question.id;
 
-                      <Button
-                        variant={deleteTestConfirmOpen ? 'outline' : 'destructive'}
-                        size="sm"
-                        className="w-full"
-                        onClick={() =>
-                          setDeleteTestConfirmOpen((previous) => !previous)
-                        }
-                        disabled={deleteTestMutation.isPending}
+                          return (
+                            <div
+                              key={question.id}
+                              className="rounded-3xl border border-border bg-card p-4"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => editQuestion(question.id)}
+                                  className="min-w-0 flex-1 text-left"
+                                >
+                                  <p className="text-sm font-semibold leading-6 text-foreground">
+                                    #{question.sort_order} {question.question_text}
+                                  </p>
+                                  <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                                    {questionTypeLabel(
+                                      question.question_type === 'multiple_choice',
+                                    )}{' '}
+                                    ·{' '}
+                                    {Array.isArray(question.options)
+                                      ? question.options.length
+                                      : 0}{' '}
+                                    {t('page.teacher_test_builder.options_label')}
+                                  </p>
+                                </button>
+
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    disabled={
+                                      index === 0 || reorderQuestionsMutation.isPending
+                                    }
+                                    onClick={() =>
+                                      reorderQuestionsMutation.mutate({
+                                        questionId: question.id,
+                                        direction: 'up',
+                                      })
+                                    }
+                                    aria-label="Сұрақты жоғары жылжыту"
+                                  >
+                                    <ArrowUp size={14} />
+                                  </Button>
+
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    disabled={
+                                      index === sortedSelectedQuestions.length - 1 ||
+                                      reorderQuestionsMutation.isPending
+                                    }
+                                    onClick={() =>
+                                      reorderQuestionsMutation.mutate({
+                                        questionId: question.id,
+                                        direction: 'down',
+                                      })
+                                    }
+                                    aria-label="Сұрақты төмен жылжыту"
+                                  >
+                                    <ArrowDown size={14} />
+                                  </Button>
+
+                                  <Button
+                                    type="button"
+                                    variant={deleteOpen ? 'outline' : 'destructive'}
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    disabled={deleteQuestionMutation.isPending}
+                                    onClick={() =>
+                                      setQuestionDeleteId((current) =>
+                                        current === question.id ? null : question.id,
+                                      )
+                                    }
+                                    aria-label="Сұрақты өшіру"
+                                  >
+                                    {deleteOpen ? <X size={14} /> : <Trash2 size={14} />}
+                                  </Button>
+                                </div>
+                              </div>
+
+                              {deleteOpen ? (
+                                <div className="mt-3">
+                                  <InlineConfirm
+                                    title="Сұрақ өшірілсін бе?"
+                                    confirmLabel="Өшіру"
+                                    pending={deleteQuestionMutation.isPending}
+                                    variant="danger"
+                                    onConfirm={() =>
+                                      deleteQuestionMutation.mutate({
+                                        questionId: question.id,
+                                        remainingIds: sortedSelectedQuestions
+                                          .filter((item) => item.id !== question.id)
+                                          .map((item) => item.id),
+                                      })
+                                    }
+                                    onCancel={() => setQuestionDeleteId(null)}
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card className="overflow-hidden">
+                    <CardHeader className="border-b border-border/70 bg-card pb-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <CardTitle className="text-base font-semibold">
+                          {editingQuestionId
+                            ? t('page.teacher_test_builder.section.edit_question')
+                            : t('page.teacher_test_builder.section.new_question')}
+                        </CardTitle>
+
+                        <StatusBadge tone={canSaveQuestion ? 'success' : 'muted'}>
+                          {editingQuestionId ? 'Өңдеу' : 'Жаңа'}
+                        </StatusBadge>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent className="space-y-4 p-4 sm:p-5">
+                      <FieldBlock
+                        label={t('page.teacher_test_builder.field.question_text')}
+                        required
                       >
-                        {deleteTestConfirmOpen ? (
-                          <X size={14} className="mr-1.5" />
-                        ) : (
-                          <Trash2 size={14} className="mr-1.5" />
-                        )}
-                        {deleteTestConfirmOpen
-                          ? 'Жабу'
-                          : t('page.teacher_test_builder.action.delete_test')}
-                      </Button>
+                        <Textarea
+                          rows={4}
+                          value={questionForm.questionText}
+                          onChange={(event) =>
+                            setQuestionForm((previous) => ({
+                              ...previous,
+                              questionText: event.target.value,
+                            }))
+                          }
+                          placeholder="Сұрақ"
+                        />
+                      </FieldBlock>
+
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold text-foreground">
+                          {t('page.teacher_test_builder.field.options')}
+                          <span className="ml-1 text-destructive">*</span>
+                        </Label>
+
+                        <div className="space-y-2">
+                          {questionOptions.map((option, optionIndex) => {
+                            const checked = correctAnswerIndexes.includes(optionIndex);
+                            const inputType = questionForm.multiple ? 'checkbox' : 'radio';
+
+                            return (
+                              <div
+                                key={optionIndex}
+                                className={`flex items-center gap-3 rounded-2xl border p-2 transition-colors ${
+                                  checked
+                                    ? 'border-success-muted bg-success-soft/70'
+                                    : 'border-border bg-card'
+                                }`}
+                              >
+                                <input
+                                  type={inputType}
+                                  name="test-correct-answer"
+                                  checked={checked}
+                                  onChange={() => toggleCorrectOption(optionIndex)}
+                                  className="h-4 w-4 accent-primary"
+                                />
+
+                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-xs font-semibold text-muted-foreground">
+                                  {String.fromCharCode(65 + optionIndex)}
+                                </div>
+
+                                <Input
+                                  value={option}
+                                  onChange={(event) =>
+                                    updateQuestionOption(optionIndex, event.target.value)
+                                  }
+                                  placeholder={`Жауап ${optionIndex + 1}`}
+                                />
+
+                                {questionOptions.length > 2 ? (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 shrink-0"
+                                    onClick={() => removeQuestionOption(optionIndex)}
+                                    aria-label="Жауап нұсқасын өшіру"
+                                  >
+                                    <X size={14} />
+                                  </Button>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addQuestionOption}
+                        >
+                          <Plus size={14} className="mr-1.5" />
+                          Нұсқа қосу
+                        </Button>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <FieldBlock label={t('page.teacher_test_builder.field.sort_order')}>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={questionForm.sortOrder}
+                            onChange={(event) =>
+                              setQuestionForm((previous) => ({
+                                ...previous,
+                                sortOrder: event.target.value,
+                              }))
+                            }
+                          />
+                        </FieldBlock>
+
+                        <div
+                          className={`rounded-2xl border px-4 py-3 transition-colors ${
+                            questionForm.multiple
+                              ? 'border-primary-muted bg-primary-soft/70'
+                              : 'border-border bg-muted/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-4">
+                            <Label
+                              htmlFor="multiple-choice"
+                              className="text-sm font-semibold text-foreground"
+                            >
+                              {t('page.teacher_test_builder.field.multiple_choice')}
+                            </Label>
+
+                            <Switch
+                              id="multiple-choice"
+                              checked={questionForm.multiple}
+                              onCheckedChange={(checked) =>
+                                setQuestionForm((previous) => ({
+                                  ...previous,
+                                  multiple: checked,
+                                  correctAnswer: checked
+                                    ? previous.correctAnswer
+                                    : previous.correctAnswer.split(',')[0] || '1',
+                                }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <FieldBlock label={t('page.teacher_test_builder.field.explanation')}>
+                        <Textarea
+                          rows={3}
+                          value={questionForm.explanation}
+                          onChange={(event) =>
+                            setQuestionForm((previous) => ({
+                              ...previous,
+                              explanation: event.target.value,
+                            }))
+                          }
+                          placeholder="Түсіндірме"
+                        />
+                      </FieldBlock>
+
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button
+                          onClick={() => saveQuestionMutation.mutate()}
+                          disabled={!canSaveQuestion}
+                        >
+                          {saveQuestionMutation.isPending
+                            ? t('page.teacher_test_builder.action.saving')
+                            : editingQuestionId
+                              ? t('page.teacher_test_builder.action.save_question')
+                              : t('page.teacher_test_builder.action.add_question')}
+                        </Button>
+
+                        {editingQuestionId ? (
+                          <Button variant="outline" onClick={() => resetQuestionForm()}>
+                            {t('page.teacher_test_builder.action.clear_form')}
+                          </Button>
+                        ) : null}
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
               </div>
-
-              <div className="grid gap-6 border-t pt-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                <Card id="questions" className="scroll-mt-24 overflow-hidden">
-                  <CardHeader className="border-b border-border/70 bg-card pb-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <CardTitle className="text-base font-semibold">
-                        {t('page.teacher_test_builder.section.questions')}
-                      </CardTitle>
-
-                      <StatusBadge tone="muted">
-                        {sortedSelectedQuestions.length}
-                      </StatusBadge>
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="max-h-[680px] space-y-3 overflow-auto p-4 pr-1 sm:p-5">
-                    {sortedSelectedQuestions.length === 0 ? (
-                      <EmptyState
-                        title={t('page.teacher_test_builder.empty.questions_title')}
-                        text={t('page.teacher_test_builder.empty.questions_text')}
-                        compact
-                      />
-                    ) : (
-                      sortedSelectedQuestions.map((question, index) => {
-                        const deleteOpen = questionDeleteId === question.id;
-
-                        return (
-                          <div
-                            key={question.id}
-                            className="rounded-3xl border border-border bg-card p-4"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <button
-                                type="button"
-                                onClick={() => editQuestion(question.id)}
-                                className="min-w-0 flex-1 text-left"
-                              >
-                                <p className="text-sm font-semibold leading-6 text-foreground">
-                                  #{question.sort_order} {question.question_text}
-                                </p>
-                                <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-                                  {questionTypeLabel(
-                                    question.question_type === 'multiple_choice'
-                                  )}{' '}
-                                  ·{' '}
-                                  {Array.isArray(question.options)
-                                    ? question.options.length
-                                    : 0}{' '}
-                                  {t('page.teacher_test_builder.options_label')}
-                                </p>
-                              </button>
-
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  disabled={index === 0 || reorderQuestionsMutation.isPending}
-                                  onClick={() =>
-                                    reorderQuestionsMutation.mutate({
-                                      questionId: question.id,
-                                      direction: 'up',
-                                    })
-                                  }
-                                  aria-label="Сұрақты жоғары жылжыту"
-                                >
-                                  <ArrowUp size={14} />
-                                </Button>
-
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  disabled={
-                                    index === sortedSelectedQuestions.length - 1 ||
-                                    reorderQuestionsMutation.isPending
-                                  }
-                                  onClick={() =>
-                                    reorderQuestionsMutation.mutate({
-                                      questionId: question.id,
-                                      direction: 'down',
-                                    })
-                                  }
-                                  aria-label="Сұрақты төмен жылжыту"
-                                >
-                                  <ArrowDown size={14} />
-                                </Button>
-
-                                <Button
-                                  type="button"
-                                  variant={deleteOpen ? 'outline' : 'destructive'}
-                                  size="icon"
-                                  className="h-8 w-8"
-                                  disabled={deleteQuestionMutation.isPending}
-                                  onClick={() =>
-                                    setQuestionDeleteId((current) =>
-                                      current === question.id ? null : question.id
-                                    )
-                                  }
-                                  aria-label="Сұрақты өшіру"
-                                >
-                                  {deleteOpen ? (
-                                    <X size={14} />
-                                  ) : (
-                                    <Trash2 size={14} />
-                                  )}
-                                </Button>
-                              </div>
-                            </div>
-
-                            {deleteOpen ? (
-                              <div className="mt-3">
-                                <InlineConfirm
-                                  title="Сұрақ өшірілсін бе?"
-                                  confirmLabel="Өшіру"
-                                  pending={deleteQuestionMutation.isPending}
-                                  variant="danger"
-                                  onConfirm={() =>
-                                    deleteQuestionMutation.mutate({
-                                      questionId: question.id,
-                                      remainingIds: sortedSelectedQuestions
-                                        .filter((item) => item.id !== question.id)
-                                        .map((item) => item.id),
-                                    })
-                                  }
-                                  onCancel={() => setQuestionDeleteId(null)}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card id="question-editor" className="scroll-mt-24 overflow-hidden">
-                  <CardHeader className="border-b border-border/70 bg-card pb-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <CardTitle className="text-base font-semibold">
-                        {editingQuestionId
-                          ? t('page.teacher_test_builder.section.edit_question')
-                          : t('page.teacher_test_builder.section.new_question')}
-                      </CardTitle>
-
-                      <StatusBadge tone={canSaveQuestion ? 'success' : 'muted'}>
-                        {editingQuestionId ? 'Өңдеу' : 'Жаңа'}
-                      </StatusBadge>
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4 p-4 sm:p-5">
-                    <FieldBlock
-                      label={t('page.teacher_test_builder.field.question_text')}
-                      required
-                    >
-                      <Textarea
-                        rows={4}
-                        value={questionForm.questionText}
-                        onChange={(event) =>
-                          setQuestionForm((previous) => ({
-                            ...previous,
-                            questionText: event.target.value,
-                          }))
-                        }
-                        placeholder="Сұрақ"
-                      />
-                    </FieldBlock>
-
-                    <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-foreground">
-                        {t('page.teacher_test_builder.field.options')}
-                        <span className="ml-1 text-destructive">*</span>
-                      </Label>
-
-                      <div className="space-y-2">
-                        {questionOptions.map((option, optionIndex) => {
-                          const checked = correctAnswerIndexes.includes(optionIndex);
-                          const inputType = questionForm.multiple ? 'checkbox' : 'radio';
-
-                          return (
-                            <div
-                              key={optionIndex}
-                              className={`flex items-center gap-3 rounded-2xl border p-2 transition-colors ${
-                                checked
-                                  ? 'border-success-muted bg-success-soft/70'
-                                  : 'border-border bg-card'
-                              }`}
-                            >
-                              <input
-                                type={inputType}
-                                name="test-correct-answer"
-                                checked={checked}
-                                onChange={() => toggleCorrectOption(optionIndex)}
-                                className="h-4 w-4 accent-primary"
-                              />
-
-                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-xs font-semibold text-muted-foreground">
-                                {String.fromCharCode(65 + optionIndex)}
-                              </div>
-
-                              <Input
-                                value={option}
-                                onChange={(event) =>
-                                  updateQuestionOption(optionIndex, event.target.value)
-                                }
-                                placeholder={`Жауап ${optionIndex + 1}`}
-                              />
-
-                              {questionOptions.length > 2 ? (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 shrink-0"
-                                  onClick={() => removeQuestionOption(optionIndex)}
-                                  aria-label="Жауап нұсқасын өшіру"
-                                >
-                                  <X size={14} />
-                                </Button>
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={addQuestionOption}
-                      >
-                        <Plus size={14} className="mr-1.5" />
-                        Нұсқа қосу
-                      </Button>
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <FieldBlock label={t('page.teacher_test_builder.field.sort_order')}>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={questionForm.sortOrder}
-                          onChange={(event) =>
-                            setQuestionForm((previous) => ({
-                              ...previous,
-                              sortOrder: event.target.value,
-                            }))
-                          }
-                        />
-                      </FieldBlock>
-
-                      <div
-                        className={`rounded-2xl border px-4 py-3 transition-colors ${
-                          questionForm.multiple
-                            ? 'border-primary-muted bg-primary-soft/70'
-                            : 'border-border bg-muted/30'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-4">
-                          <Label
-                            htmlFor="multiple-choice"
-                            className="text-sm font-semibold text-foreground"
-                          >
-                            {t('page.teacher_test_builder.field.multiple_choice')}
-                          </Label>
-
-                          <Switch
-                            id="multiple-choice"
-                            checked={questionForm.multiple}
-                            onCheckedChange={(checked) =>
-                              setQuestionForm((previous) => ({
-                                ...previous,
-                                multiple: checked,
-                                correctAnswer: checked
-                                  ? previous.correctAnswer
-                                  : previous.correctAnswer.split(',')[0] || '1',
-                              }))
-                            }
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <FieldBlock label={t('page.teacher_test_builder.field.explanation')}>
-                      <Textarea
-                        rows={3}
-                        value={questionForm.explanation}
-                        onChange={(event) =>
-                          setQuestionForm((previous) => ({
-                            ...previous,
-                            explanation: event.target.value,
-                          }))
-                        }
-                        placeholder="Түсіндірме"
-                      />
-                    </FieldBlock>
-
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Button
-                        onClick={() => saveQuestionMutation.mutate()}
-                        disabled={!canSaveQuestion}
-                      >
-                        {saveQuestionMutation.isPending
-                          ? t('page.teacher_test_builder.action.saving')
-                          : editingQuestionId
-                            ? t('page.teacher_test_builder.action.save_question')
-                            : t('page.teacher_test_builder.action.add_question')}
-                      </Button>
-
-                      {editingQuestionId ? (
-                        <Button variant="outline" onClick={() => resetQuestionForm()}>
-                          {t('page.teacher_test_builder.action.clear_form')}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          ) : (
-            <Card>
-              <CardContent className="py-10">
-                <EmptyState
-                  title={t('page.teacher_test_builder.empty.select_test_title')}
-                  text={t('page.teacher_test_builder.empty.select_test_text')}
-                />
-              </CardContent>
-            </Card>
-          )}
-        </div>
+            ) : (
+              <Card>
+                <CardContent className="py-10">
+                  <EmptyState
+                    title={t('page.teacher_test_builder.empty.select_test_title')}
+                    text={t('page.teacher_test_builder.empty.select_test_text')}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        ) : null}
       </div>
     </DashboardLayout>
   );

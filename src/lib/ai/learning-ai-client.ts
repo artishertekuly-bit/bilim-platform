@@ -7,9 +7,14 @@ import type {
 
 const DEFAULT_AI_ENDPOINT_PATH = '/api/learning-analysis';
 const DEFAULT_TIMEOUT_MS = 120_000;
+
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_HISTORY_MESSAGES = 8;
 const MAX_HISTORY_MESSAGE_CHARS = 6_000;
+
+const MAX_SCOPE_ID_CHARS = 120;
+const MAX_SCOPE_TEXT_CHARS = 180;
+const MAX_SELECTED_SUGGESTION_ID_CHARS = 160;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -41,7 +46,7 @@ function cleanText(value: unknown, limit?: number): string {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return limit ? text.slice(0, limit) : text;
+  return typeof limit === 'number' ? text.slice(0, limit).trim() : text;
 }
 
 function getEnvValue(name: string): string {
@@ -92,12 +97,12 @@ function normalizeScope(
   }
 
   const normalized: NonNullable<LearningAiRequest['scope']> = {
-    courseId: cleanText(scope.courseId, 120) || undefined,
-    studentId: cleanText(scope.studentId, 120) || undefined,
-    subjectId: cleanText(scope.subjectId, 120) || undefined,
-    subjectName: cleanText(scope.subjectName, 180) || undefined,
-    gradeLevel: cleanText(scope.gradeLevel, 120) || undefined,
-    targetAudience: cleanText(scope.targetAudience, 180) || undefined,
+    courseId: cleanText(scope.courseId, MAX_SCOPE_ID_CHARS) || undefined,
+    studentId: cleanText(scope.studentId, MAX_SCOPE_ID_CHARS) || undefined,
+    subjectId: cleanText(scope.subjectId, MAX_SCOPE_ID_CHARS) || undefined,
+    subjectName: cleanText(scope.subjectName, MAX_SCOPE_TEXT_CHARS) || undefined,
+    gradeLevel: cleanText(scope.gradeLevel, MAX_SCOPE_ID_CHARS) || undefined,
+    targetAudience: cleanText(scope.targetAudience, MAX_SCOPE_TEXT_CHARS) || undefined,
   };
 
   const hasAnyValue = Object.values(normalized).some(Boolean);
@@ -127,7 +132,9 @@ function normalizeConversationHistory(
 
 function normalizeRequest(request: LearningAiRequest): LearningAiRequest {
   const selectedSuggestionId =
-    cleanText(request.selectedSuggestionId, 160) || undefined;
+    cleanText(request.selectedSuggestionId, MAX_SELECTED_SUGGESTION_ID_CHARS) ||
+    undefined;
+
   const conversationHistory = normalizeConversationHistory(
     request.conversationHistory,
   );
@@ -155,7 +162,7 @@ function validateLearningAiRequest(request: LearningAiRequest) {
       request.mode === 'student_course_advisor') &&
     request.role !== 'student'
   ) {
-    return 'Бұл AI режимі тек оқушы рөлі үшін қолжетімді.';
+    return 'Бұл AI режимі оқушы аккаунтына арналған.';
   }
 
   if (
@@ -164,30 +171,30 @@ function validateLearningAiRequest(request: LearningAiRequest) {
       request.mode === 'teacher_course_creator_advisor') &&
     request.role !== 'teacher'
   ) {
-    return 'Бұл AI режимі тек мұғалім рөлі үшін қолжетімді.';
+    return 'Бұл AI режимі мұғалім аккаунтына арналған.';
   }
 
   if (request.mode === 'teacher_course_assistant' && !request.scope?.courseId) {
-    return 'Курс бойынша AI көмекші үшін courseId қажет.';
+    return 'Курс бойынша AI көмекші үшін курс таңдалуы керек.';
   }
 
   if (
     request.mode === 'teacher_student_assistant' &&
     (!request.scope?.courseId || !request.scope?.studentId)
   ) {
-    return 'Оқушы бойынша AI көмекші үшін courseId және studentId қажет.';
+    return 'Оқушы бойынша AI көмекші үшін курс пен оқушы таңдалуы керек.';
   }
 
   if (!isValidUuidOrEmpty(request.scope?.courseId)) {
-    return 'courseId UUID форматында болуы керек.';
+    return 'Курс идентификаторы UUID форматында болуы керек.';
   }
 
   if (!isValidUuidOrEmpty(request.scope?.studentId)) {
-    return 'studentId UUID форматында болуы керек.';
+    return 'Оқушы идентификаторы UUID форматында болуы керек.';
   }
 
   if (!isValidUuidOrEmpty(request.scope?.subjectId)) {
-    return 'subjectId UUID форматында болуы керек.';
+    return 'Пән идентификаторы UUID форматында болуы керек.';
   }
 
   return null;
@@ -206,6 +213,7 @@ async function readResponseBody(response: Response): Promise<unknown> {
 
   try {
     const text = await response.text();
+
     return text || null;
   } catch {
     return null;
@@ -253,6 +261,7 @@ function getBackendErrorMessage(status: number, payload: unknown) {
   }
 
   const pydanticMessage = getPydanticErrorMessage(detail);
+
   if (pydanticMessage) {
     return pydanticMessage;
   }
@@ -261,7 +270,7 @@ function getBackendErrorMessage(status: number, payload: unknown) {
   const error = getStringField(payload, 'error');
 
   if (message || error) {
-    return message || error || `AI backend қатесі: ${status}`;
+    return message || error || `AI сервер қатесі: ${status}`;
   }
 
   if (typeof payload === 'string' && payload.trim()) {
@@ -269,26 +278,26 @@ function getBackendErrorMessage(status: number, payload: unknown) {
   }
 
   if (status === 401) {
-    return 'AI backend авторизацияны қабылдамады. Supabase session немесе access token тексерілуі керек.';
+    return 'AI сервері авторизацияны қабылдамады. Аккаунт сессиясын жаңартып көріңіз.';
   }
 
   if (status === 403) {
-    return 'AI backend бұл scope үшін рұқсат бермеді. Course/student access немесе user role тексерілуі керек.';
+    return 'Бұл дерекке AI арқылы кіруге рұқсат жоқ. Рөл немесе курсқа қолжетімділікті тексеріңіз.';
   }
 
   if (status === 404) {
-    return 'AI endpoint табылмады. Backend URL және /api/learning-analysis route дұрыс қосылғанын тексеріңіз.';
+    return 'AI серверінің талдау маршруты табылмады. Backend URL және /api/learning-analysis маршрутын тексеріңіз.';
   }
 
   if (status === 422) {
-    return 'AI сұранысының форматы дұрыс емес. Mode, role, scope және prompt мәндерін тексеріңіз.';
+    return 'AI сұранысының форматы дұрыс емес. Режим, рөл, курс/оқушы дерегі және сұрақ мәндерін тексеріңіз.';
   }
 
   if (status >= 500) {
-    return `AI backend ішкі қатесі: ${status}. Render backend logs ішінен learning-analysis service қатесін тексеріңіз.`;
+    return `AI серверінің ішкі қатесі: ${status}. Backend логтарын тексеріңіз.`;
   }
 
-  return `AI backend қатесі: ${status}`;
+  return `AI сервер қатесі: ${status}`;
 }
 
 function isAbortError(error: unknown) {
@@ -311,7 +320,11 @@ function getNetworkErrorMessage(error: unknown) {
     lowerMessage.includes('networkerror') ||
     lowerMessage.includes('load failed')
   ) {
-    return 'AI backend-ке қосылу мүмкін болмады. VITE_AI_API_BASE_URL, Render backend status және CORS allowed origins баптауларын тексеріңіз.';
+    return 'AI серверіне қосылу мүмкін болмады. VITE_AI_API_BASE_URL, Render backend status және CORS allowed origins баптауларын тексеріңіз.';
+  }
+
+  if (lowerMessage.includes('timeout') || lowerMessage.includes('timed out')) {
+    return 'AI жауабы кешікті. Қайта жіберіп көріңіз.';
   }
 
   return rawMessage || 'AI сұранысын орындау кезінде белгісіз қате болды.';
@@ -339,7 +352,37 @@ function createTimeoutSignal(
     }
   }
 
-  return { signal: controller.signal, cleanup };
+  return {
+    signal: controller.signal,
+    cleanup,
+  };
+}
+
+function normalizeStringList(values: unknown, limit: number, itemLimit: number) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const output: string[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const text = cleanText(value, itemLimit);
+    const key = text.toLowerCase();
+
+    if (!text || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    output.push(text);
+
+    if (output.length >= limit) {
+      break;
+    }
+  }
+
+  return output;
 }
 
 function normalizeLearningAiResponse(data: LearningAiResponse): LearningAiResponse {
@@ -349,12 +392,8 @@ function normalizeLearningAiResponse(data: LearningAiResponse): LearningAiRespon
     contextSummary: data.contextSummary
       ? cleanText(data.contextSummary, 2_000)
       : undefined,
-    warnings: Array.isArray(data.warnings)
-      ? data.warnings.map((item) => cleanText(item, 400)).filter(Boolean)
-      : [],
-    followUpPrompts: Array.isArray(data.followUpPrompts)
-      ? data.followUpPrompts.map((item) => cleanText(item, 240)).filter(Boolean)
-      : [],
+    warnings: normalizeStringList(data.warnings, 6, 400),
+    followUpPrompts: normalizeStringList(data.followUpPrompts, 6, 240),
   };
 }
 
@@ -378,7 +417,7 @@ export async function requestLearningAiAnalysis(
     return {
       ok: false,
       error:
-        'AI backend URL көрсетілмеген. Frontend env ішінде VITE_AI_API_BASE_URL=https://сіздің-backend.onrender.com болуы керек. VITE_AI_API_URL уақытша fallback ретінде ғана оқылады.',
+        'AI серверінің URL көрсетілмеген. Frontend env ішінде VITE_AI_API_BASE_URL=https://сіздің-backend.onrender.com болуы керек.',
     };
   }
 
@@ -387,7 +426,7 @@ export async function requestLearningAiAnalysis(
   if (!accessToken) {
     return {
       ok: false,
-      error: 'AI backend үшін Supabase access token қажет. Аккаунт session-ы жаңартылуы керек.',
+      error: 'AI сұранысы үшін аккаунт сессиясы қажет. Қайта кіріп көріңіз.',
     };
   }
 
@@ -417,7 +456,7 @@ export async function requestLearningAiAnalysis(
     if (!isRecord(payload)) {
       return {
         ok: false,
-        error: 'AI backend жауап қайтарды, бірақ JSON object форматы дұрыс емес.',
+        error: 'AI сервері жауап қайтарды, бірақ жауап форматы дұрыс емес.',
       };
     }
 
@@ -426,14 +465,14 @@ export async function requestLearningAiAnalysis(
     if (!data.answer || typeof data.answer !== 'string' || !data.answer.trim()) {
       return {
         ok: false,
-        error: 'AI backend жауап қайтарды, бірақ answer өрісі бос.',
+        error: 'AI сервері жауап қайтарды, бірақ жауап мәтіні бос.',
       };
     }
 
     if (!data.usedContext || !isRecord(data.usedContext)) {
       return {
         ok: false,
-        error: 'AI backend жауап қайтарды, бірақ usedContext өрісі жоқ немесе дұрыс емес.',
+        error: 'AI сервері жауап қайтарды, бірақ қолданылған дерек форматы дұрыс емес.',
       };
     }
 

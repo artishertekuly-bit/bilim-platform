@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import DashboardLayout from '@/components/DashboardLayout';
@@ -26,14 +26,9 @@ import {
 import {
   AlertTriangle,
   Check,
-  CheckCircle2,
   ClipboardList,
-  FileText,
-  HelpCircle,
-  ListChecks,
   RefreshCcw,
   Sparkles,
-  Target,
 } from 'lucide-react';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
@@ -42,44 +37,36 @@ type QuestionKindOption = AiQuestionKind;
 const difficultyOptions: Array<{
   value: Difficulty;
   label: string;
-  description: string;
 }> = [
   {
     value: 'easy',
     label: 'Оңай',
-    description: 'Негізгі ұғымдарды тексеру.',
   },
   {
     value: 'medium',
     label: 'Орташа',
-    description: 'Түсіну және қолдану деңгейі.',
   },
   {
     value: 'hard',
     label: 'Қиын',
-    description: 'Талдау, салыстыру, ой қорыту.',
   },
 ];
 
 const questionKindOptions: Array<{
   value: QuestionKindOption;
   label: string;
-  description: string;
 }> = [
   {
     value: 'mixed',
     label: 'Аралас',
-    description: 'Multiple choice және қысқа жауап араласуы мүмкін.',
   },
   {
     value: 'multiple_choice',
-    label: 'Multiple choice',
-    description: 'Test Builder-ге импорттауға ең қолайлы формат.',
+    label: 'Жауап нұсқалары',
   },
   {
     value: 'short_answer',
     label: 'Қысқа жауап',
-    description: 'Preview үшін жақсы, бірақ тестке импортталмауы мүмкін.',
   },
 ];
 
@@ -123,45 +110,19 @@ function normalizeQuestionKind(value: string): QuestionKindOption {
 }
 
 function getQuestionTypeLabel(type: GeneratedQuestion['type']) {
-  if (type === 'multiple_choice') return 'Multiple choice';
+  if (type === 'multiple_choice') return 'Жауап нұсқалары';
+
   return 'Қысқа жауап';
 }
 
-function StatCard({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string | number;
-  icon: ReactNode;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-3 pt-5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-primary/10 text-primary">
-          {icon}
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-semibold">{value}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function OptionCard({
+function OptionButton({
   active,
   label,
-  description,
   value,
   onSelect,
 }: {
   active: boolean;
   label: string;
-  description: string;
   value: string;
   onSelect: (value: string) => void;
 }) {
@@ -169,30 +130,13 @@ function OptionCard({
     <button
       type="button"
       onClick={() => onSelect(value)}
-      className={`rounded-xl border p-3 text-left transition-all ${
+      className={`rounded-2xl border px-3 py-2 text-sm font-medium transition-colors ${
         active
-          ? 'border-primary bg-primary/5 shadow-sm'
-          : 'border-border hover:bg-accent'
+          ? 'border-primary bg-primary text-primary-foreground'
+          : 'border-border bg-card hover:bg-accent'
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">{label}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {description}
-          </p>
-        </div>
-
-        <span
-          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
-            active ? 'border-primary bg-primary' : 'border-muted-foreground/40'
-          }`}
-        >
-          {active ? (
-            <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
-          ) : null}
-        </span>
-      </div>
+      {label}
     </button>
   );
 }
@@ -203,31 +147,23 @@ function AiQuestionSkeleton() {
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base font-semibold">
           <Sparkles size={16} className="animate-pulse text-primary" />
-          AI сұрақтарды дайындап жатыр...
+          Сұрақтар дайындалып жатыр...
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-4">
-        <div className="grid gap-3 md:grid-cols-3">
-          <SkeletonBlock className="h-16 rounded-xl" />
-          <SkeletonBlock className="h-16 rounded-xl" />
-          <SkeletonBlock className="h-16 rounded-xl" />
-        </div>
-
-        <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="rounded-xl border p-4">
-              <SkeletonBlock className="h-3 w-20" />
-              <SkeletonBlock className="mt-3 h-4 w-4/5" />
-              <SkeletonBlock className="mt-2 h-4 w-2/3" />
-              <div className="mt-4 space-y-2">
-                <SkeletonBlock className="h-9 w-full rounded-lg" />
-                <SkeletonBlock className="h-9 w-full rounded-lg" />
-                <SkeletonBlock className="h-9 w-full rounded-lg" />
-              </div>
+      <CardContent className="space-y-3">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-2xl border p-4">
+            <SkeletonBlock className="h-3 w-20" />
+            <SkeletonBlock className="mt-3 h-4 w-4/5" />
+            <SkeletonBlock className="mt-2 h-4 w-2/3" />
+            <div className="mt-4 space-y-2">
+              <SkeletonBlock className="h-9 w-full rounded-lg" />
+              <SkeletonBlock className="h-9 w-full rounded-lg" />
+              <SkeletonBlock className="h-9 w-full rounded-lg" />
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </CardContent>
     </Card>
   );
@@ -240,10 +176,10 @@ function QuestionPreviewCard({
   question: GeneratedQuestion;
   index: number;
 }) {
-  const isImportCompatible = isImportCompatibleQuestion(question);
+  const isCompatible = isImportCompatibleQuestion(question);
 
   return (
-    <div className="rounded-xl border p-4 transition-colors hover:bg-accent/30">
+    <div className="rounded-2xl border p-4 transition-colors hover:bg-accent/30">
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">Сұрақ {index + 1}</p>
@@ -254,8 +190,8 @@ function QuestionPreviewCard({
 
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <StatusBadge tone="info">{getQuestionTypeLabel(question.type)}</StatusBadge>
-          <StatusBadge tone={isImportCompatible ? 'success' : 'muted'}>
-            {isImportCompatible ? 'Import ready' : 'Preview only'}
+          <StatusBadge tone={isCompatible ? 'success' : 'muted'}>
+            {isCompatible ? 'Тестке жарамды' : 'Тек қарау'}
           </StatusBadge>
         </div>
       </div>
@@ -265,8 +201,10 @@ function QuestionPreviewCard({
           {question.options.map((option, optionIndex) => (
             <div
               key={option.id || `${question.id}-${optionIndex}`}
-              className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
-                option.isCorrect ? 'border-primary/40 bg-primary/5' : 'bg-card'
+              className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm ${
+                option.isCorrect
+                  ? 'border-primary/40 bg-primary/5'
+                  : 'bg-card'
               }`}
             >
               {option.isCorrect ? (
@@ -274,19 +212,20 @@ function QuestionPreviewCard({
               ) : (
                 <span className="mt-[2px] inline-block h-3.5 w-3.5 shrink-0 rounded-full border" />
               )}
+
               <span>{option.text}</span>
             </div>
           ))}
         </div>
       ) : question.correctAnswer ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+        <div className="rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
           <span className="text-muted-foreground">Дұрыс жауап: </span>
           <span className="font-medium">{question.correctAnswer}</span>
         </div>
       ) : null}
 
       {question.explanation ? (
-        <div className="mt-3 rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+        <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">Түсіндірме: </span>
           {question.explanation}
         </div>
@@ -298,9 +237,10 @@ function QuestionPreviewCard({
             Тақырып: {question.topic}
           </span>
         ) : null}
+
         {question.difficulty ? (
           <span className="rounded-full border px-2 py-1">
-            Қиындық: {question.difficulty}
+            Деңгей: {question.difficulty}
           </span>
         ) : null}
       </div>
@@ -326,28 +266,30 @@ export default function AiQuestionBuilderPage() {
   const [result, setResult] = useState<GenerateQuestionsResponse | null>(null);
   const [errorText, setErrorText] = useState('');
 
-  const generatedCount = useMemo(() => result?.questions.length || 0, [result]);
+  const generatedCount = result?.questions.length || 0;
 
   const importableCount = useMemo(() => {
     if (!result) return 0;
+
     return result.questions.filter(isImportCompatibleQuestion).length;
   }, [result]);
 
   const skippedCount = useMemo(() => {
     if (!result) return 0;
+
     return Math.max(result.questions.length - importableCount, 0);
   }, [result, importableCount]);
 
   const hasGeneratedQuestions = !!result && generatedCount > 0;
-  const sourceTextLength = sourceText.trim().length;
 
   const canGenerate = useMemo(() => {
     const hasSource = sourceText.trim().length > 0;
     const hasTopic = topic.trim().length > 0;
+
     return !isGenerating && !!accessToken && (hasSource || hasTopic);
   }, [sourceText, topic, isGenerating, accessToken]);
 
-  const canImport = hasGeneratedQuestions && importableCount > 0;
+  const canSendToTestBuilder = hasGeneratedQuestions && importableCount > 0;
 
   const clearError = () => {
     if (errorText) {
@@ -367,8 +309,8 @@ export default function AiQuestionBuilderPage() {
 
     if (!accessToken) {
       const message = user
-        ? 'AI генерация үшін белсенді сессия access token қажет.'
-        : 'AI генерацияны пайдалану үшін авторизация қажет.';
+        ? 'AI генерация үшін белсенді сессия қажет.'
+        : 'AI генерацияны пайдалану үшін жүйеге кіру қажет.';
 
       setErrorText(message);
 
@@ -396,7 +338,7 @@ export default function AiQuestionBuilderPage() {
         },
         {
           accessToken,
-        }
+        },
       );
 
       setResult(response);
@@ -434,11 +376,11 @@ export default function AiQuestionBuilderPage() {
     setErrorText('');
   };
 
-  const handleImportToTestBuilder = () => {
+  const handleSendToTestBuilder = () => {
     if (!result || generatedCount === 0) return;
 
     const payload = savePendingAiQuestionImport({
-      titleSuggestion: topic.trim() || subject.trim() || 'AI generated test',
+      titleSuggestion: topic.trim() || subject.trim() || 'AI тест',
       topic: topic.trim() || undefined,
       subject: subject.trim() || undefined,
       questions: result.questions,
@@ -446,20 +388,20 @@ export default function AiQuestionBuilderPage() {
 
     if (payload.questions.length === 0) {
       toast({
-        title: 'Импортқа жарамды сұрақ жоқ',
+        title: 'Тестке жарамды сұрақ жоқ',
         description:
-          'Генерация жасалды, бірақ current test builder-ге үйлесімді multiple choice сұрақтар табылмады.',
+          'Тест редакторы тек жауап нұсқалары бар сұрақтарды қабылдайды.',
         variant: 'destructive',
       });
       return;
     }
 
     toast({
-      title: 'Импортқа дайын',
+      title: 'Тест редакторына дайын',
       description:
         payload.skippedCount > 0
-          ? `${payload.questions.length} сұрақ дайын, ${payload.skippedCount} сұрақ import-қа кірмеді.`
-          : `${payload.questions.length} сұрақ тест редакторына дайындалды.`,
+          ? `${payload.questions.length} сұрақ дайын, ${payload.skippedCount} сұрақ өтпеді.`
+          : `${payload.questions.length} сұрақ дайындалды.`,
     });
 
     navigate('/create-test');
@@ -472,18 +414,17 @@ export default function AiQuestionBuilderPage() {
           eyebrow={
             <>
               <Sparkles size={13} />
-              AI question builder
+              AI сұрақ құрастыру
             </>
           }
           icon={<Sparkles size={20} />}
           title={t('nav.ai_question_builder')}
-          description="AI арқылы сұрақ генерациялап, жарамды multiple choice сұрақтарды тест редакторына импорттаңыз."
           actions={
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" asChild>
                 <Link to="/create-test">
                   <ClipboardList size={14} className="mr-2" />
-                  Тест редакторына өту
+                  Тест редакторы
                 </Link>
               </Button>
 
@@ -495,42 +436,19 @@ export default function AiQuestionBuilderPage() {
           }
         />
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="Мәтін ұзындығы"
-            value={sourceTextLength > 0 ? sourceTextLength : '—'}
-            icon={<FileText size={17} />}
-          />
-          <StatCard
-            label="Сұрақ саны"
-            value={count}
-            icon={<ListChecks size={17} />}
-          />
-          <StatCard
-            label="Қиындық"
-            value={getDifficultyLabel(difficulty)}
-            icon={<Target size={17} />}
-          />
-          <StatCard
-            label="Формат"
-            value={getKindLabel(kind)}
-            icon={<HelpCircle size={17} />}
-          />
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
           <div className="space-y-6">
             <Card>
-              <CardHeader className="pb-3">
+              <CardHeader className="border-b border-border/70 bg-card pb-4">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
                   <Sparkles size={16} />
-                  Генерация параметрлері
+                  Генерация
                 </CardTitle>
               </CardHeader>
 
-              <CardContent className="space-y-5">
+              <CardContent className="space-y-5 p-4 sm:p-5">
                 <div className="space-y-1.5">
-                  <Label htmlFor="sourceText">Мәтін немесе мазмұн</Label>
+                  <Label htmlFor="sourceText">Мәтін</Label>
                   <Textarea
                     id="sourceText"
                     value={sourceText}
@@ -538,12 +456,9 @@ export default function AiQuestionBuilderPage() {
                       setSourceText(event.target.value);
                       clearError();
                     }}
-                    placeholder="Тақырып мәтінін, қысқаша конспектіні немесе теориялық мазмұнды енгізіңіз..."
+                    placeholder="Теория, конспект немесе сабақ мәтінін енгізіңіз."
                     rows={11}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Толық мәтін енгізсеңіз, сұрақ сапасы жоғары болады. Тек тақырыппен де генерация жасауға болады.
-                  </p>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -575,14 +490,13 @@ export default function AiQuestionBuilderPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Қиындық деңгейі</Label>
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <Label>Қиындық</Label>
+                  <div className="flex flex-wrap gap-2">
                     {difficultyOptions.map((item) => (
-                      <OptionCard
+                      <OptionButton
                         key={item.value}
                         active={difficulty === item.value}
                         label={item.label}
-                        description={item.description}
                         value={item.value}
                         onSelect={(value) => setDifficulty(normalizeDifficulty(value))}
                       />
@@ -592,13 +506,12 @@ export default function AiQuestionBuilderPage() {
 
                 <div className="space-y-2">
                   <Label>Сұрақ түрі</Label>
-                  <div className="grid gap-3 md:grid-cols-3">
+                  <div className="flex flex-wrap gap-2">
                     {questionKindOptions.map((item) => (
-                      <OptionCard
+                      <OptionButton
                         key={item.value}
                         active={kind === item.value}
                         label={item.label}
-                        description={item.description}
                         value={item.value}
                         onSelect={(value) => setKind(normalizeQuestionKind(value))}
                       />
@@ -614,7 +527,7 @@ export default function AiQuestionBuilderPage() {
                         key={value}
                         type="button"
                         onClick={() => setCount(value)}
-                        className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                           count === value
                             ? 'border-primary bg-primary text-primary-foreground'
                             : 'border-border hover:bg-accent'
@@ -627,11 +540,9 @@ export default function AiQuestionBuilderPage() {
                 </div>
 
                 {!accessToken ? (
-                  <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
+                  <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
                     <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                    <span>
-                      AI сұрақ генерациялау үшін белсенді авторизация сессиясы қажет.
-                    </span>
+                    <span>AI генерация үшін жүйеге кіру қажет.</span>
                   </div>
                 ) : null}
 
@@ -645,13 +556,45 @@ export default function AiQuestionBuilderPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={handleImportToTestBuilder}
-                      disabled={!canImport}
+                      onClick={handleSendToTestBuilder}
+                      disabled={!canSendToTestBuilder}
                     >
                       <ClipboardList size={16} className="mr-2" />
-                      Тест редакторына импорттау
+                      Тест редакторына жіберу
                     </Button>
                   ) : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="border-b border-border/70 bg-card pb-4">
+                <CardTitle className="text-base font-semibold">
+                  Таңдалған параметрлер
+                </CardTitle>
+              </CardHeader>
+
+              <CardContent className="grid gap-2 p-4 text-sm sm:grid-cols-2 sm:p-5">
+                <div className="rounded-2xl border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Қиындық</p>
+                  <p className="mt-1 font-medium">{getDifficultyLabel(difficulty)}</p>
+                </div>
+
+                <div className="rounded-2xl border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Түрі</p>
+                  <p className="mt-1 font-medium">{getKindLabel(kind)}</p>
+                </div>
+
+                <div className="rounded-2xl border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Сұрақ саны</p>
+                  <p className="mt-1 font-medium">{count}</p>
+                </div>
+
+                <div className="rounded-2xl border px-3 py-2">
+                  <p className="text-xs text-muted-foreground">Мәтін ұзындығы</p>
+                  <p className="mt-1 font-medium">
+                    {sourceText.trim().length || '—'}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -662,8 +605,8 @@ export default function AiQuestionBuilderPage() {
 
             {!isGenerating && !errorText && !result ? (
               <EmptyState
-                title="Генерация нәтижесі әзірге жоқ"
-                text="Мәтін немесе тақырып енгізіп, сұрақ генерациялаңыз. Нәтиже осы жерде preview ретінде ашылады."
+                title="Нәтиже жоқ"
+                text="Мәтін немесе тақырып енгізіп, сұрақ генерациялаңыз."
               />
             ) : null}
 
@@ -671,74 +614,47 @@ export default function AiQuestionBuilderPage() {
 
             {!isGenerating && !errorText && result && generatedCount === 0 ? (
               <EmptyState
-                title="Сұрақтар табылмады"
-                text="AI жауап қайтарды, бірақ ішінде қолдануға болатын сұрақтар жоқ. Мәтінді нақтылап көріңіз."
+                title="Сұрақ табылмады"
+                text="Мәтінді нақтылап немесе сұрақ санын өзгертіп көріңіз."
               />
             ) : null}
 
             {!isGenerating && hasGeneratedQuestions ? (
               <>
                 <Card>
-                  <CardHeader className="pb-3">
+                  <CardHeader className="border-b border-border/70 bg-card pb-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                        <CheckCircle2 size={16} />
-                        Генерация нәтижесі
+                      <CardTitle className="text-base font-semibold">
+                        Нәтиже
                       </CardTitle>
 
                       <div className="flex flex-wrap gap-2">
                         <StatusBadge tone="info">{generatedCount} сұрақ</StatusBadge>
-                        <StatusBadge tone="success">{importableCount} import ready</StatusBadge>
+                        <StatusBadge tone="success">
+                          {importableCount} жарамды
+                        </StatusBadge>
+
                         {skippedCount > 0 ? (
-                          <StatusBadge tone="warning">{skippedCount} preview only</StatusBadge>
+                          <StatusBadge tone="warning">
+                            {skippedCount} өтпейді
+                          </StatusBadge>
                         ) : null}
                       </div>
                     </div>
                   </CardHeader>
 
-                  <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Сұрақ саны</p>
-                      <p className="mt-1 text-lg font-semibold">{generatedCount}</p>
-                    </div>
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Импортқа жарамды</p>
-                      <p className="mt-1 text-lg font-semibold">{importableCount}</p>
-                    </div>
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Импортқа кірмейді</p>
-                      <p className="mt-1 text-lg font-semibold">{skippedCount}</p>
-                    </div>
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Тақырып</p>
-                      <p className="mt-1 line-clamp-2 text-sm font-medium">{topic || '—'}</p>
-                    </div>
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Пән</p>
-                      <p className="mt-1 line-clamp-2 text-sm font-medium">{subject || '—'}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {kind !== 'multiple_choice' && skippedCount > 0 ? (
-                  <Card className="border-amber-500/30 bg-amber-500/5">
-                    <CardContent className="flex items-start gap-2 pt-6 text-sm text-amber-700 dark:text-amber-300">
-                      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                      <span>
-                        Test Builder тек multiple choice сұрақтарды импорттайды. Short answer немесе толық емес сұрақтар preview ретінде ғана қалады.
-                      </span>
+                  {kind !== 'multiple_choice' && skippedCount > 0 ? (
+                    <CardContent className="border-b border-border/70 p-4 sm:p-5">
+                      <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
+                        <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                        <span>
+                          Тест редакторы тек жауап нұсқалары бар сұрақтарды қабылдайды.
+                        </span>
+                      </div>
                     </CardContent>
-                  </Card>
-                ) : null}
+                  ) : null}
 
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base font-semibold">
-                      Generated questions preview
-                    </CardTitle>
-                  </CardHeader>
-
-                  <CardContent className="space-y-4">
+                  <CardContent className="space-y-4 p-4 sm:p-5">
                     {result?.questions.map((question, index) => (
                       <QuestionPreviewCard
                         key={question.id || `${index}-${question.question}`}

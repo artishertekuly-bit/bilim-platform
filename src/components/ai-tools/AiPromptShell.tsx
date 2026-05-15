@@ -88,7 +88,9 @@ function cleanText(value: unknown, limit?: number) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return typeof limit === 'number' ? normalized.slice(0, limit).trim() : normalized;
+  return typeof limit === 'number'
+    ? normalized.slice(0, limit).trim()
+    : normalized;
 }
 
 function cleanMultilineText(value: unknown, limit?: number) {
@@ -97,7 +99,9 @@ function cleanMultilineText(value: unknown, limit?: number) {
     .replace(/\r\n/g, '\n')
     .trim();
 
-  return typeof limit === 'number' ? normalized.slice(0, limit).trim() : normalized;
+  return typeof limit === 'number'
+    ? normalized.slice(0, limit).trim()
+    : normalized;
 }
 
 function normalizeStringList(
@@ -108,7 +112,7 @@ function normalizeStringList(
   }: {
     limit: number;
     itemLimit: number;
-  }
+  },
 ) {
   if (!Array.isArray(values)) {
     return [];
@@ -155,7 +159,11 @@ function normalizeSuggestions(values: AiPromptSuggestion[] | undefined) {
     }
 
     seen.add(key);
-    output.push({ id, label, prompt });
+    output.push({
+      id,
+      label,
+      prompt,
+    });
   }
 
   return output;
@@ -237,7 +245,7 @@ function buildHistory(messages: ChatMessage[]): AiConversationMessage[] {
 function createMessage(
   role: ChatMessage['role'],
   content: string,
-  title?: string
+  title?: string,
 ): ChatMessage {
   return {
     id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -249,6 +257,7 @@ function createMessage(
 
 function appendLocalMessage(messages: ChatMessage[], message: ChatMessage) {
   const nextMessages = [...messages, message].filter((item) => Boolean(item.content));
+
   return nextMessages.slice(-MAX_LOCAL_MESSAGES);
 }
 
@@ -266,7 +275,7 @@ export default function AiPromptShell({
   placeholder,
   suggestions = [],
 
-  contextLabel = 'Контекст',
+  contextLabel = 'Дерек',
   contextDescription = '',
 
   disabled = true,
@@ -295,45 +304,53 @@ export default function AiPromptShell({
 
   const normalizedSuggestions = useMemo(
     () => normalizeSuggestions(suggestions),
-    [suggestions]
+    [suggestions],
   );
+
   const normalizedWarnings = useMemo(
-    () => normalizeStringList(warnings, { limit: 4, itemLimit: MAX_WARNING_CHARS }),
-    [warnings]
+    () =>
+      normalizeStringList(warnings, {
+        limit: 4,
+        itemLimit: MAX_WARNING_CHARS,
+      }),
+    [warnings],
   );
+
   const normalizedFollowUpPrompts = useMemo(
     () =>
       normalizeStringList(followUpPrompts, {
         limit: MAX_FOLLOW_UP_PROMPTS,
         itemLimit: MAX_PROMPT_CHARS,
       }),
-    [followUpPrompts]
+    [followUpPrompts],
   );
 
   const normalizedContextSummary = cleanText(contextSummary, MAX_META_TEXT_CHARS);
-  const normalizedContextDescription = cleanText(contextDescription, MAX_META_TEXT_CHARS);
-  const visibleError = error || localError;
+  const normalizedContextDescription = cleanText(
+    contextDescription,
+    MAX_META_TEXT_CHARS,
+  );
 
+  const visibleError = error || localError;
   const hasPrompt = prompt.trim().length > 0;
   const endpointReady = Boolean(onSubmit);
   const effectiveDisabled = disabled || !endpointReady;
   const hasConversation = messages.length > 0;
   const hasSuggestions = normalizedSuggestions.length > 0;
-  const hasCompactMeta =
+  const hasMeta =
     Boolean(normalizedContextSummary) ||
     normalizedWarnings.length > 0 ||
     normalizedFollowUpPrompts.length > 0;
 
   const visibleDisabledReason =
     cleanText(disabledReason, 300) ||
-    (!endpointReady
-      ? 'AI backend endpoint әлі қосылмаған.'
-      : 'AI қазір уақытша өшірулі.');
+    (!endpointReady ? 'AI сервері қосылмаған.' : 'AI уақытша өшірулі.');
 
   useEffect(() => {
     if (!copiedMessageId) return;
 
     const timeoutId = window.setTimeout(() => setCopiedMessageId(null), 1400);
+
     return () => window.clearTimeout(timeoutId);
   }, [copiedMessageId]);
 
@@ -355,8 +372,8 @@ export default function AiPromptShell({
     setMessages((currentMessages) =>
       appendLocalMessage(
         currentMessages,
-        createMessage('assistant', normalizedAnswer, answerTitle)
-      )
+        createMessage('assistant', normalizedAnswer, answerTitle),
+      ),
     );
   }, [answer, answerTitle]);
 
@@ -381,9 +398,12 @@ export default function AiPromptShell({
 
   const submitPrompt = async (
     overridePrompt?: string,
-    suggestionId: string | null = null
+    suggestionId: string | null = null,
   ) => {
-    const promptText = cleanMultilineText(overridePrompt ?? prompt, MAX_PROMPT_CHARS);
+    const promptText = cleanMultilineText(
+      overridePrompt ?? prompt,
+      MAX_PROMPT_CHARS,
+    );
 
     if (effectiveDisabled || isSubmitting || !promptText || !onSubmit) {
       return;
@@ -413,7 +433,9 @@ export default function AiPromptShell({
     await submitPrompt();
   };
 
-  const handleTextareaKeyDown = async (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleTextareaKeyDown = async (
+    event: KeyboardEvent<HTMLTextAreaElement>,
+  ) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
       await submitPrompt();
@@ -452,9 +474,11 @@ export default function AiPromptShell({
                 ) : null}
               </div>
 
-              <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
-                {description}
-              </p>
+              {description ? (
+                <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+                  {description}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -464,14 +488,14 @@ export default function AiPromptShell({
                 'inline-flex w-fit items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold',
                 endpointReady && !disabled
                   ? 'border-ai-border bg-ai-soft text-ai-foreground'
-                  : 'border-border bg-muted text-muted-foreground'
+                  : 'border-border bg-muted text-muted-foreground',
               )}
             >
               <Sparkles
                 size={12}
                 className={endpointReady && !disabled ? 'text-primary' : ''}
               />
-              {endpointReady && !disabled ? 'AI дайын' : 'Дайын емес'}
+              {endpointReady && !disabled ? 'AI дайын' : 'Қолжетімсіз'}
             </span>
 
             {hasConversation ? (
@@ -498,9 +522,9 @@ export default function AiPromptShell({
       </CardHeader>
 
       <CardContent className="p-0">
-        <form onSubmit={handleSubmit} className="flex min-h-[640px] flex-col">
+        <form onSubmit={handleSubmit} className="flex min-h-[620px] flex-col">
           <div className="flex-1 space-y-4 overflow-y-auto bg-surface-soft/40 px-4 py-5 sm:px-5">
-            {hasCompactMeta ? (
+            {hasMeta ? (
               <div className="rounded-3xl border border-border bg-card/85 p-4 shadow-soft">
                 <div className="flex items-start gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
@@ -511,8 +535,9 @@ export default function AiPromptShell({
                     {normalizedContextSummary ? (
                       <div>
                         <p className="text-xs font-semibold text-foreground">
-                          Контекст қысқаша
+                          Қысқаша дерек
                         </p>
+
                         <p className="mt-1 text-xs leading-5 text-muted-foreground">
                           {normalizedContextSummary}
                         </p>
@@ -553,14 +578,14 @@ export default function AiPromptShell({
             ) : null}
 
             {!hasConversation && !visibleError && !isSubmitting ? (
-              <div className="flex min-h-[340px] items-center justify-center">
+              <div className="flex min-h-[320px] items-center justify-center">
                 <div className="max-w-md rounded-3xl border border-dashed border-ai-border bg-card/80 px-6 py-7 text-center shadow-soft backdrop-blur">
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
                     <MessageCircle size={18} />
                   </div>
 
                   <p className="mt-3 text-sm font-semibold text-foreground">
-                    AI диалог дайын
+                    Диалог дайын
                   </p>
 
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -625,9 +650,6 @@ export default function AiPromptShell({
                         <p className="text-sm font-semibold text-foreground">
                           {message.title || answerTitle}
                         </p>
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">
-                          Диалог жалғасы бойынша жауап
-                        </p>
                       </div>
 
                       <Button
@@ -664,6 +686,7 @@ export default function AiPromptShell({
                   <p className="text-sm font-semibold text-destructive">
                     AI жауабын алу мүмкін болмады
                   </p>
+
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
                     {visibleError}
                   </p>
@@ -747,7 +770,7 @@ export default function AiPromptShell({
             </div>
 
             <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-              Жіберу: батырма арқылы. Жылдам жіберу: Ctrl/⌘ + Enter.
+              Жылдам жіберу: Ctrl/⌘ + Enter.
             </p>
           </div>
         </form>

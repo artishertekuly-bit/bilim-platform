@@ -39,12 +39,8 @@ type LearningAiConversationRole = LearningAiConversationMessage['role'];
 const MAX_CONVERSATION_HISTORY_MESSAGES = 8;
 const MAX_CONVERSATION_MESSAGE_CHARS = 6000;
 const MAX_PROMPT_CHARS = 4000;
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-
-  return 'AI сұранысын орындау кезінде белгісіз қате болды.';
-}
+const MAX_SCOPE_TEXT_CHARS = 240;
+const MAX_SCOPE_ID_CHARS = 160;
 
 function cleanText(value: unknown, limit?: number) {
   const normalized = String(value || '')
@@ -52,10 +48,12 @@ function cleanText(value: unknown, limit?: number) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return typeof limit === 'number' ? normalized.slice(0, limit) : normalized;
+  return typeof limit === 'number'
+    ? normalized.slice(0, limit).trim()
+    : normalized;
 }
 
-function toOptionalString(value: unknown, limit = 160): string | undefined {
+function toOptionalString(value: unknown, limit = MAX_SCOPE_ID_CHARS) {
   if (typeof value !== 'string') return undefined;
 
   const normalized = cleanText(value, limit);
@@ -95,9 +93,9 @@ function normalizeScope(
   const courseId = toOptionalString(scope.courseId);
   const studentId = toOptionalString(scope.studentId);
   const subjectId = toOptionalString(scope.subjectId);
-  const subjectName = toOptionalString(scope.subjectName, 240);
+  const subjectName = toOptionalString(scope.subjectName, MAX_SCOPE_TEXT_CHARS);
   const gradeLevel = toOptionalString(scope.gradeLevel, 120);
-  const targetAudience = toOptionalString(scope.targetAudience, 240);
+  const targetAudience = toOptionalString(scope.targetAudience, MAX_SCOPE_TEXT_CHARS);
 
   if (courseId) normalized.courseId = courseId;
   if (studentId) normalized.studentId = studentId;
@@ -115,7 +113,11 @@ function buildLearningAiRequest(
   override?: LearningAiSubmitOverride,
 ): LearningAiRequest {
   const prompt = cleanText(payload.prompt, MAX_PROMPT_CHARS);
-  const selectedSuggestionId = toOptionalString(payload.selectedSuggestionId, 160);
+  const selectedSuggestionId = toOptionalString(
+    payload.selectedSuggestionId,
+    MAX_SCOPE_ID_CHARS,
+  );
+
   const mergedScope = normalizeScope({
     ...(defaultInput.scope || {}),
     ...(override?.scope || {}),
@@ -129,6 +131,47 @@ function buildLearningAiRequest(
     conversationHistory: normalizeConversationHistory(payload.conversationHistory),
     scope: mergedScope,
   };
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return 'AI сұранысы тоқтатылды.';
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    const message = error.message.trim();
+
+    if (/failed to fetch|networkerror|network request failed/i.test(message)) {
+      return 'AI серверіне қосылу мүмкін болмады.';
+    }
+
+    if (/unauthorized|401|jwt|token/i.test(message)) {
+      return 'AI сұранысы үшін қайта авторизация қажет.';
+    }
+
+    if (/timeout|timed out/i.test(message)) {
+      return 'AI жауабы кешікті. Қайта жіберіп көріңіз.';
+    }
+
+    return message;
+  }
+
+  return 'AI сұранысын орындау кезінде белгісіз қате болды.';
+}
+
+function resetAnalysisState(
+  setters: {
+    setAnswer: (value: string | null) => void;
+    setLastResponse: (value: LearningAiResponse | null) => void;
+    setLastRequest: (value: LearningAiRequest | null) => void;
+    setError: (value: string | null) => void;
+  },
+  error: string | null = null,
+) {
+  setters.setAnswer(null);
+  setters.setLastResponse(null);
+  setters.setLastRequest(null);
+  setters.setError(error);
 }
 
 export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
@@ -148,6 +191,18 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
   const isMountedRef = useRef(true);
 
   const isConfigured = useMemo(() => isLearningAiConfigured(), []);
+
+  const clearState = useCallback((nextError: string | null = null) => {
+    resetAnalysisState(
+      {
+        setAnswer,
+        setLastResponse,
+        setLastRequest,
+        setError,
+      },
+      nextError,
+    );
+  }, []);
 
   useEffect(() => {
     defaultInputRef.current = defaultInput;
@@ -195,10 +250,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
       if (!isMountedRef.current) return;
       if (activeRequestIdRef.current !== requestId) return;
 
-      setAnswer(null);
-      setLastResponse(null);
-      setLastRequest(null);
-      setError(null);
+      clearState(null);
     },
 
     onSuccess: ({ data, request, requestId }) => {
@@ -215,10 +267,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
       if (!isMountedRef.current) return;
       if (activeRequestIdRef.current !== variables.requestId) return;
 
-      setAnswer(null);
-      setLastResponse(null);
-      setLastRequest(null);
-      setError(getErrorMessage(caughtError));
+      clearState(getErrorMessage(caughtError));
     },
   });
 
@@ -234,20 +283,14 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
       activeRequestIdRef.current = requestId;
 
       if (!isConfigured) {
-        setAnswer(null);
-        setLastResponse(null);
-        setLastRequest(null);
-        setError('AI backend endpoint әлі қосылмаған.');
+        clearState('AI сервері қосылмаған.');
         return;
       }
 
       const prompt = cleanText(payload.prompt, MAX_PROMPT_CHARS);
 
       if (!prompt) {
-        setAnswer(null);
-        setLastResponse(null);
-        setLastRequest(null);
-        setError('Сұрақ бос болмауы керек.');
+        clearState('Сұрақ бос болмауы керек.');
         return;
       }
 
@@ -272,7 +315,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
         }
       }
     },
-    [isConfigured, mutation],
+    [clearState, isConfigured, mutation],
   );
 
   const reset = useCallback(() => {
@@ -280,13 +323,9 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
     abortControllerRef.current = null;
     activeRequestIdRef.current = null;
 
-    setAnswer(null);
-    setLastResponse(null);
-    setLastRequest(null);
-    setError(null);
-
+    clearState(null);
     mutation.reset();
-  }, [mutation]);
+  }, [clearState, mutation]);
 
   useEffect(() => {
     isMountedRef.current = true;
