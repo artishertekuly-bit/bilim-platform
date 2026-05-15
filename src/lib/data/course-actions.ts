@@ -104,24 +104,6 @@ function normalizePositiveInteger(value: unknown, fallback = 1) {
   return Math.round(parsed);
 }
 
-function normalizeOptionalPositiveInteger(value: unknown) {
-  if (value === null || value === undefined || value === '') return null;
-
-  const parsed = Number(value);
-
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(
-      localizedText(
-        'kk',
-        'Мән бос немесе 1-ден жоғары бүтін сан болуы керек.',
-        'Значение должно быть пустым или целым числом больше 0.',
-      ),
-    );
-  }
-
-  return parsed;
-}
-
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
 
@@ -496,7 +478,7 @@ async function assertCourseAnnouncementOwner(announcementId: string) {
 async function assertCourseInviteOwner(inviteId: string) {
   const trimmedInviteId = inviteId.trim();
 
-  assertNonEmptyId(trimmedInviteId, 'Invite ID');
+  assertNonEmptyId(trimmedInviteId, 'Шақыру коды ID');
 
   const { data, error } = await supabase
     .from('course_invites')
@@ -509,7 +491,7 @@ async function assertCourseInviteOwner(inviteId: string) {
   }
 
   if (!data) {
-    throw new Error('Invite табылмады.');
+    throw new Error('Шақыру коды табылмады.');
   }
 
   await assertCourseOwner(data.course_id);
@@ -606,8 +588,8 @@ function normalizeInviteCode(code: string) {
     throw new Error(
       localizedText(
         'kk',
-        'Invite code кемінде 6 таңбадан тұруы керек.',
-        'Invite code должен содержать минимум 6 символов.',
+        'Шақыру коды кемінде 6 таңбадан тұруы керек.',
+        'Код приглашения должен содержать минимум 6 символов.',
       ),
     );
   }
@@ -1612,7 +1594,7 @@ export async function submitLessonMiniQuiz(
   };
 }
 
-/* ================= COURSE INVITES ================= */
+/* ================= COURSE ACCESS CODES ================= */
 
 export async function createCourseInvite(input: CreateCourseInvitePayload) {
   await assertCourseOwner(input.courseId);
@@ -1622,19 +1604,31 @@ export async function createCourseInvite(input: CreateCourseInvitePayload) {
       throw new Error(
         localizedText(
           'kk',
-          'Invite қолдану лимиті 1 немесе одан жоғары болуы керек.',
-          'Лимит использования invite должен быть 1 или больше.',
+          'Шақыру кодының қолдану лимиті 1 немесе одан жоғары болуы керек.',
+          'Лимит использования кода приглашения должен быть 1 или больше.',
         ),
       );
     }
   }
 
+  const args: {
+    p_course_id: string;
+    p_max_uses?: number;
+    p_expires_at?: string;
+  } = {
+    p_course_id: input.courseId,
+  };
+
+  if (input.maxUses !== undefined && input.maxUses !== null) {
+    args.p_max_uses = input.maxUses;
+  }
+
+  if (input.expiresAt) {
+    args.p_expires_at = input.expiresAt;
+  }
+
   return queryOrThrow(
-    supabase.rpc('create_course_invite', {
-      p_course_id: input.courseId,
-      p_max_uses: input.maxUses ?? null,
-      p_expires_at: input.expiresAt ?? null,
-    }),
+    supabase.rpc('create_course_invite', args),
   ) as Promise<CourseInviteRow>;
 }
 
@@ -1711,12 +1705,23 @@ export async function manualGrantCourseAccess(
 ) {
   await assertCourseOwner(input.courseId);
 
+  const args: {
+    p_user_id: string;
+    p_course_id: string;
+    p_reason?: string;
+  } = {
+    p_user_id: input.userId,
+    p_course_id: input.courseId,
+  };
+
+  const reason = normalizeNullableText(input.reason);
+
+  if (reason) {
+    args.p_reason = reason;
+  }
+
   return queryOrThrow(
-    supabase.rpc('manual_grant_course_access', {
-      p_user_id: input.userId,
-      p_course_id: input.courseId,
-      p_reason: input.reason ?? null,
-    }),
+    supabase.rpc('manual_grant_course_access', args),
   ) as unknown as Promise<EntitlementRow | EntitlementDbRow>;
 }
 
