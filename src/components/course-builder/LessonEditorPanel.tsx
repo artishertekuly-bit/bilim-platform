@@ -1,13 +1,5 @@
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import {
-  BookOpen,
-  FileText,
-  ListOrdered,
-  PlayCircle,
-  Save,
-  ToggleRight,
-  X,
-} from 'lucide-react';
+import { Save, X } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -17,8 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import t from '@/lib/i18n';
-import { normalizeMediaUrl } from '@/lib/media-url';
 import type { CourseBuilderModuleView } from '@/lib/app-data-types';
+import { normalizeMediaUrl } from '@/lib/media-url';
 
 type LessonFormState = {
   moduleId: string;
@@ -44,7 +36,7 @@ type LessonEditorPanelProps = {
 function FieldBlock({
   label,
   children,
-  required,
+  required = false,
 }: {
   label: ReactNode;
   children: ReactNode;
@@ -61,38 +53,6 @@ function FieldBlock({
   );
 }
 
-function EditorSection({
-  title,
-  icon,
-  children,
-  aside,
-}: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
-  aside?: ReactNode;
-}) {
-  return (
-    <section className="rounded-3xl border border-border bg-card p-4">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
-            {icon}
-          </div>
-
-          <p className="min-w-0 text-sm font-semibold text-foreground">
-            {title}
-          </p>
-        </div>
-
-        {aside ? <div className="shrink-0">{aside}</div> : null}
-      </div>
-
-      <div className="space-y-4">{children}</div>
-    </section>
-  );
-}
-
 export function LessonEditorPanel({
   editingLessonId,
   lessonForm,
@@ -105,28 +65,79 @@ export function LessonEditorPanel({
 }: LessonEditorPanelProps) {
   const isEditing = Boolean(editingLessonId);
 
-  const basicsComplete =
-    lessonForm.moduleId.trim().length > 0 &&
-    lessonForm.title.trim().length > 0 &&
-    lessonForm.sortOrder.trim().length > 0;
+  const handleModuleChange = (moduleId: string) => {
+    setLessonForm((previous) => ({
+      ...previous,
+      moduleId,
+      sortOrder: getNextLessonSortOrder(moduleId),
+    }));
+  };
+
+  const handleTitleChange = (title: string) => {
+    setLessonForm((previous) => ({
+      ...previous,
+      title,
+    }));
+  };
+
+  const handleSortOrderChange = (sortOrder: string) => {
+    setLessonForm((previous) => ({
+      ...previous,
+      sortOrder,
+    }));
+  };
+
+  const handleContentChange = (contentBody: string) => {
+    setLessonForm((previous) => ({
+      ...previous,
+      contentBody,
+    }));
+  };
+
+  const handlePracticeChange = (practiceContent: string) => {
+    setLessonForm((previous) => ({
+      ...previous,
+      practiceContent,
+    }));
+  };
+
+  const handleMediaUrlChange = (mediaUrl: string) => {
+    setLessonForm((previous) => ({
+      ...previous,
+      mediaUrl,
+    }));
+  };
+
+  const handleMediaUrlBlur = (mediaUrl: string) => {
+    setLessonForm((previous) => ({
+      ...previous,
+      mediaUrl: normalizeMediaUrl(mediaUrl),
+    }));
+  };
+
+  const handlePublishedChange = (isPublished: boolean) => {
+    setLessonForm((previous) => ({
+      ...previous,
+      isPublished,
+    }));
+  };
 
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle className="text-base font-semibold">
-              {isEditing
-                ? t('page.teacher_course_builder.section.edit_lesson')
-                : t('page.teacher_course_builder.section.new_lesson')}
-            </CardTitle>
+          <CardTitle className="text-base font-semibold">
+            {isEditing
+              ? t('page.teacher_course_builder.section.edit_lesson')
+              : t('page.teacher_course_builder.section.new_lesson')}
+          </CardTitle>
 
+          <div className="flex items-center gap-2">
             <StatusBadge tone={isEditing ? 'primary' : 'secondary'}>
               {isEditing ? 'Өңдеу' : 'Жаңа'}
             </StatusBadge>
 
-            <StatusBadge tone={lessonForm.isPublished ? 'success' : 'completed'}>
-              <ToggleRight size={12} />
+            <StatusBadge tone={lessonForm.isPublished ? 'success' : 'muted'}>
               {lessonForm.isPublished
                 ? t('page.teacher_course_builder.lesson_status.published')
                 : t('page.teacher_course_builder.lesson_status.draft')}
@@ -136,33 +147,20 @@ export function LessonEditorPanel({
       </CardHeader>
 
       <CardContent className="space-y-5 p-4 sm:p-5">
-        <EditorSection
-          title="Сабақ орны"
-          icon={<ListOrdered size={17} />}
-          aside={
-            <StatusBadge tone={basicsComplete ? 'success' : 'muted'}>
-              {basicsComplete ? 'Толды' : 'Міндетті'}
-            </StatusBadge>
-          }
-        >
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_140px]">
           <FieldBlock
             label={t('page.teacher_course_builder.field.module')}
             required
           >
             <select
               value={lessonForm.moduleId}
-              onChange={(event) =>
-                setLessonForm((previous) => ({
-                  ...previous,
-                  moduleId: event.target.value,
-                  sortOrder: getNextLessonSortOrder(event.target.value),
-                }))
-              }
+              onChange={(event) => handleModuleChange(event.target.value)}
               className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
             >
               <option value="">
                 {t('page.teacher_course_builder.placeholder.select_module')}
               </option>
+
               {selectedCourseModules.map((module) => (
                 <option key={module.id} value={module.id}>
                   {module.title}
@@ -171,140 +169,73 @@ export function LessonEditorPanel({
             </select>
           </FieldBlock>
 
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_140px]">
-            <FieldBlock
-              label={t('page.teacher_course_builder.field.lesson_title')}
-              required
-            >
-              <Input
-                value={lessonForm.title}
-                onChange={(event) =>
-                  setLessonForm((previous) => ({
-                    ...previous,
-                    title: event.target.value,
-                  }))
-                }
-                placeholder={t('page.teacher_course_builder.placeholder.lesson_title')}
-              />
-            </FieldBlock>
-
-            <FieldBlock
-              label={t('page.teacher_course_builder.field.sort_order')}
-              required
-            >
-              <Input
-                type="number"
-                min={1}
-                value={lessonForm.sortOrder}
-                onChange={(event) =>
-                  setLessonForm((previous) => ({
-                    ...previous,
-                    sortOrder: event.target.value,
-                  }))
-                }
-              />
-            </FieldBlock>
-          </div>
-        </EditorSection>
-
-        <EditorSection
-          title="Оқу материалы"
-          icon={<BookOpen size={17} />}
-        >
-          <FieldBlock label={t('page.teacher_course_builder.field.theory')}>
-            <Textarea
-              rows={7}
-              value={lessonForm.contentBody}
-              onChange={(event) =>
-                setLessonForm((previous) => ({
-                  ...previous,
-                  contentBody: event.target.value,
-                }))
-              }
-              placeholder="Теория"
-            />
-          </FieldBlock>
-
-          <FieldBlock label={t('page.teacher_course_builder.field.practice')}>
-            <Textarea
-              rows={4}
-              value={lessonForm.practiceContent}
-              onChange={(event) =>
-                setLessonForm((previous) => ({
-                  ...previous,
-                  practiceContent: event.target.value,
-                }))
-              }
-              placeholder="Практика"
-            />
-          </FieldBlock>
-        </EditorSection>
-
-        <EditorSection
-          title="Медиа және күй"
-          icon={<PlayCircle size={17} />}
-        >
-          <FieldBlock label={t('page.teacher_course_builder.field.video_url')}>
-            <Input
-              value={lessonForm.mediaUrl}
-              onChange={(event) =>
-                setLessonForm((previous) => ({
-                  ...previous,
-                  mediaUrl: event.target.value,
-                }))
-              }
-              onBlur={(event) =>
-                setLessonForm((previous) => ({
-                  ...previous,
-                  mediaUrl: normalizeMediaUrl(event.target.value),
-                }))
-              }
-              placeholder="https://youtube.com/..."
-            />
-          </FieldBlock>
-
-          <div
-            className={`rounded-3xl border p-4 transition-colors ${
-              lessonForm.isPublished
-                ? 'border-success-muted bg-success-soft/70'
-                : 'border-border bg-muted/30'
-            }`}
+          <FieldBlock
+            label={t('page.teacher_course_builder.field.sort_order')}
+            required
           >
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <div
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
-                    lessonForm.isPublished
-                      ? 'border-success-muted bg-card text-success-foreground'
-                      : 'border-border bg-card text-muted-foreground'
-                  }`}
-                >
-                  <FileText size={17} />
-                </div>
+            <Input
+              type="number"
+              min={1}
+              value={lessonForm.sortOrder}
+              onChange={(event) => handleSortOrderChange(event.target.value)}
+            />
+          </FieldBlock>
+        </div>
 
-                <Label
-                  htmlFor="lesson-published"
-                  className="text-sm font-semibold text-foreground"
-                >
-                  {t('page.teacher_course_builder.field.lesson_published')}
-                </Label>
-              </div>
+        <FieldBlock
+          label={t('page.teacher_course_builder.field.lesson_title')}
+          required
+        >
+          <Input
+            value={lessonForm.title}
+            onChange={(event) => handleTitleChange(event.target.value)}
+            placeholder="Сабақ атауы"
+          />
+        </FieldBlock>
 
-              <Switch
-                id="lesson-published"
-                checked={lessonForm.isPublished}
-                onCheckedChange={(checked) =>
-                  setLessonForm((previous) => ({
-                    ...previous,
-                    isPublished: checked,
-                  }))
-                }
-              />
-            </div>
-          </div>
-        </EditorSection>
+        <FieldBlock label={t('page.teacher_course_builder.field.theory')}>
+          <Textarea
+            rows={7}
+            value={lessonForm.contentBody}
+            onChange={(event) => handleContentChange(event.target.value)}
+            placeholder="Теория"
+          />
+        </FieldBlock>
 
-        <div className="flex flex-col gap-2 rounded-3xl border border-primary-muted bg-primary-soft/60 p-4 sm:flex-row sm:justify-end">
+        <FieldBlock label={t('page.teacher_course_builder.field.practice')}>
+          <Textarea
+            rows={4}
+            value={lessonForm.practiceContent}
+            onChange={(event) => handlePracticeChange(event.target.value)}
+            placeholder="Практика"
+          />
+        </FieldBlock>
+
+        <FieldBlock label={t('page.teacher_course_builder.field.video_url')}>
+          <Input
+            value={lessonForm.mediaUrl}
+            onChange={(event) => handleMediaUrlChange(event.target.value)}
+            onBlur={(event) => handleMediaUrlBlur(event.target.value)}
+            placeholder="https://youtube.com/..."
+          />
+        </FieldBlock>
+
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-muted/30 px-4 py-3">
+          <Label
+            htmlFor="lesson-published"
+            className="text-sm font-semibold text-foreground"
+          >
+            {t('page.teacher_course_builder.field.lesson_published')}
+          </Label>
+
+          <Switch
+            id="lesson-published"
+            checked={lessonForm.isPublished}
+            onCheckedChange={handlePublishedChange}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-border/70 pt-4 sm:flex-row sm:justify-end">
           <Button
             type="button"
             onClick={onSaveLesson}
