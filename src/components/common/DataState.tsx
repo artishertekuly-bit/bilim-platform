@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Inbox, Loader2 } from 'lucide-react';
 
-import { cn } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type Align = 'left' | 'center';
 type StateTone = 'default' | 'success' | 'warning' | 'danger' | 'ai';
@@ -19,6 +19,18 @@ type BaseStateProps = {
   compact?: boolean;
   size?: StateSize;
 };
+
+const MAX_TITLE_CHARS = 160;
+const MAX_TEXT_CHARS = 700;
+const MAX_HINT_CHARS = 700;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TEXT_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
 
 function getToneClasses(tone: StateTone) {
   const map: Record<
@@ -77,61 +89,65 @@ function StateCard({
   const isSmall = size === 'sm' || compact;
   const toneClasses = getToneClasses(tone);
 
+  const safeTitle = cleanText(title, MAX_TITLE_CHARS);
+  const safeText = cleanText(text, MAX_TEXT_CHARS);
+  const safeHint = cleanText(hint, MAX_HINT_CHARS);
+
   return (
     <div
       role={role}
       aria-live={role === 'alert' ? 'assertive' : role === 'status' ? 'polite' : undefined}
-      aria-busy={ariaBusy}
+      aria-busy={ariaBusy || undefined}
       className={cn(
         'rounded-3xl border',
         isSmall ? 'p-4' : 'p-5 sm:p-6',
         toneClasses.card,
-        className
+        className,
       )}
     >
       <div
         className={cn(
           'flex gap-4',
           isCentered && 'flex-col items-center text-center',
-          isSmall && 'gap-3'
+          isSmall && 'gap-3',
         )}
       >
         <div
           className={cn(
             'flex shrink-0 items-center justify-center rounded-2xl border',
             isSmall ? 'h-10 w-10' : 'h-11 w-11',
-            toneClasses.icon
+            toneClasses.icon,
           )}
         >
           {icon}
         </div>
 
         <div className={cn('min-w-0 flex-1', isCentered && 'flex flex-col items-center')}>
-          {title ? (
+          {safeTitle ? (
             <p
               className={cn(
                 'font-semibold text-foreground',
-                isSmall ? 'text-sm' : 'text-base'
+                isSmall ? 'text-sm' : 'text-base',
               )}
             >
-              {title}
+              {safeTitle}
             </p>
           ) : null}
 
-          {text ? (
+          {safeText ? (
             <p
               className={cn(
                 'mt-1 text-muted-foreground',
-                isSmall ? 'text-xs leading-5' : 'max-w-2xl text-sm leading-6'
+                isSmall ? 'text-xs leading-5' : 'max-w-2xl text-sm leading-6',
               )}
             >
-              {text}
+              {safeText}
             </p>
           ) : null}
 
-          {hint ? (
+          {safeHint ? (
             <p className="mt-3 max-w-2xl rounded-2xl border border-border bg-card px-3 py-2 text-xs leading-5 text-muted-foreground">
-              {hint}
+              {safeHint}
             </p>
           ) : null}
 
@@ -139,7 +155,7 @@ function StateCard({
             <div
               className={cn(
                 'mt-4 flex flex-wrap gap-2',
-                isCentered ? 'justify-center' : 'justify-start'
+                isCentered ? 'justify-center' : 'justify-start',
               )}
             >
               {action}

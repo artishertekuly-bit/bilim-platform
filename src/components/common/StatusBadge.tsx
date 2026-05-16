@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Children, isValidElement, type ReactNode } from 'react';
 import {
   Archive,
   CheckCircle2,
@@ -13,7 +13,7 @@ import {
   XCircle,
 } from 'lucide-react';
 
-import { cn } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type CourseStatus = 'draft' | 'review' | 'under_review' | 'published' | 'archived';
 
@@ -39,20 +39,8 @@ type StatusBadgeProps = {
   children?: ReactNode;
   tone?: StatusBadgeTone;
   size?: StatusBadgeSize;
-
-  /**
-   * Backward compatibility.
-   * New code can pass icons directly as children:
-   * <StatusBadge><Icon /> Label</StatusBadge>
-   */
   icon?: ReactNode;
-
-  /**
-   * Course status shortcut.
-   * Allows <StatusBadge status="published" />.
-   */
   status?: CourseStatus | string | null;
-
   className?: string;
 };
 
@@ -76,6 +64,9 @@ type OrderStatusBadgeProps = {
   className?: string;
 };
 
+const MAX_BADGE_LABEL_CHARS = 80;
+const MAX_STATUS_CHARS = 80;
+
 const toneClassMap: Record<StatusBadgeTone, string> = {
   default: 'border-border bg-card text-muted-foreground',
   muted: 'border-border bg-muted text-muted-foreground',
@@ -87,10 +78,6 @@ const toneClassMap: Record<StatusBadgeTone, string> = {
   warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
   danger: 'border-destructive-muted bg-destructive-soft text-destructive',
 
-  /**
-   * Legacy alias.
-   * Keep it because older files may still call tone="info".
-   */
   info: 'border-primary-muted bg-primary-soft text-primary',
 
   new: 'border-status-new/70 bg-status-new text-status-new-foreground',
@@ -118,7 +105,7 @@ const courseStatusMeta: Record<
   }
 > = {
   draft: {
-    label: 'Draft',
+    label: 'Жоба',
     tone: 'completed',
     icon: <EyeOff size={12} />,
   },
@@ -144,8 +131,48 @@ const courseStatusMeta: Record<
   },
 };
 
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_BADGE_LABEL_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function normalizeKey(value: unknown): string {
+  return cleanText(value, MAX_STATUS_CHARS).toLowerCase();
+}
+
+function normalizeBadgeChildren(children: ReactNode): ReactNode {
+  if (children === null || children === undefined || typeof children === 'boolean') {
+    return null;
+  }
+
+  if (typeof children === 'string' || typeof children === 'number') {
+    return cleanText(children);
+  }
+
+  if (Array.isArray(children)) {
+    return Children.map(children, normalizeBadgeChildren);
+  }
+
+  if (isValidElement(children)) {
+    return children;
+  }
+
+  return children;
+}
+
 function isKnownCourseStatus(value: string | null | undefined): value is CourseStatus {
-  return Boolean(value && value in courseStatusMeta);
+  const normalized = normalizeKey(value);
+
+  return normalized in courseStatusMeta;
+}
+
+function getKnownCourseStatus(value: string | null | undefined): CourseStatus | null {
+  const normalized = normalizeKey(value);
+
+  return isKnownCourseStatus(normalized) ? normalized : null;
 }
 
 export default function StatusBadge({
@@ -156,10 +183,12 @@ export default function StatusBadge({
   status,
   className,
 }: StatusBadgeProps) {
-  const statusMeta = isKnownCourseStatus(status) ? courseStatusMeta[status] : null;
+  const knownStatus = getKnownCourseStatus(status);
+  const statusMeta = knownStatus ? courseStatusMeta[knownStatus] : null;
+
   const resolvedTone = statusMeta?.tone || tone;
   const resolvedIcon = icon || statusMeta?.icon || null;
-  const label = children || statusMeta?.label || null;
+  const label = normalizeBadgeChildren(children || statusMeta?.label || null);
 
   if (!label) {
     return null;
@@ -177,7 +206,7 @@ export default function StatusBadge({
         ].join(' '),
         toneClassMap[resolvedTone],
         sizeClassMap[size],
-        className
+        className,
       )}
     >
       {resolvedIcon ? <span className="shrink-0">{resolvedIcon}</span> : null}
@@ -190,18 +219,20 @@ export function CourseAccessBadge({
   accessType,
   className,
 }: CourseAccessBadgeProps) {
-  const normalizedAccessType =
-    accessType === 'subscription_only'
-      ? 'paid'
-      : accessType === 'school_only'
-        ? 'private_invite'
-        : accessType === 'closed'
-          ? 'private_invite'
-          : accessType === 'open'
-            ? 'public_free'
-            : accessType || 'public_free';
+  const normalizedAccessType = normalizeKey(accessType);
 
-  if (normalizedAccessType === 'public_free') {
+  const resolvedAccessType =
+    normalizedAccessType === 'subscription_only'
+      ? 'paid'
+      : normalizedAccessType === 'school_only'
+        ? 'private_invite'
+        : normalizedAccessType === 'closed'
+          ? 'private_invite'
+          : normalizedAccessType === 'open'
+            ? 'public_free'
+            : normalizedAccessType || 'public_free';
+
+  if (resolvedAccessType === 'public_free') {
     return (
       <StatusBadge tone="success" className={className}>
         <Eye size={12} />
@@ -210,7 +241,7 @@ export function CourseAccessBadge({
     );
   }
 
-  if (normalizedAccessType === 'private_invite') {
+  if (resolvedAccessType === 'private_invite') {
     return (
       <StatusBadge tone="primary" className={className}>
         <KeyRound size={12} />
@@ -219,7 +250,7 @@ export function CourseAccessBadge({
     );
   }
 
-  if (normalizedAccessType === 'paid') {
+  if (resolvedAccessType === 'paid') {
     return (
       <StatusBadge tone="important" className={className}>
         <CreditCard size={12} />
@@ -240,8 +271,10 @@ export function CourseStatusBadge({
   status,
   className,
 }: CourseStatusBadgeProps) {
-  if (isKnownCourseStatus(status)) {
-    return <StatusBadge status={status} className={className} />;
+  const knownStatus = getKnownCourseStatus(status);
+
+  if (knownStatus) {
+    return <StatusBadge status={knownStatus} className={className} />;
   }
 
   return (
@@ -256,7 +289,9 @@ export function LessonStatusBadge({
   status,
   className,
 }: LessonStatusBadgeProps) {
-  if (status === 'completed') {
+  const normalizedStatus = normalizeKey(status);
+
+  if (normalizedStatus === 'completed') {
     return (
       <StatusBadge tone="success" className={className}>
         <CheckCircle2 size={12} />
@@ -265,7 +300,7 @@ export function LessonStatusBadge({
     );
   }
 
-  if (status === 'current') {
+  if (normalizedStatus === 'current') {
     return (
       <StatusBadge tone="ai" className={className}>
         <Sparkles size={12} />
@@ -274,7 +309,7 @@ export function LessonStatusBadge({
     );
   }
 
-  if (status === 'locked') {
+  if (normalizedStatus === 'locked') {
     return (
       <StatusBadge tone="muted" className={className}>
         <Lock size={12} />
@@ -283,7 +318,7 @@ export function LessonStatusBadge({
     );
   }
 
-  if (status === 'available') {
+  if (normalizedStatus === 'available') {
     return (
       <StatusBadge tone="active" className={className}>
         <Eye size={12} />
@@ -304,7 +339,9 @@ export function OrderStatusBadge({
   status,
   className,
 }: OrderStatusBadgeProps) {
-  if (status === 'pending') {
+  const normalizedStatus = normalizeKey(status);
+
+  if (normalizedStatus === 'pending') {
     return (
       <StatusBadge tone="warning" className={className}>
         <Clock size={12} />
@@ -313,7 +350,11 @@ export function OrderStatusBadge({
     );
   }
 
-  if (status === 'approved' || status === 'paid' || status === 'active') {
+  if (
+    normalizedStatus === 'approved' ||
+    normalizedStatus === 'paid' ||
+    normalizedStatus === 'active'
+  ) {
     return (
       <StatusBadge tone="success" className={className}>
         <ShieldCheck size={12} />
@@ -322,7 +363,11 @@ export function OrderStatusBadge({
     );
   }
 
-  if (status === 'rejected' || status === 'cancelled' || status === 'failed') {
+  if (
+    normalizedStatus === 'rejected' ||
+    normalizedStatus === 'cancelled' ||
+    normalizedStatus === 'failed'
+  ) {
     return (
       <StatusBadge tone="danger" className={className}>
         <XCircle size={12} />

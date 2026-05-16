@@ -34,7 +34,7 @@ import UserAvatar from '@/components/UserAvatar';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 import t, { type TranslationKey } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type NavItemConfig = {
   labelKey?: TranslationKey;
@@ -52,6 +52,11 @@ type NavGroupConfig = {
 };
 
 const SIDEBAR_ID = 'dashboard-sidebar';
+
+const MAX_NAME_CHARS = 160;
+const MAX_EMAIL_CHARS = 320;
+const MAX_URL_CHARS = 2_000;
+const MAX_LABEL_CHARS = 120;
 
 const roleTitleKeys: Record<UserRole, TranslationKey> = {
   student: 'role.student',
@@ -73,15 +78,15 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
       title: 'Негізгі',
       items: [
         {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        {
           labelKey: 'nav.dashboard',
           path: '/dashboard',
           icon: LayoutDashboard,
+          matchMode: 'exact',
+        },
+        {
+          labelKey: 'nav.profile',
+          path: '/profile',
+          icon: Settings,
           matchMode: 'exact',
         },
         chatNavItem,
@@ -117,7 +122,7 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
       ],
     },
     {
-      title: 'AI құралдар',
+      title: 'ЖИ құралдар',
       items: [
         {
           labelKey: 'nav.ai_practice',
@@ -178,15 +183,15 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
       title: 'Негізгі',
       items: [
         {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        {
           labelKey: 'nav.dashboard',
           path: '/dashboard',
           icon: LayoutDashboard,
+          matchMode: 'exact',
+        },
+        {
+          labelKey: 'nav.profile',
+          path: '/profile',
+          icon: Settings,
           matchMode: 'exact',
         },
         chatNavItem,
@@ -218,7 +223,7 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
       ],
     },
     {
-      title: 'AI және емтихан',
+      title: 'ЖИ және емтихан',
       items: [
         {
           labelKey: 'nav.ai_question_builder',
@@ -268,15 +273,15 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
       title: 'Негізгі',
       items: [
         {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        {
           labelKey: 'nav.dashboard',
           path: '/dashboard',
           icon: LayoutDashboard,
+          matchMode: 'exact',
+        },
+        {
+          labelKey: 'nav.profile',
+          path: '/profile',
+          icon: Settings,
           matchMode: 'exact',
         },
         chatNavItem,
@@ -318,15 +323,15 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
       title: 'Негізгі',
       items: [
         {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        {
           labelKey: 'nav.dashboard',
           path: '/dashboard',
           icon: LayoutDashboard,
+          matchMode: 'exact',
+        },
+        {
+          labelKey: 'nav.profile',
+          path: '/profile',
+          icon: Settings,
           matchMode: 'exact',
         },
         chatNavItem,
@@ -393,16 +398,39 @@ const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
   ],
 };
 
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_LABEL_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function normalizeUiLabel(value: unknown, limit = MAX_LABEL_CHARS): string {
+  return cleanText(value, limit)
+    .replace(/\bAI\b/g, 'ЖИ')
+    .replace(/\bAi\b/g, 'ЖИ')
+    .replace(/\bDashboard\b/g, 'Кабинет')
+    .replace(/\bdashboard\b/g, 'кабинет')
+    .trim();
+}
+
+function normalizeAvatarUrl(value: unknown): string | undefined {
+  const url = cleanText(value, MAX_URL_CHARS);
+
+  return url || undefined;
+}
+
 function getNavLabel(item: NavItemConfig) {
-  if (item.label) return item.label;
-  if (item.labelKey) return t(item.labelKey);
-  return '';
+  const label = item.label || (item.labelKey ? t(item.labelKey) : '');
+
+  return normalizeUiLabel(label);
 }
 
 function matchesPath(
   pathname: string,
   path: string,
-  matchMode: NavItemConfig['matchMode'] = 'section'
+  matchMode: NavItemConfig['matchMode'] = 'section',
 ) {
   if (matchMode === 'exact') {
     return pathname === path;
@@ -417,7 +445,7 @@ function isPathActive(pathname: string, item: NavItemConfig) {
   }
 
   return (item.aliases || []).some((alias) =>
-    matchesPath(pathname, alias, item.matchMode)
+    matchesPath(pathname, alias, item.matchMode),
   );
 }
 
@@ -426,8 +454,15 @@ function getDisplayName(user?: {
   email?: string | null;
 } | null) {
   if (!user) return '';
-  if (user.fullName?.trim()) return user.fullName;
-  return user.email?.split('@')[0] || 'User';
+
+  const fullName = cleanText(user.fullName, MAX_NAME_CHARS);
+  const emailName = cleanText(user.email?.split('@')[0], MAX_NAME_CHARS);
+
+  return fullName || emailName || 'Пайдаланушы';
+}
+
+function getDisplayEmail(email?: string | null) {
+  return cleanText(email, MAX_EMAIL_CHARS) || '—';
 }
 
 function flattenGroups(groups: NavGroupConfig[]) {
@@ -458,6 +493,14 @@ function getIconToneClass(item: NavItemConfig, isActive: boolean) {
   return 'border-transparent bg-card/40 text-muted-foreground group-hover:border-primary-muted group-hover:bg-card group-hover:text-primary';
 }
 
+function getThemeLabel(value: string) {
+  if (value === 'light') return 'Жарық';
+  if (value === 'dark') return 'Қараңғы';
+  if (value === 'system') return 'Жүйе';
+
+  return 'Жүйе';
+}
+
 function ThemeToggle() {
   const { theme, resolvedTheme, setTheme } = useTheme();
 
@@ -482,7 +525,7 @@ function ThemeToggle() {
   return (
     <div
       className="flex items-center rounded-2xl border border-border bg-card p-1"
-      title={`Тақырып: ${theme} · белсенді ${resolvedTheme}`}
+      title={`Тақырып: ${getThemeLabel(theme)} · белсенді ${getThemeLabel(resolvedTheme)}`}
       aria-label="Тақырып ауыстыру"
     >
       {items.map((item) => {
@@ -499,7 +542,7 @@ function ThemeToggle() {
             className={cn(
               'inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors',
               'hover:bg-primary-soft hover:text-primary',
-              active && 'bg-primary-soft text-primary ring-1 ring-primary-muted'
+              active && 'bg-primary-soft text-primary ring-1 ring-primary-muted',
             )}
           >
             <Icon size={14} />
@@ -523,7 +566,7 @@ function SidebarSection({
     <div className="space-y-1">
       <div className="px-3 pb-1 pt-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          {group.title}
+          {normalizeUiLabel(group.title)}
         </p>
       </div>
 
@@ -542,7 +585,7 @@ function SidebarSection({
               'group relative flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition-colors',
               isActive
                 ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground ring-1 ring-sidebar-border'
-                : 'text-sidebar-foreground hover:bg-sidebar-accent/75 hover:text-foreground'
+                : 'text-sidebar-foreground hover:bg-sidebar-accent/75 hover:text-foreground',
             )}
           >
             {isActive ? (
@@ -552,7 +595,7 @@ function SidebarSection({
             <span
               className={cn(
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors',
-                getIconToneClass(item, isActive)
+                getIconToneClass(item, isActive),
               )}
             >
               <Icon size={16} />
@@ -612,6 +655,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const navGroups = useMemo(() => {
     if (!user) return [];
+
     return roleNavGroups[user.role] || [];
   }, [user]);
 
@@ -619,11 +663,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   const activeItem = useMemo(
     () => navItems.find((item) => isPathActive(location.pathname, item)),
-    [location.pathname, navItems]
+    [location.pathname, navItems],
   );
 
   const displayName = useMemo(() => getDisplayName(user), [user]);
-  const activeLabel = activeItem ? getNavLabel(activeItem) : t('nav.dashboard');
+  const displayEmail = useMemo(() => getDisplayEmail(user?.email), [user?.email]);
+  const avatarUrl = useMemo(() => normalizeAvatarUrl(user?.avatarUrl), [user?.avatarUrl]);
+
+  const activeLabel = activeItem ? getNavLabel(activeItem) : normalizeUiLabel(t('nav.dashboard'));
   const ActiveIcon = activeItem?.icon;
 
   const handleLogout = async () => {
@@ -631,10 +678,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
     try {
       await logout();
-    } catch (error) {
-      console.error('[DashboardLayout] Logout failed', error);
+    } catch {
+      // Logout failure should not leave the user trapped in the layout.
     } finally {
-      navigate('/', { replace: true });
+      navigate('/login', { replace: true });
     }
   };
 
@@ -658,12 +705,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           'fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-sidebar-border bg-sidebar',
           'transition-transform duration-200 ease-soft',
           'lg:sticky lg:translate-x-0',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         )}
       >
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
           <Link
             to="/dashboard"
+            onClick={() => setSidebarOpen(false)}
             className="flex min-w-0 items-center gap-3 rounded-2xl"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
@@ -732,11 +780,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-2 rounded-3xl border border-sidebar-border bg-card/70 p-2">
             <Link
               to="/profile"
+              onClick={() => setSidebarOpen(false)}
               className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-1.5 transition-colors hover:bg-primary-soft"
             >
               <UserAvatar
                 name={displayName}
-                avatarUrl={user.avatarUrl}
+                avatarUrl={avatarUrl}
                 className="h-9 w-9"
                 fallbackClassName="bg-primary-soft text-xs font-semibold text-primary"
               />
@@ -744,7 +793,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{displayName}</p>
                 <p className="truncate text-[11px] text-muted-foreground">
-                  {user.email}
+                  {displayEmail}
                 </p>
               </div>
             </Link>
