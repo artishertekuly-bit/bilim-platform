@@ -9,7 +9,6 @@ import {
   Info,
   Loader2,
   ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 
 import KazakhOrnament from '@/components/KazakhOrnament';
@@ -18,9 +17,66 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
+
+type LoginLocationState = {
+  from?: {
+    pathname?: string;
+    search?: string;
+  };
+  info?: string;
+};
+
+const MAX_EMAIL_CHARS = 320;
+const MAX_PASSWORD_CHARS = 256;
+const MAX_ALERT_CHARS = 700;
+const MAX_REDIRECT_CHARS = 500;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_ALERT_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function normalizeEmail(value: unknown): string {
+  return cleanText(value, MAX_EMAIL_CHARS).toLowerCase();
+}
+
+function normalizePassword(value: unknown): string {
+  return cleanRawText(value).slice(0, MAX_PASSWORD_CHARS);
+}
+
+function normalizeSearch(value: unknown): string {
+  const search = cleanRawText(value).trim();
+
+  if (!search || search === '?') return '';
+
+  return search.startsWith('?') ? search.slice(0, MAX_REDIRECT_CHARS) : '';
+}
+
+function normalizeRedirectPath(pathname?: string, search?: string): string {
+  const path = cleanRawText(pathname).trim();
+
+  if (
+    !path ||
+    !path.startsWith('/') ||
+    path.startsWith('//') ||
+    path === '/login' ||
+    path === '/register' ||
+    path === '/forgot-password' ||
+    path === '/verify-email'
+  ) {
+    return '/dashboard';
+  }
+
+  return `${limitText(path, MAX_REDIRECT_CHARS)}${normalizeSearch(search)}`;
+}
 
 function resolveLoginError(error: unknown): { error?: string; info?: string } {
-  const message = error instanceof Error ? error.message : t('auth.login_failed');
+  const message =
+    error instanceof Error ? cleanText(error.message) : t('auth.login_failed');
 
   if (message.toLowerCase().includes('email not confirmed')) {
     return {
@@ -33,14 +89,6 @@ function resolveLoginError(error: unknown): { error?: string; info?: string } {
   };
 }
 
-type LoginLocationState = {
-  from?: {
-    pathname?: string;
-    search?: string;
-  };
-  info?: string;
-};
-
 function AuthAlert({
   tone,
   children,
@@ -49,21 +97,26 @@ function AuthAlert({
   children: string;
 }) {
   const isDanger = tone === 'danger';
+  const message = cleanText(children);
+
+  if (!message) return null;
 
   return (
     <div
-      className={`mb-3 flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-sm leading-5 ${
+      className={cn(
+        'mb-3 flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-sm leading-5',
         isDanger
           ? 'border-destructive-muted bg-destructive-soft text-destructive'
-          : 'border-warning-muted bg-warning-soft text-warning-foreground'
-      }`}
+          : 'border-warning-muted bg-warning-soft text-warning-foreground',
+      )}
     >
       {isDanger ? (
         <AlertTriangle size={15} className="mt-0.5 shrink-0" />
       ) : (
         <Info size={15} className="mt-0.5 shrink-0" />
       )}
-      <span>{children}</span>
+
+      <span>{message}</span>
     </div>
   );
 }
@@ -83,18 +136,16 @@ export default function LoginPage() {
 
   const locationState = location.state as LoginLocationState | null;
 
-  const redirectTo = useMemo(() => {
-    const fromPath = locationState?.from?.pathname;
-    const fromSearch = locationState?.from?.search || '';
+  const redirectTo = useMemo(
+    () =>
+      normalizeRedirectPath(
+        locationState?.from?.pathname,
+        locationState?.from?.search,
+      ),
+    [locationState],
+  );
 
-    if (!fromPath || fromPath === '/login' || fromPath === '/register') {
-      return '/dashboard';
-    }
-
-    return `${fromPath}${fromSearch}`;
-  }, [locationState]);
-
-  const incomingInfo = locationState?.info || '';
+  const incomingInfo = cleanText(locationState?.info || '');
 
   useEffect(() => {
     if (incomingInfo) {
@@ -102,7 +153,10 @@ export default function LoginPage() {
     }
   }, [incomingInfo]);
 
-  const canSubmit = email.trim().length > 0 && password.length > 0 && !loading;
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedPassword = normalizePassword(password);
+  const canSubmit =
+    normalizedEmail.length > 0 && normalizedPassword.length > 0 && !loading;
   const authBusy = loading || googleLoading;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -115,10 +169,10 @@ export default function LoginPage() {
     setInfo('');
 
     try {
-      const result = await login(email, password);
+      const result = await login(normalizedEmail, normalizedPassword);
 
       if (result.requiresEmailConfirmation) {
-        setInfo(result.message || t('auth.email_confirmation_required'));
+        setInfo(cleanText(result.message || t('auth.email_confirmation_required')));
         return;
       }
 
@@ -145,10 +199,25 @@ export default function LoginPage() {
       await loginWithGoogle();
     } catch (err: unknown) {
       setError(
-        err instanceof Error ? err.message : 'Google арқылы кіру мүмкін болмады.'
+        err instanceof Error
+          ? cleanText(err.message)
+          : 'Google арқылы кіру мүмкін болмады.',
       );
       setGoogleLoading(false);
     }
+  };
+
+  const handleVerifyEmailClick = () => {
+    const nextEmail = normalizeEmail(email);
+
+    if (!nextEmail) return;
+
+    navigate('/verify-email', {
+      state: {
+        email: nextEmail,
+        info: 'Email растау кодын енгізіңіз.',
+      },
+    });
   };
 
   return (
@@ -174,11 +243,6 @@ export default function LoginPage() {
               <GraduationCap size={32} />
             </div>
 
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-ai-border bg-ai-soft px-3 py-1 text-xs font-semibold text-primary">
-              <Sparkles size={12} />
-              Soft Academic LMS
-            </div>
-
             <h1 className="mb-3 text-3xl font-bold tracking-tight text-foreground">
               Bilimcorp
             </h1>
@@ -198,8 +262,7 @@ export default function LoginPage() {
                     Қауіпсіз кіру
                   </p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Email/password немесе Google арқылы аккаунтыңызға кіріңіз.
-                    Google user кейін бөлек password орната алады.
+                    Email немесе Google арқылы кіріңіз.
                   </p>
                 </div>
               </div>
@@ -216,10 +279,11 @@ export default function LoginPage() {
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
               <GraduationCap size={18} />
             </div>
+
             <div>
               <span className="block text-sm font-semibold">Bilimcorp</span>
               <span className="block text-[11px] text-muted-foreground">
-                Soft Academic LMS
+                Оқу платформасы
               </span>
             </div>
           </div>
@@ -228,12 +292,13 @@ export default function LoginPage() {
             <div className="border-b border-border/70 bg-card/80 px-5 py-5">
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
                 <ShieldCheck size={12} />
-                Account access
+                Кіру
               </div>
 
               <h2 className="text-xl font-semibold tracking-tight text-foreground">
                 {t('auth.login_title')}
               </h2>
+
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 {t('auth.login_hint')}
               </p>
@@ -254,7 +319,9 @@ export default function LoginPage() {
                     type="email"
                     autoComplete="email"
                     value={email}
-                    onChange={(event) => setEmail(event.target.value)}
+                    onChange={(event) =>
+                      setEmail(normalizeEmail(event.target.value))
+                    }
                     placeholder="email@example.com"
                     required
                     disabled={authBusy}
@@ -272,7 +339,9 @@ export default function LoginPage() {
                       type={showPassword ? 'text' : 'password'}
                       autoComplete="current-password"
                       value={password}
-                      onChange={(event) => setPassword(event.target.value)}
+                      onChange={(event) =>
+                        setPassword(normalizePassword(event.target.value))
+                      }
                       placeholder="••••••••"
                       required
                       className="pr-11"
@@ -284,7 +353,9 @@ export default function LoginPage() {
                       onClick={() => setShowPassword((previous) => !previous)}
                       className="absolute inset-y-0 right-0 flex items-center rounded-r-2xl px-3 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
                       aria-label={
-                        showPassword ? t('auth.hide_password') : t('auth.show_password')
+                        showPassword
+                          ? t('auth.hide_password')
+                          : t('auth.show_password')
                       }
                       disabled={authBusy}
                     >
@@ -328,7 +399,7 @@ export default function LoginPage() {
                 {googleLoading ? (
                   <>
                     <Loader2 size={15} className="mr-2 animate-spin" />
-                    Google ашылуда...
+                    Ашылуда...
                   </>
                 ) : (
                   'Google арқылы кіру'
@@ -343,17 +414,10 @@ export default function LoginPage() {
                   Құпия сөзді ұмыттым
                 </Link>
 
-                {email.trim() ? (
+                {normalizedEmail ? (
                   <button
                     type="button"
-                    onClick={() =>
-                      navigate('/verify-email', {
-                        state: {
-                          email: email.trim(),
-                          info: 'Email растау кодын енгізіңіз.',
-                        },
-                      })
-                    }
+                    onClick={handleVerifyEmailClick}
                     className="text-right font-medium text-foreground transition-colors hover:text-primary hover:underline"
                   >
                     Email кодын енгізу

@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -10,7 +10,6 @@ import {
   Loader2,
   MailCheck,
   ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 
 import KazakhOrnament from '@/components/KazakhOrnament';
@@ -18,24 +17,51 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth-context';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type VerifyLocationState = {
   email?: string;
   info?: string;
 };
 
+const MAX_EMAIL_CHARS = 320;
+const MAX_TOKEN_CHARS = 6;
+const MAX_ALERT_CHARS = 700;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_ALERT_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function normalizeEmail(value: unknown): string {
+  return cleanText(value, MAX_EMAIL_CHARS).toLowerCase();
+}
+
+function normalizeToken(value: unknown): string {
+  return cleanRawText(value).replace(/[^\d]/g, '').slice(0, MAX_TOKEN_CHARS);
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message);
+  }
+
+  return fallback;
+}
+
 function AuthAlert({
   tone,
   children,
 }: {
   tone: 'danger' | 'warning' | 'success';
-  children: ReactNode;
+  children: string;
 }) {
-  const toneClassName = {
-    danger: 'border-destructive-muted bg-destructive-soft text-destructive',
-    warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
-    success: 'border-success-muted bg-success-soft text-success-foreground',
-  }[tone];
+  const message = cleanText(children);
+
+  if (!message) return null;
 
   const Icon =
     tone === 'danger'
@@ -46,10 +72,18 @@ function AuthAlert({
 
   return (
     <div
-      className={`mb-3 flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-sm leading-5 ${toneClassName}`}
+      className={cn(
+        'mb-3 flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-sm leading-5',
+        tone === 'danger' &&
+          'border-destructive-muted bg-destructive-soft text-destructive',
+        tone === 'warning' &&
+          'border-warning-muted bg-warning-soft text-warning-foreground',
+        tone === 'success' &&
+          'border-success-muted bg-success-soft text-success-foreground',
+      )}
     >
       <Icon size={15} className="mt-0.5 shrink-0" />
-      <span>{children}</span>
+      <span>{message}</span>
     </div>
   );
 }
@@ -61,27 +95,27 @@ export default function VerifyEmailPage() {
 
   const state = location.state as VerifyLocationState | null;
 
-  const [email, setEmail] = useState(state?.email || '');
+  const [email, setEmail] = useState(() => normalizeEmail(state?.email || ''));
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState(
-    state?.info || 'Email-ға жіберілген 6 таңбалы кодты енгізіңіз.'
+  const [info, setInfo] = useState(() =>
+    cleanText(state?.info || 'Email-ға жіберілген 6 таңбалы кодты енгізіңіз.'),
   );
 
   const busy = loading || resending;
-  const normalizedEmail = email.trim();
-  const normalizedToken = token.trim();
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedToken = normalizeToken(token);
 
   const canVerify = useMemo(
     () => normalizedEmail.length > 0 && normalizedToken.length === 6 && !busy,
-    [busy, normalizedEmail, normalizedToken]
+    [busy, normalizedEmail, normalizedToken],
   );
 
   const canResend = useMemo(
     () => normalizedEmail.length > 0 && !busy,
-    [busy, normalizedEmail]
+    [busy, normalizedEmail],
   );
 
   const handleVerify = async (event: FormEvent<HTMLFormElement>) => {
@@ -97,9 +131,7 @@ export default function VerifyEmailPage() {
       await verifyEmailOtp(normalizedEmail, normalizedToken);
       navigate('/dashboard', { replace: true });
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Кодты растау мүмкін болмады.'
-      );
+      setError(getErrorMessage(err, 'Кодты растау мүмкін болмады.'));
     } finally {
       setLoading(false);
     }
@@ -115,13 +147,9 @@ export default function VerifyEmailPage() {
     try {
       await resendSignupOtp(normalizedEmail);
       setToken('');
-      setInfo('Жаңа растау коды email-ға қайта жіберілді.');
+      setInfo('Жаңа код email-ға жіберілді.');
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Кодты қайта жіберу мүмкін болмады.'
-      );
+      setError(getErrorMessage(err, 'Кодты қайта жіберу мүмкін болмады.'));
     } finally {
       setResending(false);
     }
@@ -150,17 +178,12 @@ export default function VerifyEmailPage() {
               <MailCheck size={32} />
             </div>
 
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-ai-border bg-ai-soft px-3 py-1 text-xs font-semibold text-primary">
-              <Sparkles size={12} />
-              Email verification
-            </div>
-
             <h1 className="mb-3 text-3xl font-bold tracking-tight text-foreground">
               Bilimcorp
             </h1>
 
             <p className="mx-auto max-w-sm text-sm leading-7 text-muted-foreground">
-              Тіркелуді аяқтау үшін email-ға жіберілген OTP кодты растаңыз.
+              Тіркелуді аяқтау үшін email кодын растаңыз.
             </p>
 
             <div className="mt-8 rounded-3xl border border-border bg-card/80 p-4 text-left shadow-soft backdrop-blur">
@@ -174,8 +197,7 @@ export default function VerifyEmailPage() {
                     Қауіпсіз растау
                   </p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Код 6 таңбадан тұрады. Егер код келмесе, қайта жіберу
-                    батырмасын қолданыңыз.
+                    Код 6 таңбадан тұрады.
                   </p>
                 </div>
               </div>
@@ -196,7 +218,7 @@ export default function VerifyEmailPage() {
             <div>
               <span className="block text-sm font-semibold">Bilimcorp</span>
               <span className="block text-[11px] text-muted-foreground">
-                Email verification
+                Email растау
               </span>
             </div>
           </div>
@@ -209,7 +231,7 @@ export default function VerifyEmailPage() {
               <div className="relative">
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
                   <MailCheck size={12} />
-                  Verify account
+                  Растау
                 </div>
 
                 <h2 className="text-xl font-semibold tracking-tight text-foreground">
@@ -217,7 +239,7 @@ export default function VerifyEmailPage() {
                 </h2>
 
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Тіркелуді аяқтау үшін email-ға келген кодты енгізіңіз.
+                  Email-ға келген кодты енгізіңіз.
                 </p>
               </div>
             </div>
@@ -237,7 +259,7 @@ export default function VerifyEmailPage() {
                     type="email"
                     autoComplete="email"
                     value={email}
-                    onChange={(event) => setEmail(event.target.value)}
+                    onChange={(event) => setEmail(normalizeEmail(event.target.value))}
                     placeholder="email@example.com"
                     required
                     disabled={busy}
@@ -254,11 +276,7 @@ export default function VerifyEmailPage() {
                       id="token"
                       inputMode="numeric"
                       value={token}
-                      onChange={(event) =>
-                        setToken(
-                          event.target.value.replace(/[^\d]/g, '').slice(0, 6)
-                        )
-                      }
+                      onChange={(event) => setToken(normalizeToken(event.target.value))}
                       placeholder="123456"
                       required
                       disabled={busy}
@@ -270,7 +288,7 @@ export default function VerifyEmailPage() {
                     </div>
                   </div>
 
-                  {token.length > 0 && token.length < 6 ? (
+                  {normalizedToken.length > 0 && normalizedToken.length < 6 ? (
                     <p className="rounded-2xl border border-warning-muted bg-warning-soft px-3 py-2 text-xs leading-5 text-warning-foreground">
                       Код 6 таңбадан тұруы керек.
                     </p>
@@ -301,26 +319,13 @@ export default function VerifyEmailPage() {
                   {resending ? (
                     <>
                       <Loader2 size={15} className="mr-2 animate-spin" />
-                      Қайта жіберілуде...
+                      Жіберілуде...
                     </>
                   ) : (
                     'Кодты қайта жіберу'
                   )}
                 </Button>
               </form>
-
-              <div className="mt-5 rounded-3xl border border-ai-border bg-ai-soft/70 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-card text-primary shadow-inner-soft">
-                    <Info size={16} />
-                  </div>
-
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    Код келмесе, spam/junk папкасын тексеріңіз немесе бірнеше
-                    секундтан кейін қайта жіберіңіз.
-                  </p>
-                </div>
-              </div>
 
               <KazakhOrnament variant="divider" className="my-5" />
 

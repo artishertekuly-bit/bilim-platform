@@ -4,12 +4,14 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 
 import { supabase } from '@/integrations/supabase/client';
+import { removeNullCharacters } from '@/lib/utils';
 
 export type UserRole = 'student' | 'teacher' | 'parent' | 'admin';
 
@@ -18,14 +20,7 @@ export interface User {
   email: string;
   fullName: string;
   role: UserRole;
-
-  /**
-   * Маңызды:
-   * Бұл avatar тек public.profiles.avatar_url ішінен ғана келеді.
-   * Google metadata.picture / avatar_url fallback ретінде қолданылмайды.
-   */
   avatarUrl?: string;
-
   bio?: string;
 }
 
@@ -45,7 +40,7 @@ interface AuthContextType {
     email: string,
     password: string,
     fullName: string,
-    role: UserRole
+    role: UserRole,
   ) => Promise<AuthActionResult>;
   loginWithGoogle: (role?: UserRole) => Promise<void>;
   verifyEmailOtp: (email: string, token: string) => Promise<User | null>;
@@ -60,28 +55,90 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const PENDING_OAUTH_ROLE_KEY = 'bilim.pendingOAuthRole';
 
+const MAX_EMAIL_CHARS = 320;
+const MAX_NAME_CHARS = 180;
+const MAX_PROFILE_TEXT_CHARS = 1_000;
+const MAX_TOKEN_CHARS = 128;
+const MAX_PASSWORD_CHARS = 256;
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function normalizeEmail(value: string) {
-  return value.trim().toLowerCase();
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
 }
 
-function normalizeFullName(value: string) {
-  return value.trim();
+function cleanText(value: unknown, limit?: number): string {
+  const normalized = cleanRawText(value).replace(/\s+/g, ' ').trim();
+
+  return typeof limit === 'number' ? normalized.slice(0, limit).trim() : normalized;
 }
 
-function normalizeOptionalText(value: unknown) {
+function normalizeEmail(value: string): string {
+  return cleanText(value, MAX_EMAIL_CHARS).toLowerCase();
+}
+
+function normalizeFullName(value: string): string {
+  return cleanText(value, MAX_NAME_CHARS);
+}
+
+function normalizePassword(value: string): string {
+  return cleanRawText(value).slice(0, MAX_PASSWORD_CHARS);
+}
+
+function normalizeOtpToken(value: string): string {
+  return cleanText(value, MAX_TOKEN_CHARS);
+}
+
+function normalizeOptionalText(value: unknown, limit = MAX_PROFILE_TEXT_CHARS) {
   if (typeof value !== 'string') {
     return undefined;
   }
 
-  const trimmed = value.trim();
+  const normalized = cleanText(value, limit);
 
-  return trimmed || undefined;
+  return normalized || undefined;
+}
+
+function requireEmail(email: string): string {
+  const normalizedEmail = normalizeEmail(email);
+
+  if (!normalizedEmail) {
+    throw new Error('Email енгізіңіз.');
+  }
+
+  return normalizedEmail;
+}
+
+function requirePassword(password: string): string {
+  const normalizedPassword = normalizePassword(password);
+
+  if (!normalizedPassword) {
+    throw new Error('Құпиясөз енгізіңіз.');
+  }
+
+  return normalizedPassword;
+}
+
+function requireFullName(fullName: string): string {
+  const normalizedFullName = normalizeFullName(fullName);
+
+  if (!normalizedFullName) {
+    throw new Error('Аты-жөніңізді енгізіңіз.');
+  }
+
+  return normalizedFullName;
 }
 
 function isRegisterableRole(value: unknown): value is Exclude<UserRole, 'admin'> {
   return value === 'student' || value === 'teacher' || value === 'parent';
+}
+
+function normalizeRegisterableRole(role: UserRole): Exclude<UserRole, 'admin'> {
+  if (!isRegisterableRole(role)) {
+    throw new Error('Бұл рөлмен тіркелуге болмайды.');
+  }
+
+  return role;
 }
 
 function isUserRole(value: unknown): value is UserRole {
@@ -93,39 +150,63 @@ function isUserRole(value: unknown): value is UserRole {
   );
 }
 
-function getPendingOAuthRole(): UserRole | null {
+function getStorage(): Storage | null {
   if (typeof window === 'undefined') return null;
 
-  const value = window.localStorage.getItem(PENDING_OAUTH_ROLE_KEY);
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function getPendingOAuthRole(): UserRole | null {
+  const storage = getStorage();
+  const value = cleanText(storage?.getItem(PENDING_OAUTH_ROLE_KEY), 40);
+
   return isRegisterableRole(value) ? value : null;
 }
 
 function setPendingOAuthRole(role: UserRole) {
-  if (typeof window === 'undefined') return;
-  if (!isRegisterableRole(role)) return;
+  const storage = getStorage();
 
-  window.localStorage.setItem(PENDING_OAUTH_ROLE_KEY, role);
+  if (!storage) return;
+
+  const normalizedRole = normalizeRegisterableRole(role);
+
+  storage.setItem(PENDING_OAUTH_ROLE_KEY, normalizedRole);
 }
 
 function clearPendingOAuthRole() {
-  if (typeof window === 'undefined') return;
-  window.localStorage.removeItem(PENDING_OAUTH_ROLE_KEY);
+  const storage = getStorage();
+
+  try {
+    storage?.removeItem(PENDING_OAUTH_ROLE_KEY);
+  } catch {
+    // localStorage cleanup failure should not block auth flow.
+  }
 }
 
 function getSupabaseMetadataName(supabaseUser: SupabaseUser) {
   return (
-    normalizeOptionalText(supabaseUser.user_metadata?.full_name) ||
-    normalizeOptionalText(supabaseUser.user_metadata?.name) ||
-    normalizeOptionalText(supabaseUser.email?.split('@')[0]) ||
+    normalizeOptionalText(supabaseUser.user_metadata?.full_name, MAX_NAME_CHARS) ||
+    normalizeOptionalText(supabaseUser.user_metadata?.name, MAX_NAME_CHARS) ||
+    normalizeOptionalText(supabaseUser.email?.split('@')[0], MAX_NAME_CHARS) ||
     ''
   );
 }
 
 async function fetchUserRoleRecord(userId: string) {
+  const normalizedUserId = cleanText(userId, 160);
+
+  if (!normalizedUserId) {
+    throw new Error('Пайдаланушы ID табылмады.');
+  }
+
   const { data, error } = await supabase
     .from('user_roles')
     .select('role, created_at')
-    .eq('user_id', userId)
+    .eq('user_id', normalizedUserId)
     .order('created_at', { ascending: false })
     .limit(1);
 
@@ -144,10 +225,16 @@ async function fetchUserRole(userId: string): Promise<UserRole> {
 }
 
 async function fetchProfile(userId: string) {
+  const normalizedUserId = cleanText(userId, 160);
+
+  if (!normalizedUserId) {
+    throw new Error('Пайдаланушы ID табылмады.');
+  }
+
   const { data, error } = await supabase
     .from('profiles')
     .select('full_name, avatar_url, bio')
-    .eq('user_id', userId)
+    .eq('user_id', normalizedUserId)
     .maybeSingle();
 
   if (error) {
@@ -158,8 +245,11 @@ async function fetchProfile(userId: string) {
 }
 
 async function syncRequestedRole(requestedRole?: UserRole | null) {
+  const safeRole =
+    requestedRole && isRegisterableRole(requestedRole) ? requestedRole : null;
+
   const { error } = await supabase.rpc('claim_requested_role' as never, {
-    p_requested_role: requestedRole ?? null,
+    p_requested_role: safeRole,
   } as never);
 
   if (!error) return;
@@ -173,7 +263,6 @@ async function syncRequestedRole(requestedRole?: UserRole | null) {
     (/not found/i.test(message) && /claim_requested_role/i.test(message));
 
   if (isMissingRpc) {
-    console.warn('claim_requested_role RPC is missing, continuing without role sync');
     return;
   }
 
@@ -185,13 +274,8 @@ async function applyPendingOAuthRoleIfNeeded(_supabaseUser: SupabaseUser) {
 
   if (!pendingRole) return;
 
-  try {
-    await syncRequestedRole(pendingRole);
-    clearPendingOAuthRole();
-  } catch (error) {
-    console.error('Failed to apply pending OAuth role', error);
-    throw error;
-  }
+  await syncRequestedRole(pendingRole);
+  clearPendingOAuthRole();
 }
 
 async function buildUser(supabaseUser: SupabaseUser): Promise<User> {
@@ -200,29 +284,23 @@ async function buildUser(supabaseUser: SupabaseUser): Promise<User> {
     fetchProfile(supabaseUser.id),
   ]);
 
-  const profileFullName = normalizeOptionalText(profile?.full_name);
-  const profileAvatarUrl = normalizeOptionalText(profile?.avatar_url);
-  const profileBio = normalizeOptionalText(profile?.bio);
+  const profileFullName = normalizeOptionalText(profile?.full_name, MAX_NAME_CHARS);
+  const profileAvatarUrl = normalizeOptionalText(profile?.avatar_url, 1_000);
+  const profileBio = normalizeOptionalText(profile?.bio, MAX_PROFILE_TEXT_CHARS);
 
   return {
     id: supabaseUser.id,
-    email: supabaseUser.email || '',
+    email: normalizeEmail(supabaseUser.email || ''),
     fullName: profileFullName || getSupabaseMetadataName(supabaseUser),
     role,
-
-    /**
-     * Google avatar fallback әдейі жоқ.
-     * Егер profiles.avatar_url null болса, UserAvatar initials fallback көрсетеді.
-     */
     avatarUrl: profileAvatarUrl,
-
     bio: profileBio || '',
   };
 }
 
 async function buildUserWithRetry(
   supabaseUser: SupabaseUser,
-  retries = 6
+  retries = 6,
 ): Promise<User> {
   for (let attempt = 0; attempt < retries; attempt += 1) {
     try {
@@ -232,7 +310,7 @@ async function buildUserWithRetry(
         return appUser;
       }
     } catch {
-      // role/profile propagation delay болуы мүмкін
+      // Profile/role trigger propagation may be delayed.
     }
 
     await sleep(250 * (attempt + 1));
@@ -246,12 +324,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const hydrationVersionRef = useRef(0);
+
   const hydrateSession = useCallback(async (nextSession: Session | null) => {
+    const hydrationVersion = hydrationVersionRef.current + 1;
+    hydrationVersionRef.current = hydrationVersion;
+
     setSession(nextSession);
 
     if (!nextSession?.user) {
-      setUser(null);
-      setIsLoading(false);
+      if (hydrationVersionRef.current === hydrationVersion) {
+        setUser(null);
+        setIsLoading(false);
+      }
+
       return null;
     }
 
@@ -259,14 +345,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await applyPendingOAuthRoleIfNeeded(nextSession.user);
 
       const appUser = await buildUserWithRetry(nextSession.user);
-      setUser(appUser);
+
+      if (hydrationVersionRef.current === hydrationVersion) {
+        setUser(appUser);
+      }
 
       return appUser;
     } catch (error) {
-      setUser(null);
+      if (hydrationVersionRef.current === hydrationVersion) {
+        setUser(null);
+      }
+
       throw error;
     } finally {
-      setIsLoading(false);
+      if (hydrationVersionRef.current === hydrationVersion) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
@@ -296,17 +390,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } = supabase.auth.onAuthStateChange((event, nextSession) => {
           if (event === 'INITIAL_SESSION') return;
 
-          void hydrateSession(nextSession).catch((authError) => {
-            console.error('Failed to hydrate auth session', authError);
-          });
+          void hydrateSession(nextSession).catch(() => undefined);
         });
 
         subscription = authSubscription;
-      } catch (error) {
-        console.error('Failed to bootstrap auth session', error);
-
+      } catch {
         if (!mounted) return;
 
+        hydrationVersionRef.current += 1;
         setUser(null);
         setSession(null);
         setIsLoading(false);
@@ -331,11 +422,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string): Promise<AuthActionResult> => {
-      const normalizedEmail = normalizeEmail(email);
+      const normalizedEmail = requireEmail(email);
+      const normalizedPassword = requirePassword(password);
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
-        password,
+        password: normalizedPassword,
       });
 
       if (error) throw new Error(error.message);
@@ -351,9 +443,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await syncRequestedRole(null);
 
       const appUser = await hydrateSession(data.session);
+
       return { user: appUser };
     },
-    [hydrateSession]
+    [hydrateSession],
   );
 
   const register = useCallback(
@@ -361,18 +454,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       fullName: string,
-      role: UserRole
+      role: UserRole,
     ): Promise<AuthActionResult> => {
-      const normalizedEmail = normalizeEmail(email);
-      const normalizedFullName = normalizeFullName(fullName);
+      const normalizedEmail = requireEmail(email);
+      const normalizedPassword = requirePassword(password);
+      const normalizedFullName = requireFullName(fullName);
+      const normalizedRole = normalizeRegisterableRole(role);
 
       const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
-        password,
+        password: normalizedPassword,
         options: {
           data: {
             full_name: normalizedFullName,
-            role,
+            role: normalizedRole,
           },
           emailRedirectTo: `${window.location.origin}/verify-email`,
         },
@@ -381,7 +476,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) throw new Error(error.message);
 
       if (!data.user) {
-        throw new Error('Пайдаланушы жасалмады');
+        throw new Error('Пайдаланушы жасалмады.');
       }
 
       if (!data.session) {
@@ -392,20 +487,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
       }
 
-      await syncRequestedRole(role);
+      await syncRequestedRole(normalizedRole);
 
       const appUser = await hydrateSession(data.session);
+
       return { user: appUser };
     },
-    [hydrateSession]
+    [hydrateSession],
   );
 
   const loginWithGoogle = useCallback(async (role?: UserRole) => {
     const callbackUrl = new URL(`${window.location.origin}/auth/callback`);
 
-    if (role && isRegisterableRole(role)) {
-      setPendingOAuthRole(role);
-      callbackUrl.searchParams.set('role', role);
+    if (role) {
+      const normalizedRole = normalizeRegisterableRole(role);
+      setPendingOAuthRole(normalizedRole);
+      callbackUrl.searchParams.set('role', normalizedRole);
     }
 
     const { error } = await supabase.auth.signInWithOAuth({
@@ -426,8 +523,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyEmailOtp = useCallback(
     async (email: string, token: string) => {
-      const normalizedEmail = normalizeEmail(email);
-      const normalizedToken = token.trim();
+      const normalizedEmail = requireEmail(email);
+      const normalizedToken = normalizeOtpToken(token);
+
+      if (!normalizedToken) {
+        throw new Error('Растау кодын енгізіңіз.');
+      }
 
       const { data, error } = await supabase.auth.verifyOtp({
         email: normalizedEmail,
@@ -438,18 +539,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) throw new Error(error.message);
 
       if (!data.session || !data.user) {
-        throw new Error('Код расталғаннан кейін сессия ашылмады');
+        throw new Error('Код расталды, бірақ сессия ашылмады.');
       }
 
       await syncRequestedRole(null);
 
       return hydrateSession(data.session);
     },
-    [hydrateSession]
+    [hydrateSession],
   );
 
   const resendSignupOtp = useCallback(async (email: string) => {
-    const normalizedEmail = normalizeEmail(email);
+    const normalizedEmail = requireEmail(email);
 
     const { error } = await supabase.auth.resend({
       type: 'signup',
@@ -460,7 +561,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const requestPasswordReset = useCallback(async (email: string) => {
-    const normalizedEmail = normalizeEmail(email);
+    const normalizedEmail = requireEmail(email);
 
     const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
       redirectTo: `${window.location.origin}/update-password`,
@@ -471,8 +572,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updatePassword = useCallback(
     async (newPassword: string) => {
+      const normalizedPassword = requirePassword(newPassword);
+
       const { error } = await supabase.auth.updateUser({
-        password: newPassword,
+        password: normalizedPassword,
       });
 
       if (error) throw new Error(error.message);
@@ -483,7 +586,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       await hydrateSession(currentSession);
     },
-    [hydrateSession]
+    [hydrateSession],
   );
 
   const logout = useCallback(async () => {
@@ -491,9 +594,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (error) throw new Error(error.message);
 
+    hydrationVersionRef.current += 1;
     clearPendingOAuthRole();
     setUser(null);
     setSession(null);
+    setIsLoading(false);
   }, []);
 
   const isAuthenticated = Boolean(session && user);
@@ -528,7 +633,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       updatePassword,
       logout,
       refreshUser,
-    ]
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -538,7 +643,7 @@ export function useAuth() {
   const context = useContext(AuthContext);
 
   if (!context) {
-    throw new Error('useAuth must be inside AuthProvider');
+    throw new Error('useAuth AuthProvider ішінде қолданылуы керек.');
   }
 
   return context;

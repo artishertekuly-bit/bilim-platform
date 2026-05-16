@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -8,7 +8,6 @@ import {
   GraduationCap,
   Loader2,
   ShieldCheck,
-  Sparkles,
   UserPlus,
 } from 'lucide-react';
 
@@ -18,20 +17,76 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
-function resolveRegisterError(error: unknown) {
-  if (error instanceof Error && error.message) {
-    return error.message;
+type RegisterableRole = Exclude<UserRole, 'admin'>;
+
+type RoleOption = {
+  value: RegisterableRole;
+  label: string;
+  hint: string;
+};
+
+const MAX_FULL_NAME_CHARS = 180;
+const MAX_EMAIL_CHARS = 320;
+const MAX_PASSWORD_CHARS = 256;
+const MAX_ERROR_CHARS = 700;
+
+const ROLES: RoleOption[] = [
+  {
+    value: 'student',
+    label: t('role.student'),
+    hint: 'Оқу',
+  },
+  {
+    value: 'teacher',
+    label: t('role.teacher'),
+    hint: 'Курс құру',
+  },
+  {
+    value: 'parent',
+    label: t('role.parent'),
+    hint: 'Бақылау',
+  },
+];
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_ERROR_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function normalizeFullName(value: unknown): string {
+  return cleanText(value, MAX_FULL_NAME_CHARS);
+}
+
+function normalizeEmail(value: unknown): string {
+  return cleanText(value, MAX_EMAIL_CHARS).toLowerCase();
+}
+
+function normalizePassword(value: unknown): string {
+  return cleanRawText(value).slice(0, MAX_PASSWORD_CHARS);
+}
+
+function resolveRegisterError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message);
   }
 
   return t('auth.register_failed');
 }
 
-function AuthErrorAlert({ children }: { children: ReactNode }) {
+function AuthErrorAlert({ children }: { children: string }) {
+  const message = cleanText(children);
+
+  if (!message) return null;
+
   return (
     <div className="mb-4 flex items-start gap-2 rounded-2xl border border-destructive-muted bg-destructive-soft px-3 py-2.5 text-sm leading-5 text-destructive">
       <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-      <span>{children}</span>
+      <span>{message}</span>
     </div>
   );
 }
@@ -44,38 +99,24 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState<UserRole>('student');
+  const [role, setRole] = useState<RegisterableRole>('student');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const roles: { value: UserRole; label: string; hint: string }[] = [
-    {
-      value: 'student',
-      label: t('role.student'),
-      hint: 'Курстарға жазылу және оқу.',
-    },
-    {
-      value: 'teacher',
-      label: t('role.teacher'),
-      hint: 'Курс, сабақ және тест құру.',
-    },
-    {
-      value: 'parent',
-      label: t('role.parent'),
-      hint: 'Баланың оқуын бақылау.',
-    },
-  ];
+  const normalizedFullName = normalizeFullName(fullName);
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedPassword = normalizePassword(password);
 
   const authBusy = loading || googleLoading;
 
   const canSubmit = useMemo(
     () =>
-      fullName.trim().length > 0 &&
-      email.trim().length > 0 &&
-      password.length >= 6 &&
+      normalizedFullName.length > 0 &&
+      normalizedEmail.length > 0 &&
+      normalizedPassword.length >= 6 &&
       !authBusy,
-    [authBusy, email, fullName, password]
+    [authBusy, normalizedEmail, normalizedFullName, normalizedPassword],
   );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -87,14 +128,19 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      const result = await register(email, password, fullName, role);
+      const result = await register(
+        normalizedEmail,
+        normalizedPassword,
+        normalizedFullName,
+        role,
+      );
 
       if (result.requiresEmailConfirmation) {
         navigate('/verify-email', {
           replace: true,
           state: {
-            email: email.trim(),
-            info: result.message || 'Email-ға жіберілген кодты енгізіңіз.',
+            email: normalizedEmail,
+            info: cleanText(result.message || 'Email-ға жіберілген кодты енгізіңіз.'),
           },
         });
         return;
@@ -117,8 +163,8 @@ export default function RegisterPage() {
     } catch (err: unknown) {
       setError(
         err instanceof Error
-          ? err.message
-          : 'Google арқылы тіркелу мүмкін болмады.'
+          ? cleanText(err.message)
+          : 'Google арқылы тіркелу мүмкін болмады.',
       );
       setGoogleLoading(false);
     }
@@ -131,10 +177,11 @@ export default function RegisterPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
             <GraduationCap size={18} />
           </div>
+
           <div>
             <span className="block text-sm font-semibold">Bilimcorp</span>
             <span className="block text-[11px] text-muted-foreground">
-              Soft Academic LMS
+              Оқу платформасы
             </span>
           </div>
         </div>
@@ -147,7 +194,7 @@ export default function RegisterPage() {
             <div className="relative">
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
                 <UserPlus size={12} />
-                Account registration
+                Тіркелу
               </div>
 
               <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">
@@ -167,7 +214,7 @@ export default function RegisterPage() {
               <Label className="text-xs font-medium">{t('auth.role')}</Label>
 
               <div className="grid gap-2 sm:grid-cols-3">
-                {roles.map((item) => {
+                {ROLES.map((item) => {
                   const active = role === item.value;
 
                   return (
@@ -177,11 +224,12 @@ export default function RegisterPage() {
                       onClick={() => setRole(item.value)}
                       aria-pressed={active}
                       disabled={authBusy}
-                      className={`rounded-2xl border p-3 text-left transition-all duration-200 ease-soft disabled:cursor-not-allowed disabled:opacity-60 ${
+                      className={cn(
+                        'rounded-2xl border p-3 text-left transition-all duration-200 ease-soft disabled:cursor-not-allowed disabled:opacity-60',
                         active
                           ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
-                          : 'border-border bg-card text-muted-foreground hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/60 hover:text-primary hover:shadow-soft'
-                      }`}
+                          : 'border-border bg-card text-muted-foreground hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/60 hover:text-primary hover:shadow-soft',
+                      )}
                     >
                       <span className="block text-xs font-semibold">
                         {item.label}
@@ -193,10 +241,6 @@ export default function RegisterPage() {
                   );
                 })}
               </div>
-
-              <p className="rounded-2xl border border-ai-border bg-ai-soft px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-                Google арқылы тіркелсеңіз де, осы таңдалған рөл қолданылады.
-              </p>
             </div>
 
             <Button
@@ -209,11 +253,11 @@ export default function RegisterPage() {
               {googleLoading ? (
                 <>
                   <Loader2 size={15} className="mr-2 animate-spin" />
-                  Google ашылуда...
+                  Ашылуда...
                 </>
               ) : (
                 <>
-                  <Sparkles size={15} className="mr-2" />
+                  <ShieldCheck size={15} className="mr-2" />
                   Google арқылы тіркелу
                 </>
               )}
@@ -235,7 +279,9 @@ export default function RegisterPage() {
                   id="fullName"
                   autoComplete="name"
                   value={fullName}
-                  onChange={(event) => setFullName(event.target.value)}
+                  onChange={(event) =>
+                    setFullName(normalizeFullName(event.target.value))
+                  }
                   placeholder={t('auth.full_name_placeholder')}
                   required
                   disabled={authBusy}
@@ -252,7 +298,9 @@ export default function RegisterPage() {
                   type="email"
                   autoComplete="email"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) =>
+                    setEmail(normalizeEmail(event.target.value))
+                  }
                   placeholder="email@example.com"
                   required
                   disabled={authBusy}
@@ -270,7 +318,9 @@ export default function RegisterPage() {
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="new-password"
                     value={password}
-                    onChange={(event) => setPassword(event.target.value)}
+                    onChange={(event) =>
+                      setPassword(normalizePassword(event.target.value))
+                    }
                     placeholder="••••••••"
                     required
                     minLength={6}
@@ -283,7 +333,9 @@ export default function RegisterPage() {
                     onClick={() => setShowPassword((previous) => !previous)}
                     className="absolute inset-y-0 right-0 flex items-center rounded-r-2xl px-3 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
                     aria-label={
-                      showPassword ? t('auth.hide_password') : t('auth.show_password')
+                      showPassword
+                        ? t('auth.hide_password')
+                        : t('auth.show_password')
                     }
                     disabled={authBusy}
                   >
@@ -292,7 +344,7 @@ export default function RegisterPage() {
                 </div>
 
                 <p className="rounded-2xl border border-border bg-surface-soft/60 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-                  Құпия сөз кемінде 6 таңбадан тұруы керек.
+                  Кемінде 6 таңба.
                 </p>
               </div>
 
@@ -310,23 +362,6 @@ export default function RegisterPage() {
                 )}
               </Button>
             </form>
-
-            <div className="mt-5 rounded-3xl border border-success-muted bg-success-soft/65 p-4">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-success-muted bg-card text-success-foreground shadow-inner-soft">
-                  <ShieldCheck size={16} />
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    Email растау қажет болуы мүмкін
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Тіркелгеннен кейін жүйе email растау бетіне бағыттауы мүмкін.
-                  </p>
-                </div>
-              </div>
-            </div>
 
             <KazakhOrnament variant="divider" className="my-5" />
 

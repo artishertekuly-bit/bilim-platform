@@ -24,7 +24,6 @@ import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -33,45 +32,116 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/lib/auth-context';
+import { useAuth, type UserRole } from '@/lib/auth-context';
 import t from '@/lib/i18n';
-import { cn } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 const AVATAR_BUCKET = 'avatars';
 const MAX_AVATAR_SIZE_MB = 25;
 
+const MAX_ID_CHARS = 160;
+const MAX_FULL_NAME_CHARS = 180;
+const MAX_BIO_CHARS = 1_000;
+const MAX_PASSWORD_CHARS = 256;
+const MAX_PROVIDER_CHARS = 80;
+const MAX_URL_CHARS = 2_000;
+const MAX_ERROR_CHARS = 700;
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  student: t('role.student'),
+  teacher: t('role.teacher'),
+  parent: t('role.parent'),
+  admin: t('role.admin'),
+};
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_ERROR_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanMultilineText(value: unknown, limit = MAX_BIO_CHARS): string {
+  return limitText(
+    cleanRawText(value)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim(),
+    limit,
+  );
+}
+
+function normalizePassword(value: unknown): string {
+  return cleanRawText(value).slice(0, MAX_PASSWORD_CHARS);
+}
+
+function normalizeProvider(value: unknown): string {
+  return cleanText(value, MAX_PROVIDER_CHARS).toLowerCase();
+}
+
+function normalizeUrl(value: unknown): string {
+  return cleanText(value, MAX_URL_CHARS);
+}
+
+function safeDecodePath(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function extractStoragePath(url?: string | null) {
-  if (!url) return null;
+  const normalizedUrl = normalizeUrl(url);
 
-  const cleanUrl = url.split('?')[0];
+  if (!normalizedUrl) return null;
+
+  const cleanUrl = normalizedUrl.split('?')[0];
   const marker = `/object/public/${AVATAR_BUCKET}/`;
-  const idx = cleanUrl.indexOf(marker);
+  const index = cleanUrl.indexOf(marker);
 
-  if (idx === -1) return null;
+  if (index === -1) return null;
 
-  return decodeURIComponent(cleanUrl.slice(idx + marker.length));
+  const path = safeDecodePath(cleanUrl.slice(index + marker.length))
+    .replace(/^\/+/, '')
+    .trim();
+
+  if (!path || path.includes('..') || path.startsWith('/')) {
+    return null;
+  }
+
+  return path;
 }
 
 function getDefaultFullName(
   user?: {
     fullName?: string | null;
     email?: string | null;
-  } | null
+  } | null,
 ) {
-  return user?.fullName?.trim() || user?.email?.split('@')[0] || '';
+  return (
+    cleanText(user?.fullName, MAX_FULL_NAME_CHARS) ||
+    cleanText(user?.email?.split('@')[0], MAX_FULL_NAME_CHARS) ||
+    ''
+  );
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
-  return error instanceof Error && error.message ? error.message : fallback;
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
+  }
+
+  return fallback;
 }
 
 function getCacheBustedUrl(url: string) {
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}v=${Date.now()}`;
-}
+  const normalizedUrl = normalizeUrl(url);
+  const separator = normalizedUrl.includes('?') ? '&' : '?';
 
-function normalizePassword(value: string) {
-  return value.trim();
+  return `${normalizedUrl}${separator}v=${Date.now()}`;
 }
 
 function isValidPassword(value: string) {
@@ -79,19 +149,20 @@ function isValidPassword(value: string) {
 }
 
 function getProviderLabel(provider: string) {
-  if (provider === 'google') return 'Google';
-  if (provider === 'email') return 'Email';
-  return provider;
+  const normalizedProvider = normalizeProvider(provider);
+
+  if (normalizedProvider === 'google') return 'Google';
+  if (normalizedProvider === 'email') return 'Email';
+
+  return cleanText(provider, MAX_PROVIDER_CHARS) || 'Басқа';
 }
 
 function SectionCard({
   title,
-  description,
   icon,
   children,
 }: {
   title: string;
-  description?: string;
   icon?: ReactNode;
   children: ReactNode;
 }) {
@@ -106,8 +177,6 @@ function SectionCard({
           ) : null}
           {title}
         </CardTitle>
-
-        {description ? <CardDescription>{description}</CardDescription> : null}
       </CardHeader>
 
       <CardContent className="p-5">{children}</CardContent>
@@ -145,7 +214,7 @@ function PasswordRule({
         'flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-medium',
         ok
           ? 'border-success-muted bg-success-soft text-success-foreground'
-          : 'border-border bg-card text-muted-foreground'
+          : 'border-border bg-card text-muted-foreground',
       )}
     >
       {ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
@@ -182,10 +251,11 @@ function PasswordField({
           id={id}
           type={visible ? 'text' : 'password'}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(normalizePassword(event.target.value))}
           placeholder={placeholder}
           className="pr-11"
           minLength={8}
+          maxLength={MAX_PASSWORD_CHARS}
           disabled={disabled}
         />
 
@@ -228,8 +298,8 @@ export default function ProfileSettingsPage() {
 
   useEffect(() => {
     setFullName(getDefaultFullName(user));
-    setBio(user?.bio || '');
-    setAvatarUrl(user?.avatarUrl || null);
+    setBio(cleanMultilineText(user?.bio || '', MAX_BIO_CHARS));
+    setAvatarUrl(user?.avatarUrl ? normalizeUrl(user.avatarUrl) : null);
   }, [user]);
 
   useEffect(() => {
@@ -244,22 +314,31 @@ export default function ProfileSettingsPage() {
       const providerSet = new Set<string>();
 
       const providers = authUser.app_metadata?.providers;
+
       if (Array.isArray(providers)) {
         providers.forEach((provider) => {
-          if (typeof provider === 'string') providerSet.add(provider);
+          const normalizedProvider = normalizeProvider(provider);
+
+          if (normalizedProvider) {
+            providerSet.add(normalizedProvider);
+          }
         });
       }
 
       authUser.identities?.forEach((identity) => {
-        if (identity.provider) providerSet.add(identity.provider);
+        const normalizedProvider = normalizeProvider(identity.provider);
+
+        if (normalizedProvider) {
+          providerSet.add(normalizedProvider);
+        }
       });
 
       const nextProviders = Array.from(providerSet);
-      setAuthProviders(nextProviders);
 
+      setAuthProviders(nextProviders);
       setPasswordSetupCompleted(
         authUser.user_metadata?.password_setup_completed === true ||
-          nextProviders.includes('email')
+          nextProviders.includes('email'),
       );
     };
 
@@ -279,10 +358,10 @@ export default function ProfileSettingsPage() {
   }, [selectedImageSrc]);
 
   const defaultFullName = useMemo(() => getDefaultFullName(user), [user]);
-  const defaultBio = user?.bio?.trim() || '';
+  const defaultBio = cleanMultilineText(user?.bio || '', MAX_BIO_CHARS);
 
-  const normalizedFullName = fullName.trim();
-  const normalizedBio = bio.trim();
+  const normalizedFullName = cleanText(fullName, MAX_FULL_NAME_CHARS);
+  const normalizedBio = cleanMultilineText(bio, MAX_BIO_CHARS);
 
   const isProfileDirty =
     normalizedFullName !== defaultFullName || normalizedBio !== defaultBio;
@@ -313,7 +392,11 @@ export default function ProfileSettingsPage() {
   const hasGoogleProvider = authProviders.includes('google');
   const hasEmailProvider = authProviders.includes('email') || passwordSetupCompleted;
 
-  const displayName = normalizedFullName || user?.fullName || user?.email || 'User';
+  const displayName =
+    normalizedFullName ||
+    cleanText(user?.fullName, MAX_FULL_NAME_CHARS) ||
+    cleanText(user?.email, MAX_FULL_NAME_CHARS) ||
+    'Пайдаланушы';
 
   const upsertProfile = async (patch: {
     full_name?: string | null;
@@ -321,16 +404,14 @@ export default function ProfileSettingsPage() {
     avatar_url?: string | null;
   }) => {
     if (!user) {
-      throw new Error('User not found');
+      throw new Error('Пайдаланушы табылмады.');
     }
 
-    const db = supabase as any;
-
-    const { error } = await db
+    const { error } = await supabase
       .from('profiles')
       .upsert(
         {
-          user_id: user.id,
+          user_id: cleanText(user.id, MAX_ID_CHARS),
           full_name: patch.full_name ?? (normalizedFullName || defaultFullName),
           bio: patch.bio ?? (normalizedBio || null),
           avatar_url: Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
@@ -339,7 +420,7 @@ export default function ProfileSettingsPage() {
         },
         {
           onConflict: 'user_id',
-        }
+        },
       );
 
     if (error) {
@@ -367,6 +448,7 @@ export default function ProfileSettingsPage() {
         description: t('page.profile.toast.invalid_file_type'),
         variant: 'destructive',
       });
+
       event.currentTarget.value = '';
       return;
     }
@@ -377,6 +459,7 @@ export default function ProfileSettingsPage() {
         description: t('page.profile.toast.file_too_large'),
         variant: 'destructive',
       });
+
       event.currentTarget.value = '';
       return;
     }
@@ -386,8 +469,10 @@ export default function ProfileSettingsPage() {
     }
 
     const objectUrl = URL.createObjectURL(file);
+
     setSelectedImageSrc(objectUrl);
     setCropOpen(true);
+
     event.currentTarget.value = '';
   };
 
@@ -400,14 +485,16 @@ export default function ProfileSettingsPage() {
         description: t('page.profile.toast.invalid_file_type'),
         variant: 'destructive',
       });
+
       return;
     }
 
     setSavingAvatar(true);
 
     try {
+      const userId = cleanText(user.id, MAX_ID_CHARS);
       const oldStoragePath = extractStoragePath(avatarUrl);
-      const filePath = `${user.id}/avatar-${Date.now()}.jpg`;
+      const filePath = `${userId}/avatar-${Date.now()}.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from(AVATAR_BUCKET)
@@ -422,20 +509,14 @@ export default function ProfileSettingsPage() {
       }
 
       const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(filePath);
-      const nextAvatarUrl = data.publicUrl;
+      const nextAvatarUrl = normalizeUrl(data.publicUrl);
 
       await upsertProfile({
         avatar_url: nextAvatarUrl,
       });
 
       if (oldStoragePath && oldStoragePath !== filePath) {
-        const { error: removeError } = await supabase.storage
-          .from(AVATAR_BUCKET)
-          .remove([oldStoragePath]);
-
-        if (removeError) {
-          console.warn('[ProfileSettingsPage] Old avatar remove failed', removeError);
-        }
+        await supabase.storage.from(AVATAR_BUCKET).remove([oldStoragePath]);
       }
 
       setAvatarUrl(getCacheBustedUrl(nextAvatarUrl));
@@ -492,13 +573,7 @@ export default function ProfileSettingsPage() {
       const storagePath = extractStoragePath(avatarUrl);
 
       if (storagePath) {
-        const { error: removeError } = await supabase.storage
-          .from(AVATAR_BUCKET)
-          .remove([storagePath]);
-
-        if (removeError) {
-          console.warn('[ProfileSettingsPage] Avatar remove failed', removeError);
-        }
+        await supabase.storage.from(AVATAR_BUCKET).remove([storagePath]);
       }
 
       await upsertProfile({
@@ -553,7 +628,7 @@ export default function ProfileSettingsPage() {
     } catch (error) {
       toast({
         title: t('page.profile.toast.error_title'),
-        description: getErrorMessage(error, 'Құпия сөзді жаңарту мүмкін болмады'),
+        description: getErrorMessage(error, 'Құпия сөзді жаңарту мүмкін болмады.'),
         variant: 'destructive',
       });
     } finally {
@@ -568,27 +643,22 @@ export default function ProfileSettingsPage() {
           eyebrow={
             <>
               <User size={13} />
-              Аккаунт баптаулары
+              Аккаунт
             </>
           }
           icon={<User size={20} />}
           title={t('page.profile.title')}
-          description={t('page.profile.subtitle')}
           actions={
             <StatusBadge tone={hasEmailProvider ? 'success' : 'warning'}>
               {hasEmailProvider ? <ShieldCheck size={12} /> : <KeyRound size={12} />}
-              {hasEmailProvider ? 'Құпия сөз бар' : 'Құпия сөз қойылмаған'}
+              {hasEmailProvider ? 'Құпия сөз бар' : 'Құпия сөз жоқ'}
             </StatusBadge>
           }
         />
 
         <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
           <div className="space-y-6">
-            <SectionCard
-              title="Аккаунт"
-              description="Профильдің қысқаша көрінісі."
-              icon={<BadgeCheck size={16} />}
-            >
+            <SectionCard title="Аккаунт" icon={<BadgeCheck size={16} />}>
               <div className="flex flex-col items-center text-center">
                 <div className="rounded-full border border-primary-muted bg-primary-soft p-1.5 shadow-soft">
                   <UserAvatar
@@ -604,7 +674,7 @@ export default function ProfileSettingsPage() {
                 </h3>
 
                 <p className="mt-1 max-w-full truncate text-sm text-muted-foreground">
-                  {user?.email}
+                  {cleanText(user?.email, MAX_FULL_NAME_CHARS)}
                 </p>
 
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -623,7 +693,7 @@ export default function ProfileSettingsPage() {
                       </StatusBadge>
                     ))
                   ) : (
-                    <StatusBadge tone="muted">Provider анықталмады</StatusBadge>
+                    <StatusBadge tone="muted">Анықталмады</StatusBadge>
                   )}
                 </div>
               </div>
@@ -631,9 +701,9 @@ export default function ProfileSettingsPage() {
               <div className="mt-5 space-y-2">
                 <InfoRow
                   label="Рөл"
-                  value={user?.role ? t(`role.${user.role}` as any) : '—'}
+                  value={user?.role ? ROLE_LABELS[user.role] : '—'}
                 />
-                <InfoRow label="Email" value={user?.email || '—'} />
+                <InfoRow label="Email" value={cleanText(user?.email, 320) || '—'} />
                 <InfoRow
                   label="Google"
                   value={hasGoogleProvider ? 'Қосылған' : 'Қосылмаған'}
@@ -645,11 +715,7 @@ export default function ProfileSettingsPage() {
               </div>
             </SectionCard>
 
-            <SectionCard
-              title="Аватар"
-              description="Суретті жүктеп, қиып, профильге сақтаңыз."
-              icon={<Camera size={16} />}
-            >
+            <SectionCard title="Аватар" icon={<Camera size={16} />}>
               <div className="space-y-4">
                 <div className="rounded-3xl border border-dashed border-border bg-surface-soft/60 p-4 shadow-inner-soft">
                   <div className="flex items-start gap-3">
@@ -663,7 +729,6 @@ export default function ProfileSettingsPage() {
                       </p>
                       <p className="mt-1 text-xs leading-5 text-muted-foreground">
                         PNG, JPG, JPEG немесе WEBP. Максимум {MAX_AVATAR_SIZE_MB} MB.
-                        Таңдағаннан кейін crop терезесі ашылады.
                       </p>
                     </div>
                   </div>
@@ -696,11 +761,7 @@ export default function ProfileSettingsPage() {
           </div>
 
           <div className="space-y-6">
-            <SectionCard
-              title={t('page.profile.card_title')}
-              description={t('page.profile.card_description')}
-              icon={<User size={16} />}
-            >
+            <SectionCard title={t('page.profile.card_title')} icon={<User size={16} />}>
               <div className="space-y-5">
                 <div className="grid gap-4">
                   <div className="space-y-1.5">
@@ -708,23 +769,29 @@ export default function ProfileSettingsPage() {
                     <Input
                       id="fullName"
                       value={fullName}
-                      onChange={(event) => setFullName(event.target.value)}
+                      maxLength={MAX_FULL_NAME_CHARS}
+                      onChange={(event) =>
+                        setFullName(cleanText(event.target.value, MAX_FULL_NAME_CHARS))
+                      }
                       disabled={savingProfile}
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="bio">{t('page.profile.field.bio')}</Label>
+                    <Label htmlFor="bio">Өзі туралы</Label>
                     <Textarea
                       id="bio"
                       value={bio}
-                      onChange={(event) => setBio(event.target.value)}
-                      placeholder={t('page.profile.placeholder.bio')}
+                      maxLength={MAX_BIO_CHARS}
+                      onChange={(event) =>
+                        setBio(cleanMultilineText(event.target.value, MAX_BIO_CHARS))
+                      }
+                      placeholder="Қысқаша ақпарат"
                       rows={5}
                       disabled={savingProfile}
                     />
-                    <p className="rounded-2xl border border-border bg-surface-soft/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                      Бұл bio мұғалім карточкасында немесе профильде көрсетілуі мүмкін.
+                    <p className="text-[11px] text-muted-foreground">
+                      {bio.length}/{MAX_BIO_CHARS}
                     </p>
                   </div>
                 </div>
@@ -744,28 +811,19 @@ export default function ProfileSettingsPage() {
               </div>
             </SectionCard>
 
-            <SectionCard
-              title="Қауіпсіздік"
-              description="Құпия сөзді орнатыңыз немесе жаңартыңыз."
-              icon={<ShieldCheck size={16} />}
-            >
+            <SectionCard title="Қауіпсіздік" icon={<ShieldCheck size={16} />}>
               <div className="space-y-5">
                 <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">
-                        Кіру әдістері
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Google арқылы кірген user үшін бөлек password қоюға болады.
-                      </p>
-                    </div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Кіру әдістері
+                    </p>
 
                     <div className="flex flex-wrap gap-2">
                       {hasGoogleProvider ? (
                         <StatusBadge tone="primary">
                           <BadgeCheck size={12} />
-                          Google қосылған
+                          Google
                         </StatusBadge>
                       ) : null}
 
@@ -775,7 +833,7 @@ export default function ProfileSettingsPage() {
                         ) : (
                           <KeyRound size={12} />
                         )}
-                        {hasEmailProvider ? 'Password active' : 'Password керек'}
+                        {hasEmailProvider ? 'Құпия сөз бар' : 'Құпия сөз керек'}
                       </StatusBadge>
                     </div>
                   </div>
@@ -821,7 +879,7 @@ export default function ProfileSettingsPage() {
                       normalizedNewPassword === normalizedConfirmPassword
                     }
                   >
-                    Қайталанған password сәйкес
+                    Қайталау сәйкес
                   </PasswordRule>
                 </div>
 

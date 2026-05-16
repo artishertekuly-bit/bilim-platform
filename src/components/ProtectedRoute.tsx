@@ -10,6 +10,8 @@ interface ProtectedRouteProps {
   allowedRoles?: UserRole[];
 }
 
+type RecoveryState = 'idle' | 'running' | 'done';
+
 function SessionLoadingScreen() {
   return (
     <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background p-6">
@@ -25,16 +27,16 @@ function SessionLoadingScreen() {
           <div className="mt-4 flex justify-center">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
               <ShieldCheck size={12} />
-              Protected session
+              Сессия
             </span>
           </div>
 
           <h1 className="mt-4 text-base font-semibold text-foreground">
-            Сессия тексерілуде...
+            Сессия тексерілуде
           </h1>
 
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Аккаунт, профиль және рөл деректері тексеріліп жатыр.
+            Аккаунт дерегі жүктелуде.
           </p>
 
           <div className="mt-5">
@@ -46,6 +48,15 @@ function SessionLoadingScreen() {
   );
 }
 
+function buildRedirectState(pathname: string, search: string) {
+  return {
+    from: {
+      pathname,
+      search,
+    },
+  };
+}
+
 export default function ProtectedRoute({
   children,
   allowedRoles,
@@ -53,32 +64,17 @@ export default function ProtectedRoute({
   const { user, session, isAuthenticated, isLoading, refreshUser } = useAuth();
   const location = useLocation();
 
-  const [recoveryState, setRecoveryState] = useState<
-    'idle' | 'running' | 'done'
-  >('idle');
+  const [recoveryState, setRecoveryState] = useState<RecoveryState>('idle');
 
   const redirectState = useMemo(
-    () => ({
-      from: {
-        pathname: location.pathname,
-        search: location.search,
-      },
-    }),
-    [location.pathname, location.search]
+    () => buildRedirectState(location.pathname, location.search),
+    [location.pathname, location.search],
   );
 
-  /**
-   * Session ауысса, recovery state қайта басталуы керек.
-   * Мысалы Google login-нен кейін жаңа access token келеді.
-   */
   useEffect(() => {
     setRecoveryState('idle');
   }, [session?.access_token]);
 
-  /**
-   * Кейде persisted session бар, бірақ profile/user role әлі жүктелмей қалады.
-   * Бірден landing/login-ге лақтырмай, бір рет refreshUser жасап көреміз.
-   */
   useEffect(() => {
     if (isLoading) return;
     if (!session) return;
@@ -92,8 +88,8 @@ export default function ProtectedRoute({
 
       try {
         await refreshUser();
-      } catch (error) {
-        console.error('[ProtectedRoute] Failed to recover user from session', error);
+      } catch {
+        // Recovery failure is handled by redirect after this attempt.
       } finally {
         if (!cancelled) {
           setRecoveryState('done');
@@ -118,10 +114,10 @@ export default function ProtectedRoute({
   }
 
   if (!session || !user || !isAuthenticated) {
-    return <Navigate to="/" replace state={redirectState} />;
+    return <Navigate to="/login" replace state={redirectState} />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  if (allowedRoles?.length && !allowedRoles.includes(user.role)) {
     return <Navigate to="/dashboard" replace />;
   }
 

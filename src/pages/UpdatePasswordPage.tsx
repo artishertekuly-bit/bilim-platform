@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -11,7 +11,6 @@ import {
   KeyRound,
   Loader2,
   ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 
 import KazakhOrnament from '@/components/KazakhOrnament';
@@ -19,19 +18,41 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/lib/auth-context';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
+
+const MAX_PASSWORD_CHARS = 256;
+const MAX_ALERT_CHARS = 700;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_ALERT_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function normalizePassword(value: unknown): string {
+  return cleanRawText(value).slice(0, MAX_PASSWORD_CHARS);
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message);
+  }
+
+  return 'Құпия сөзді жаңарту мүмкін болмады.';
+}
 
 function AuthAlert({
   tone,
   children,
 }: {
   tone: 'danger' | 'warning' | 'success';
-  children: ReactNode;
+  children: string;
 }) {
-  const toneClassName = {
-    danger: 'border-destructive-muted bg-destructive-soft text-destructive',
-    warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
-    success: 'border-success-muted bg-success-soft text-success-foreground',
-  }[tone];
+  const message = cleanText(children);
+
+  if (!message) return null;
 
   const Icon =
     tone === 'danger'
@@ -42,10 +63,18 @@ function AuthAlert({
 
   return (
     <div
-      className={`mb-3 flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-sm leading-5 ${toneClassName}`}
+      className={cn(
+        'mb-3 flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-sm leading-5',
+        tone === 'danger' &&
+          'border-destructive-muted bg-destructive-soft text-destructive',
+        tone === 'warning' &&
+          'border-warning-muted bg-warning-soft text-warning-foreground',
+        tone === 'success' &&
+          'border-success-muted bg-success-soft text-success-foreground',
+      )}
     >
       <Icon size={15} className="mt-0.5 shrink-0" />
-      <span>{children}</span>
+      <span>{message}</span>
     </div>
   );
 }
@@ -80,7 +109,7 @@ function PasswordField({
           id={id}
           type={visible ? 'text' : 'password'}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(normalizePassword(event.target.value))}
           placeholder={placeholder}
           className="pr-11"
           required
@@ -106,6 +135,7 @@ function PasswordField({
 export default function UpdatePasswordPage() {
   const { session, isLoading, updatePassword } = useAuth();
   const navigate = useNavigate();
+  const redirectTimeoutRef = useRef<number | null>(null);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -115,21 +145,25 @@ export default function UpdatePasswordPage() {
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
 
-  const passwordMismatch =
-    password.length > 0 &&
-    confirmPassword.length > 0 &&
-    password !== confirmPassword;
+  const normalizedPassword = normalizePassword(password);
+  const normalizedConfirmPassword = normalizePassword(confirmPassword);
 
-  const passwordTooShort = password.length > 0 && password.length < 6;
+  const passwordMismatch =
+    normalizedPassword.length > 0 &&
+    normalizedConfirmPassword.length > 0 &&
+    normalizedPassword !== normalizedConfirmPassword;
+
+  const passwordTooShort =
+    normalizedPassword.length > 0 && normalizedPassword.length < 6;
 
   const canSubmit = useMemo(
     () =>
-      password.length >= 6 &&
-      confirmPassword.length >= 6 &&
-      password === confirmPassword &&
+      normalizedPassword.length >= 6 &&
+      normalizedConfirmPassword.length >= 6 &&
+      normalizedPassword === normalizedConfirmPassword &&
       !loading &&
       Boolean(session),
-    [confirmPassword, loading, password, session]
+    [loading, normalizedConfirmPassword, normalizedPassword, session],
   );
 
   const formDisabled = loading || isLoading || !session;
@@ -143,22 +177,23 @@ export default function UpdatePasswordPage() {
     setError('');
     setInfo('');
 
-    try {
-      await updatePassword(password);
+    if (redirectTimeoutRef.current) {
+      window.clearTimeout(redirectTimeoutRef.current);
+      redirectTimeoutRef.current = null;
+    }
 
-      setInfo('Құпия сөз сәтті жаңартылды.');
+    try {
+      await updatePassword(normalizedPassword);
+
+      setInfo('Құпия сөз жаңартылды.');
       setPassword('');
       setConfirmPassword('');
 
-      window.setTimeout(() => {
+      redirectTimeoutRef.current = window.setTimeout(() => {
         navigate('/profile', { replace: true });
       }, 900);
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Құпия сөзді жаңарту мүмкін болмады.'
-      );
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -187,17 +222,12 @@ export default function UpdatePasswordPage() {
               <GraduationCap size={32} />
             </div>
 
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-ai-border bg-ai-soft px-3 py-1 text-xs font-semibold text-primary">
-              <Sparkles size={12} />
-              Password recovery
-            </div>
-
             <h1 className="mb-3 text-3xl font-bold tracking-tight text-foreground">
               Bilimcorp
             </h1>
 
             <p className="mx-auto max-w-sm text-sm leading-7 text-muted-foreground">
-              Қауіпсіздік үшін жаңа құпия сөз орнатыңыз.
+              Жаңа құпия сөз орнатыңыз.
             </p>
 
             <div className="mt-8 rounded-3xl border border-border bg-card/80 p-4 text-left shadow-soft backdrop-blur">
@@ -208,11 +238,10 @@ export default function UpdatePasswordPage() {
 
                 <div>
                   <p className="text-sm font-semibold text-foreground">
-                    Қалпына келтіру режимі
+                    Қауіпсіз жаңарту
                   </p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Бұл бет email арқылы келген қалпына келтіру сілтемесімен ғана
-                    толық жұмыс істейді.
+                    Бұл бет email сілтемесі арқылы ашылады.
                   </p>
                 </div>
               </div>
@@ -233,7 +262,7 @@ export default function UpdatePasswordPage() {
             <div>
               <span className="block text-sm font-semibold">Bilimcorp</span>
               <span className="block text-[11px] text-muted-foreground">
-                Password recovery
+                Құпия сөзді жаңарту
               </span>
             </div>
           </div>
@@ -246,7 +275,7 @@ export default function UpdatePasswordPage() {
               <div className="relative">
                 <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
                   <KeyRound size={12} />
-                  Password update
+                  Жаңарту
                 </div>
 
                 <h2 className="text-xl font-semibold tracking-tight text-foreground">
@@ -254,8 +283,7 @@ export default function UpdatePasswordPage() {
                 </h2>
 
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Email-дағы сілтеме арқылы келсеңіз, жаңа құпия сөзді осында
-                  орнатыңыз.
+                  Жаңа құпия сөзді енгізіңіз.
                 </p>
               </div>
             </div>
@@ -296,9 +324,7 @@ export default function UpdatePasswordPage() {
                   onChange={setConfirmPassword}
                   placeholder="Құпия сөзді қайталаңыз"
                   visible={showConfirmPassword}
-                  onToggleVisible={() =>
-                    setShowConfirmPassword((prev) => !prev)
-                  }
+                  onToggleVisible={() => setShowConfirmPassword((prev) => !prev)}
                   disabled={formDisabled}
                 />
 
@@ -328,19 +354,6 @@ export default function UpdatePasswordPage() {
                   )}
                 </Button>
               </form>
-
-              <div className="mt-5 rounded-3xl border border-ai-border bg-ai-soft/70 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-card text-primary shadow-inner-soft">
-                    <ShieldCheck size={16} />
-                  </div>
-
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    Егер recovery session жоқ болса, алдымен “Құпия сөзді ұмыттым”
-                    flow арқылы email сілтемесін қайта жіберу керек.
-                  </p>
-                </div>
-              </div>
 
               <KazakhOrnament variant="divider" className="my-5" />
 

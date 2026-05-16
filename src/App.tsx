@@ -74,6 +74,15 @@ const queryClient = new QueryClient({
   },
 });
 
+const ALL_ROLES: UserRole[] = ['student', 'teacher', 'parent', 'admin'];
+const STUDENT_ROLES: UserRole[] = ['student'];
+const TEACHER_ROLES: UserRole[] = ['teacher'];
+const PARENT_ROLES: UserRole[] = ['parent'];
+const ADMIN_ROLES: UserRole[] = ['admin'];
+
+const LEARNING_CONTENT_ROLES: UserRole[] = ['student', 'teacher', 'admin'];
+const ANALYTICS_ROLES: UserRole[] = ['student', 'teacher', 'parent', 'admin'];
+
 const parentChildPaths = [
   '/children',
   '/child-progress',
@@ -87,23 +96,20 @@ type AppRouteConfig = {
   path: string;
   element: ReactNode;
   allowedRoles?: UserRole[];
+  enforcePasswordSetup?: boolean;
 };
 
 function AppLoadingScreen() {
   return (
     <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md animate-fade-in">
-        <LoadingState
-          align="center"
-          title="Bilimcorp жүктелуде"
-          text={t('page.app.loading')}
-        />
+        <LoadingState align="center" title="Жүктелуде" text={t('page.app.loading')} />
       </div>
     </div>
   );
 }
 
-function getSessionProviders(session: Session | null) {
+function getSessionProviders(session: Session | null): Set<string> {
   const authUser = session?.user;
   const providers = new Set<string>();
 
@@ -115,8 +121,8 @@ function getSessionProviders(session: Session | null) {
 
   if (Array.isArray(metadataProviders)) {
     metadataProviders.forEach((provider) => {
-      if (typeof provider === 'string') {
-        providers.add(provider);
+      if (typeof provider === 'string' && provider.trim()) {
+        providers.add(provider.trim());
       }
     });
   }
@@ -130,7 +136,7 @@ function getSessionProviders(session: Session | null) {
   return providers;
 }
 
-function hasPasswordIdentity(session: Session | null) {
+function hasPasswordIdentity(session: Session | null): boolean {
   const authUser = session?.user;
 
   if (!authUser) {
@@ -144,7 +150,7 @@ function hasPasswordIdentity(session: Session | null) {
   return getSessionProviders(session).has('email');
 }
 
-function needsPasswordSetup(session: Session | null) {
+function needsPasswordSetup(session: Session | null): boolean {
   const authUser = session?.user;
 
   if (!authUser) {
@@ -158,8 +164,24 @@ function needsPasswordSetup(session: Session | null) {
   return getSessionProviders(session).has('google');
 }
 
-function buildSetupPasswordRedirect(next = '/dashboard') {
-  return `/setup-password?next=${encodeURIComponent(next || '/dashboard')}`;
+function normalizeNextPath(next = '/dashboard'): string {
+  if (!next || !next.startsWith('/')) {
+    return '/dashboard';
+  }
+
+  if (next.startsWith('/setup-password')) {
+    return '/dashboard';
+  }
+
+  return next;
+}
+
+function buildSetupPasswordRedirect(next = '/dashboard'): string {
+  return `/setup-password?next=${encodeURIComponent(normalizeNextPath(next))}`;
+}
+
+function getCurrentPathWithSearch(pathname: string, search: string): string {
+  return normalizeNextPath(`${pathname}${search || ''}`);
 }
 
 function RootEntryPage() {
@@ -207,9 +229,14 @@ function PasswordSetupGate({ children }: { children: ReactNode }) {
   }
 
   if (needsPasswordSetup(session) && location.pathname !== '/setup-password') {
-    const next = `${location.pathname}${location.search}` || '/dashboard';
-
-    return <Navigate to={buildSetupPasswordRedirect(next)} replace />;
+    return (
+      <Navigate
+        to={buildSetupPasswordRedirect(
+          getCurrentPathWithSearch(location.pathname, location.search),
+        )}
+        replace
+      />
+    );
   }
 
   return <>{children}</>;
@@ -219,10 +246,6 @@ function RouterScrollReset() {
   const { pathname } = useLocation();
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
     window.scrollTo(0, 0);
   }, [pathname]);
 
@@ -256,16 +279,17 @@ const publicRoutes: AppRouteConfig[] = [
 
 const commonProtectedRoutes: AppRouteConfig[] = [
   { path: '/dashboard', element: <DashboardRouter /> },
-  { path: '/profile', element: <ProfileSettingsPage /> },
+  { path: '/profile', element: <ProfileSettingsPage />, allowedRoles: ALL_ROLES },
   {
     path: '/setup-password',
     element: <SetupPasswordPage />,
-    allowedRoles: ['student', 'teacher', 'parent', 'admin'],
+    allowedRoles: ALL_ROLES,
+    enforcePasswordSetup: false,
   },
   {
     path: '/chat',
     element: <ChatPage />,
-    allowedRoles: ['student', 'teacher', 'parent', 'admin'],
+    allowedRoles: ALL_ROLES,
   },
 ];
 
@@ -273,12 +297,12 @@ const sharedContentRoutes: AppRouteConfig[] = [
   {
     path: '/courses',
     element: <CourseCatalogPage />,
-    allowedRoles: ['student', 'teacher', 'admin'],
+    allowedRoles: LEARNING_CONTENT_ROLES,
   },
   {
     path: '/courses/:courseId',
     element: <CourseDetailPage />,
-    allowedRoles: ['student', 'teacher', 'admin'],
+    allowedRoles: LEARNING_CONTENT_ROLES,
   },
   {
     path: '/lessons',
@@ -288,12 +312,12 @@ const sharedContentRoutes: AppRouteConfig[] = [
   {
     path: '/lessons/:lessonId',
     element: <LessonDetailPage />,
-    allowedRoles: ['student', 'teacher', 'admin'],
+    allowedRoles: LEARNING_CONTENT_ROLES,
   },
   {
     path: '/analytics',
     element: <AnalyticsPage />,
-    allowedRoles: ['student', 'teacher', 'parent', 'admin'],
+    allowedRoles: ANALYTICS_ROLES,
   },
 ];
 
@@ -301,75 +325,137 @@ const studentRoutes: AppRouteConfig[] = [
   {
     path: '/saved-lessons',
     element: <SavedLessonsPage />,
-    allowedRoles: ['student'],
+    allowedRoles: STUDENT_ROLES,
   },
-  { path: '/tests', element: <TestsPage />, allowedRoles: ['student'] },
-  { path: '/leaderboard', element: <LeaderboardPage />, allowedRoles: ['student'] },
-  ...studentGamificationPaths.map((path) => ({
+  {
+    path: '/tests',
+    element: <TestsPage />,
+    allowedRoles: STUDENT_ROLES,
+  },
+  {
+    path: '/leaderboard',
+    element: <LeaderboardPage />,
+    allowedRoles: STUDENT_ROLES,
+  },
+  ...studentGamificationPaths.map((path): AppRouteConfig => ({
     path,
     element: <GamificationPage />,
-    allowedRoles: ['student'] as UserRole[],
+    allowedRoles: STUDENT_ROLES,
   })),
-  { path: '/ai-practice', element: <AiPracticePage />, allowedRoles: ['student'] },
-  { path: '/ai-tutor', element: <AiTutorPage />, allowedRoles: ['student'] },
-  { path: '/ai-tracker', element: <AiTrackerPage />, allowedRoles: ['student'] },
+  {
+    path: '/ai-practice',
+    element: <AiPracticePage />,
+    allowedRoles: STUDENT_ROLES,
+  },
+  {
+    path: '/ai-tutor',
+    element: <AiTutorPage />,
+    allowedRoles: STUDENT_ROLES,
+  },
+  {
+    path: '/ai-tracker',
+    element: <AiTrackerPage />,
+    allowedRoles: STUDENT_ROLES,
+  },
   {
     path: '/ai-exam/:examId',
     element: <AiExamSessionPage />,
-    allowedRoles: ['student'],
+    allowedRoles: STUDENT_ROLES,
   },
   {
     path: '/ai-exams-open',
     element: <AiStudentExamsPage />,
-    allowedRoles: ['student'],
+    allowedRoles: STUDENT_ROLES,
   },
 ];
 
 const teacherRoutes: AppRouteConfig[] = [
-  { path: '/my-courses', element: <CourseCatalogPage />, allowedRoles: ['teacher'] },
+  {
+    path: '/my-courses',
+    element: <CourseCatalogPage />,
+    allowedRoles: TEACHER_ROLES,
+  },
   {
     path: '/create-course',
     element: <TeacherCreateCoursePage />,
-    allowedRoles: ['teacher'],
+    allowedRoles: TEACHER_ROLES,
   },
   {
     path: '/create-test',
     element: <TeacherCreateTestPage />,
-    allowedRoles: ['teacher'],
+    allowedRoles: TEACHER_ROLES,
   },
-  { path: '/students', element: <TeacherStudentsPage />, allowedRoles: ['teacher'] },
+  {
+    path: '/students',
+    element: <TeacherStudentsPage />,
+    allowedRoles: TEACHER_ROLES,
+  },
   {
     path: '/ai-question-builder',
     element: <AiQuestionBuilderPage />,
-    allowedRoles: ['teacher'],
+    allowedRoles: TEACHER_ROLES,
   },
-  { path: '/ai-exams', element: <AiExamsPage />, allowedRoles: ['teacher'] },
+  {
+    path: '/ai-exams',
+    element: <AiExamsPage />,
+    allowedRoles: TEACHER_ROLES,
+  },
   {
     path: '/ai-assistant',
     element: <AiAssistantPage />,
-    allowedRoles: ['teacher'],
+    allowedRoles: TEACHER_ROLES,
   },
 ];
 
-const parentRoutes: AppRouteConfig[] = parentChildPaths.map((path) => ({
-  path,
-  element: <ParentChildrenPage />,
-  allowedRoles: ['parent'],
-}));
+const parentRoutes: AppRouteConfig[] = parentChildPaths.map(
+  (path): AppRouteConfig => ({
+    path,
+    element: <ParentChildrenPage />,
+    allowedRoles: PARENT_ROLES,
+  }),
+);
 
 const adminRoutes: AppRouteConfig[] = [
-  { path: '/subjects', element: <AdminSubjectsPage />, allowedRoles: ['admin'] },
-  { path: '/manage-lessons', element: <LessonsPage />, allowedRoles: ['admin'] },
+  {
+    path: '/subjects',
+    element: <AdminSubjectsPage />,
+    allowedRoles: ADMIN_ROLES,
+  },
+  {
+    path: '/manage-lessons',
+    element: <LessonsPage />,
+    allowedRoles: ADMIN_ROLES,
+  },
   {
     path: '/manage-courses',
     element: <CourseCatalogPage />,
-    allowedRoles: ['admin'],
+    allowedRoles: ADMIN_ROLES,
   },
-  { path: '/moderation', element: <AdminModerationPage />, allowedRoles: ['admin'] },
-  { path: '/manage-tests', element: <AdminModerationPage />, allowedRoles: ['admin'] },
-  { path: '/cms', element: <AdminCmsPage />, allowedRoles: ['admin'] },
-  { path: '/admin-analytics', element: <AnalyticsPage />, allowedRoles: ['admin'] },
-  { path: '/manage-users', element: <AdminUsersPage />, allowedRoles: ['admin'] },
+  {
+    path: '/moderation',
+    element: <AdminModerationPage />,
+    allowedRoles: ADMIN_ROLES,
+  },
+  {
+    path: '/manage-tests',
+    element: <AdminModerationPage />,
+    allowedRoles: ADMIN_ROLES,
+  },
+  {
+    path: '/cms',
+    element: <AdminCmsPage />,
+    allowedRoles: ADMIN_ROLES,
+  },
+  {
+    path: '/admin-analytics',
+    element: <AnalyticsPage />,
+    allowedRoles: ADMIN_ROLES,
+  },
+  {
+    path: '/manage-users',
+    element: <AdminUsersPage />,
+    allowedRoles: ADMIN_ROLES,
+  },
 ];
 
 const protectedRoutes: AppRouteConfig[] = [
@@ -402,28 +488,24 @@ function GuardedRoute({
 }
 
 function renderRoutes(routes: AppRouteConfig[], guarded = false) {
-  return routes.map((route) => {
-    const isSetupPasswordRoute = route.path === '/setup-password';
-
-    return (
-      <Route
-        key={route.path}
-        path={route.path}
-        element={
-          guarded ? (
-            <GuardedRoute
-              allowedRoles={route.allowedRoles}
-              enforcePasswordSetup={!isSetupPasswordRoute}
-            >
-              {route.element}
-            </GuardedRoute>
-          ) : (
-            route.element
-          )
-        }
-      />
-    );
-  });
+  return routes.map((route) => (
+    <Route
+      key={route.path}
+      path={route.path}
+      element={
+        guarded ? (
+          <GuardedRoute
+            allowedRoles={route.allowedRoles}
+            enforcePasswordSetup={route.enforcePasswordSetup ?? true}
+          >
+            {route.element}
+          </GuardedRoute>
+        ) : (
+          route.element
+        )
+      }
+    />
+  ));
 }
 
 export default function App() {

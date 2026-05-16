@@ -4,16 +4,22 @@ import {
   GraduationCap,
   Loader2,
   ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import KazakhOrnament from '@/components/KazakhOrnament';
-import { useAuth } from '@/lib/auth-context';
+import { useAuth, type UserRole } from '@/lib/auth-context';
 import AdminDashboard from '@/pages/AdminDashboard';
 import ParentDashboard from '@/pages/ParentDashboard';
 import StudentDashboard from '@/pages/StudentDashboard';
 import TeacherDashboard from '@/pages/TeacherDashboard';
+
+const DASHBOARD_BY_ROLE: Record<UserRole, JSX.Element> = {
+  student: <StudentDashboard />,
+  teacher: <TeacherDashboard />,
+  parent: <ParentDashboard />,
+  admin: <AdminDashboard />,
+};
 
 function DashboardLoadingScreen() {
   return (
@@ -27,19 +33,12 @@ function DashboardLoadingScreen() {
             <Loader2 size={23} className="animate-spin" />
           </div>
 
-          <div className="mt-4 flex justify-center">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
-              <Sparkles size={12} />
-              Soft academic workspace
-            </span>
-          </div>
-
           <h1 className="mt-4 text-base font-semibold text-foreground">
-            Dashboard жүктелуде...
+            Жеке кабинет жүктелуде
           </h1>
 
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Аккаунт сессиясы және рөл дерегі тексеріліп жатыр.
+            Аккаунт дерегі тексерілуде.
           </p>
 
           <div className="mt-5">
@@ -74,19 +73,18 @@ function UnknownRoleState() {
           </h1>
 
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Аккаунт рөлі дұрыс орнатылмаған. Қайта кіріп көріңіз немесе әкімшіге
-            хабарласыңыз.
+            Аккаунт рөлі дұрыс орнатылмаған. Профильді тексеріңіз немесе әкімшіге хабарласыңыз.
           </p>
 
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
             <Button type="button" variant="outline" asChild>
-              <Link to="/">Басты бетке қайту</Link>
+              <Link to="/">Басты бет</Link>
             </Button>
 
             <Button type="button" asChild>
               <Link to="/profile">
                 <GraduationCap size={15} className="mr-2" />
-                Профильді ашу
+                Профиль
               </Link>
             </Button>
           </div>
@@ -94,6 +92,15 @@ function UnknownRoleState() {
       </div>
     </div>
   );
+}
+
+function getRedirectState(pathname: string, search: string) {
+  return {
+    from: {
+      pathname,
+      search,
+    },
+  };
 }
 
 export default function DashboardRouter() {
@@ -107,32 +114,12 @@ export default function DashboardRouter() {
   if (!isAuthenticated || !user) {
     return (
       <Navigate
-        to="/"
+        to="/login"
         replace
-        state={{
-          from: {
-            pathname: location.pathname,
-            search: location.search,
-          },
-        }}
+        state={getRedirectState(location.pathname, location.search)}
       />
     );
   }
 
-  switch (user.role) {
-    case 'student':
-      return <StudentDashboard />;
-
-    case 'teacher':
-      return <TeacherDashboard />;
-
-    case 'parent':
-      return <ParentDashboard />;
-
-    case 'admin':
-      return <AdminDashboard />;
-
-    default:
-      return <UnknownRoleState />;
-  }
+  return DASHBOARD_BY_ROLE[user.role] ?? <UnknownRoleState />;
 }
