@@ -7,11 +7,11 @@ import tseslint from 'typescript-eslint';
 export default tseslint.config(
   {
     ignores: [
-      'dist',
-      'coverage',
-      'node_modules',
-      '.venv',
-      'backend/.venv',
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      '.venv/**',
+      'backend/.venv/**',
       'src/integrations/supabase/types.ts',
     ],
   },
@@ -20,13 +20,12 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
 
   {
-    files: ['**/*.{ts,tsx,mts,cts}'],
+    files: ['src/**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
       globals: {
         ...globals.browser,
-        ...globals.node,
       },
     },
     plugins: {
@@ -35,15 +34,47 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+
+      'react-refresh/only-export-components': ['error', { allowConstantExport: true }],
+
       '@typescript-eslint/no-unused-vars': [
-        'warn',
+        'error',
         {
           argsIgnorePattern: '^_',
           varsIgnorePattern: '^_',
           caughtErrorsIgnorePattern: '^_',
         },
       ],
+
+      '@typescript-eslint/no-explicit-any': 'error',
+      'no-control-regex': 'error',
+    },
+  },
+
+  {
+    files: [
+      '*.config.{js,ts,mjs,cjs}',
+      'postcss.config.{js,cjs}',
+      'tailwind.config.{js,ts}',
+      'vite.config.{js,ts}',
+      'vitest.config.{js,ts}',
+    ],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+
+  {
+    files: ['src/**/*.{test,spec}.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
     },
   },
 
