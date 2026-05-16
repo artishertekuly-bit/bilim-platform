@@ -1,14 +1,13 @@
-import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import {
   Megaphone,
   Pin,
   Save,
-  Trash2,
   X,
 } from 'lucide-react';
 
-import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, LoadingState } from '@/components/common/DataState';
+import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -53,6 +52,20 @@ type CourseAnnouncementsPanelProps = {
   deletingAnnouncement: boolean;
 };
 
+const MAX_TITLE_CHARS = 180;
+const MAX_BODY_CHARS = 4_000;
+
+function cleanText(value: string, limit: number) {
+  return value.replace(/\x00/g, ' ').slice(0, limit);
+}
+
+function getPriorityTone(priority: CourseAnnouncementPriority) {
+  if (priority === 'urgent') return 'danger' as const;
+  if (priority === 'important') return 'warning' as const;
+
+  return 'secondary' as const;
+}
+
 function FieldBlock({
   label,
   children,
@@ -68,48 +81,8 @@ function FieldBlock({
         {label}
         {required ? <span className="ml-1 text-destructive">*</span> : null}
       </Label>
+
       {children}
-    </div>
-  );
-}
-
-function getPriorityTone(priority: CourseAnnouncementPriority) {
-  if (priority === 'urgent') return 'danger' as const;
-  if (priority === 'important') return 'warning' as const;
-  return 'secondary' as const;
-}
-
-function InlineDeleteConfirm({
-  disabled,
-  onConfirm,
-  onCancel,
-}: {
-  disabled: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
-      <p className="text-xs font-semibold text-foreground">
-        Хабарландыру өшірілсін бе?
-      </p>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          disabled={disabled}
-          onClick={onConfirm}
-        >
-          <Trash2 size={13} className="mr-2" />
-          Өшіру
-        </Button>
-
-        <Button type="button" variant="outline" size="sm" onClick={onCancel}>
-          Болдырмау
-        </Button>
-      </div>
     </div>
   );
 }
@@ -129,21 +102,29 @@ export function CourseAnnouncementsPanel({
   updatingAnnouncement,
   deletingAnnouncement,
 }: CourseAnnouncementsPanelProps) {
-  const [deleteAnnouncement, setDeleteAnnouncement] =
-    useState<CourseAnnouncementView | null>(null);
-
   const editing = Boolean(editingAnnouncementId);
   const saving = creatingAnnouncement || updatingAnnouncement;
   const formComplete =
     announcementForm.title.trim().length > 0 &&
     announcementForm.body.trim().length > 0;
 
-  const handleConfirmedDelete = () => {
-    if (!deleteAnnouncement) return;
-
-    onDeleteAnnouncement(deleteAnnouncement);
-    setDeleteAnnouncement(null);
+  const updateAnnouncementField = <K extends keyof CourseAnnouncementFormState>(
+    key: K,
+    value: CourseAnnouncementFormState[K],
+  ) => {
+    setAnnouncementForm((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
   };
+
+  const saveButtonLabel = editing
+    ? updatingAnnouncement
+      ? 'Жаңартылуда...'
+      : 'Жаңарту'
+    : creatingAnnouncement
+      ? 'Жариялануда...'
+      : 'Жариялау';
 
   return (
     <Card id="announcements" className="scroll-mt-24 overflow-hidden">
@@ -201,11 +182,12 @@ export function CourseAnnouncementsPanel({
             <FieldBlock label="Тақырып" required>
               <Input
                 value={announcementForm.title}
+                maxLength={MAX_TITLE_CHARS}
                 onChange={(event) =>
-                  setAnnouncementForm((previous) => ({
-                    ...previous,
-                    title: event.target.value,
-                  }))
+                  updateAnnouncementField(
+                    'title',
+                    cleanText(event.target.value, MAX_TITLE_CHARS),
+                  )
                 }
                 placeholder="Тақырып"
               />
@@ -215,14 +197,19 @@ export function CourseAnnouncementsPanel({
               <Textarea
                 rows={4}
                 value={announcementForm.body}
+                maxLength={MAX_BODY_CHARS}
                 onChange={(event) =>
-                  setAnnouncementForm((previous) => ({
-                    ...previous,
-                    body: event.target.value,
-                  }))
+                  updateAnnouncementField(
+                    'body',
+                    cleanText(event.target.value, MAX_BODY_CHARS),
+                  )
                 }
                 placeholder="Мәтін"
               />
+
+              <p className="text-[11px] text-muted-foreground">
+                {announcementForm.body.length}/{MAX_BODY_CHARS}
+              </p>
             </FieldBlock>
 
             <div className="grid gap-3 md:grid-cols-2">
@@ -230,10 +217,10 @@ export function CourseAnnouncementsPanel({
                 <select
                   value={announcementForm.priority}
                   onChange={(event) =>
-                    setAnnouncementForm((previous) => ({
-                      ...previous,
-                      priority: event.target.value as CourseAnnouncementPriority,
-                    }))
+                    updateAnnouncementField(
+                      'priority',
+                      event.target.value as CourseAnnouncementPriority,
+                    )
                   }
                   className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
                 >
@@ -245,15 +232,12 @@ export function CourseAnnouncementsPanel({
                 </select>
               </FieldBlock>
 
-              <FieldBlock label="Мерзімі">
+              <FieldBlock label="Аяқталу мерзімі">
                 <Input
                   type="datetime-local"
                   value={announcementForm.expiresAt}
                   onChange={(event) =>
-                    setAnnouncementForm((previous) => ({
-                      ...previous,
-                      expiresAt: event.target.value,
-                    }))
+                    updateAnnouncementField('expiresAt', event.target.value)
                   }
                   min={toDateTimeLocalValue(new Date().toISOString())}
                 />
@@ -291,10 +275,7 @@ export function CourseAnnouncementsPanel({
                   id="announcement-pinned"
                   checked={announcementForm.isPinned}
                   onCheckedChange={(checked) =>
-                    setAnnouncementForm((previous) => ({
-                      ...previous,
-                      isPinned: checked,
-                    }))
+                    updateAnnouncementField('isPinned', checked)
                   }
                 />
               </div>
@@ -306,6 +287,7 @@ export function CourseAnnouncementsPanel({
                   type="button"
                   variant="outline"
                   onClick={onResetAnnouncementForm}
+                  disabled={saving}
                 >
                   <X size={14} className="mr-1.5" />
                   Болдырмау
@@ -322,13 +304,7 @@ export function CourseAnnouncementsPanel({
                 ) : (
                   <Megaphone size={14} className="mr-1.5" />
                 )}
-                {editing
-                  ? updatingAnnouncement
-                    ? 'Жаңартылуда...'
-                    : 'Жаңарту'
-                  : creatingAnnouncement
-                    ? 'Жариялануда...'
-                    : 'Жариялау'}
+                {saveButtonLabel}
               </Button>
             </div>
           </div>
@@ -356,24 +332,13 @@ export function CourseAnnouncementsPanel({
               <StatusBadge tone="muted">{courseAnnouncements.length}</StatusBadge>
             </div>
 
-            {deleteAnnouncement ? (
-              <InlineDeleteConfirm
-                disabled={deletingAnnouncement}
-                onConfirm={handleConfirmedDelete}
-                onCancel={() => setDeleteAnnouncement(null)}
-              />
-            ) : null}
-
             <div className="space-y-2">
               {courseAnnouncements.map((announcement) => (
                 <CourseAnnouncementCard
                   key={announcement.id}
                   announcement={announcement}
-                  onEdit={(item) => {
-                    setDeleteAnnouncement(null);
-                    onEditAnnouncement(item);
-                  }}
-                  onDelete={setDeleteAnnouncement}
+                  onEdit={onEditAnnouncement}
+                  onDelete={onDeleteAnnouncement}
                   deleting={deletingAnnouncement}
                 />
               ))}

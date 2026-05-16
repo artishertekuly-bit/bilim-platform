@@ -1,11 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ClipboardList,
+  FileCheck2,
+  History,
+  Loader2,
+  RefreshCcw,
+  TimerReset,
+} from 'lucide-react';
+
 import DashboardLayout from '@/components/DashboardLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@/components/common/DataState';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/lib/auth-context';
 import { useToast } from '@/hooks/use-toast';
 import {
   getAiExamSession,
@@ -15,14 +31,7 @@ import {
   type AiExamSession,
   type SubmitAiExamResponse,
 } from '@/lib/ai-api';
-import {
-  ClipboardList,
-  TimerReset,
-  FileCheck2,
-  ArrowLeft,
-  CheckCircle2,
-  History,
-} from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 
 type AnswerMap = Record<string, string>;
 
@@ -65,6 +74,30 @@ type SessionWithLatestAttempt = AiExamSession & {
   attempt_id?: string | null;
 };
 
+const SESSION_TIMEOUT_MS = 90_000;
+const ATTEMPTS_TIMEOUT_MS = 60_000;
+const SUBMIT_TIMEOUT_MS = 180_000;
+
+function isAbortLikeError(error: unknown) {
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  if (!(error instanceof Error)) return false;
+
+  const message = error.message.toLowerCase();
+
+  return (
+    error.name === 'AbortError' ||
+    message.includes('тоқтатылды') ||
+    message.includes('aborted') ||
+    message.includes('abort')
+  );
+}
+
+function toNumber(value: unknown, fallback = 0) {
+  const numeric = Number(value);
+
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
 function normalizeSubmitResponse(raw: unknown): SubmitAiExamResponse | null {
   if (!raw || typeof raw !== 'object') return null;
 
@@ -72,27 +105,30 @@ function normalizeSubmitResponse(raw: unknown): SubmitAiExamResponse | null {
 
   return {
     attemptId: data.attemptId ?? data.attempt_id ?? undefined,
-    score: Number(data.score ?? 0),
+    score: toNumber(data.score, 0),
     maxScore:
       data.maxScore !== undefined || data.max_score !== undefined
-        ? Number(data.maxScore ?? data.max_score)
+        ? toNumber(data.maxScore ?? data.max_score)
         : undefined,
-    percentage: data.percentage !== undefined ? Number(data.percentage) : undefined,
-    feedback: typeof data.feedback === 'string' ? data.feedback : '',
+    percentage:
+      data.percentage !== undefined ? toNumber(data.percentage) : undefined,
+    feedback: typeof data.feedback === 'string' ? data.feedback.trim() : '',
     breakdown: Array.isArray(data.breakdown)
-      ? data.breakdown.map((item) => ({
-          questionId: item.questionId ?? item.question_id ?? '',
-          score: Number(item.score ?? 0),
-          maxScore:
-            item.maxScore !== undefined || item.max_score !== undefined
-              ? Number(item.maxScore ?? item.max_score)
-              : undefined,
-          feedback: typeof item.feedback === 'string' ? item.feedback : '',
-          isCorrect:
-            typeof (item.isCorrect ?? item.is_correct) === 'boolean'
-              ? Boolean(item.isCorrect ?? item.is_correct)
-              : undefined,
-        }))
+      ? data.breakdown
+          .map((item) => ({
+            questionId: String(item.questionId ?? item.question_id ?? '').trim(),
+            score: toNumber(item.score, 0),
+            maxScore:
+              item.maxScore !== undefined || item.max_score !== undefined
+                ? toNumber(item.maxScore ?? item.max_score)
+                : undefined,
+            feedback: typeof item.feedback === 'string' ? item.feedback.trim() : '',
+            isCorrect:
+              typeof (item.isCorrect ?? item.is_correct) === 'boolean'
+                ? Boolean(item.isCorrect ?? item.is_correct)
+                : undefined,
+          }))
+          .filter((item) => item.questionId.length > 0)
       : [],
   };
 }
@@ -107,6 +143,7 @@ function normalizeLatestAnswers(raw: unknown): AnswerMap {
 
     const item = row as RawAnswerItem;
     const questionId = String(item.questionId ?? item.question_id ?? '').trim();
+
     if (!questionId) continue;
 
     if (Array.isArray(item.answer)) {
@@ -127,20 +164,51 @@ function formatDateTime(value?: string | null) {
   if (!value) return '—';
 
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleString();
+  return date.toLocaleString('kk-KZ');
 }
 
-function mapAttemptAnswersToAnswerMap(attempt: AiExamAttempt | null | undefined): AnswerMap {
+function mapAttemptAnswersToAnswerMap(
+  attempt: AiExamAttempt | null | undefined,
+): AnswerMap {
   if (!attempt?.answers?.length) return {};
 
   const result: AnswerMap = {};
+
   for (const item of attempt.answers) {
     if (!item?.questionId) continue;
+
     result[item.questionId] = String(item.answer ?? '').trim();
   }
+
   return result;
+}
+
+function getScoreText(result?: SubmitAiExamResponse | null) {
+  if (!result) return 'Нәтиже жоқ';
+
+  const maxScore = result.maxScore !== undefined ? ` / ${result.maxScore}` : '';
+  const percentage =
+    result.percentage !== undefined ? ` · ${result.percentage}%` : '';
+
+  return `${result.score}${maxScore}${percentage}`;
+}
+
+function ExamInfoCell({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
+    </div>
+  );
 }
 
 export default function AiExamSessionPage() {
@@ -159,104 +227,18 @@ export default function AiExamSessionPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingAttempts, setIsLoadingAttempts] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [errorText, setErrorText] = useState('');
+  const [attemptsErrorText, setAttemptsErrorText] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
+  const sessionAbortRef = useRef<AbortController | null>(null);
+  const attemptsAbortRef = useRef<AbortController | null>(null);
+  const submitAbortRef = useRef<AbortController | null>(null);
 
-    async function loadExam() {
-      if (!examId) {
-        setExamSession(null);
-        setAnswers({});
-        setResult(null);
-        setAttempts([]);
-        setErrorText('Емтихан идентификаторы табылмады.');
-        return;
-      }
-
-      if (!accessToken) {
-        setExamSession(null);
-        setAnswers({});
-        setResult(null);
-        setAttempts([]);
-        setErrorText('Авторизация қажет.');
-        return;
-      }
-
-      setIsLoading(true);
-      setIsLoadingAttempts(true);
-      setErrorText('');
-      setExamSession(null);
-      setAnswers({});
-      setResult(null);
-      setAttempts([]);
-
-      try {
-        const response = (await getAiExamSession(examId, {
-          accessToken,
-        })) as SessionWithLatestAttempt;
-
-        if (cancelled) return;
-
-        const normalizedSession: AiExamSession = {
-          ...response,
-          attemptId: response.attemptId ?? response.attempt_id ?? undefined,
-        };
-
-        setExamSession(normalizedSession);
-
-        const latestResult = normalizeSubmitResponse(
-          response.latestResult ?? response.latest_result
-        );
-        setResult(latestResult);
-
-        const latestAnswers = normalizeLatestAnswers(
-          response.latestAnswers ?? response.latest_answers
-        );
-        setAnswers(latestAnswers);
-
-        try {
-          const attemptsResponse = await listAiExamAttempts(examId, {
-            accessToken,
-          });
-
-          if (!cancelled) {
-            setAttempts(attemptsResponse.attempts);
-          }
-        } catch (attemptError) {
-          if (!cancelled) {
-            const message =
-              attemptError instanceof Error
-                ? attemptError.message
-                : 'Attempt history жүктеу мүмкін болмады.';
-            setErrorText((prev) => prev || message);
-          }
-        } finally {
-          if (!cancelled) {
-            setIsLoadingAttempts(false);
-          }
-        }
-      } catch (error) {
-        if (cancelled) return;
-
-        const message =
-          error instanceof Error ? error.message : 'Емтихан сессиясын жүктеу мүмкін болмады.';
-
-        setErrorText(message);
-        setIsLoadingAttempts(false);
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadExam();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [examId, accessToken]);
+  const sessionRequestIdRef = useRef(0);
+  const attemptsRequestIdRef = useRef(0);
+  const submitRequestIdRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const totalQuestions = examSession?.questions.length || 0;
   const hasExamSession = !!examSession;
@@ -268,6 +250,7 @@ export default function AiExamSessionPage() {
 
     return examSession.questions.filter((question) => {
       const value = answers[question.id];
+
       return typeof value === 'string' && value.trim().length > 0;
     }).length;
   }, [answers, examSession]);
@@ -291,10 +274,163 @@ export default function AiExamSessionPage() {
 
   const activeAttemptId = result?.attemptId || examSession?.attemptId;
 
-  const handleAnswerChange = (questionId: string, value: string) => {
-    if (errorText) {
-      setErrorText('');
+  const abortAll = useCallback(() => {
+    sessionAbortRef.current?.abort();
+    attemptsAbortRef.current?.abort();
+    submitAbortRef.current?.abort();
+
+    sessionAbortRef.current = null;
+    attemptsAbortRef.current = null;
+    submitAbortRef.current = null;
+  }, []);
+
+  const loadAttempts = useCallback(async () => {
+    attemptsAbortRef.current?.abort();
+
+    if (!examId || !accessToken) {
+      setAttempts([]);
+      setAttemptsErrorText('');
+      return;
     }
+
+    const requestId = attemptsRequestIdRef.current + 1;
+    attemptsRequestIdRef.current = requestId;
+
+    const controller = new AbortController();
+    attemptsAbortRef.current = controller;
+
+    setIsLoadingAttempts(true);
+    setAttemptsErrorText('');
+
+    try {
+      const response = await listAiExamAttempts(examId, {
+        accessToken,
+        signal: controller.signal,
+        timeoutMs: ATTEMPTS_TIMEOUT_MS,
+      });
+
+      if (!mountedRef.current || attemptsRequestIdRef.current !== requestId) return;
+
+      setAttempts(response.attempts);
+    } catch (error) {
+      if (controller.signal.aborted || isAbortLikeError(error)) return;
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Бұрынғы тапсыруларды жүктеу мүмкін болмады.';
+
+      if (mountedRef.current && attemptsRequestIdRef.current === requestId) {
+        setAttemptsErrorText(message);
+      }
+    } finally {
+      if (mountedRef.current && attemptsRequestIdRef.current === requestId) {
+        setIsLoadingAttempts(false);
+      }
+
+      if (attemptsAbortRef.current === controller) {
+        attemptsAbortRef.current = null;
+      }
+    }
+  }, [accessToken, examId]);
+
+  const loadExam = useCallback(async () => {
+    sessionAbortRef.current?.abort();
+
+    if (!examId) {
+      setExamSession(null);
+      setAnswers({});
+      setResult(null);
+      setAttempts([]);
+      setErrorText('Емтихан ID табылмады.');
+      return;
+    }
+
+    if (!accessToken) {
+      setExamSession(null);
+      setAnswers({});
+      setResult(null);
+      setAttempts([]);
+      setErrorText('Емтиханды ашу үшін авторизация қажет.');
+      return;
+    }
+
+    const requestId = sessionRequestIdRef.current + 1;
+    sessionRequestIdRef.current = requestId;
+
+    const controller = new AbortController();
+    sessionAbortRef.current = controller;
+
+    setIsLoading(true);
+    setErrorText('');
+    setAttemptsErrorText('');
+    setExamSession(null);
+    setAnswers({});
+    setResult(null);
+    setAttempts([]);
+
+    try {
+      const response = (await getAiExamSession(examId, {
+        accessToken,
+        signal: controller.signal,
+        timeoutMs: SESSION_TIMEOUT_MS,
+      })) as SessionWithLatestAttempt;
+
+      if (!mountedRef.current || sessionRequestIdRef.current !== requestId) return;
+
+      const normalizedSession: AiExamSession = {
+        ...response,
+        attemptId: response.attemptId ?? response.attempt_id ?? undefined,
+      };
+
+      setExamSession(normalizedSession);
+
+      const latestResult = normalizeSubmitResponse(
+        response.latestResult ?? response.latest_result,
+      );
+
+      setResult(latestResult);
+
+      setAnswers(
+        normalizeLatestAnswers(response.latestAnswers ?? response.latest_answers),
+      );
+
+      await loadAttempts();
+    } catch (error) {
+      if (controller.signal.aborted || isAbortLikeError(error)) return;
+
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Емтихан сессиясын жүктеу мүмкін болмады.';
+
+      if (mountedRef.current && sessionRequestIdRef.current === requestId) {
+        setErrorText(message);
+      }
+    } finally {
+      if (mountedRef.current && sessionRequestIdRef.current === requestId) {
+        setIsLoading(false);
+      }
+
+      if (sessionAbortRef.current === controller) {
+        sessionAbortRef.current = null;
+      }
+    }
+  }, [accessToken, examId, loadAttempts]);
+
+  useEffect(() => {
+    void loadExam();
+  }, [loadExam]);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      abortAll();
+    };
+  }, [abortAll]);
+
+  const handleAnswerChange = (questionId: string, value: string) => {
+    if (errorText) setErrorText('');
 
     setAnswers((prev) => ({
       ...prev,
@@ -312,12 +448,14 @@ export default function AiExamSessionPage() {
     setErrorText('');
 
     toast({
-      title: 'Attempt жүктелді',
+      title: 'Тапсыру ашылды',
       description: 'Таңдалған тапсырудың жауаптары мен нәтижесі көрсетілді.',
     });
   };
 
   const handleSubmit = async () => {
+    submitAbortRef.current?.abort();
+
     if (!examSession || !examId || !accessToken) return;
 
     if (answeredCount !== totalQuestions) {
@@ -328,6 +466,12 @@ export default function AiExamSessionPage() {
       });
       return;
     }
+
+    const requestId = submitRequestIdRef.current + 1;
+    submitRequestIdRef.current = requestId;
+
+    const controller = new AbortController();
+    submitAbortRef.current = controller;
 
     setIsSubmitting(true);
     setErrorText('');
@@ -343,8 +487,12 @@ export default function AiExamSessionPage() {
         },
         {
           accessToken,
-        }
+          signal: controller.signal,
+          timeoutMs: SUBMIT_TIMEOUT_MS,
+        },
       );
+
+      if (!mountedRef.current || submitRequestIdRef.current !== requestId) return;
 
       const normalizedResult = normalizeSubmitResponse(response) ?? response;
       setResult(normalizedResult);
@@ -363,6 +511,7 @@ export default function AiExamSessionPage() {
 
       setAttempts((prev) => {
         const filtered = prev.filter((item) => item.id !== newAttempt.id);
+
         return [newAttempt, ...filtered];
       });
 
@@ -375,7 +524,7 @@ export default function AiExamSessionPage() {
               latestAnswers: newAttempt.answers,
               latestSubmittedAt: newAttempt.submittedAt,
             }
-          : prev
+          : prev,
       );
 
       toast({
@@ -383,10 +532,14 @@ export default function AiExamSessionPage() {
         description: 'Нәтиже сәтті есептелді.',
       });
     } catch (error) {
+      if (controller.signal.aborted || isAbortLikeError(error)) return;
+
       const message =
         error instanceof Error ? error.message : 'Емтиханды жіберу мүмкін болмады.';
 
-      setErrorText(message);
+      if (mountedRef.current && submitRequestIdRef.current === requestId) {
+        setErrorText(message);
+      }
 
       toast({
         title: 'Қате',
@@ -394,61 +547,84 @@ export default function AiExamSessionPage() {
         variant: 'destructive',
       });
     } finally {
-      setIsSubmitting(false);
+      if (mountedRef.current && submitRequestIdRef.current === requestId) {
+        setIsSubmitting(false);
+      }
+
+      if (submitAbortRef.current === controller) {
+        submitAbortRef.current = null;
+      }
     }
   };
 
   const handleResetAnswers = () => {
+    submitAbortRef.current?.abort();
+    submitAbortRef.current = null;
+
     setAnswers({});
     setResult(null);
     setErrorText('');
+    setIsSubmitting(false);
   };
 
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
+        <PageHeader
+          eyebrow={
             <button
+              type="button"
               onClick={() => navigate(-1)}
-              className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft size={13} />
               Артқа
             </button>
-
-            <h2 className="text-xl font-bold">AI емтихан сессиясы</h2>
-            <p className="text-sm text-muted-foreground">
-              Емтиханды ашу, сұрақтарға жауап беру және нәтижені жіберу бөлімі.
-            </p>
-          </div>
-
-          <div className="flex gap-2">
-            <Link to="/ai-practice">
-              <Button variant="outline" size="sm">
-                <ClipboardList size={14} className="mr-2" />
-                AI практикаға өту
+          }
+          icon={<ClipboardList size={20} />}
+          title="AI емтихан сессиясы"
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/ai-practice">
+                  <ClipboardList size={14} className="mr-2" />
+                  AI практика
+                </Link>
               </Button>
-            </Link>
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleResetAnswers}
-              disabled={isLoading || isSubmitting || !hasQuestions}
-            >
-              Жауаптарды тазалау
-            </Button>
-          </div>
-        </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadExam()}
+                disabled={isLoading || isSubmitting || !accessToken}
+              >
+                {isLoading ? (
+                  <Loader2 size={14} className="mr-2 animate-spin" />
+                ) : (
+                  <RefreshCcw size={14} className="mr-2" />
+                )}
+                Жаңарту
+              </Button>
 
-        {isLoading ? <LoadingState text="Емтихан сессиясы жүктеліп жатыр..." /> : null}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleResetAnswers}
+                disabled={isLoading || isSubmitting || !hasQuestions}
+              >
+                Жауаптарды тазалау
+              </Button>
+            </div>
+          }
+        />
+
+        {isLoading ? <LoadingState text="Емтихан жүктеліп жатыр..." /> : null}
         {errorText ? <ErrorState text={errorText} /> : null}
 
         {!isLoading && !errorText && !hasExamSession ? (
           <EmptyState
             title="Емтихан табылмады"
-            text="Бұл идентификатор бойынша жүктелетін емтихан сессиясы жоқ."
+            text="Бұл ID бойынша емтихан сессиясы жоқ."
           />
         ) : null}
 
@@ -462,137 +638,77 @@ export default function AiExamSessionPage() {
         {!isLoading && hasExamSession && hasQuestions ? (
           <>
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">Емтихан ақпараты</CardTitle>
+              <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                <CardTitle className="text-base font-semibold">
+                  Емтихан ақпараты
+                </CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs text-muted-foreground">Атауы</p>
-                  <p className="mt-1 text-sm font-medium">{examSession.exam.title}</p>
-                </div>
 
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs text-muted-foreground">Сұрақ саны</p>
-                  <p className="mt-1 text-sm font-medium">{totalQuestions}</p>
-                </div>
-
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs text-muted-foreground">Пән</p>
-                  <p className="mt-1 text-sm font-medium">{examSession.exam.subject || '—'}</p>
-                </div>
-
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs text-muted-foreground">Уақыты</p>
-                  <p className="mt-1 flex items-center gap-1 text-sm font-medium">
-                    <TimerReset size={14} className="text-primary" />
-                    {examSession.exam.durationMinutes
-                      ? `${examSession.exam.durationMinutes} мин`
-                      : 'Шектелмеген'}
-                  </p>
-                </div>
+              <CardContent className="grid gap-3 p-4 sm:p-5 md:grid-cols-4">
+                <ExamInfoCell label="Атауы" value={examSession.exam.title} />
+                <ExamInfoCell label="Сұрақ саны" value={totalQuestions} />
+                <ExamInfoCell label="Пән" value={examSession.exam.subject || '—'} />
+                <ExamInfoCell
+                  label="Уақыты"
+                  value={
+                    <span className="inline-flex items-center gap-1">
+                      <TimerReset size={14} className="text-primary" />
+                      {examSession.exam.durationMinutes
+                        ? `${examSession.exam.durationMinutes} мин`
+                        : 'Шектелмеген'}
+                    </span>
+                  }
+                />
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">Прогресс</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs text-muted-foreground">Жауап берілді</p>
-                  <p className="mt-1 text-lg font-semibold">
+              <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <CardTitle className="text-base font-semibold">
+                    Жауап беру
+                  </CardTitle>
+
+                  <StatusBadge
+                    tone={answeredCount === totalQuestions ? 'success' : 'warning'}
+                  >
                     {answeredCount}/{totalQuestions}
-                  </p>
+                  </StatusBadge>
                 </div>
-
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs text-muted-foreground">Статус</p>
-                  <p className="mt-1 text-sm font-medium">
-                    {answeredCount === totalQuestions
-                      ? 'Жіберуге дайын'
-                      : 'Жауап беру жүріп жатыр'}
-                  </p>
-                </div>
-
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs text-muted-foreground">Attempt</p>
-                  <p className="mt-1 text-sm font-medium">
-                    {activeAttemptId || 'Жаңа сессия'}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">Бұрынғы тапсырулар</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {isLoadingAttempts ? (
-                  <LoadingState text="Attempt history жүктеліп жатыр..." />
-                ) : !hasAttempts ? (
-                  <EmptyState
-                    title="Attempt history жоқ"
-                    text="Бұл емтихан бойынша әлі сақталған тапсырулар табылмады."
-                  />
-                ) : (
-                  attempts.map((attempt, index) => {
-                    const score = attempt.result?.score;
-                    const maxScore = attempt.result?.maxScore;
-                    const percentage = attempt.result?.percentage;
-                    const isActive = activeAttemptId === attempt.id;
 
-                    return (
-                      <div
-                        key={attempt.id}
-                        className={`rounded-lg border p-4 ${
-                          isActive ? 'border-primary bg-primary/5' : ''
-                        }`}
-                      >
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 text-sm font-medium">
-                              <History size={14} />
-                              <span>Attempt {attempts.length - index}</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {formatDateTime(attempt.submittedAt)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {score !== undefined ? `Ұпай: ${score}` : 'Ұпай жоқ'}
-                              {maxScore !== undefined ? ` / ${maxScore}` : ''}
-                              {percentage !== undefined ? ` · ${percentage}%` : ''}
-                            </p>
-                          </div>
+              <CardContent className="space-y-4 p-4 sm:p-5">
+                {examSession.questions.map((question, index) => (
+                  <div
+                    key={question.id}
+                    className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">
+                          Сұрақ {index + 1}
+                        </p>
 
-                          <Button
-                            variant={isActive ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => handleLoadAttempt(attempt)}
-                          >
-                            {isActive ? 'Қазір көрсетіліп тұр' : 'Осы attempt-ті ашу'}
-                          </Button>
-                        </div>
+                        {question.points !== undefined ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Ұпай: {question.points}
+                          </p>
+                        ) : null}
                       </div>
-                    );
-                  })
-                )}
-              </CardContent>
-            </Card>
 
-            <div className="space-y-4">
-              {examSession.questions.map((question, index) => (
-                <Card key={question.id}>
-                  <CardHeader>
-                    <CardTitle className="text-base font-semibold">
-                      Сұрақ {index + 1}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <p className="text-sm leading-7">{question.question}</p>
+                      <StatusBadge tone="muted">
+                        {question.type === 'multiple_choice'
+                          ? 'Жауап нұсқалары'
+                          : 'Қысқа жауап'}
+                      </StatusBadge>
+                    </div>
+
+                    <p className="text-sm leading-7 text-foreground">
+                      {question.question}
+                    </p>
 
                     {question.type === 'multiple_choice' && question.options?.length ? (
-                      <div className="space-y-2">
+                      <div className="mt-4 space-y-2">
                         {question.options.map((option) => {
                           const checked = answers[question.id] === option.text;
 
@@ -602,8 +718,10 @@ export default function AiExamSessionPage() {
                               type="button"
                               onClick={() => handleAnswerChange(question.id, option.text)}
                               disabled={isSubmitting}
-                              className={`flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
-                                checked ? 'border-primary bg-primary/5' : 'hover:bg-accent'
+                              className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors ${
+                                checked
+                                  ? 'border-primary bg-primary/5'
+                                  : 'border-border bg-card hover:bg-accent'
                               } ${isSubmitting ? 'opacity-70' : ''}`}
                             >
                               <span
@@ -619,34 +737,40 @@ export default function AiExamSessionPage() {
                     ) : (
                       <Textarea
                         value={answers[question.id] || ''}
-                        onChange={(e) => handleAnswerChange(question.id, e.target.value)}
+                        onChange={(event) =>
+                          handleAnswerChange(question.id, event.target.value)
+                        }
                         placeholder="Жауабыңызды жазыңыз..."
                         rows={4}
                         disabled={isSubmitting}
+                        className="mt-4"
                       />
                     )}
-
-                    {question.points !== undefined ? (
-                      <div className="text-xs text-muted-foreground">
-                        Ұпай: {question.points}
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">Submit</CardTitle>
+              <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                <CardTitle className="text-base font-semibold">
+                  Емтиханды жіберу
+                </CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+
+              <CardContent className="flex flex-col gap-3 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
                 <div className="text-sm text-muted-foreground">
-                  Емтиханды жібермес бұрын барлық сұрақтарға жауап берілгеніне көз жеткізіңіз.
+                  {answeredCount === totalQuestions
+                    ? 'Барлық сұраққа жауап берілді.'
+                    : `Әлі ${totalQuestions - answeredCount} сұрақ қалды.`}
                 </div>
 
                 <Button onClick={handleSubmit} disabled={!canSubmit}>
-                  <FileCheck2 size={16} className="mr-2" />
+                  {isSubmitting ? (
+                    <Loader2 size={16} className="mr-2 animate-spin" />
+                  ) : (
+                    <FileCheck2 size={16} className="mr-2" />
+                  )}
                   {isSubmitting ? 'Жіберілуде...' : 'Емтиханды жіберу'}
                 </Button>
               </CardContent>
@@ -654,36 +778,27 @@ export default function AiExamSessionPage() {
 
             {result ? (
               <Card>
-                <CardHeader>
-                  <CardTitle className="text-base font-semibold">Нәтиже</CardTitle>
+                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <CardTitle className="text-base font-semibold">Нәтиже</CardTitle>
+                    <StatusBadge tone="success">{getScoreText(result)}</StatusBadge>
+                  </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-3 md:grid-cols-4">
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Ұпай</p>
-                      <p className="mt-1 text-lg font-semibold">{result.score}</p>
-                    </div>
 
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Макс. ұпай</p>
-                      <p className="mt-1 text-lg font-semibold">{result.maxScore ?? '—'}</p>
-                    </div>
-
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Пайыз</p>
-                      <p className="mt-1 text-lg font-semibold">
-                        {result.percentage !== undefined ? `${result.percentage}%` : '—'}
-                      </p>
-                    </div>
-
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Attempt ID</p>
-                      <p className="mt-1 text-sm font-medium">{result.attemptId || '—'}</p>
-                    </div>
+                <CardContent className="space-y-4 p-4 sm:p-5">
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <ExamInfoCell label="Ұпай" value={result.score} />
+                    <ExamInfoCell label="Макс. ұпай" value={result.maxScore ?? '—'} />
+                    <ExamInfoCell
+                      label="Пайыз"
+                      value={
+                        result.percentage !== undefined ? `${result.percentage}%` : '—'
+                      }
+                    />
                   </div>
 
                   {result.feedback ? (
-                    <div className="rounded-lg border p-4 text-sm leading-7 text-muted-foreground">
+                    <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 text-sm leading-7 text-muted-foreground shadow-inner-soft">
                       <div className="mb-2 flex items-center gap-2 font-medium text-foreground">
                         <CheckCircle2 size={15} className="text-primary" />
                         Жалпы пікір
@@ -694,18 +809,25 @@ export default function AiExamSessionPage() {
 
                   {result.breakdown?.length ? (
                     <div className="space-y-3">
-                      <p className="text-sm font-medium">Сұрақтар бойынша breakdown</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        Сұрақтар бойынша нәтиже
+                      </p>
+
                       {result.breakdown.map((item) => {
                         const questionNumber = questionNumberMap.get(item.questionId);
 
                         return (
-                          <div key={item.questionId} className="rounded-lg border p-4 text-sm">
+                          <div
+                            key={item.questionId}
+                            className="rounded-3xl border border-border bg-card p-4 text-sm shadow-soft"
+                          >
                             <div className="flex items-center justify-between gap-3">
                               <span className="text-muted-foreground">
                                 {questionNumber
                                   ? `Сұрақ ${questionNumber}`
-                                  : `Question ID: ${item.questionId}`}
+                                  : 'Сұрақ'}
                               </span>
+
                               <span className="font-medium">
                                 {item.score}
                                 {item.maxScore !== undefined ? ` / ${item.maxScore}` : ''}
@@ -719,7 +841,9 @@ export default function AiExamSessionPage() {
                             ) : null}
 
                             {item.feedback ? (
-                              <p className="mt-2 leading-7 text-muted-foreground">{item.feedback}</p>
+                              <p className="mt-2 leading-7 text-muted-foreground">
+                                {item.feedback}
+                              </p>
                             ) : null}
                           </div>
                         );
@@ -729,6 +853,72 @@ export default function AiExamSessionPage() {
                 </CardContent>
               </Card>
             ) : null}
+
+            <Card>
+              <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <CardTitle className="text-base font-semibold">
+                    Бұрынғы тапсырулар
+                  </CardTitle>
+
+                  <StatusBadge tone="muted">{attempts.length}</StatusBadge>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-3 p-4 sm:p-5">
+                {isLoadingAttempts ? (
+                  <LoadingState text="Бұрынғы тапсырулар жүктеліп жатыр..." />
+                ) : attemptsErrorText ? (
+                  <ErrorState text={attemptsErrorText} />
+                ) : !hasAttempts ? (
+                  <EmptyState
+                    title="Тапсыру жоқ"
+                    text="Бұл емтихан бойынша сақталған тапсырулар табылмады."
+                    compact
+                  />
+                ) : (
+                  attempts.map((attempt, index) => {
+                    const isActive = activeAttemptId === attempt.id;
+
+                    return (
+                      <div
+                        key={attempt.id}
+                        className={`rounded-3xl border p-4 shadow-soft ${
+                          isActive
+                            ? 'border-primary-muted bg-primary-soft/70'
+                            : 'border-border bg-surface-soft/60'
+                        }`}
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                              <History size={14} />
+                              <span>Тапсыру {attempts.length - index}</span>
+                            </div>
+
+                            <p className="text-xs text-muted-foreground">
+                              {formatDateTime(attempt.submittedAt)}
+                            </p>
+
+                            <p className="text-xs text-muted-foreground">
+                              {getScoreText(attempt.result)}
+                            </p>
+                          </div>
+
+                          <Button
+                            variant={isActive ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => handleLoadAttempt(attempt)}
+                          >
+                            {isActive ? 'Қазір ашық' : 'Ашу'}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </CardContent>
+            </Card>
           </>
         ) : null}
       </div>

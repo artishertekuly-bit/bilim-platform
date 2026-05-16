@@ -110,6 +110,8 @@ type CourseBuilderControllerInput = {
   setEditingAnnouncementId: Dispatch<SetStateAction<string | null>>;
 };
 
+const DEFAULT_CURRENCY = 'KZT';
+
 const initialMiniQuizQuestionForm: MiniQuizQuestionForm = {
   questionText: '',
   questionType: 'single_choice',
@@ -140,16 +142,81 @@ function normalizeCourseStatus(status: unknown): CourseStatus {
   return 'draft';
 }
 
+function normalizeCourseAccessType(value: unknown): CourseAccessType {
+  if (
+    value === 'public_free' ||
+    value === 'private_invite' ||
+    value === 'paid' ||
+    value === 'subscription_only' ||
+    value === 'school_only'
+  ) {
+    return value;
+  }
+
+  if (value === 'open' || value === 'free') return 'public_free';
+  if (value === 'closed' || value === 'invite_only') return 'private_invite';
+
+  return 'public_free';
+}
+
+function normalizeCourseVisibility(value: unknown): CourseVisibility {
+  if (value === 'private') return 'private';
+  if (value === 'school') return 'school';
+
+  return 'public';
+}
+
+function normalizeCurrency(value: unknown) {
+  const normalized = String(value || DEFAULT_CURRENCY)
+    .replace(/[^a-zA-Z]/g, '')
+    .toUpperCase()
+    .slice(0, 3);
+
+  return normalized || DEFAULT_CURRENCY;
+}
+
+function normalizeOptionalNumberString(value: unknown) {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+
+  return String(Math.trunc(numeric));
+}
+
 function sortBySortOrder<T extends { sortOrder: number }>(
   items: readonly T[] | null | undefined,
 ): T[] {
-  return [...(items ?? [])].sort((first, second) => first.sortOrder - second.sortOrder);
+  return [...(items ?? [])].sort(
+    (first, second) => first.sortOrder - second.sortOrder,
+  );
 }
 
 function getWorkspaceCourses(
   workspace?: TeacherCourseWorkspace | null,
 ): CourseBuilderCourse[] {
-  return workspace?.courses ?? [];
+  return Array.isArray(workspace?.courses) ? workspace.courses : [];
+}
+
+function buildCourseEditForm(course: CourseBuilderCourse): CourseEditForm {
+  return {
+    title: course.title || '',
+    description: course.description || '',
+    subjectId: course.subjectId || '',
+    thumbnailUrl: course.thumbnailUrl || '',
+    status: normalizeCourseStatus(course.status),
+    accessType: normalizeCourseAccessType(course.accessType),
+    visibility: normalizeCourseVisibility(course.visibility),
+    price: String(course.price ?? 0),
+    currency: normalizeCurrency(course.currency),
+    enrollmentOpen: course.enrollmentOpen ?? true,
+    maxStudents: normalizeOptionalNumberString(course.maxStudents),
+  };
+}
+
+function getFirstModule(course: CourseBuilderCourse | null) {
+  if (!course) return null;
+
+  return sortBySortOrder<CourseBuilderModuleView>(course.modules)[0] ?? null;
 }
 
 export function useCourseBuilderController({
@@ -175,27 +242,27 @@ export function useCourseBuilderController({
 
   const courses = useMemo(() => getWorkspaceCourses(workspace), [workspace]);
 
-  const selectedCourse = useMemo<CourseBuilderCourse | null>(
-    () =>
+  const selectedCourse = useMemo<CourseBuilderCourse | null>(() => {
+    return (
       courses.find((course) => course.id === selectedCourseId) ??
       courses.find((course) => course.id === requestedCourseId) ??
       courses[0] ??
-      null,
-    [courses, selectedCourseId, requestedCourseId],
-  );
+      null
+    );
+  }, [courses, requestedCourseId, selectedCourseId]);
 
   const selectedCourseModules = useMemo<CourseBuilderModuleView[]>(
     () => sortBySortOrder<CourseBuilderModuleView>(selectedCourse?.modules),
     [selectedCourse],
   );
 
-  const selectedEditingLesson = useMemo(
-    () =>
+  const selectedEditingLesson = useMemo(() => {
+    return (
       selectedCourseModules
         .flatMap((module) => module.lessons)
-        .find((lesson) => lesson.id === editingLessonId) ?? null,
-    [editingLessonId, selectedCourseModules],
-  );
+        .find((lesson) => lesson.id === editingLessonId) ?? null
+    );
+  }, [editingLessonId, selectedCourseModules]);
 
   const selectedCourseModuleSignature =
     selectedCourseModules.map((module) => module.id).join('|') || '';
@@ -234,6 +301,8 @@ export function useCourseBuilderController({
 
   const selectCourse = useCallback(
     (courseId: string) => {
+      if (!courseId) return;
+
       setSelectedCourseId(courseId);
       syncCourseParam(courseId);
       setEditingLessonId(null);
@@ -253,6 +322,7 @@ export function useCourseBuilderController({
       if (!selectedCourse || !moduleId) return '1';
 
       const module = selectedCourse.modules.find((item) => item.id === moduleId);
+
       if (!module) return '1';
 
       return getNextSortOrder(module.lessons);
@@ -268,7 +338,7 @@ export function useCourseBuilderController({
       accessType: 'public_free',
       visibility: 'public',
       price: '0',
-      currency: 'KZT',
+      currency: DEFAULT_CURRENCY,
       enrollmentOpen: true,
       maxStudents: '',
       moduleTitle: t('page.teacher_course_builder.defaults.module_title'),
@@ -305,27 +375,14 @@ export function useCourseBuilderController({
   const seedEditFromCourse = useCallback(
     (courseId: string) => {
       const course = courses.find((item) => item.id === courseId);
+
       if (!course) return;
 
-      const sortedModules = sortBySortOrder<CourseBuilderModuleView>(course.modules);
-      const firstModule = sortedModules[0] ?? null;
+      const firstModule = getFirstModule(course);
       const firstModuleId = firstModule?.id ?? '';
 
       selectCourse(courseId);
-
-      setCourseEdit({
-        title: course.title,
-        description: course.description || '',
-        subjectId: course.subjectId || '',
-        thumbnailUrl: course.thumbnailUrl || '',
-        status: normalizeCourseStatus(course.status),
-        accessType: course.accessType || 'public_free',
-        visibility: course.visibility || 'public',
-        price: String(course.price ?? 0),
-        currency: course.currency || 'KZT',
-        enrollmentOpen: course.enrollmentOpen ?? true,
-        maxStudents: course.maxStudents ? String(course.maxStudents) : '',
-      });
+      setCourseEdit(buildCourseEditForm(course));
 
       setLessonForm((previous) => ({
         ...previous,
@@ -334,9 +391,13 @@ export function useCourseBuilderController({
       }));
 
       setEditingLessonId(null);
+      resetLessonSideForms();
+      resetAnnouncementForm();
     },
     [
       courses,
+      resetAnnouncementForm,
+      resetLessonSideForms,
       selectCourse,
       setCourseEdit,
       setEditingLessonId,
@@ -353,6 +414,7 @@ export function useCourseBuilderController({
         queryKey: platformKeys.teacherDashboard(userId || ''),
       }),
       queryClient.invalidateQueries({ queryKey: ['courses'] }),
+      queryClient.invalidateQueries({ queryKey: ['course-progress'] }),
       queryClient.invalidateQueries({ queryKey: ['course-invites'] }),
       queryClient.invalidateQueries({ queryKey: ['course-assets'] }),
       queryClient.invalidateQueries({ queryKey: ['course-announcements'] }),
@@ -362,6 +424,7 @@ export function useCourseBuilderController({
       queryClient.invalidateQueries({ queryKey: ['lesson-detail'] }),
       queryClient.invalidateQueries({ queryKey: ['lesson-learning-state'] }),
       queryClient.invalidateQueries({ queryKey: ['student-dashboard'] }),
+      queryClient.invalidateQueries({ queryKey: ['analytics'] }),
       queryClient.invalidateQueries({ queryKey: ['parent-dashboard'] }),
       queryClient.invalidateQueries({ queryKey: platformKeys.adminDashboard }),
       queryClient.invalidateQueries({ queryKey: platformKeys.moderationQueue }),
@@ -369,6 +432,8 @@ export function useCourseBuilderController({
   }, [queryClient, userId]);
 
   useEffect(() => {
+    if (!workspace) return;
+
     if (!courses.length) {
       if (selectedCourseId) {
         setSelectedCourseId('');
@@ -395,27 +460,20 @@ export function useCourseBuilderController({
     if (requestedCourseId !== course.id) {
       syncCourseParam(course.id);
     }
-  }, [courses, requestedCourseId, selectedCourseId, syncCourseParam]);
+  }, [
+    courses,
+    requestedCourseId,
+    selectedCourseId,
+    syncCourseParam,
+    workspace,
+  ]);
 
   useEffect(() => {
     if (!selectedCourse) return;
     if (lastSeededCourseId.current === selectedCourse.id) return;
 
     lastSeededCourseId.current = selectedCourse.id;
-
-    setCourseEdit({
-      title: selectedCourse.title,
-      description: selectedCourse.description || '',
-      subjectId: selectedCourse.subjectId || '',
-      thumbnailUrl: selectedCourse.thumbnailUrl || '',
-      status: normalizeCourseStatus(selectedCourse.status),
-      accessType: selectedCourse.accessType || 'public_free',
-      visibility: selectedCourse.visibility || 'public',
-      price: String(selectedCourse.price ?? 0),
-      currency: selectedCourse.currency || 'KZT',
-      enrollmentOpen: selectedCourse.enrollmentOpen ?? true,
-      maxStudents: selectedCourse.maxStudents ? String(selectedCourse.maxStudents) : '',
-    });
+    setCourseEdit(buildCourseEditForm(selectedCourse));
   }, [selectedCourse, setCourseEdit]);
 
   useEffect(() => {

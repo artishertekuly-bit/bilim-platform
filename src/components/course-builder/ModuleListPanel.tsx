@@ -1,4 +1,10 @@
-import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import {
+  useEffect,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -14,15 +20,17 @@ import {
   X,
 } from 'lucide-react';
 
+import { EmptyState } from '@/components/common/DataState';
 import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { EmptyState } from '@/components/common/DataState';
-import t from '@/lib/i18n';
 import type { CourseBuilderModuleView } from '@/lib/app-data-types';
-import { getSortedBySortOrder } from '@/lib/course-creator/course-builder-utils';
+import {
+  getSortedBySortOrder,
+} from '@/lib/course-creator/course-builder-utils';
+import t from '@/lib/i18n';
 
 type ModuleFormState = {
   title: string;
@@ -49,7 +57,7 @@ type ModuleListPanelProps = {
   onReorderLesson: (
     moduleId: string,
     lessonId: string,
-    direction: LessonReorderDirection
+    direction: LessonReorderDirection,
   ) => void;
   onDeleteLesson: (input: {
     lessonId: string;
@@ -57,6 +65,21 @@ type ModuleListPanelProps = {
     remainingIds: string[];
   }) => void;
 };
+
+const MAX_MODULE_TITLE_CHARS = 180;
+
+function cleanTitle(value: string) {
+  return value.replace(/\x00/g, ' ').slice(0, MAX_MODULE_TITLE_CHARS);
+}
+
+function getRemainingLessonIds(
+  lessons: CourseBuilderModuleView['lessons'],
+  deletedLessonId: string,
+) {
+  return getSortedBySortOrder(lessons || [])
+    .filter((lesson) => lesson.id !== deletedLessonId)
+    .map((lesson) => lesson.id);
+}
 
 function LessonMetaPill({
   icon,
@@ -66,20 +89,22 @@ function LessonMetaPill({
   children: ReactNode;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/55 px-2.5 py-1 text-[11px] text-muted-foreground">
-      {icon}
-      <span>{children}</span>
+    <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-muted/55 px-2.5 py-1 text-[11px] text-muted-foreground">
+      <span className="shrink-0">{icon}</span>
+      <span className="truncate">{children}</span>
     </span>
   );
 }
 
 function InlineDeleteConfirm({
   title,
+  text,
   disabled,
   onConfirm,
   onCancel,
 }: {
   title: string;
+  text?: string;
   disabled: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -87,6 +112,10 @@ function InlineDeleteConfirm({
   return (
     <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
       <p className="text-xs font-semibold text-foreground">{title}</p>
+
+      {text ? (
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
@@ -150,6 +179,7 @@ function ModuleTitleEditor({
           type="button"
           variant="ghost"
           size="icon-sm"
+          disabled={disabled}
           onClick={() => setEditing(true)}
           aria-label="Модуль атауын өзгерту"
         >
@@ -163,9 +193,11 @@ function ModuleTitleEditor({
     <div className="flex min-w-0 gap-2">
       <Input
         value={title}
-        onChange={(event) => setTitle(event.target.value)}
+        maxLength={MAX_MODULE_TITLE_CHARS}
+        onChange={(event) => setTitle(cleanTitle(event.target.value))}
         onKeyDown={(event) => {
           if (event.key === 'Enter') handleSave();
+
           if (event.key === 'Escape') {
             setTitle(module.title);
             setEditing(false);
@@ -222,6 +254,25 @@ export function ModuleListPanel({
   const [moduleDeleteId, setModuleDeleteId] = useState<string | null>(null);
   const [lessonDeleteId, setLessonDeleteId] = useState<string | null>(null);
 
+  const modulesPending = reorderModulesPending || deleteModulePending;
+  const lessonsPending = reorderLessonsPending || deleteLessonPending;
+
+  const handleModuleTitleChange = (value: string) => {
+    setModuleForm({
+      title: cleanTitle(value),
+    });
+  };
+
+  const handleOpenModuleDelete = (moduleId: string) => {
+    setLessonDeleteId(null);
+    setModuleDeleteId((current) => (current === moduleId ? null : moduleId));
+  };
+
+  const handleOpenLessonDelete = (lessonId: string) => {
+    setModuleDeleteId(null);
+    setLessonDeleteId((current) => (current === lessonId ? null : lessonId));
+  };
+
   return (
     <Card id="modules-lessons" className="scroll-mt-24 overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
@@ -265,7 +316,7 @@ export function ModuleListPanel({
                         <div className="min-w-0 flex-1">
                           <ModuleTitleEditor
                             module={module}
-                            disabled={reorderModulesPending}
+                            disabled={modulesPending}
                             onUpdateModuleTitle={onUpdateModuleTitle}
                           />
                         </div>
@@ -283,7 +334,7 @@ export function ModuleListPanel({
                           type="button"
                           variant="outline"
                           size="icon-sm"
-                          disabled={moduleIndex === 0 || reorderModulesPending}
+                          disabled={moduleIndex === 0 || modulesPending}
                           onClick={() => onReorderModule(module.id, 'up')}
                           aria-label="Модульді жоғары жылжыту"
                         >
@@ -296,7 +347,7 @@ export function ModuleListPanel({
                           size="icon-sm"
                           disabled={
                             moduleIndex === selectedCourseModules.length - 1 ||
-                            reorderModulesPending
+                            modulesPending
                           }
                           onClick={() => onReorderModule(module.id, 'down')}
                           aria-label="Модульді төмен жылжыту"
@@ -309,11 +360,7 @@ export function ModuleListPanel({
                           variant={moduleDeleteOpen ? 'outline' : 'destructive'}
                           size="icon-sm"
                           disabled={deleteModulePending}
-                          onClick={() =>
-                            setModuleDeleteId((current) =>
-                              current === module.id ? null : module.id
-                            )
-                          }
+                          onClick={() => handleOpenModuleDelete(module.id)}
                           aria-label="Модульді өшіру"
                         >
                           {moduleDeleteOpen ? <X size={14} /> : <Trash2 size={14} />}
@@ -325,6 +372,11 @@ export function ModuleListPanel({
                       <div className="mt-3">
                         <InlineDeleteConfirm
                           title="Модуль өшірілсін бе?"
+                          text={
+                            sortedLessons.length > 0
+                              ? 'Бұл модуль ішіндегі сабақтармен бірге өшіріледі.'
+                              : undefined
+                          }
                           disabled={deleteModulePending}
                           onConfirm={() => {
                             onDeleteModule(module.id);
@@ -364,7 +416,7 @@ export function ModuleListPanel({
 
                                     <div className="mt-2 flex flex-wrap gap-1.5">
                                       <StatusBadge
-                                        tone={lesson.isPublished ? 'success' : 'completed'}
+                                        tone={lesson.isPublished ? 'success' : 'muted'}
                                       >
                                         {lesson.isPublished ? (
                                           <CheckCircle2 size={12} />
@@ -373,10 +425,10 @@ export function ModuleListPanel({
                                         )}
                                         {lesson.isPublished
                                           ? t(
-                                              'page.teacher_course_builder.lesson_status.published'
+                                              'page.teacher_course_builder.lesson_status.published',
                                             )
                                           : t(
-                                              'page.teacher_course_builder.lesson_status.draft'
+                                              'page.teacher_course_builder.lesson_status.draft',
                                             )}
                                       </StatusBadge>
 
@@ -398,7 +450,7 @@ export function ModuleListPanel({
 
                                       {lesson.hasMiniQuiz ? (
                                         <LessonMetaPill icon={<CheckCircle2 size={11} />}>
-                                          Mini quiz
+                                          Шағын тест
                                         </LessonMetaPill>
                                       ) : null}
                                     </div>
@@ -411,6 +463,7 @@ export function ModuleListPanel({
                                   type="button"
                                   variant="outline"
                                   size="icon-sm"
+                                  disabled={lessonsPending}
                                   onClick={() => onStartEditLesson(lesson.id)}
                                   aria-label="Сабақты өңдеу"
                                 >
@@ -421,7 +474,7 @@ export function ModuleListPanel({
                                   type="button"
                                   variant="outline"
                                   size="icon-sm"
-                                  disabled={lessonIndex === 0 || reorderLessonsPending}
+                                  disabled={lessonIndex === 0 || lessonsPending}
                                   onClick={() =>
                                     onReorderLesson(module.id, lesson.id, 'up')
                                   }
@@ -436,7 +489,7 @@ export function ModuleListPanel({
                                   size="icon-sm"
                                   disabled={
                                     lessonIndex === sortedLessons.length - 1 ||
-                                    reorderLessonsPending
+                                    lessonsPending
                                   }
                                   onClick={() =>
                                     onReorderLesson(module.id, lesson.id, 'down')
@@ -451,11 +504,7 @@ export function ModuleListPanel({
                                   variant={lessonDeleteOpen ? 'outline' : 'destructive'}
                                   size="icon-sm"
                                   disabled={deleteLessonPending}
-                                  onClick={() =>
-                                    setLessonDeleteId((current) =>
-                                      current === lesson.id ? null : lesson.id
-                                    )
-                                  }
+                                  onClick={() => handleOpenLessonDelete(lesson.id)}
                                   aria-label="Сабақты өшіру"
                                 >
                                   {lessonDeleteOpen ? (
@@ -476,10 +525,12 @@ export function ModuleListPanel({
                                     onDeleteLesson({
                                       lessonId: lesson.id,
                                       moduleId: module.id,
-                                      remainingIds: sortedLessons
-                                        .filter((item) => item.id !== lesson.id)
-                                        .map((item) => item.id),
+                                      remainingIds: getRemainingLessonIds(
+                                        sortedLessons,
+                                        lesson.id,
+                                      ),
                                     });
+
                                     setLessonDeleteId(null);
                                   }}
                                   onCancel={() => setLessonDeleteId(null)}
@@ -513,11 +564,11 @@ export function ModuleListPanel({
               <Label className="text-xs font-semibold text-foreground">
                 {t('page.teacher_course_builder.field.new_module_title')}
               </Label>
+
               <Input
                 value={moduleForm.title}
-                onChange={(event) =>
-                  setModuleForm({ title: event.target.value })
-                }
+                maxLength={MAX_MODULE_TITLE_CHARS}
+                onChange={(event) => handleModuleTitleChange(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && canAddModule) {
                     onAddModule();

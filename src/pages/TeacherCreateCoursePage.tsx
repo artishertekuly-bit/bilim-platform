@@ -1,55 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-
-import DashboardLayout from '@/components/DashboardLayout';
-import PageHeader from '@/components/common/PageHeader';
-import StatusBadge from '@/components/common/StatusBadge';
-import { useAuth } from '@/lib/auth-context';
-import t from '@/lib/i18n';
-import {
-  useCourseAnnouncements,
-  useCourseAssets,
-  useLessonAttachments,
-  useLessonMiniQuiz,
-  useSubjects,
-  useTeacherCourseWorkspace,
-} from '@/hooks/use-platform-data';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import {
-  ErrorState,
-} from '@/components/common/DataState';
-import { useToast } from '@/hooks/use-toast';
-import { BuilderStatCard } from '@/components/course-builder/BuilderStatCard';
-import { CourseAnnouncementsPanel } from '@/components/course-builder/CourseAnnouncementsPanel';
-import { TeacherCourseBuilderSkeleton } from '@/components/course-builder/TeacherCourseBuilderSkeleton';
-import { LessonMiniQuizEditor } from '@/components/course-builder/LessonMiniQuizEditor';
-import { CourseMaterialsPanel } from '@/components/course-builder/CourseMaterialsPanel';
-import { CourseInviteCodesPanel } from '@/components/course-builder/CourseInviteCodesPanel';
-import { LessonAttachmentPanel } from '@/components/course-builder/LessonAttachmentPanel';
-import { ModuleListPanel } from '@/components/course-builder/ModuleListPanel';
-import { LessonEditorPanel } from '@/components/course-builder/LessonEditorPanel';
-import { CourseBasicCreateCard } from '@/components/course-builder/CourseBasicCreateCard';
-import { CourseManageList } from '@/components/course-builder/CourseManageList';
-import { CourseSettingsCard } from '@/components/course-builder/CourseSettingsCard';
-import { CourseSummaryCard } from '@/components/course-builder/CourseSummaryCard';
-import { CoursePublishPanel } from '@/components/course-builder/CoursePublishPanel';
-import { CourseDangerZone } from '@/components/course-builder/CourseDangerZone';
-import { useCourseBuilderForms } from '@/hooks/course-factor/useCourseBuilderForms';
-import { useCourseBuilderController } from '@/hooks/course-factor/useCourseBuilderController';
-import { useCourseBuilderCourseMutations } from '@/hooks/course-factor/useCourseBuilderCourseMutations';
-import { useCourseBuilderSidePanels } from '@/hooks/course-factor/useCourseBuilderSidePanels';
-import { useCourseBuilderMiniQuiz } from '@/hooks/course-factor/useCourseBuilderMiniQuiz';
-import CourseAnalyticsPanel from '@/components/course-builder/CourseAnalyticsPanel';
-import {
-  formatPrice,
-  getAccessTypeLabel,
-  getCourseStatusTone,
-  normalizeCurrency,
-  parsePrice,
-  shouldShowCoursePricing,
-  type CourseStatus,
-} from '@/lib/course-creator/course-builder-utils';
 import {
   AlertTriangle,
   BookOpen,
@@ -65,6 +15,54 @@ import {
   X,
 } from 'lucide-react';
 
+import DashboardLayout from '@/components/DashboardLayout';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import { ErrorState } from '@/components/common/DataState';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/lib/auth-context';
+import t from '@/lib/i18n';
+import {
+  useCourseAnnouncements,
+  useCourseAssets,
+  useLessonAttachments,
+  useLessonMiniQuiz,
+  useSubjects,
+  useTeacherCourseWorkspace,
+} from '@/hooks/use-platform-data';
+import { BuilderStatCard } from '@/components/course-builder/BuilderStatCard';
+import { CourseAnnouncementsPanel } from '@/components/course-builder/CourseAnnouncementsPanel';
+import { TeacherCourseBuilderSkeleton } from '@/components/course-builder/TeacherCourseBuilderSkeleton';
+import { LessonMiniQuizEditor } from '@/components/course-builder/LessonMiniQuizEditor';
+import { CourseMaterialsPanel } from '@/components/course-builder/CourseMaterialsPanel';
+import { CourseInviteCodesPanel } from '@/components/course-builder/CourseInviteCodesPanel';
+import { LessonAttachmentPanel } from '@/components/course-builder/LessonAttachmentPanel';
+import { ModuleListPanel } from '@/components/course-builder/ModuleListPanel';
+import { LessonEditorPanel } from '@/components/course-builder/LessonEditorPanel';
+import { CourseBasicCreateCard } from '@/components/course-builder/CourseBasicCreateCard';
+import { CourseManageList } from '@/components/course-builder/CourseManageList';
+import { CourseSettingsCard } from '@/components/course-builder/CourseSettingsCard';
+import { CourseSummaryCard } from '@/components/course-builder/CourseSummaryCard';
+import { CoursePublishPanel } from '@/components/course-builder/CoursePublishPanel';
+import { CourseDangerZone } from '@/components/course-builder/CourseDangerZone';
+import CourseAnalyticsPanel from '@/components/course-builder/CourseAnalyticsPanel';
+import { useCourseBuilderForms } from '@/hooks/course-factor/useCourseBuilderForms';
+import { useCourseBuilderController } from '@/hooks/course-factor/useCourseBuilderController';
+import { useCourseBuilderCourseMutations } from '@/hooks/course-factor/useCourseBuilderCourseMutations';
+import { useCourseBuilderSidePanels } from '@/hooks/course-factor/useCourseBuilderSidePanels';
+import { useCourseBuilderMiniQuiz } from '@/hooks/course-factor/useCourseBuilderMiniQuiz';
+import {
+  formatPrice,
+  getAccessTypeLabel,
+  getCourseStatusTone,
+  normalizeCurrency,
+  parsePrice,
+  shouldShowCoursePricing,
+  type CourseStatus,
+} from '@/lib/course-creator/course-builder-utils';
+
 function SectionTitle({ children }: { children: string }) {
   return (
     <h2 className="text-base font-semibold tracking-tight text-foreground">
@@ -73,11 +71,20 @@ function SectionTitle({ children }: { children: string }) {
   );
 }
 
+function getInitialRequestedCourseId() {
+  if (typeof window === 'undefined') return '';
+
+  return new URLSearchParams(window.location.search).get('courseId') || '';
+}
+
 export default function TeacherCreateCoursePage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: subjects } = useSubjects();
+
+  const initialRequestedCourseIdRef = useRef(getInitialRequestedCourseId());
+  const openedInitialCourseRef = useRef(false);
 
   const [courseWorkspaceOpen, setCourseWorkspaceOpen] = useState(false);
   const [courseEditOpen, setCourseEditOpen] = useState(false);
@@ -89,7 +96,7 @@ export default function TeacherCreateCoursePage() {
     data: workspace,
     isLoading: workspaceLoading,
     error: workspaceError,
-  } = useTeacherCourseWorkspace(user?.id || '', !!user?.id);
+  } = useTeacherCourseWorkspace(user?.id || '', Boolean(user?.id));
 
   const {
     newCourse,
@@ -150,26 +157,29 @@ export default function TeacherCreateCoursePage() {
 
   const activeCourse = courseWorkspaceOpen ? selectedCourse : null;
   const activeCourseModules = activeCourse ? selectedCourseModules : [];
+  const activeCourseId = activeCourse?.id || '';
 
-  const {
-    data: courseAssets,
-    isLoading: courseAssetsLoading,
-  } = useCourseAssets(selectedCourse?.id || '', !!selectedCourse?.id);
+  const { data: courseAssets, isLoading: courseAssetsLoading } = useCourseAssets(
+    activeCourseId,
+    Boolean(activeCourseId),
+  );
 
   const {
     data: courseAnnouncements,
     isLoading: courseAnnouncementsLoading,
-  } = useCourseAnnouncements(selectedCourse?.id || '', !!selectedCourse?.id, true);
+  } = useCourseAnnouncements(activeCourseId, Boolean(activeCourseId), true);
 
   const {
     data: lessonAttachments,
     isLoading: lessonAttachmentsLoading,
-  } = useLessonAttachments(editingLessonId || '', !!editingLessonId);
+  } = useLessonAttachments(editingLessonId || '', Boolean(editingLessonId));
 
-  const {
-    data: miniQuizData,
-    isLoading: miniQuizLoading,
-  } = useLessonMiniQuiz(editingLessonId || '', user?.id, !!editingLessonId, true);
+  const { data: miniQuizData, isLoading: miniQuizLoading } = useLessonMiniQuiz(
+    editingLessonId || '',
+    user?.id,
+    Boolean(editingLessonId),
+    true,
+  );
 
   const selectedMiniQuiz = miniQuizData?.quiz || null;
   const subjectOptions = subjects || [];
@@ -301,23 +311,41 @@ export default function TeacherCreateCoursePage() {
   const activeCourseLessonCount =
     activeCourse?.modules.reduce(
       (sum, module) => sum + (module.lessons?.length || 0),
-      0
+      0,
     ) || 0;
 
   const selectedCoursePrice = shouldShowCoursePricing(courseEdit.accessType)
-    ? formatPrice(parsePrice(courseEdit.price || '0'), normalizeCurrency(courseEdit.currency))
+    ? formatPrice(
+        parsePrice(courseEdit.price || '0'),
+        normalizeCurrency(courseEdit.currency),
+      )
     : 'Тегін';
 
   const selectedCourseTitle = activeCourse?.title?.trim() || '';
   const deleteConfirmMatches =
-    !!selectedCourseTitle && deleteConfirmText.trim() === selectedCourseTitle;
+    Boolean(selectedCourseTitle) && deleteConfirmText.trim() === selectedCourseTitle;
+
+  useEffect(() => {
+    const requestedCourseId = initialRequestedCourseIdRef.current;
+
+    if (openedInitialCourseRef.current) return;
+    if (!requestedCourseId || !selectedCourse) return;
+    if (selectedCourse.id !== requestedCourseId) return;
+
+    openedInitialCourseRef.current = true;
+    setCourseWorkspaceOpen(true);
+    setCourseEditOpen(true);
+    setLessonEditorOpen(false);
+  }, [selectedCourse]);
 
   useEffect(() => {
     setDeleteConfirmOpen(false);
     setDeleteConfirmText('');
-    setCourseEditOpen(false);
+    setCourseEditOpen((current) =>
+      openedInitialCourseRef.current && activeCourse ? current : false,
+    );
     setLessonEditorOpen(false);
-  }, [selectedCourse?.id]);
+  }, [selectedCourse?.id, activeCourse]);
 
   useEffect(() => {
     if (!selectedCourse) {
@@ -330,10 +358,14 @@ export default function TeacherCreateCoursePage() {
     setCourseWorkspaceOpen(true);
     setCourseEditOpen(false);
     setLessonEditorOpen(false);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmText('');
   };
 
   const handleCreateCourse = () => {
     setCourseWorkspaceOpen(true);
+    setCourseEditOpen(false);
+    setLessonEditorOpen(false);
     createMutation.mutate();
   };
 
@@ -348,17 +380,27 @@ export default function TeacherCreateCoursePage() {
     resetLessonForm();
     setLessonEditorOpen(true);
     setCourseEditOpen(false);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmText('');
   };
 
   const handleStartEditLesson = (lessonId: string) => {
     startEditLesson(lessonId);
     setLessonEditorOpen(true);
     setCourseEditOpen(false);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmText('');
   };
 
   const handleCloseLessonEditor = () => {
     resetLessonForm();
     setLessonEditorOpen(false);
+  };
+
+  const handleCloseCourseEdit = () => {
+    setCourseEditOpen(false);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmText('');
   };
 
   const handleDeleteCourse = () => {
@@ -425,16 +467,19 @@ export default function TeacherCreateCoursePage() {
                 value={courseCount}
                 icon={<BookOpen size={17} />}
               />
+
               <BuilderStatCard
                 label="Модульдер"
                 value={activeCourseModules.length}
                 icon={<FileText size={17} />}
               />
+
               <BuilderStatCard
                 label="Сабақтар"
                 value={activeCourseLessonCount}
                 icon={<CheckCircle2 size={17} />}
               />
+
               <BuilderStatCard
                 label="Қолжетімділік"
                 value={activeCourse ? getAccessTypeLabel(courseEdit.accessType) : '—'}
@@ -532,11 +577,7 @@ export default function TeacherCreateCoursePage() {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={() => {
-                            setCourseEditOpen(false);
-                            setDeleteConfirmOpen(false);
-                            setDeleteConfirmText('');
-                          }}
+                          onClick={handleCloseCourseEdit}
                         >
                           <X size={14} className="mr-2" />
                           Жабу
@@ -617,7 +658,7 @@ export default function TeacherCreateCoursePage() {
 
                           {deleteConfirmOpen ? (
                             <Card className="border-destructive/35 bg-destructive/5">
-                              <CardContent className="space-y-4 p-5">
+                              <CardContent className="space-y-4 p-4 sm:p-5">
                                 <div className="flex items-start justify-between gap-4">
                                   <div className="flex items-start gap-3">
                                     <span className="mt-0.5 rounded-2xl bg-destructive/10 p-2 text-destructive">
@@ -806,7 +847,11 @@ export default function TeacherCreateCoursePage() {
                       onDeleteModule={(moduleId) => deleteModuleMutation.mutate(moduleId)}
                       onStartEditLesson={handleStartEditLesson}
                       onReorderLesson={(moduleId, lessonId, direction) =>
-                        reorderLessonsMutation.mutate({ moduleId, lessonId, direction })
+                        reorderLessonsMutation.mutate({
+                          moduleId,
+                          lessonId,
+                          direction,
+                        })
                       }
                       onDeleteLesson={(input) => deleteLessonMutation.mutate(input)}
                     />

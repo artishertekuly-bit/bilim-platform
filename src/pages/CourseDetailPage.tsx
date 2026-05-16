@@ -44,21 +44,14 @@ function getStatusDotClass(status: CourseProgressLessonStatus) {
   if (status === 'completed') return 'bg-success';
   if (status === 'current') return 'bg-primary';
   if (status === 'locked') return 'bg-muted-foreground';
+
   return 'bg-secondary';
 }
 
 function getLockedReasonText(reason: CourseProgressLessonView['lockedReason']) {
-  if (reason === 'course_access_required') {
-    return 'Курсқа қолжетімділік қажет.';
-  }
-
-  if (reason === 'previous_lesson_required') {
-    return 'Алдыңғы сабақтан кейін ашылады.';
-  }
-
-  if (reason === 'lesson_unpublished') {
-    return 'Сабақ жарияланбаған.';
-  }
+  if (reason === 'course_access_required') return 'Курсқа қолжетімділік қажет.';
+  if (reason === 'previous_lesson_required') return 'Алдыңғы сабақтан кейін ашылады.';
+  if (reason === 'lesson_unpublished') return 'Сабақ жарияланбаған.';
 
   return '';
 }
@@ -68,9 +61,7 @@ function formatDate(value: string | null) {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
+  if (Number.isNaN(date.getTime())) return null;
 
   return date.toLocaleDateString('kk-KZ', {
     year: 'numeric',
@@ -84,9 +75,7 @@ function formatDateTime(value: string | null | undefined) {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
+  if (Number.isNaN(date.getTime())) return value;
 
   return date.toLocaleString('kk-KZ', {
     year: 'numeric',
@@ -98,24 +87,25 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 function getAnnouncementPriorityLabel(priority: CourseAnnouncementPriority) {
-  const map: Record<CourseAnnouncementPriority, string> = {
+  const labels: Record<CourseAnnouncementPriority, string> = {
     normal: 'Қалыпты',
     important: 'Маңызды',
     urgent: 'Шұғыл',
   };
 
-  return map[priority] || priority;
+  return labels[priority] || priority;
 }
 
 function getAnnouncementPriorityTone(priority: CourseAnnouncementPriority) {
   if (priority === 'urgent') return 'danger' as const;
   if (priority === 'important') return 'warning' as const;
+
   return 'secondary' as const;
 }
 
 function findNextLesson(
   modules: CourseProgressModuleView[],
-  nextLessonId: string | null
+  nextLessonId: string | null,
 ) {
   const lessons = modules.flatMap((module) => module.lessons || []);
 
@@ -151,16 +141,16 @@ function CourseStatCard({
 
   return (
     <Card className="overflow-hidden">
-      <CardContent className="flex items-center gap-3 p-4 sm:p-5">
-        <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
+      <CardContent className="flex items-center gap-3 p-4">
+        <span
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
         >
-          <Icon size={18} />
-        </div>
+          <Icon size={16} />
+        </span>
 
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-semibold tracking-tight text-foreground">
+          <p className="mt-1 truncate text-xl font-semibold text-foreground">
             {value}
           </p>
         </div>
@@ -217,7 +207,7 @@ function CurrentLessonCard({
   if (!lesson) {
     return (
       <Card>
-        <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <p className="text-sm font-semibold text-foreground">
             Келесі сабақ жоқ
           </p>
@@ -235,7 +225,7 @@ function CurrentLessonCard({
 
   return (
     <Card className="border-primary-muted bg-primary-soft/55">
-      <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
+      <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between sm:p-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone="primary">
@@ -351,7 +341,10 @@ function CourseAnnouncementsPanel({
 
         <CardContent className="space-y-3 p-4 sm:p-5">
           {Array.from({ length: 2 }).map((_, index) => (
-            <div key={index} className="rounded-3xl border border-border bg-card p-4">
+            <div
+              key={index}
+              className="rounded-3xl border border-border bg-card p-4"
+            >
               <SkeletonBlock className="h-4 w-32 rounded-full" />
               <SkeletonBlock className="mt-3 h-3 w-4/5 rounded-full" />
               <SkeletonBlock className="mt-2 h-3 w-2/3 rounded-full" />
@@ -381,9 +374,7 @@ function CourseAnnouncementsPanel({
     );
   }
 
-  if (announcements.length === 0) {
-    return null;
-  }
+  if (announcements.length === 0) return null;
 
   return (
     <Card className="overflow-hidden">
@@ -591,7 +582,7 @@ function TeacherAdminCourseNotice({
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-2 p-5 sm:flex-row">
+      <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:p-5">
         <Button type="button" asChild>
           <Link to={manageHref}>
             Курсты басқару
@@ -600,9 +591,7 @@ function TeacherAdminCourseNotice({
         </Button>
 
         <Button type="button" variant="outline" asChild>
-          <Link to={listHref}>
-            Курстар тізімі
-          </Link>
+          <Link to={listHref}>Курстар тізімі</Link>
         </Button>
       </CardContent>
     </Card>
@@ -616,11 +605,13 @@ export default function CourseDetailPage() {
 
   const isStudent = user?.role === 'student';
   const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin';
-  const backHref = user?.role === 'teacher'
-    ? '/my-courses'
-    : user?.role === 'admin'
-      ? '/manage-courses'
-      : '/courses';
+
+  const backHref =
+    user?.role === 'teacher'
+      ? '/my-courses'
+      : user?.role === 'admin'
+        ? '/manage-courses'
+        : '/courses';
 
   const {
     data: timeline,
@@ -629,14 +620,14 @@ export default function CourseDetailPage() {
   } = useCourseProgressTimeline(
     user?.id || '',
     courseId,
-    Boolean(isStudent && user?.id && courseId)
+    Boolean(isStudent && user?.id && courseId),
   );
 
   const {
     data: announcements = [],
     isLoading: announcementsLoading,
     error: announcementsError,
-  } = useCourseAnnouncements(courseId, Boolean(courseId));
+  } = useCourseAnnouncements(courseId, Boolean(courseId && user?.id));
 
   const nextLesson = timeline
     ? findNextLesson(timeline.modules, timeline.nextLessonId || null)
@@ -692,6 +683,13 @@ export default function CourseDetailPage() {
           }
         />
 
+        {!user ? (
+          <EmptyState
+            title="Аккаунт анықталмады"
+            text="Курс деректерін көру үшін жүйеге кіріңіз."
+          />
+        ) : null}
+
         {isStudent && isLoading ? <CourseTimelineSkeleton /> : null}
 
         {isStudent && !isLoading && error ? (
@@ -720,9 +718,9 @@ export default function CourseDetailPage() {
           />
         ) : null}
 
-        {isTeacherOrAdmin ? (
+        {user && isTeacherOrAdmin ? (
           <>
-            <TeacherAdminCourseNotice role={user?.role} courseId={courseId} />
+            <TeacherAdminCourseNotice role={user.role} courseId={courseId} />
 
             <CourseAnnouncementsPanel
               announcements={announcements}
@@ -732,7 +730,7 @@ export default function CourseDetailPage() {
           </>
         ) : null}
 
-        {isStudent && !isLoading && !error && !timeline ? (
+        {user && isStudent && !isLoading && !error && !timeline ? (
           <EmptyState
             title="Курс табылмады"
             text="Курс өшірілген немесе кіру рұқсаты жоқ болуы мүмкін."
@@ -747,7 +745,7 @@ export default function CourseDetailPage() {
           />
         ) : null}
 
-        {isStudent && !isLoading && !error && timeline ? (
+        {user && isStudent && !isLoading && !error && timeline ? (
           <>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <CourseStatCard
@@ -756,18 +754,21 @@ export default function CourseDetailPage() {
                 icon={Target}
                 tone="primary"
               />
+
               <CourseStatCard
                 label="Сабақ саны"
                 value={timeline.totalLessons}
                 icon={BookOpen}
                 tone="secondary"
               />
+
               <CourseStatCard
                 label="Аяқталған"
                 value={timeline.completedLessons}
                 icon={CheckCircle2}
                 tone="success"
               />
+
               <CourseStatCard
                 label="Қалған сабақ"
                 value={remainingLessons}
@@ -785,7 +786,7 @@ export default function CourseDetailPage() {
             <CurrentLessonCard lesson={nextLesson} />
 
             <Card>
-              <CardContent className="p-5">
+              <CardContent className="p-4 sm:p-5">
                 <ProgressBar
                   value={timeline.progressPct}
                   label="Курс бойынша оқу барысы"

@@ -9,8 +9,8 @@ import {
   X,
 } from 'lucide-react';
 
-import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, LoadingState } from '@/components/common/DataState';
+import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -39,6 +39,26 @@ type LessonAttachmentLike = {
   };
 };
 
+const MAX_TITLE_CHARS = 180;
+const MAX_DESCRIPTION_CHARS = 1000;
+const MAX_EXTERNAL_URL_CHARS = 900;
+
+function cleanText(value: string, limit: number) {
+  return value.replace(/\x00/g, ' ').slice(0, limit);
+}
+
+function normalizeExternalUrl(value: string) {
+  return cleanText(normalizeMediaUrl(value) || '', MAX_EXTERNAL_URL_CHARS);
+}
+
+function getVisibleFileLabel(attachment: LessonAttachmentLike) {
+  return attachment.file.externalUrl || attachment.file.filename || 'Файл көрсетілмеген';
+}
+
+function getVisibleTitle(attachment: LessonAttachmentLike) {
+  return attachment.title || attachment.file.filename || 'Сабақ материалы';
+}
+
 function FieldBlock({
   label,
   children,
@@ -54,6 +74,7 @@ function FieldBlock({
         {label}
         {required ? <span className="ml-1 text-destructive">*</span> : null}
       </Label>
+
       {children}
     </div>
   );
@@ -110,7 +131,7 @@ function AttachmentCard({
   onDelete: (attachmentId: string) => void | Promise<void>;
 }) {
   const externalUrl = attachment.file.externalUrl;
-  const visibleFileLabel = externalUrl || attachment.file.filename || 'Файл жоқ';
+  const visibleFileLabel = getVisibleFileLabel(attachment);
 
   return (
     <div className="rounded-3xl border border-border bg-card p-4 transition-colors hover:border-primary-muted hover:bg-primary-soft/20">
@@ -123,12 +144,12 @@ function AttachmentCard({
 
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="truncate text-sm font-semibold text-foreground">
-                  {attachment.title}
+                <p className="line-clamp-2 text-sm font-semibold text-foreground">
+                  {getVisibleTitle(attachment)}
                 </p>
 
                 <StatusBadge tone={externalUrl ? 'primary' : 'muted'}>
-                  {externalUrl ? 'Сілтеме' : 'URL жоқ'}
+                  {externalUrl ? 'Сілтеме' : 'Сілтеме жоқ'}
                 </StatusBadge>
               </div>
 
@@ -214,9 +235,17 @@ export function LessonAttachmentPanel({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const hasSelectedLesson = Boolean(editingLessonId && selectedEditingLesson);
-  const formComplete =
-    lessonAttachmentForm.title.trim().length > 0 &&
-    lessonAttachmentForm.externalUrl.trim().length > 0;
+  const formComplete = lessonAttachmentForm.externalUrl.trim().length > 0;
+
+  const updateLessonAttachmentField = <K extends keyof LessonAttachmentFormState>(
+    key: K,
+    value: LessonAttachmentFormState[K],
+  ) => {
+    setLessonAttachmentForm((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
 
   const handleConfirmedDelete = (attachmentId: string) => {
     handleDeleteLessonAttachment(attachmentId);
@@ -261,19 +290,20 @@ export function LessonAttachmentPanel({
                 </div>
 
                 <StatusBadge tone={formComplete ? 'success' : 'muted'}>
-                  {formComplete ? 'Толды' : 'Міндетті'}
+                  {formComplete ? 'Толды' : 'Сілтеме қажет'}
                 </StatusBadge>
               </div>
 
               <div className="space-y-4">
-                <FieldBlock label="Материал атауы" required>
+                <FieldBlock label="Материал атауы">
                   <Input
                     value={lessonAttachmentForm.title}
+                    maxLength={MAX_TITLE_CHARS}
                     onChange={(event) =>
-                      setLessonAttachmentForm((previous) => ({
-                        ...previous,
-                        title: event.target.value,
-                      }))
+                      updateLessonAttachmentField(
+                        'title',
+                        cleanText(event.target.value, MAX_TITLE_CHARS),
+                      )
                     }
                     placeholder="Материал атауы"
                   />
@@ -282,17 +312,18 @@ export function LessonAttachmentPanel({
                 <FieldBlock label="Сілтеме" required>
                   <Input
                     value={lessonAttachmentForm.externalUrl}
+                    maxLength={MAX_EXTERNAL_URL_CHARS}
                     onChange={(event) =>
-                      setLessonAttachmentForm((previous) => ({
-                        ...previous,
-                        externalUrl: event.target.value,
-                      }))
+                      updateLessonAttachmentField(
+                        'externalUrl',
+                        cleanText(event.target.value, MAX_EXTERNAL_URL_CHARS),
+                      )
                     }
                     onBlur={(event) =>
-                      setLessonAttachmentForm((previous) => ({
-                        ...previous,
-                        externalUrl: normalizeMediaUrl(event.target.value),
-                      }))
+                      updateLessonAttachmentField(
+                        'externalUrl',
+                        normalizeExternalUrl(event.target.value),
+                      )
                     }
                     placeholder="https://..."
                   />
@@ -302,11 +333,12 @@ export function LessonAttachmentPanel({
                   <Textarea
                     rows={2}
                     value={lessonAttachmentForm.description}
+                    maxLength={MAX_DESCRIPTION_CHARS}
                     onChange={(event) =>
-                      setLessonAttachmentForm((previous) => ({
-                        ...previous,
-                        description: event.target.value,
-                      }))
+                      updateLessonAttachmentField(
+                        'description',
+                        cleanText(event.target.value, MAX_DESCRIPTION_CHARS),
+                      )
                     }
                     placeholder="Сипаттама"
                   />
@@ -359,7 +391,7 @@ export function LessonAttachmentPanel({
                       deleteConfirmOpen={deleteConfirmId === attachment.id}
                       onToggleDeleteConfirm={() =>
                         setDeleteConfirmId((current) =>
-                          current === attachment.id ? null : attachment.id
+                          current === attachment.id ? null : attachment.id,
                         )
                       }
                       onCancelDeleteConfirm={() => setDeleteConfirmId(null)}

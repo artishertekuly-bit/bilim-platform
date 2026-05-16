@@ -36,9 +36,13 @@ import t from '@/lib/i18n';
 
 type CatalogMode = 'student' | 'teacher' | 'admin';
 
+const MAX_SEARCH_CHARS = 160;
+const MAX_INVITE_CODE_CHARS = 120;
+
 function getCatalogMode(pathname: string, role?: string): CatalogMode {
   if (pathname.startsWith('/manage-courses') || role === 'admin') return 'admin';
   if (pathname.startsWith('/my-courses') || role === 'teacher') return 'teacher';
+
   return 'student';
 }
 
@@ -47,7 +51,11 @@ function buildCourseDetailPath(courseId: string) {
 }
 
 function normalizeText(value: string | null | undefined) {
-  return (value || '').toLowerCase().trim();
+  return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function cleanText(value: string, limit: number) {
+  return value.replace(/\x00/g, ' ').slice(0, limit);
 }
 
 function getModeEyebrow({
@@ -59,7 +67,26 @@ function getModeEyebrow({
 }) {
   if (isTeacherView) return 'Мұғалім';
   if (isAdminView) return 'Әкімші';
+
   return 'Курстар';
+}
+
+function getModeBadge({
+  isTeacherView,
+  isAdminView,
+}: {
+  isTeacherView: boolean;
+  isAdminView: boolean;
+}) {
+  if (isTeacherView) {
+    return <Badge variant="secondary" className="text-[11px]">Мұғалім</Badge>;
+  }
+
+  if (isAdminView) {
+    return <Badge variant="warning" className="text-[11px]">Әкімші</Badge>;
+  }
+
+  return null;
 }
 
 export default function CourseCatalogPage() {
@@ -79,7 +106,7 @@ export default function CourseCatalogPage() {
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
   const [pendingCourseId, setPendingCourseId] = useState<string | null>(null);
   const [pendingBookmarkCourseId, setPendingBookmarkCourseId] = useState<string | null>(
-    null
+    null,
   );
   const [inviteCourseId, setInviteCourseId] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState('');
@@ -89,7 +116,7 @@ export default function CourseCatalogPage() {
   const { data, isLoading, error } = useCourseCatalog(
     user?.role === 'student' ? user.id : undefined,
     isTeacherView ? user?.id : undefined,
-    !!user?.id
+    Boolean(user?.id),
   );
 
   const redeemInviteMutation = useRedeemCourseInviteMutation(user?.id);
@@ -113,7 +140,7 @@ export default function CourseCatalogPage() {
   const enrollMutation = useMutation({
     mutationFn: async (courseId: string) => {
       if (!user?.id) {
-        throw new Error('Кіру қажет');
+        throw new Error('Кіру қажет.');
       }
 
       setPendingCourseId(courseId);
@@ -153,7 +180,7 @@ export default function CourseCatalogPage() {
       bookmarked: boolean;
     }) => {
       if (!user?.id) {
-        throw new Error('Кіру қажет');
+        throw new Error('Кіру қажет.');
       }
 
       setPendingBookmarkCourseId(courseId);
@@ -162,7 +189,7 @@ export default function CourseCatalogPage() {
         ? unbookmarkCourse(user.id, courseId)
         : bookmarkCourse(user.id, courseId);
     },
-    onSuccess: async (_data, variables) => {
+    onSuccess: async (_response, variables) => {
       await queryClient.invalidateQueries({ queryKey: ['courses'] });
 
       toast({
@@ -171,10 +198,13 @@ export default function CourseCatalogPage() {
           : t('page.course_catalog.toast.bookmark_added'),
       });
     },
-    onError: () =>
+    onError: (bookmarkError) =>
       toast({
         title: t('page.course_catalog.toast.error_title'),
-        description: t('page.course_catalog.toast.error_text'),
+        description:
+          bookmarkError instanceof Error
+            ? bookmarkError.message
+            : t('page.course_catalog.toast.error_text'),
         variant: 'destructive',
       }),
     onSettled: () => {
@@ -193,7 +223,7 @@ export default function CourseCatalogPage() {
         label: subject.name_kk,
       })) || []),
     ],
-    [subjects]
+    [subjects],
   );
 
   const normalizedSearch = useMemo(() => normalizeText(search), [search]);
@@ -202,17 +232,17 @@ export default function CourseCatalogPage() {
     () =>
       (data || []).filter((course) => {
         const haystack = normalizeText(
-          `${course.title} ${course.teacherName || ''} ${course.description || ''}`
+          `${course.title} ${course.teacherName || ''} ${course.description || ''}`,
         );
 
-        const matchSearch = haystack.includes(normalizedSearch);
-        const matchSubject =
+        const matchesSearch = !normalizedSearch || haystack.includes(normalizedSearch);
+        const matchesSubject =
           activeSubject === 'all' || course.subjectName === activeSubject;
-        const matchBookmarks = !showBookmarksOnly || course.bookmarked;
+        const matchesBookmarks = !showBookmarksOnly || Boolean(course.bookmarked);
 
-        return matchSearch && matchSubject && matchBookmarks;
+        return matchesSearch && matchesSubject && matchesBookmarks;
       }),
-    [activeSubject, data, normalizedSearch, showBookmarksOnly]
+    [activeSubject, data, normalizedSearch, showBookmarksOnly],
   );
 
   const resetFilters = () => {
@@ -222,6 +252,15 @@ export default function CourseCatalogPage() {
   };
 
   const handleBookmarkToggle = (course: CourseView) => {
+    if (!user?.id) {
+      toast({
+        title: 'Кіру қажет',
+        description: 'Курсты сақтау үшін жүйеге кіріңіз.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     bookmarkMutation.mutate({
       courseId: course.id,
       bookmarked: course.bookmarked,
@@ -229,6 +268,15 @@ export default function CourseCatalogPage() {
   };
 
   const handleStudentCourseAction = async (course: CourseView) => {
+    if (!user?.id) {
+      toast({
+        title: 'Кіру қажет',
+        description: 'Курсқа кіру үшін жүйеге кіріңіз.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const access = course.access;
 
     if (course.enrolled) {
@@ -258,7 +306,7 @@ export default function CourseCatalogPage() {
       try {
         await requestPaidAccessMutation.mutateAsync({
           courseId: course.id,
-          userId: user?.id,
+          userId: user.id,
         });
 
         await invalidateCatalogData();
@@ -294,9 +342,20 @@ export default function CourseCatalogPage() {
   };
 
   const handleRedeemInvite = async (course: CourseView) => {
-    if (!inviteCode.trim()) {
+    const code = inviteCode.trim();
+
+    if (!code) {
       toast({
         title: 'Шақыру кодын енгізіңіз',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!user?.id) {
+      toast({
+        title: 'Кіру қажет',
+        description: 'Шақыру кодын қолдану үшін жүйеге кіріңіз.',
         variant: 'destructive',
       });
       return;
@@ -306,8 +365,8 @@ export default function CourseCatalogPage() {
 
     try {
       await redeemInviteMutation.mutateAsync({
-        code: inviteCode,
-        userId: user?.id,
+        code,
+        userId: user.id,
       });
 
       await invalidateCatalogData();
@@ -333,6 +392,14 @@ export default function CourseCatalogPage() {
     } finally {
       setPendingCourseId(null);
     }
+  };
+
+  const handleInviteCodeChange = (value: string) => {
+    setInviteCode(cleanText(value, MAX_INVITE_CODE_CHARS));
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearch(cleanText(value, MAX_SEARCH_CHARS));
   };
 
   const pageTitle = isTeacherView
@@ -382,14 +449,22 @@ export default function CourseCatalogPage() {
           }
         />
 
-        {isLoading ? (
+        {!user ? (
+          <EmptyState
+            icon={<BookOpen size={18} />}
+            title="Аккаунт анықталмады"
+            text="Курстарды көру үшін жүйеге кіріңіз."
+          />
+        ) : null}
+
+        {user && isLoading ? (
           <>
             <FilterPanelSkeleton />
             <CourseGridSkeleton count={8} />
           </>
         ) : null}
 
-        {!isLoading && error ? (
+        {user && !isLoading && error ? (
           <ErrorState
             text={t('page.course_catalog.error')}
             action={
@@ -405,7 +480,7 @@ export default function CourseCatalogPage() {
           />
         ) : null}
 
-        {!isLoading && !error ? (
+        {user && !isLoading && !error ? (
           <Card className="overflow-hidden border-border bg-card">
             <CardContent className="space-y-4 p-4 sm:p-5">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -419,7 +494,7 @@ export default function CourseCatalogPage() {
                     <Input
                       placeholder={t('page.course_catalog.search_placeholder')}
                       value={search}
-                      onChange={(event) => setSearch(event.target.value)}
+                      onChange={(event) => handleSearchChange(event.target.value)}
                       className="pl-10"
                     />
                   </div>
@@ -436,17 +511,7 @@ export default function CourseCatalogPage() {
                       Көрсетілді: {filteredCourses}
                     </Badge>
 
-                    {isTeacherView ? (
-                      <Badge variant="secondary" className="text-[11px]">
-                        Мұғалім
-                      </Badge>
-                    ) : null}
-
-                    {isAdminView ? (
-                      <Badge variant="warning" className="text-[11px]">
-                        Әкімші
-                      </Badge>
-                    ) : null}
+                    {getModeBadge({ isTeacherView, isAdminView })}
                   </div>
                 </div>
 
@@ -504,7 +569,7 @@ export default function CourseCatalogPage() {
           </Card>
         ) : null}
 
-        {!isLoading && !error && data && data.length === 0 ? (
+        {user && !isLoading && !error && data && data.length === 0 ? (
           <EmptyState
             icon={<BookOpen size={18} />}
             title={emptyTitle}
@@ -529,7 +594,7 @@ export default function CourseCatalogPage() {
           />
         ) : null}
 
-        {!isLoading && !error && data && data.length > 0 && filtered.length === 0 ? (
+        {user && !isLoading && !error && data && data.length > 0 && filtered.length === 0 ? (
           <EmptyState
             icon={<Search size={18} />}
             title={t('page.course_catalog.empty.filtered_title')}
@@ -568,7 +633,7 @@ export default function CourseCatalogPage() {
           />
         ) : null}
 
-        {!isLoading && !error && filtered.length > 0 ? (
+        {user && !isLoading && !error && filtered.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map((course) => (
               <CourseCard
@@ -582,7 +647,7 @@ export default function CourseCatalogPage() {
                 onBookmarkToggle={handleBookmarkToggle}
                 onStudentAction={handleStudentCourseAction}
                 onRedeemInvite={handleRedeemInvite}
-                onInviteCodeChange={setInviteCode}
+                onInviteCodeChange={handleInviteCodeChange}
                 onCloseInvite={() => {
                   setInviteCourseId(null);
                   setInviteCode('');

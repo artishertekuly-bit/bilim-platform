@@ -12,7 +12,6 @@ import {
   HelpCircle,
   RotateCcw,
   Search,
-  Sparkles,
   XCircle,
 } from 'lucide-react';
 
@@ -22,10 +21,10 @@ import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, ErrorState } from '@/components/common/DataState';
 import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import TestCard, { type TestCardData } from '@/components/test/TestCard';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { useTests, platformKeys } from '@/hooks/use-platform-data';
+import { platformKeys, useTests } from '@/hooks/use-platform-data';
 import {
   getTestAttemptBreakdown,
   getTestQuestions,
@@ -48,14 +47,24 @@ function normalizeAnswerIndexes(value: unknown): number[] {
   if (Array.isArray(value)) {
     return value
       .map((item) => Number(item))
-      .filter((item) => Number.isFinite(item))
+      .filter((item) => Number.isInteger(item) && item >= 0)
       .sort((a, b) => a - b);
   }
 
   if (value === null || value === undefined) return [];
 
   const asNumber = Number(value);
-  return Number.isFinite(asNumber) ? [asNumber] : [];
+
+  return Number.isInteger(asNumber) && asNumber >= 0 ? [asNumber] : [];
+}
+
+function areAnswerSetsEqual(left: number[], right: number[]) {
+  if (left.length !== right.length) return false;
+
+  const sortedLeft = [...left].sort((a, b) => a - b);
+  const sortedRight = [...right].sort((a, b) => a - b);
+
+  return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
 function formatAnswer(options: string[], selected: number[]) {
@@ -66,6 +75,7 @@ function formatAnswer(options: string[], selected: number[]) {
     .map((index) => {
       const label = String.fromCharCode(65 + index);
       const value = options[index] ?? '—';
+
       return `${label}. ${value}`;
     })
     .join(', ');
@@ -81,29 +91,38 @@ function getStatusFilterLabel(filter: TestStatusFilter) {
   return labels[filter];
 }
 
-function getTestStatus(test: TestCardData): TestStatusFilter {
+function getTestStatus(test: TestCardData): Exclude<TestStatusFilter, 'all'> {
   return test.bestScore !== null && test.bestScore !== undefined
     ? 'completed'
     : 'not_started';
 }
 
 function getResultTone(score: number) {
-  if (score >= 80) return 'success';
-  if (score >= 50) return 'warning';
-  return 'danger';
+  if (score >= 80) return 'success' as const;
+  if (score >= 50) return 'warning' as const;
+
+  return 'danger' as const;
 }
 
 function isTestVisibleToCurrentStudent(tests: TestCardData[], testId: string | null) {
   if (!testId) return false;
+
   return tests.some((test) => test.id === testId);
+}
+
+function getQuestionOptions(question: Tables<'test_questions'> | null | undefined) {
+  if (!Array.isArray(question?.options)) return [];
+
+  return question.options.map((item) => String(item));
 }
 
 function TestListSkeleton() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <SkeletonBlock className="h-10 w-full rounded-2xl lg:max-w-md" />
+
           <div className="flex gap-2">
             <SkeletonBlock className="h-9 w-24 rounded-full" />
             <SkeletonBlock className="h-9 w-28 rounded-full" />
@@ -234,7 +253,7 @@ export default function TestsPage() {
 
   const { data, isLoading, error } = useTests(
     isStudent ? user?.id : undefined,
-    !!user
+    !!user,
   );
 
   const tests = data || [];
@@ -244,7 +263,7 @@ export default function TestsPage() {
       'all',
       ...Array.from(new Set(tests.map((test) => test.subjectName).filter(Boolean))),
     ],
-    [tests]
+    [tests],
   );
 
   const filtered = useMemo(() => {
@@ -270,12 +289,12 @@ export default function TestsPage() {
   const activeTest = tests.find((item) => item.id === activeTestId) || null;
 
   const hasActiveFilters =
-    search.trim() || activeSubject !== 'all' || activeStatus !== 'all';
+    Boolean(search.trim()) || activeSubject !== 'all' || activeStatus !== 'all';
 
   const stats = useMemo(() => {
     const total = tests.length;
     const completed = tests.filter(
-      (test) => test.bestScore !== null && test.bestScore !== undefined
+      (test) => test.bestScore !== null && test.bestScore !== undefined,
     ).length;
     const notStarted = total - completed;
     const average =
@@ -284,7 +303,7 @@ export default function TestsPage() {
             tests
               .filter((test) => test.bestScore !== null && test.bestScore !== undefined)
               .reduce((sum, test) => sum + Number(test.bestScore || 0), 0) /
-              completed
+              completed,
           )
         : 0;
 
@@ -309,7 +328,12 @@ export default function TestsPage() {
     setActiveTestId(null);
     setStartingTestId(null);
     setQuestions([]);
-    setResult({ score: 0, correctCount: 0, attemptId: null, breakdown: [] });
+    setResult({
+      score: 0,
+      correctCount: 0,
+      attemptId: null,
+      breakdown: [],
+    });
   };
 
   const startMutation = useMutation({
@@ -335,7 +359,12 @@ export default function TestsPage() {
       setQuestions(safeQuestions);
       setAnswers({});
       setCurrentQ(0);
-      setResult({ score: 0, correctCount: 0, attemptId: null, breakdown: [] });
+      setResult({
+        score: 0,
+        correctCount: 0,
+        attemptId: null,
+        breakdown: [],
+      });
       setView('taking');
     },
     onError: (startError) =>
@@ -370,7 +399,7 @@ export default function TestsPage() {
     },
     onSuccess: async (payload) => {
       if (!user?.id) {
-        throw new Error('User not found');
+        throw new Error('Пайдаланушы табылмады.');
       }
 
       let breakdown: TestAttemptBreakdownItem[] = [];
@@ -423,19 +452,22 @@ export default function TestsPage() {
 
   const handleAnswer = (
     questionId: string,
-    optIdx: number,
-    multiple: boolean
+    optionIndex: number,
+    multiple: boolean,
   ) => {
     setAnswers((prev) => {
       const current = prev[questionId] || [];
 
       if (!multiple) {
-        return { ...prev, [questionId]: [optIdx] };
+        return {
+          ...prev,
+          [questionId]: [optionIndex],
+        };
       }
 
-      const next = current.includes(optIdx)
-        ? current.filter((item) => item !== optIdx)
-        : [...current, optIdx];
+      const next = current.includes(optionIndex)
+        ? current.filter((item) => item !== optionIndex)
+        : [...current, optionIndex];
 
       return {
         ...prev,
@@ -450,9 +482,9 @@ export default function TestsPage() {
       questions.every((question) => (answers[question.id] || []).length > 0);
 
     const q = questions[currentQ];
-    const options = Array.isArray(q?.options) ? q.options : [];
+    const options = getQuestionOptions(q);
     const answeredCount = questions.filter(
-      (question) => (answers[question.id] || []).length > 0
+      (question) => (answers[question.id] || []).length > 0,
     ).length;
 
     return (
@@ -471,13 +503,6 @@ export default function TestsPage() {
             }
             icon={<ClipboardList size={20} />}
             title={activeTest?.title || t('nav.tests')}
-            description={
-              activeTest
-                ? `${activeTest.subjectName} · ${activeTest.questionCount} ${t(
-                    'page.tests.questions_label'
-                  )}`
-                : t('page.tests.description.student')
-            }
             actions={
               <StatusBadge tone="info" icon={<Clock size={12} />}>
                 {activeTest?.durationMinutes || 0} {t('common.minutes')}
@@ -508,6 +533,7 @@ export default function TestsPage() {
                           total: questions.length,
                         })}
                       </p>
+
                       <p className="mt-1 text-xs text-muted-foreground">
                         {answeredCount}/{questions.length} сұраққа жауап берілді
                       </p>
@@ -547,35 +573,44 @@ export default function TestsPage() {
                     </h3>
                   </div>
 
-                  <div className="space-y-2">
-                    {options.map((opt, index) => {
-                      const selected = (answers[q.id] || []).includes(index);
+                  {options.length > 0 ? (
+                    <div className="space-y-2">
+                      {options.map((option, index) => {
+                        const selected = (answers[q.id] || []).includes(index);
 
-                      return (
-                        <button
-                          key={index}
-                          type="button"
-                          onClick={() =>
-                            handleAnswer(
-                              q.id,
-                              index,
-                              q.question_type === 'multiple_choice'
-                            )
-                          }
-                          className={`w-full rounded-2xl border p-3.5 text-left text-sm transition-all duration-200 ease-soft ${
-                            selected
-                              ? 'border-primary bg-primary text-primary-foreground shadow-soft'
-                              : 'border-border bg-card text-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
-                          }`}
-                        >
-                          <span className="mr-2 font-semibold">
-                            {String.fromCharCode(65 + index)}.
-                          </span>
-                          {String(opt)}
-                        </button>
-                      );
-                    })}
-                  </div>
+                        return (
+                          <button
+                            key={`${q.id}-${index}`}
+                            type="button"
+                            onClick={() =>
+                              handleAnswer(
+                                q.id,
+                                index,
+                                q.question_type === 'multiple_choice',
+                              )
+                            }
+                            className={`w-full rounded-2xl border p-3.5 text-left text-sm transition-all duration-200 ease-soft ${
+                              selected
+                                ? 'border-primary bg-primary text-primary-foreground shadow-soft'
+                                : 'border-border bg-card text-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
+                            }`}
+                          >
+                            <span className="mr-2 font-semibold">
+                              {String.fromCharCode(65 + index)}.
+                            </span>
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <EmptyState
+                      icon={<HelpCircle size={18} />}
+                      title="Жауап нұсқалары жоқ"
+                      text="Бұл сұрақ үшін жауап нұсқалары табылмады."
+                      compact
+                    />
+                  )}
                 </CardContent>
               </Card>
 
@@ -628,10 +663,6 @@ export default function TestsPage() {
             }
             icon={<ClipboardList size={20} />}
             title={t('test.result')}
-            description={t('page.tests.result_summary', {
-              correct: result.correctCount,
-              total: totalQuestions,
-            })}
             actions={
               <StatusBadge tone={resultTone} icon={<CheckCircle2 size={12} />}>
                 {result.score}%
@@ -695,12 +726,16 @@ export default function TestsPage() {
 
                       <div className="grid gap-2 text-xs md:grid-cols-2">
                         <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
-                          <span className="font-medium">{t('page.tests.your_answer')}:</span>{' '}
+                          <span className="font-medium">
+                            {t('page.tests.your_answer')}:
+                          </span>{' '}
                           {formatAnswer(item.options, item.selectedAnswer)}
                         </div>
 
                         <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
-                          <span className="font-medium">{t('page.tests.correct_answer')}:</span>{' '}
+                          <span className="font-medium">
+                            {t('page.tests.correct_answer')}:
+                          </span>{' '}
                           {formatAnswer(item.options, item.correctAnswer)}
                         </div>
                       </div>
@@ -724,23 +759,21 @@ export default function TestsPage() {
                 {questions.map((question, index) => {
                   const selected = answers[question.id] || [];
                   const correct = normalizeAnswerIndexes(question.correct_answer);
-                  const ok =
-                    JSON.stringify([...selected].sort()) ===
-                    JSON.stringify([...correct].sort());
-                  const options = Array.isArray(question.options)
-                    ? question.options.map((item) => String(item))
-                    : [];
+                  const isCorrect = areAnswerSetsEqual(selected, correct);
+                  const options = getQuestionOptions(question);
 
                   return (
                     <Card
                       key={question.id}
                       className={
-                        ok ? 'border-success-muted' : 'border-destructive-muted'
+                        isCorrect
+                          ? 'border-success-muted'
+                          : 'border-destructive-muted'
                       }
                     >
                       <CardContent className="space-y-2 p-4 text-sm">
                         <div className="flex items-start gap-3">
-                          {ok ? (
+                          {isCorrect ? (
                             <CheckCircle
                               size={18}
                               className="mt-0.5 shrink-0 text-success-foreground"
@@ -760,7 +793,9 @@ export default function TestsPage() {
                             <div className="font-medium">{question.question_text}</div>
 
                             <div className="text-xs">
-                              <span className="font-medium">{t('page.tests.your_answer')}:</span>{' '}
+                              <span className="font-medium">
+                                {t('page.tests.your_answer')}:
+                              </span>{' '}
                               {formatAnswer(options, selected)}
                             </div>
 
@@ -824,11 +859,6 @@ export default function TestsPage() {
           }
           icon={<ClipboardList size={20} />}
           title={t('nav.tests')}
-          description={
-            isStudent
-              ? t('page.tests.description.student')
-              : t('page.tests.description.admin')
-          }
           actions={
             isStudent ? (
               <Button type="button" onClick={() => navigate('/ai-exams-open')}>
@@ -838,28 +868,6 @@ export default function TestsPage() {
             ) : null
           }
         />
-
-        {isStudent ? (
-          <Card className="border-ai-border bg-ai-soft/70">
-            <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Sparkles size={16} className="text-primary" />
-                  AI емтихандар
-                </div>
-
-                <p className="text-sm text-muted-foreground">
-                  Мұғалім жариялаған AI емтихандарды жеке беттен ашып, тікелей тапсыра аласыз.
-                </p>
-              </div>
-
-              <Button variant="outline" onClick={() => navigate('/ai-exams-open')}>
-                AI емтихандарға өту
-                <ArrowUpRight size={14} className="ml-2" />
-              </Button>
-            </CardContent>
-          </Card>
-        ) : null}
 
         {isLoading ? <TestListSkeleton /> : null}
 
@@ -880,36 +888,6 @@ export default function TestsPage() {
 
         {!isLoading && !error ? (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Card>
-                <CardContent className="pt-5">
-                  <p className="text-xs text-muted-foreground">Барлығы</p>
-                  <p className="mt-1 text-2xl font-semibold">{stats.total}</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-5">
-                  <p className="text-xs text-muted-foreground">Тапсырылған</p>
-                  <p className="mt-1 text-2xl font-semibold">{stats.completed}</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-5">
-                  <p className="text-xs text-muted-foreground">Тапсырылмаған</p>
-                  <p className="mt-1 text-2xl font-semibold">{stats.notStarted}</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="pt-5">
-                  <p className="text-xs text-muted-foreground">Орташа балл</p>
-                  <p className="mt-1 text-2xl font-semibold">{stats.average}%</p>
-                </CardContent>
-              </Card>
-            </div>
-
             <Card>
               <CardContent className="space-y-4 pt-5">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -918,6 +896,7 @@ export default function TestsPage() {
                       size={16}
                       className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                     />
+
                     <Input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
@@ -938,7 +917,7 @@ export default function TestsPage() {
                         >
                           {getStatusFilterLabel(status)}
                         </Button>
-                      )
+                      ),
                     )}
 
                     {hasActiveFilters ? (
@@ -953,6 +932,13 @@ export default function TestsPage() {
                       </Button>
                     ) : null}
                   </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <StatusBadge tone="muted">Барлығы: {stats.total}</StatusBadge>
+                  <StatusBadge tone="success">Тапсырылған: {stats.completed}</StatusBadge>
+                  <StatusBadge tone="warning">Қалғаны: {stats.notStarted}</StatusBadge>
+                  <StatusBadge tone="info">Орташа: {stats.average}%</StatusBadge>
                 </div>
 
                 <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">

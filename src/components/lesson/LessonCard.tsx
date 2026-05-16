@@ -22,6 +22,7 @@ type LessonCardProps = {
 function getLessonStatus(lesson: LessonView) {
   if (lesson.isCompleted) return 'completed';
   if (lesson.isLocked) return 'locked';
+
   return 'available';
 }
 
@@ -51,17 +52,40 @@ function getIconToneClassName(lesson: LessonView) {
 
 function getOpenButtonLabel(lesson: LessonView) {
   if (lesson.isCompleted) return 'Қайта қарау';
+  if (lesson.isLocked) return 'Жабық';
+
   return 'Сабақты ашу';
 }
 
-export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
+function getLessonMeta(lesson: LessonView) {
+  return [lesson.courseTitle, lesson.moduleTitle].filter(Boolean).join(' · ');
+}
+
+export default function LessonCard({
+  lesson,
+  isStudent = false,
+  isCompleting = false,
+  onOpen,
+  onComplete,
+}: LessonCardProps) {
   const status = getLessonStatus(lesson);
   const canOpen = !lesson.isLocked;
+  const meta = getLessonMeta(lesson);
 
   const handleOpen = () => {
     if (!canOpen) return;
+
     onOpen?.(lesson);
   };
+
+  const handleComplete = () => {
+    if (!canOpen || lesson.isCompleted || isCompleting) return;
+
+    onComplete?.(lesson);
+  };
+
+  const canComplete =
+    Boolean(onComplete) && isStudent && canOpen && !lesson.isCompleted;
 
   return (
     <div
@@ -69,13 +93,17 @@ export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
         'rounded-3xl border p-4 transition-colors',
         canOpen
           ? 'cursor-pointer border-border bg-card hover:border-primary-muted hover:bg-primary-soft/25 active:scale-[0.995]'
-          : 'border-border bg-muted/35 opacity-80'
+          : 'border-border bg-muted/35 opacity-80',
       )}
       onClick={handleOpen}
       role={canOpen ? 'button' : undefined}
       tabIndex={canOpen ? 0 : undefined}
       aria-disabled={!canOpen}
-      aria-label={canOpen ? `${lesson.title} сабағын ашу` : `${lesson.title} сабағы жабық`}
+      aria-label={
+        canOpen
+          ? `${lesson.title} сабағын ашу`
+          : `${lesson.title} сабағы жабық`
+      }
       onKeyDown={(event) => {
         if (!canOpen) return;
 
@@ -88,8 +116,8 @@ export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
         <div
           className={cn(
-            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border',
-            getIconToneClassName(lesson)
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            getIconToneClassName(lesson),
           )}
         >
           {getLessonIcon(lesson)}
@@ -99,50 +127,60 @@ export default function LessonCard({ lesson, onOpen }: LessonCardProps) {
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone="primary">
               <BookOpen size={12} />
-              {lesson.subjectName}
+              {lesson.subjectName || 'Пән'}
             </StatusBadge>
 
             <LessonStatusBadge status={status} />
           </div>
 
           <div className="min-w-0">
-            <h3 className="line-clamp-2 text-sm font-semibold text-foreground">
+            <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">
               {lesson.title}
             </h3>
 
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {[lesson.courseTitle, lesson.moduleTitle].filter(Boolean).join(' · ')}
-            </p>
+            {meta ? (
+              <p className="mt-1 line-clamp-1 text-xs leading-5 text-muted-foreground">
+                {meta}
+              </p>
+            ) : null}
           </div>
-
-          {lesson.isLocked ? (
-            <p className="inline-flex items-center gap-1.5 rounded-2xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
-              <Lock size={13} />
-              Жабық
-            </p>
-          ) : null}
         </div>
 
-        <div className="flex shrink-0 flex-col gap-2 sm:min-w-[130px]">
-          {canOpen ? (
+        <div className="flex shrink-0 flex-col gap-2 sm:min-w-[132px]">
+          <Button
+            type="button"
+            size="sm"
+            variant={lesson.isCompleted ? 'outline' : 'default'}
+            disabled={!canOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpen();
+            }}
+          >
+            {lesson.isLocked ? (
+              <Lock size={14} className="mr-1.5" />
+            ) : null}
+
+            {getOpenButtonLabel(lesson)}
+
+            {canOpen ? <ArrowRight size={14} className="ml-1.5" /> : null}
+          </Button>
+
+          {canComplete ? (
             <Button
               type="button"
               size="sm"
-              variant={lesson.isCompleted ? 'outline' : 'default'}
+              variant="outline"
+              disabled={isCompleting}
               onClick={(event) => {
                 event.stopPropagation();
-                onOpen?.(lesson);
+                handleComplete();
               }}
             >
-              {getOpenButtonLabel(lesson)}
-              <ArrowRight size={14} className="ml-1.5" />
+              <CheckCircle2 size={14} className="mr-1.5" />
+              {isCompleting ? 'Сақталуда...' : 'Аяқталды'}
             </Button>
-          ) : (
-            <Button type="button" size="sm" variant="outline" disabled>
-              <Lock size={14} className="mr-1.5" />
-              Жабық
-            </Button>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

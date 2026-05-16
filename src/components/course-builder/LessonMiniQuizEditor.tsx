@@ -12,8 +12,8 @@ import {
   X,
 } from 'lucide-react';
 
-import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, LoadingState } from '@/components/common/DataState';
+import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -47,6 +47,67 @@ export type MiniQuizQuestionFormState = {
   sortOrder: string;
 };
 
+const MAX_QUIZ_TITLE_CHARS = 180;
+const MAX_QUIZ_DESCRIPTION_CHARS = 700;
+const MAX_QUESTION_TEXT_CHARS = 700;
+const MAX_OPTION_CHARS = 300;
+const MAX_EXPLANATION_CHARS = 1000;
+const MAX_OPTIONS = 8;
+const MIN_OPTIONS = 2;
+
+function cleanText(value: string, limit: number) {
+  return value.replace(/\x00/g, ' ').slice(0, limit);
+}
+
+function normalizePercentInput(value: string) {
+  const normalized = value.replace(/[^\d]/g, '').slice(0, 3);
+
+  if (!normalized) return '';
+
+  return String(Math.min(100, Math.max(0, Number(normalized))));
+}
+
+function normalizeSortOrderInput(value: string) {
+  return value.replace(/[^\d]/g, '').slice(0, 4);
+}
+
+function getVisibleQuizStatus(quiz: LessonMiniQuizView | null) {
+  if (!quiz) return 'Қосылмаған';
+  if (quiz.isPublished) return 'Жарияланған';
+
+  return 'Жоба';
+}
+
+function getQuestionCount(quiz: LessonMiniQuizView | null) {
+  return quiz?.questionsCount ?? quiz?.questions?.length ?? 0;
+}
+
+function normalizeCorrectAnswerAfterOptionChange({
+  correctAnswer,
+  options,
+  questionType,
+}: {
+  correctAnswer: number[];
+  options: string[];
+  questionType: LessonMiniQuizQuestionType;
+}) {
+  const validIndexes = new Set(
+    options
+      .map((option, index) => (option.trim() ? index : -1))
+      .filter((index) => index >= 0),
+  );
+
+  const normalized = correctAnswer
+    .filter((index) => validIndexes.has(index))
+    .sort((a, b) => a - b);
+
+  if (questionType === 'single_choice') {
+    return normalized.slice(0, 1);
+  }
+
+  return normalized;
+}
+
 function FieldBlock({
   label,
   children,
@@ -62,6 +123,7 @@ function FieldBlock({
         {label}
         {required ? <span className="ml-1 text-destructive">*</span> : null}
       </Label>
+
       {children}
     </div>
   );
@@ -101,11 +163,13 @@ function EditorSection({
 
 function InlineDeleteConfirm({
   title,
+  text,
   disabled,
   onConfirm,
   onCancel,
 }: {
   title: string;
+  text?: string;
   disabled: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -113,6 +177,10 @@ function InlineDeleteConfirm({
   return (
     <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
       <p className="text-xs font-semibold text-foreground">{title}</p>
+
+      {text ? (
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
+      ) : null}
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
@@ -330,6 +398,7 @@ export function LessonMiniQuizEditor({
   const hasSelectedLesson = Boolean(editingLessonId && selectedEditingLesson);
   const isEditingQuestion = Boolean(editingMiniQuizQuestionId);
   const savingQuestion = updateMiniQuizQuestionPending || createMiniQuizQuestionPending;
+  const questionCount = getQuestionCount(selectedMiniQuiz);
 
   const miniQuizComplete =
     miniQuizForm.title.trim().length > 0 &&
@@ -343,6 +412,26 @@ export function LessonMiniQuizEditor({
       ? 'Қосылуда...'
       : 'Сұрақ қосу';
 
+  const updateQuizForm = <K extends keyof MiniQuizFormState>(
+    key: K,
+    value: MiniQuizFormState[K],
+  ) => {
+    setMiniQuizForm((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const updateQuestionForm = <K extends keyof MiniQuizQuestionFormState>(
+    key: K,
+    value: MiniQuizQuestionFormState[K],
+  ) => {
+    setMiniQuizQuestionForm((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
   const handleConfirmedDeleteMiniQuiz = () => {
     handleDeleteMiniQuiz();
     setQuizDeleteConfirmOpen(false);
@@ -354,27 +443,66 @@ export function LessonMiniQuizEditor({
   };
 
   const handleAddOption = () => {
-    setMiniQuizQuestionForm((previous) => ({
-      ...previous,
-      options: [...previous.options, ''],
-    }));
+    setMiniQuizQuestionForm((previous) => {
+      if (previous.options.length >= MAX_OPTIONS) return previous;
+
+      return {
+        ...previous,
+        options: [...previous.options, ''],
+      };
+    });
+  };
+
+  const handleOptionChange = (optionIndex: number, value: string) => {
+    setMiniQuizQuestionForm((previous) => {
+      const nextOptions = [...previous.options];
+      nextOptions[optionIndex] = cleanText(value, MAX_OPTION_CHARS);
+
+      return {
+        ...previous,
+        options: nextOptions,
+        correctAnswer: normalizeCorrectAnswerAfterOptionChange({
+          correctAnswer: previous.correctAnswer,
+          options: nextOptions,
+          questionType: previous.questionType,
+        }),
+      };
+    });
   };
 
   const handleRemoveOption = (optionIndex: number) => {
     setMiniQuizQuestionForm((previous) => {
-      if (previous.options.length <= 2) return previous;
+      if (previous.options.length <= MIN_OPTIONS) return previous;
+
+      const nextOptions = previous.options.filter((_, index) => index !== optionIndex);
+      const nextCorrectAnswer = previous.correctAnswer.flatMap((index) => {
+        if (index === optionIndex) return [];
+        if (index > optionIndex) return [index - 1];
+
+        return [index];
+      });
 
       return {
         ...previous,
-        options: previous.options.filter((_, index) => index !== optionIndex),
-        correctAnswer: previous.correctAnswer
-          .flatMap((index) => {
-            if (index === optionIndex) return [];
-            if (index > optionIndex) return [index - 1];
-            return [index];
-          }),
+        options: nextOptions,
+        correctAnswer: normalizeCorrectAnswerAfterOptionChange({
+          correctAnswer: nextCorrectAnswer,
+          options: nextOptions,
+          questionType: previous.questionType,
+        }),
       };
     });
+  };
+
+  const handleQuestionTypeChange = (questionType: LessonMiniQuizQuestionType) => {
+    setMiniQuizQuestionForm((previous) => ({
+      ...previous,
+      questionType,
+      correctAnswer:
+        questionType === 'single_choice'
+          ? previous.correctAnswer.slice(0, 1)
+          : previous.correctAnswer,
+    }));
   };
 
   return (
@@ -383,7 +511,7 @@ export function LessonMiniQuizEditor({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
             <ListChecks size={16} />
-            Mini quiz
+            Шағын тест
           </CardTitle>
 
           <StatusBadge
@@ -391,15 +519,11 @@ export function LessonMiniQuizEditor({
               selectedMiniQuiz
                 ? selectedMiniQuiz.isPublished
                   ? 'success'
-                  : 'completed'
+                  : 'muted'
                 : 'muted'
             }
           >
-            {selectedMiniQuiz
-              ? selectedMiniQuiz.isPublished
-                ? 'Жарияланған'
-                : 'Черновик'
-              : 'Қосылмаған'}
+            {getVisibleQuizStatus(selectedMiniQuiz)}
           </StatusBadge>
         </div>
       </CardHeader>
@@ -428,31 +552,32 @@ export function LessonMiniQuizEditor({
               }
             >
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
-                <FieldBlock label="Quiz атауы" required>
+                <FieldBlock label="Тест атауы" required>
                   <Input
                     value={miniQuizForm.title}
+                    maxLength={MAX_QUIZ_TITLE_CHARS}
                     onChange={(event) =>
-                      setMiniQuizForm((previous) => ({
-                        ...previous,
-                        title: event.target.value,
-                      }))
+                      updateQuizForm(
+                        'title',
+                        cleanText(event.target.value, MAX_QUIZ_TITLE_CHARS),
+                      )
                     }
-                    placeholder="Mini quiz"
+                    placeholder="Сабақ соңындағы қысқа тест"
                   />
                 </FieldBlock>
 
                 <FieldBlock label="Өту пайызы" required>
                   <Input
-                    type="number"
-                    min={0}
-                    max={100}
+                    type="text"
+                    inputMode="numeric"
                     value={miniQuizForm.passingScore}
                     onChange={(event) =>
-                      setMiniQuizForm((previous) => ({
-                        ...previous,
-                        passingScore: event.target.value,
-                      }))
+                      updateQuizForm(
+                        'passingScore',
+                        normalizePercentInput(event.target.value),
+                      )
                     }
+                    placeholder="60"
                   />
                 </FieldBlock>
               </div>
@@ -461,11 +586,12 @@ export function LessonMiniQuizEditor({
                 <Textarea
                   rows={2}
                   value={miniQuizForm.description}
+                  maxLength={MAX_QUIZ_DESCRIPTION_CHARS}
                   onChange={(event) =>
-                    setMiniQuizForm((previous) => ({
-                      ...previous,
-                      description: event.target.value,
-                    }))
+                    updateQuizForm(
+                      'description',
+                      cleanText(event.target.value, MAX_QUIZ_DESCRIPTION_CHARS),
+                    )
                   }
                   placeholder="Сипаттама"
                 />
@@ -490,10 +616,7 @@ export function LessonMiniQuizEditor({
                     id="mini-quiz-published"
                     checked={miniQuizForm.isPublished}
                     onCheckedChange={(checked) =>
-                      setMiniQuizForm((previous) => ({
-                        ...previous,
-                        isPublished: checked,
-                      }))
+                      updateQuizForm('isPublished', checked)
                     }
                   />
                 </div>
@@ -501,7 +624,8 @@ export function LessonMiniQuizEditor({
 
               {quizDeleteConfirmOpen ? (
                 <InlineDeleteConfirm
-                  title="Mini quiz өшірілсін бе?"
+                  title="Шағын тест өшірілсін бе?"
+                  text="Тест ішіндегі барлық сұрақ та өшіріледі."
                   disabled={deleteMiniQuizPending}
                   onConfirm={handleConfirmedDeleteMiniQuiz}
                   onCancel={() => setQuizDeleteConfirmOpen(false)}
@@ -523,7 +647,7 @@ export function LessonMiniQuizEditor({
                     ) : (
                       <Trash2 size={14} className="mr-1.5" />
                     )}
-                    {quizDeleteConfirmOpen ? 'Жабу' : 'Mini quiz өшіру'}
+                    {quizDeleteConfirmOpen ? 'Жабу' : 'Шағын тестті өшіру'}
                   </Button>
                 ) : null}
 
@@ -549,11 +673,12 @@ export function LessonMiniQuizEditor({
                     <FieldBlock label="Сұрақ мәтіні" required>
                       <Input
                         value={miniQuizQuestionForm.questionText}
+                        maxLength={MAX_QUESTION_TEXT_CHARS}
                         onChange={(event) =>
-                          setMiniQuizQuestionForm((previous) => ({
-                            ...previous,
-                            questionText: event.target.value,
-                          }))
+                          updateQuestionForm(
+                            'questionText',
+                            cleanText(event.target.value, MAX_QUESTION_TEXT_CHARS),
+                          )
                         }
                         placeholder="Сұрақ"
                       />
@@ -563,11 +688,9 @@ export function LessonMiniQuizEditor({
                       <select
                         value={miniQuizQuestionForm.questionType}
                         onChange={(event) =>
-                          setMiniQuizQuestionForm((previous) => ({
-                            ...previous,
-                            questionType: event.target.value as LessonMiniQuizQuestionType,
-                            correctAnswer: [],
-                          }))
+                          handleQuestionTypeChange(
+                            event.target.value as LessonMiniQuizQuestionType,
+                          )
                         }
                         className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
                       >
@@ -581,15 +704,16 @@ export function LessonMiniQuizEditor({
 
                     <FieldBlock label="Реті">
                       <Input
-                        type="number"
-                        min={1}
+                        type="text"
+                        inputMode="numeric"
                         value={miniQuizQuestionForm.sortOrder}
                         onChange={(event) =>
-                          setMiniQuizQuestionForm((previous) => ({
-                            ...previous,
-                            sortOrder: event.target.value,
-                          }))
+                          updateQuestionForm(
+                            'sortOrder',
+                            normalizeSortOrderInput(event.target.value),
+                          )
                         }
+                        placeholder="1"
                       />
                     </FieldBlock>
                   </div>
@@ -607,6 +731,7 @@ export function LessonMiniQuizEditor({
                           miniQuizQuestionForm.questionType === 'single_choice'
                             ? 'radio'
                             : 'checkbox';
+                        const canMarkCorrect = option.trim().length > 0;
 
                         return (
                           <div
@@ -621,8 +746,11 @@ export function LessonMiniQuizEditor({
                               type={inputType}
                               name="mini-quiz-correct-answer"
                               checked={checked}
-                              onChange={() => handleToggleMiniQuizCorrectAnswer(optionIndex)}
-                              className="h-4 w-4 accent-primary"
+                              disabled={!canMarkCorrect}
+                              onChange={() =>
+                                handleToggleMiniQuizCorrectAnswer(optionIndex)
+                              }
+                              className="h-4 w-4 accent-primary disabled:cursor-not-allowed disabled:opacity-50"
                             />
 
                             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-xs font-semibold text-muted-foreground">
@@ -631,16 +759,9 @@ export function LessonMiniQuizEditor({
 
                             <Input
                               value={option}
+                              maxLength={MAX_OPTION_CHARS}
                               onChange={(event) =>
-                                setMiniQuizQuestionForm((previous) => {
-                                  const nextOptions = [...previous.options];
-                                  nextOptions[optionIndex] = event.target.value;
-
-                                  return {
-                                    ...previous,
-                                    options: nextOptions,
-                                  };
-                                })
+                                handleOptionChange(optionIndex, event.target.value)
                               }
                               placeholder={`Жауап ${optionIndex + 1}`}
                             />
@@ -652,7 +773,7 @@ export function LessonMiniQuizEditor({
                               </StatusBadge>
                             ) : null}
 
-                            {miniQuizQuestionForm.options.length > 2 ? (
+                            {miniQuizQuestionForm.options.length > MIN_OPTIONS ? (
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -673,6 +794,7 @@ export function LessonMiniQuizEditor({
                       variant="outline"
                       size="sm"
                       onClick={handleAddOption}
+                      disabled={miniQuizQuestionForm.options.length >= MAX_OPTIONS}
                     >
                       <Plus size={14} className="mr-1.5" />
                       Нұсқа қосу
@@ -683,11 +805,12 @@ export function LessonMiniQuizEditor({
                     <Textarea
                       rows={2}
                       value={miniQuizQuestionForm.explanation}
+                      maxLength={MAX_EXPLANATION_CHARS}
                       onChange={(event) =>
-                        setMiniQuizQuestionForm((previous) => ({
-                          ...previous,
-                          explanation: event.target.value,
-                        }))
+                        updateQuestionForm(
+                          'explanation',
+                          cleanText(event.target.value, MAX_EXPLANATION_CHARS),
+                        )
                       }
                       placeholder="Түсіндірме"
                     />
@@ -724,14 +847,12 @@ export function LessonMiniQuizEditor({
 
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge
-                        tone={selectedMiniQuiz.isPublished ? 'success' : 'completed'}
+                        tone={selectedMiniQuiz.isPublished ? 'success' : 'muted'}
                       >
-                        {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Черновик'}
+                        {selectedMiniQuiz.isPublished ? 'Жарияланған' : 'Жоба'}
                       </StatusBadge>
 
-                      <StatusBadge tone="secondary">
-                        {selectedMiniQuiz.questionsCount}
-                      </StatusBadge>
+                      <StatusBadge tone="secondary">{questionCount}</StatusBadge>
 
                       <StatusBadge tone="muted">
                         {selectedMiniQuiz.passingScore}%
@@ -764,7 +885,7 @@ export function LessonMiniQuizEditor({
                           deleteConfirmOpen={questionDeleteId === question.id}
                           onToggleDeleteConfirm={() =>
                             setQuestionDeleteId((current) =>
-                              current === question.id ? null : question.id
+                              current === question.id ? null : question.id,
                             )
                           }
                           onCancelDeleteConfirm={() => setQuestionDeleteId(null)}

@@ -1,15 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Link } from 'react-router-dom';
 import {
   BrainCircuit,
   CheckCircle2,
   FileCheck2,
+  Loader2,
   RefreshCcw,
   Sparkles,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
-import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from '@/components/common/DataState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,6 +45,7 @@ const MAX_SUBJECT_CHARS = 120;
 const MAX_TOPIC_CHARS = 200;
 const MAX_SOURCE_TEXT_CHARS = 12_000;
 const MAX_ANSWER_CHARS = 4_000;
+
 const GENERATE_TIMEOUT_MS = 180_000;
 const EVALUATE_TIMEOUT_MS = 120_000;
 
@@ -41,13 +56,39 @@ type Difficulty = 'easy' | 'medium' | 'hard';
 type AnswerMap = Record<string, string>;
 type FeedbackMap = Record<string, EvaluateAnswerResponse>;
 
+type SelectFieldProps = {
+  id: string;
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  children: ReactNode;
+  disabled?: boolean;
+};
+
 function cleanText(value: unknown, limit?: number) {
-  const text = String(value ?? '').replace(/\x00/g, ' ').trim();
-  return typeof limit === 'number' ? text.slice(0, limit) : text;
+  const text = String(value ?? '')
+    .replace(/\x00/g, ' ')
+    .trim();
+
+  return typeof limit === 'number' ? text.slice(0, limit).trim() : text;
+}
+
+function isAbortLikeError(error: unknown) {
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  if (!(error instanceof Error)) return false;
+
+  const message = error.message.toLowerCase();
+
+  return (
+    error.name === 'AbortError' ||
+    message.includes('тоқтатылды') ||
+    message.includes('aborted') ||
+    message.includes('abort')
+  );
 }
 
 function normalizeErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof DOMException && error.name === 'AbortError') {
+  if (isAbortLikeError(error)) {
     return '';
   }
 
@@ -58,7 +99,11 @@ function normalizeErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-function normalizeQuestionId(question: GeneratedQuestion, index: number, seen: Set<string>) {
+function normalizeQuestionId(
+  question: GeneratedQuestion,
+  index: number,
+  seen: Set<string>,
+) {
   const rawId = cleanText(question.id, 120) || `practice-question-${index + 1}`;
   let id = rawId;
   let suffix = 2;
@@ -69,15 +114,19 @@ function normalizeQuestionId(question: GeneratedQuestion, index: number, seen: S
   }
 
   seen.add(id);
+
   return id;
 }
 
-function normalizePracticeQuestions(response: GenerateQuestionsResponse): GenerateQuestionsResponse {
+function normalizePracticeQuestions(
+  response: GenerateQuestionsResponse,
+): GenerateQuestionsResponse {
   const seen = new Set<string>();
 
   const questions = (response.questions || [])
     .map((question, index) => {
       const id = normalizeQuestionId(question, index, seen);
+
       const options = question.options
         ?.map((option, optionIndex) => ({
           ...option,
@@ -136,11 +185,81 @@ function getQuestionContext({
 }
 
 function getFeedbackTone(feedback: EvaluateAnswerResponse) {
-  if (feedback.isCorrect === true) return 'border-primary-muted bg-primary-soft/60';
-  if (typeof feedback.score === 'number' && feedback.score >= 6.5) {
-    return 'border-primary-muted bg-primary-soft/60';
+  if (feedback.isCorrect === true) {
+    return 'border-success-muted bg-success-soft/70 text-success-foreground';
   }
-  return 'border-warning-muted bg-warning-soft/60';
+
+  if (typeof feedback.score === 'number' && feedback.score >= 6.5) {
+    return 'border-primary-muted bg-primary-soft/60 text-foreground';
+  }
+
+  return 'border-warning-muted bg-warning-soft/60 text-warning-foreground';
+}
+
+function getDifficultyLabel(difficulty: Difficulty) {
+  const labels: Record<Difficulty, string> = {
+    easy: 'Оңай',
+    medium: 'Орташа',
+    hard: 'Қиын',
+  };
+
+  return labels[difficulty];
+}
+
+function getQuestionKindLabel(kind: AiQuestionKind) {
+  const labels: Record<AiQuestionKind, string> = {
+    mixed: 'Аралас',
+    multiple_choice: 'Жауап нұсқалары',
+    short_answer: 'Қысқа жауап',
+  };
+
+  return labels[kind];
+}
+
+function getQuestionTypeLabel(type: GeneratedQuestion['type']) {
+  return type === 'multiple_choice' ? 'Жауап нұсқалары' : 'Қысқа жауап';
+}
+
+function SelectField({
+  id,
+  label,
+  value,
+  onChange,
+  children,
+  disabled = false,
+}: SelectFieldProps) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="text-xs font-semibold text-foreground">
+        {label}
+      </Label>
+
+      <select
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        className="h-11 w-full rounded-2xl border border-input bg-card px-4 text-sm text-foreground shadow-inner-soft outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {children}
+      </select>
+    </div>
+  );
+}
+
+function ProgressCell({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <div className="mt-1 text-lg font-semibold text-foreground">{value}</div>
+    </div>
+  );
 }
 
 export default function AiPracticePage() {
@@ -162,13 +281,17 @@ export default function AiPracticePage() {
   const [feedback, setFeedback] = useState<FeedbackMap>({});
 
   const [isGenerating, setIsGenerating] = useState(false);
-  const [evaluatingQuestionId, setEvaluatingQuestionId] = useState<string | null>(null);
+  const [evaluatingQuestionId, setEvaluatingQuestionId] = useState<string | null>(
+    null,
+  );
   const [errorText, setErrorText] = useState('');
 
   const generateAbortRef = useRef<AbortController | null>(null);
   const evaluateAbortRef = useRef<AbortController | null>(null);
+
   const generationRequestIdRef = useRef(0);
   const evaluationRequestIdRef = useRef(0);
+  const mountedRef = useRef(true);
 
   const generatedCount = result?.questions.length || 0;
   const isAuthMissing = !accessToken;
@@ -178,12 +301,7 @@ export default function AiPracticePage() {
     const hasTopic = topic.trim().length > 0;
     const hasSource = sourceText.trim().length > 0;
 
-    return (
-      isStudent &&
-      !isGenerating &&
-      !isAuthMissing &&
-      (hasTopic || hasSource)
-    );
+    return isStudent && !isGenerating && !isAuthMissing && (hasTopic || hasSource);
   }, [isAuthMissing, isGenerating, isStudent, sourceText, topic]);
 
   const answeredCount = useMemo(() => {
@@ -191,6 +309,7 @@ export default function AiPracticePage() {
 
     return result.questions.filter((question) => {
       const value = answers[question.id];
+
       return typeof value === 'string' && value.trim().length > 0;
     }).length;
   }, [answers, result]);
@@ -200,8 +319,10 @@ export default function AiPracticePage() {
   const resetPracticeState = useCallback(() => {
     generateAbortRef.current?.abort();
     evaluateAbortRef.current?.abort();
+
     generateAbortRef.current = null;
     evaluateAbortRef.current = null;
+
     generationRequestIdRef.current += 1;
     evaluationRequestIdRef.current += 1;
 
@@ -215,12 +336,20 @@ export default function AiPracticePage() {
 
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
       generateAbortRef.current?.abort();
       evaluateAbortRef.current?.abort();
+
       generateAbortRef.current = null;
       evaluateAbortRef.current = null;
     };
   }, []);
+
+  const clearError = () => {
+    if (errorText) {
+      setErrorText('');
+    }
+  };
 
   const handleGenerate = async () => {
     const subjectText = cleanText(subject, MAX_SUBJECT_CHARS);
@@ -233,14 +362,14 @@ export default function AiPracticePage() {
     }
 
     if (!isStudent) {
-      setErrorText('AI practice тек оқушы аккаунтына арналған.');
+      setErrorText('AI жаттығу тек оқушы аккаунтына арналған.');
       return;
     }
 
     if (!accessToken) {
       const message = user
-        ? 'AI practice пайдалану үшін белсенді сессия access token қажет.'
-        : 'AI practice пайдалану үшін авторизация қажет.';
+        ? 'AI жаттығуды қолдану үшін белсенді сессия қажет.'
+        : 'AI жаттығуды қолдану үшін жүйеге кіру қажет.';
 
       setErrorText(message);
 
@@ -282,24 +411,24 @@ export default function AiPracticePage() {
           accessToken,
           signal: abortController.signal,
           timeoutMs: GENERATE_TIMEOUT_MS,
-        }
+        },
       );
 
-      if (generationRequestIdRef.current !== requestId) return;
+      if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
 
       const normalizedResponse = normalizePracticeQuestions(response);
       setResult(normalizedResponse);
 
       toast({
-        title: 'Практика дайын',
+        title: 'Жаттығу дайын',
         description: `${normalizedResponse.questions.length} сұрақ генерацияланды.`,
       });
     } catch (error) {
-      if (generationRequestIdRef.current !== requestId) return;
+      if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
 
       const message = normalizeErrorMessage(
         error,
-        'Практика сұрақтарын генерациялау мүмкін болмады.'
+        'Жаттығу сұрақтарын генерациялау мүмкін болмады.',
       );
 
       if (!message) return;
@@ -312,8 +441,11 @@ export default function AiPracticePage() {
         variant: 'destructive',
       });
     } finally {
-      if (generationRequestIdRef.current === requestId) {
+      if (mountedRef.current && generationRequestIdRef.current === requestId) {
         setIsGenerating(false);
+      }
+
+      if (generateAbortRef.current === abortController) {
         generateAbortRef.current = null;
       }
     }
@@ -326,15 +458,14 @@ export default function AiPracticePage() {
     setDifficulty('medium');
     setCount(5);
     setKind('mixed');
+
     resetPracticeState();
   };
 
   const handleAnswerChange = (questionId: string, value: string) => {
     const nextValue = cleanText(value, MAX_ANSWER_CHARS);
 
-    if (errorText) {
-      setErrorText('');
-    }
+    clearError();
 
     setAnswers((prev) => ({
       ...prev,
@@ -343,8 +474,10 @@ export default function AiPracticePage() {
 
     setFeedback((prev) => {
       if (!prev[questionId]) return prev;
+
       const next = { ...prev };
       delete next[questionId];
+
       return next;
     });
   };
@@ -362,14 +495,14 @@ export default function AiPracticePage() {
     }
 
     if (!isStudent) {
-      setErrorText('AI practice тек оқушы аккаунтына арналған.');
+      setErrorText('AI жаттығу тек оқушы аккаунтына арналған.');
       return;
     }
 
     if (!accessToken) {
       const message = user
-        ? 'Жауапты тексеру үшін белсенді сессия access token қажет.'
-        : 'Жауапты тексеру үшін авторизация қажет.';
+        ? 'Жауапты тексеру үшін белсенді сессия қажет.'
+        : 'Жауапты тексеру үшін жүйеге кіру қажет.';
 
       setErrorText(message);
 
@@ -414,19 +547,20 @@ export default function AiPracticePage() {
           accessToken,
           signal: abortController.signal,
           timeoutMs: EVALUATE_TIMEOUT_MS,
-        }
+        },
       );
 
-      if (evaluationRequestIdRef.current !== requestId) return;
+      if (!mountedRef.current || evaluationRequestIdRef.current !== requestId) return;
 
       setFeedback((prev) => ({
         ...prev,
         [question.id]: response,
       }));
     } catch (error) {
-      if (evaluationRequestIdRef.current !== requestId) return;
+      if (!mountedRef.current || evaluationRequestIdRef.current !== requestId) return;
 
       const message = normalizeErrorMessage(error, 'Жауапты тексеру мүмкін болмады.');
+
       if (!message) return;
 
       setErrorText(message);
@@ -437,8 +571,11 @@ export default function AiPracticePage() {
         variant: 'destructive',
       });
     } finally {
-      if (evaluationRequestIdRef.current === requestId) {
+      if (mountedRef.current && evaluationRequestIdRef.current === requestId) {
         setEvaluatingQuestionId(null);
+      }
+
+      if (evaluateAbortRef.current === abortController) {
         evaluateAbortRef.current = null;
       }
     }
@@ -447,39 +584,42 @@ export default function AiPracticePage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <h2 className="text-xl font-bold">{t('nav.ai_practice')}</h2>
-            <p className="text-sm text-muted-foreground">
-              AI көмегімен қосымша practice сұрақтарын генерациялау және жауапты тексеру бөлімі.
-            </p>
-          </div>
+        <PageHeader
+          eyebrow={
+            <>
+              <Sparkles size={13} />
+              AI құралдар
+            </>
+          }
+          icon={<BrainCircuit size={20} />}
+          title={t('nav.ai_practice')}
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" asChild>
+                <Link to="/tests">
+                  <FileCheck2 size={14} className="mr-2" />
+                  Тесттер
+                </Link>
+              </Button>
 
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" asChild>
-              <Link to="/tests">
-                <FileCheck2 size={14} className="mr-2" />
-                Қазіргі тесттерге өту
-              </Link>
-            </Button>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleReset}
-              disabled={isGenerating || Boolean(evaluatingQuestionId)}
-            >
-              <RefreshCcw size={14} className="mr-2" />
-              Тазалау
-            </Button>
-          </div>
-        </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleReset}
+                disabled={isGenerating || Boolean(evaluatingQuestionId)}
+              >
+                <RefreshCcw size={14} className="mr-2" />
+                Тазалау
+              </Button>
+            </div>
+          }
+        />
 
         {!user ? (
           <EmptyState
             title="Аккаунт анықталмады"
-            text="AI practice қолдану үшін оқушы аккаунтымен жүйеге кіріңіз."
+            text="AI жаттығуды қолдану үшін оқушы аккаунтымен жүйеге кіріңіз."
             tone="ai"
           />
         ) : null}
@@ -487,31 +627,39 @@ export default function AiPracticePage() {
         {user && !isStudent ? (
           <EmptyState
             title="Бұл бөлім оқушыға арналған"
-            text="Practice сұрақтарын генерациялау және жауап тексеру оқушы режимінде қолданылады."
+            text="Жаттығу сұрақтарын генерациялау және жауап тексеру оқушы режимінде қолданылады."
             tone="ai"
           />
         ) : null}
 
         {user && isStudent ? (
           <>
-            <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base font-semibold">
-                    Practice параметрлері
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+              <Card className="overflow-hidden">
+                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                  <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                    <Sparkles size={16} className="text-primary" />
+                    Жаттығу параметрлері
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+
+                <CardContent className="space-y-4 p-4 sm:p-5">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label htmlFor="subject">Пән</Label>
+                      <Label
+                        htmlFor="subject"
+                        className="text-xs font-semibold text-foreground"
+                      >
+                        Пән
+                      </Label>
+
                       <Input
                         id="subject"
                         value={subject}
                         maxLength={MAX_SUBJECT_CHARS}
                         onChange={(event) => {
                           setSubject(event.target.value.slice(0, MAX_SUBJECT_CHARS));
-                          if (errorText) setErrorText('');
+                          clearError();
                         }}
                         disabled={isGenerating}
                         placeholder="Мысалы: Математика"
@@ -519,127 +667,140 @@ export default function AiPracticePage() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="topic">Тақырып</Label>
+                      <Label
+                        htmlFor="topic"
+                        className="text-xs font-semibold text-foreground"
+                      >
+                        Тақырып
+                      </Label>
+
                       <Input
                         id="topic"
                         value={topic}
                         maxLength={MAX_TOPIC_CHARS}
                         onChange={(event) => {
                           setTopic(event.target.value.slice(0, MAX_TOPIC_CHARS));
-                          if (errorText) setErrorText('');
+                          clearError();
                         }}
                         disabled={isGenerating}
                         placeholder="Мысалы: Квадрат теңдеулер"
                       />
                     </div>
 
-                    <div className="space-y-1.5">
-                      <Label htmlFor="difficulty">Қиындық деңгейі</Label>
-                      <select
-                        id="difficulty"
-                        value={difficulty}
-                        onChange={(event) => setDifficulty(event.target.value as Difficulty)}
-                        disabled={isGenerating}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        <option value="easy">Оңай</option>
-                        <option value="medium">Орташа</option>
-                        <option value="hard">Қиын</option>
-                      </select>
-                    </div>
+                    <SelectField
+                      id="difficulty"
+                      label="Қиындық деңгейі"
+                      value={difficulty}
+                      onChange={(value) => setDifficulty(value as Difficulty)}
+                      disabled={isGenerating}
+                    >
+                      <option value="easy">Оңай</option>
+                      <option value="medium">Орташа</option>
+                      <option value="hard">Қиын</option>
+                    </SelectField>
 
-                    <div className="space-y-1.5">
-                      <Label htmlFor="count">Сұрақ саны</Label>
-                      <select
-                        id="count"
-                        value={count}
-                        onChange={(event) => setCount(Number(event.target.value))}
-                        disabled={isGenerating}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {QUESTION_COUNT_OPTIONS.map((value) => (
-                          <option key={value} value={value}>
-                            {value}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <SelectField
+                      id="count"
+                      label="Сұрақ саны"
+                      value={count}
+                      onChange={(value) => setCount(Number(value))}
+                      disabled={isGenerating}
+                    >
+                      {QUESTION_COUNT_OPTIONS.map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </SelectField>
 
-                    <div className="space-y-1.5 md:col-span-2">
-                      <Label htmlFor="kind">Сұрақ түрі</Label>
-                      <select
+                    <div className="md:col-span-2">
+                      <SelectField
                         id="kind"
+                        label="Сұрақ түрі"
                         value={kind}
-                        onChange={(event) => setKind(event.target.value as AiQuestionKind)}
+                        onChange={(value) => setKind(value as AiQuestionKind)}
                         disabled={isGenerating}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         <option value="mixed">Аралас</option>
-                        <option value="multiple_choice">Multiple choice</option>
+                        <option value="multiple_choice">Жауап нұсқалары</option>
                         <option value="short_answer">Қысқа жауап</option>
-                      </select>
+                      </SelectField>
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="sourceText">Қосымша мазмұн немесе контекст</Label>
+                    <Label
+                      htmlFor="sourceText"
+                      className="text-xs font-semibold text-foreground"
+                    >
+                      Қосымша мазмұн
+                    </Label>
+
                     <Textarea
                       id="sourceText"
                       value={sourceText}
                       maxLength={MAX_SOURCE_TEXT_CHARS}
                       onChange={(event) => {
                         setSourceText(event.target.value.slice(0, MAX_SOURCE_TEXT_CHARS));
-                        if (errorText) setErrorText('');
+                        clearError();
                       }}
                       disabled={isGenerating}
-                      placeholder="Қаласаңыз, қысқаша теория немесе контекст жазыңыз..."
+                      placeholder="Қысқаша теория немесе контекст жазыңыз."
                       rows={6}
                     />
+
                     <p className="text-[11px] text-muted-foreground">
-                      {sourceText.length} / {MAX_SOURCE_TEXT_CHARS}
+                      {sourceText.length}/{MAX_SOURCE_TEXT_CHARS} таңба
                     </p>
                   </div>
 
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge tone="muted">{getDifficultyLabel(difficulty)}</StatusBadge>
+                    <StatusBadge tone="ai">{getQuestionKindLabel(kind)}</StatusBadge>
+                    <StatusBadge tone="info">{count} сұрақ</StatusBadge>
+                  </div>
+
                   <Button type="button" onClick={handleGenerate} disabled={!canGenerate}>
-                    <Sparkles size={16} className="mr-2" />
-                    {isGenerating ? 'Практика дайындалып жатыр...' : 'Практика генерациялау'}
+                    {isGenerating ? (
+                      <Loader2 size={16} className="mr-2 animate-spin" />
+                    ) : (
+                      <Sparkles size={16} className="mr-2" />
+                    )}
+                    {isGenerating ? 'Жаттығу дайындалып жатыр...' : 'Жаттығу генерациялау'}
                   </Button>
 
                   {isAuthMissing ? (
-                    <p className="text-xs text-muted-foreground">
-                      AI practice пайдалану үшін белсенді авторизация сессиясы қажет.
+                    <p className="rounded-2xl border border-warning-muted bg-warning-soft px-3 py-2 text-xs leading-5 text-warning-foreground">
+                      AI жаттығуды қолдану үшін белсенді авторизация сессиясы қажет.
                     </p>
                   ) : null}
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base font-semibold">Прогресс</CardTitle>
+              <Card className="overflow-hidden">
+                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                  <CardTitle className="text-base font-semibold">
+                    Прогресс
+                  </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
+
+                <CardContent className="space-y-4 p-4 sm:p-5">
                   <div className="grid gap-3 md:grid-cols-3">
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Генерацияланған</p>
-                      <p className="mt-1 text-lg font-semibold">{generatedCount}</p>
-                    </div>
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Жауап берілді</p>
-                      <p className="mt-1 text-lg font-semibold">{answeredCount}</p>
-                    </div>
-                    <div className="rounded-lg border p-4">
-                      <p className="text-xs text-muted-foreground">Тексерілді</p>
-                      <p className="mt-1 text-lg font-semibold">{evaluatedCount}</p>
-                    </div>
+                    <ProgressCell label="Сұрақ" value={generatedCount} />
+                    <ProgressCell label="Жауап" value={answeredCount} />
+                    <ProgressCell label="Тексеру" value={evaluatedCount} />
                   </div>
 
                   {result?.meta ? (
-                    <div className="rounded-lg border bg-muted/35 p-4 text-xs leading-5 text-muted-foreground">
+                    <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 text-xs leading-5 text-muted-foreground shadow-inner-soft">
                       <p>
-                        Режим: {result.meta.mode || 'unknown'}
-                        {result.meta.requestedKind ? ` · Түрі: ${result.meta.requestedKind}` : ''}
-                        {result.meta.examMode ? ` · Exam: ${result.meta.examMode}` : ''}
+                        Режим: {result.meta.mode || '—'}
+                        {result.meta.requestedKind
+                          ? ` · Түрі: ${getQuestionKindLabel(result.meta.requestedKind)}`
+                          : ''}
+                        {result.meta.examMode ? ` · Емтихан: ${result.meta.examMode}` : ''}
                       </p>
+
                       {result.meta.subject ? <p>Пән: {result.meta.subject}</p> : null}
                       {result.meta.topic ? <p>Тақырып: {result.meta.topic}</p> : null}
                     </div>
@@ -649,8 +810,9 @@ export default function AiPracticePage() {
             </div>
 
             {isGenerating ? (
-              <LoadingState text="Practice сұрақтары дайындалып жатыр..." />
+              <LoadingState text="Жаттығу сұрақтары дайындалып жатыр..." />
             ) : null}
+
             {errorText ? <ErrorState text={errorText} /> : null}
 
             {!isGenerating && !errorText && result && result.questions.length === 0 ? (
@@ -661,11 +823,14 @@ export default function AiPracticePage() {
             ) : null}
 
             {!isGenerating && generatedPassage ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base font-semibold">Мәтін / passage</CardTitle>
+              <Card className="overflow-hidden">
+                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                  <CardTitle className="text-base font-semibold">
+                    Қосымша мәтін
+                  </CardTitle>
                 </CardHeader>
-                <CardContent>
+
+                <CardContent className="p-4 sm:p-5">
                   <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">
                     {generatedPassage}
                   </p>
@@ -682,14 +847,23 @@ export default function AiPracticePage() {
                   const isAnyEvaluationPending = Boolean(evaluatingQuestionId);
 
                   return (
-                    <Card key={question.id}>
-                      <CardHeader>
-                        <CardTitle className="text-base font-semibold">
-                          Сұрақ {index + 1}
-                        </CardTitle>
+                    <Card key={question.id} className="overflow-hidden">
+                      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <CardTitle className="text-base font-semibold">
+                            Сұрақ {index + 1}
+                          </CardTitle>
+
+                          <StatusBadge tone="muted">
+                            {getQuestionTypeLabel(question.type)}
+                          </StatusBadge>
+                        </div>
                       </CardHeader>
-                      <CardContent className="space-y-4">
-                        <p className="text-sm leading-7">{question.question}</p>
+
+                      <CardContent className="space-y-4 p-4 sm:p-5">
+                        <p className="text-sm leading-7 text-foreground">
+                          {question.question}
+                        </p>
 
                         {question.type === 'multiple_choice' && question.options?.length ? (
                           <div className="space-y-2">
@@ -702,8 +876,10 @@ export default function AiPracticePage() {
                                   type="button"
                                   onClick={() => handleAnswerChange(question.id, option.text)}
                                   disabled={isEvaluating}
-                                  className={`flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
-                                    checked ? 'border-primary bg-primary/5' : 'hover:bg-accent'
+                                  className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+                                    checked
+                                      ? 'border-primary bg-primary/5'
+                                      : 'border-border bg-card hover:bg-accent'
                                   }`}
                                 >
                                   <span
@@ -728,33 +904,41 @@ export default function AiPracticePage() {
                               placeholder="Жауабыңызды жазыңыз..."
                               rows={4}
                             />
+
                             <p className="text-[11px] text-muted-foreground">
-                              {currentAnswer.length} / {MAX_ANSWER_CHARS}
+                              {currentAnswer.length}/{MAX_ANSWER_CHARS} таңба
                             </p>
                           </div>
                         )}
 
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            onClick={() => handleEvaluateQuestion(question)}
-                            disabled={
-                              isEvaluating ||
-                              isAnyEvaluationPending ||
-                              isAuthMissing ||
-                              !currentAnswer.trim()
-                            }
-                          >
+                        <Button
+                          type="button"
+                          onClick={() => handleEvaluateQuestion(question)}
+                          disabled={
+                            isEvaluating ||
+                            isAnyEvaluationPending ||
+                            isAuthMissing ||
+                            !currentAnswer.trim()
+                          }
+                        >
+                          {isEvaluating ? (
+                            <Loader2 size={16} className="mr-2 animate-spin" />
+                          ) : (
                             <BrainCircuit size={16} className="mr-2" />
-                            {isEvaluating ? 'Тексерілуде...' : 'Жауапты тексеру'}
-                          </Button>
-                        </div>
+                          )}
+                          {isEvaluating ? 'Тексерілуде...' : 'Жауапты тексеру'}
+                        </Button>
 
                         {currentFeedback ? (
-                          <div className={`rounded-lg border p-4 ${getFeedbackTone(currentFeedback)}`}>
-                            <div className="mb-3 flex items-center gap-2">
+                          <div
+                            className={`rounded-3xl border p-4 shadow-inner-soft ${getFeedbackTone(
+                              currentFeedback,
+                            )}`}
+                          >
+                            <div className="mb-3 flex flex-wrap items-center gap-2">
                               <CheckCircle2 size={15} className="text-primary" />
-                              <span className="text-sm font-medium">
+
+                              <span className="text-sm font-semibold">
                                 Нәтиже: {currentFeedback.score}
                                 {currentFeedback.maxScore !== undefined
                                   ? ` / ${currentFeedback.maxScore}`
@@ -762,20 +946,24 @@ export default function AiPracticePage() {
                               </span>
                             </div>
 
-                            <p className="text-sm leading-7 text-muted-foreground">
+                            <p className="text-sm leading-7">
                               {currentFeedback.feedback}
                             </p>
 
                             {currentFeedback.explanation ? (
-                              <div className="mt-3 rounded-md border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
-                                <span className="font-medium text-foreground">Түсіндірме: </span>
+                              <div className="mt-3 rounded-2xl border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
+                                <span className="font-medium text-foreground">
+                                  Түсіндірме:{' '}
+                                </span>
                                 {currentFeedback.explanation}
                               </div>
                             ) : null}
 
                             {currentFeedback.suggestion ? (
-                              <div className="mt-3 rounded-md border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
-                                <span className="font-medium text-foreground">Ұсыныс: </span>
+                              <div className="mt-3 rounded-2xl border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
+                                <span className="font-medium text-foreground">
+                                  Ұсыныс:{' '}
+                                </span>
                                 {currentFeedback.suggestion}
                               </div>
                             ) : null}

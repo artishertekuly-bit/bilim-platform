@@ -1,7 +1,6 @@
 import { useMutation, type QueryClient } from '@tanstack/react-query';
 import type { Dispatch, SetStateAction } from 'react';
 
-import t from '@/lib/i18n';
 import {
   createCourse,
   createLesson,
@@ -15,7 +14,11 @@ import {
   updateLesson,
   updateModule,
 } from '@/lib/app-data';
-import { normalizeMediaUrl } from '@/lib/media-url';
+import type {
+  CourseAccessType,
+  CourseVisibility,
+  TeacherCourseWorkspace,
+} from '@/lib/app-data-types';
 import {
   getNextSortOrder,
   getSortedBySortOrder,
@@ -27,6 +30,8 @@ import {
   shouldShowCoursePricing,
   type CourseStatus,
 } from '@/lib/course-creator/course-builder-utils';
+import t from '@/lib/i18n';
+import { normalizeMediaUrl } from '@/lib/media-url';
 
 type ToastFn = (input: {
   title: string;
@@ -38,20 +43,69 @@ type MutationUser = {
   id: string;
 } | null | undefined;
 
+type CourseBuilderCourse = TeacherCourseWorkspace['courses'][number];
+type CourseBuilderModule = CourseBuilderCourse['modules'][number];
+type CourseBuilderLesson = CourseBuilderModule['lessons'][number];
+
+type NewCourseForm = {
+  title: string;
+  description: string;
+  subjectId: string;
+  accessType: CourseAccessType;
+  visibility: CourseVisibility;
+  price: string;
+  currency: string;
+  enrollmentOpen: boolean;
+  maxStudents: string;
+  moduleTitle: string;
+  lessonTitle: string;
+  lessonBody: string;
+  lessonPractice: string;
+  lessonVideo: string;
+};
+
+type CourseEditForm = {
+  title: string;
+  description: string;
+  subjectId: string;
+  thumbnailUrl: string;
+  status: CourseStatus;
+  accessType: CourseAccessType;
+  visibility: CourseVisibility;
+  price: string;
+  currency: string;
+  enrollmentOpen: boolean;
+  maxStudents: string;
+};
+
+type ModuleForm = {
+  title: string;
+};
+
+type LessonForm = {
+  moduleId: string;
+  title: string;
+  contentBody: string;
+  practiceContent: string;
+  mediaUrl: string;
+  sortOrder: string;
+  isPublished: boolean;
+};
+
 type CourseBuilderCourseMutationsInput = {
   user: MutationUser;
-  workspace: any;
-  selectedCourse: any;
+  workspace?: TeacherCourseWorkspace | null;
+  selectedCourse?: CourseBuilderCourse | null;
 
-  newCourse: any;
-  courseEdit: any;
-  moduleForm: any;
-  lessonForm: any;
+  newCourse: NewCourseForm;
+  courseEdit: CourseEditForm;
+  moduleForm: ModuleForm;
+  lessonForm: LessonForm;
   editingLessonId: string | null;
 
   setSelectedCourseId: Dispatch<SetStateAction<string>>;
-  setModuleForm: Dispatch<SetStateAction<any>>;
-  setLessonForm: Dispatch<SetStateAction<any>>;
+  setModuleForm: Dispatch<SetStateAction<ModuleForm>>;
+  setLessonForm: Dispatch<SetStateAction<LessonForm>>;
   setEditingLessonId: Dispatch<SetStateAction<string | null>>;
 
   queryClient: QueryClient;
@@ -62,6 +116,165 @@ type CourseBuilderCourseMutationsInput = {
   refetchWorkspace: () => Promise<void>;
   toast: ToastFn;
 };
+
+const DEFAULT_CURRENCY = 'KZT';
+
+function normalizeAccessType(value: unknown): CourseAccessType {
+  if (
+    value === 'public_free' ||
+    value === 'private_invite' ||
+    value === 'paid' ||
+    value === 'subscription_only' ||
+    value === 'school_only'
+  ) {
+    return value;
+  }
+
+  if (value === 'open' || value === 'free') return 'public_free';
+  if (value === 'closed' || value === 'invite_only') return 'private_invite';
+
+  return 'public_free';
+}
+
+function normalizeSortOrder(value: unknown) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 1;
+}
+
+function normalizeNullableText(value: string) {
+  const normalized = value.replace(/\x00/g, ' ').trim();
+
+  return normalized || null;
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim()
+    : fallback;
+}
+
+function getPaidCourseMeta(input: {
+  accessType: CourseAccessType;
+  price: string;
+  currency: string;
+}) {
+  const isPaidCourse = shouldShowCoursePricing(input.accessType);
+  const price = isPaidCourse ? parsePrice(input.price) : 0;
+  const currency = isPaidCourse
+    ? normalizeCurrency(input.currency || DEFAULT_CURRENCY)
+    : DEFAULT_CURRENCY;
+
+  if (isPaidCourse && price <= 0) {
+    throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
+  }
+
+  return {
+    isPaidCourse,
+    price,
+    currency,
+  };
+}
+
+function requireUser(user: MutationUser) {
+  if (!user?.id) {
+    throw new Error('Пайдаланушы табылмады.');
+  }
+
+  return user;
+}
+
+function requireSelectedCourse(
+  selectedCourse: CourseBuilderCourse | null | undefined,
+) {
+  if (!selectedCourse?.id) {
+    throw new Error('Курс таңдалмаған.');
+  }
+
+  return selectedCourse;
+}
+
+function requireCourseTitle(title: string) {
+  const normalized = title.trim();
+
+  if (!normalized) {
+    throw new Error('Курс атауын енгізіңіз.');
+  }
+
+  return normalized;
+}
+
+function requireCourseDescription(description: string) {
+  const normalized = description.trim();
+
+  if (!normalized) {
+    throw new Error('Курс сипаттамасын енгізіңіз.');
+  }
+
+  return normalized;
+}
+
+function requireSubjectId(subjectId: string) {
+  const normalized = subjectId.trim();
+
+  if (!normalized) {
+    throw new Error('Пән таңдаңыз.');
+  }
+
+  return normalized;
+}
+
+function requireModuleTitle(title: string) {
+  const normalized = title.trim();
+
+  if (!normalized) {
+    throw new Error('Модуль атауын енгізіңіз.');
+  }
+
+  return normalized;
+}
+
+function requireLessonTitle(title: string) {
+  const normalized = title.trim();
+
+  if (!normalized) {
+    throw new Error('Сабақ атауын енгізіңіз.');
+  }
+
+  return normalized;
+}
+
+function findLessonInCourse(
+  selectedCourse: CourseBuilderCourse | null | undefined,
+  lessonId: string,
+): {
+  lesson: CourseBuilderLesson;
+  module: CourseBuilderModule;
+} | null {
+  if (!selectedCourse) return null;
+
+  for (const module of selectedCourse.modules) {
+    const lesson = module.lessons.find((item) => item.id === lessonId);
+
+    if (lesson) {
+      return {
+        lesson,
+        module,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getRemainingCourseId(
+  workspace: TeacherCourseWorkspace | null | undefined,
+  deletedCourseId: string,
+) {
+  return (
+    workspace?.courses.find((course) => course.id !== deletedCourseId)?.id || ''
+  );
+}
 
 export function useCourseBuilderCourseMutations({
   user,
@@ -85,35 +298,34 @@ export function useCourseBuilderCourseMutations({
 }: CourseBuilderCourseMutationsInput) {
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!user) throw new Error('User not found');
+      const activeUser = requireUser(user);
+      const accessType = normalizeAccessType(newCourse.accessType);
+      const { price, currency } = getPaidCourseMeta({
+        accessType,
+        price: newCourse.price,
+        currency: newCourse.currency,
+      });
 
-      const accessType = newCourse.accessType;
-      const isPaidCourse = shouldShowCoursePricing(accessType);
-
-      const price = isPaidCourse ? parsePrice(newCourse.price) : 0;
-      const maxStudents = parseMaxStudents(newCourse.maxStudents);
-      const currency = isPaidCourse ? normalizeCurrency(newCourse.currency) : 'KZT';
-
-      if (isPaidCourse && price <= 0) {
-        throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
-      }
+      const title = requireCourseTitle(newCourse.title);
+      const description = requireCourseDescription(newCourse.description);
+      const subjectId = requireSubjectId(newCourse.subjectId);
 
       const course = await createCourse({
-        title: newCourse.title.trim(),
-        description: newCourse.description.trim(),
-        subjectId: newCourse.subjectId,
-        teacherId: user.id,
+        title,
+        description,
+        subjectId,
+        teacherId: activeUser.id,
         status: 'draft',
         accessType,
         visibility: resolveVisibilityFromAccessType(accessType),
         price,
         currency,
-        enrollmentOpen: true,
-        maxStudents,
+        enrollmentOpen: Boolean(newCourse.enrollmentOpen),
+        maxStudents: parseMaxStudents(newCourse.maxStudents),
       });
 
-      if (!course) {
-        throw new Error('Course creation failed');
+      if (!course?.id) {
+        throw new Error('Курс құру мүмкін болмады.');
       }
 
       const module = await createModule({
@@ -124,13 +336,13 @@ export function useCourseBuilderCourseMutations({
         sortOrder: 1,
       });
 
-      if (!module) {
-        throw new Error('Module creation failed');
+      if (!module?.id) {
+        throw new Error('Модуль құру мүмкін болмады.');
       }
 
       await createLesson({
         moduleId: module.id,
-        subjectId: newCourse.subjectId,
+        subjectId,
         title:
           newCourse.lessonTitle.trim() ||
           t('page.teacher_course_builder.defaults.lesson_short'),
@@ -156,66 +368,69 @@ export function useCourseBuilderCourseMutations({
     onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
 
   const updateCourseMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedCourse) throw new Error('Course not selected');
-
-      const accessType = courseEdit.accessType;
-      const isPaidCourse = shouldShowCoursePricing(accessType);
-
-      const price = isPaidCourse ? parsePrice(courseEdit.price) : 0;
-      const maxStudents = parseMaxStudents(courseEdit.maxStudents);
-      const currency = isPaidCourse ? normalizeCurrency(courseEdit.currency) : 'KZT';
-
-      if (isPaidCourse && price <= 0) {
-        throw new Error('Ақылы курс үшін баға 0-ден жоғары болуы керек.');
-      }
+      const course = requireSelectedCourse(selectedCourse);
+      const accessType = normalizeAccessType(courseEdit.accessType);
+      const { price, currency } = getPaidCourseMeta({
+        accessType,
+        price: courseEdit.price,
+        currency: courseEdit.currency,
+      });
 
       await updateCourse({
-        courseId: selectedCourse.id,
-        title: courseEdit.title.trim(),
-        description: courseEdit.description.trim(),
-        subjectId: courseEdit.subjectId || null,
-        thumbnailUrl: courseEdit.thumbnailUrl.trim() || null,
+        courseId: course.id,
+        title: requireCourseTitle(courseEdit.title),
+        description: requireCourseDescription(courseEdit.description),
+        subjectId: courseEdit.subjectId.trim() || null,
+        thumbnailUrl: normalizeNullableText(normalizeMediaUrl(courseEdit.thumbnailUrl)),
         status: courseEdit.status,
         accessType,
         visibility: resolveVisibilityFromAccessType(accessType),
         price,
         currency,
-        enrollmentOpen: true,
-        maxStudents,
+        enrollmentOpen: Boolean(courseEdit.enrollmentOpen),
+        maxStudents: parseMaxStudents(courseEdit.maxStudents),
       });
     },
     onSuccess: async () => {
       await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.update_course_title') });
+
+      toast({
+        title: t('page.teacher_course_builder.toast.update_course_title'),
+      });
     },
     onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
 
   const deleteCourseMutation = useMutation({
     mutationFn: async (courseId: string) => {
+      if (!courseId) {
+        throw new Error('Курс ID табылмады.');
+      }
+
       await deleteCourse(courseId);
+
+      return courseId;
     },
-    onSuccess: async (_data, courseId) => {
-      const nextCourseId =
-        workspace?.courses.find((course: any) => course.id !== courseId)?.id || '';
+    onSuccess: async (deletedCourseId) => {
+      const nextCourseId = getRemainingCourseId(workspace, deletedCourseId);
 
       setEditingLessonId(null);
 
@@ -229,68 +444,84 @@ export function useCourseBuilderCourseMutations({
 
       await refetchWorkspace();
 
-      toast({ title: t('page.teacher_course_builder.toast.delete_course_title') });
-    },
-    onError: (error) => {
-      console.error('[deleteCourseMutation error]', error);
-
       toast({
-        title: t('page.teacher_course_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_course_builder.toast.error_text'),
-        variant: 'destructive',
+        title: t('page.teacher_course_builder.toast.delete_course_title'),
       });
     },
+    onError: (error) =>
+      toast({
+        title: t('page.teacher_course_builder.toast.error_title'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
+        variant: 'destructive',
+      }),
   });
 
   const addModuleMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedCourse) throw new Error('Course not selected');
+      const course = requireSelectedCourse(selectedCourse);
+      const title = requireModuleTitle(moduleForm.title);
 
       await createModule({
-        courseId: selectedCourse.id,
-        title: moduleForm.title.trim(),
-        sortOrder: Number(getNextSortOrder(selectedCourse.modules || [])),
+        courseId: course.id,
+        title,
+        sortOrder: Number(getNextSortOrder(course.modules || [])),
       });
     },
     onSuccess: async () => {
       setModuleForm({ title: '' });
       await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.add_module_title') });
+
+      toast({
+        title: t('page.teacher_course_builder.toast.add_module_title'),
+      });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
 
   const deleteModuleMutation = useMutation({
     mutationFn: async (moduleId: string) => {
-      if (!selectedCourse) throw new Error('Course not selected');
+      const course = requireSelectedCourse(selectedCourse);
 
-      const remainingIds = getSortedBySortOrder(selectedCourse.modules)
-        .filter((module: any) => module.id !== moduleId)
-        .map((module: any) => module.id);
+      if (!moduleId) {
+        throw new Error('Модуль ID табылмады.');
+      }
+
+      const remainingIds = getSortedBySortOrder(course.modules)
+        .filter((module) => module.id !== moduleId)
+        .map((module) => module.id);
 
       await deleteModule(moduleId);
 
       if (remainingIds.length > 0) {
-        await reorderModules(selectedCourse.id, remainingIds);
+        await reorderModules(course.id, remainingIds);
       }
     },
     onSuccess: async () => {
       await refetchWorkspace();
       resetLessonForm();
-      toast({ title: t('page.teacher_course_builder.toast.delete_module_title') });
+
+      toast({
+        title: t('page.teacher_course_builder.toast.delete_module_title'),
+      });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
@@ -303,10 +534,9 @@ export function useCourseBuilderCourseMutations({
       moduleId: string;
       direction: 'up' | 'down';
     }) => {
-      if (!selectedCourse) throw new Error('Course not selected');
-
-      const sortedModules = getSortedBySortOrder(selectedCourse.modules || []);
-      const currentIndex = sortedModules.findIndex((module: any) => module.id === moduleId);
+      const course = requireSelectedCourse(selectedCourse);
+      const sortedModules = getSortedBySortOrder(course.modules || []);
+      const currentIndex = sortedModules.findIndex((module) => module.id === moduleId);
       const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
 
       if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sortedModules.length) {
@@ -314,64 +544,92 @@ export function useCourseBuilderCourseMutations({
       }
 
       const nextOrder = moveItem(sortedModules, currentIndex, nextIndex).map(
-        (module: any) => module.id
+        (module) => module.id,
       );
 
-      await reorderModules(selectedCourse.id, nextOrder);
+      await reorderModules(course.id, nextOrder);
     },
     onSuccess: async () => {
       await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.reorder_modules_title') });
+
+      toast({
+        title: t('page.teacher_course_builder.toast.reorder_modules_title'),
+      });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
 
   const addOrUpdateLessonMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedCourse) throw new Error('Course not selected');
-      if (!lessonForm.moduleId) throw new Error('Module not selected');
+      const course = requireSelectedCourse(selectedCourse);
+      const title = requireLessonTitle(lessonForm.title);
+      const sortOrder = normalizeSortOrder(lessonForm.sortOrder);
+      const mediaUrl = normalizeMediaUrl(lessonForm.mediaUrl);
+
+      if (!lessonForm.moduleId) {
+        throw new Error('Модуль таңдалмаған.');
+      }
+
+      const moduleExists = course.modules.some(
+        (module) => module.id === lessonForm.moduleId,
+      );
+
+      if (!moduleExists) {
+        throw new Error('Таңдалған модуль бұл курсқа тиесілі емес.');
+      }
 
       if (editingLessonId) {
         await updateLesson({
           lessonId: editingLessonId,
-          title: lessonForm.title.trim(),
+          title,
           contentBody: lessonForm.contentBody,
           practiceContent: lessonForm.practiceContent,
-          mediaUrl: normalizeMediaUrl(lessonForm.mediaUrl),
-          sortOrder: Number(lessonForm.sortOrder) || 1,
+          mediaUrl,
+          sortOrder,
           isPublished: lessonForm.isPublished,
         });
-      } else {
-        await createLesson({
-          moduleId: lessonForm.moduleId,
-          subjectId: selectedCourse.subjectId || undefined,
-          title: lessonForm.title.trim(),
-          contentBody: lessonForm.contentBody,
-          practiceContent: lessonForm.practiceContent,
-          mediaUrl: normalizeMediaUrl(lessonForm.mediaUrl),
-          sortOrder: Number(lessonForm.sortOrder) || 1,
-          isPublished: lessonForm.isPublished,
-        });
+
+        return;
       }
+
+      await createLesson({
+        moduleId: lessonForm.moduleId,
+        subjectId: course.subjectId || undefined,
+        title,
+        contentBody: lessonForm.contentBody,
+        practiceContent: lessonForm.practiceContent,
+        mediaUrl,
+        sortOrder,
+        isPublished: lessonForm.isPublished,
+      });
     },
     onSuccess: async () => {
+      const wasEditing = Boolean(editingLessonId);
+
       resetLessonForm();
       await refetchWorkspace();
+
       toast({
-        title: editingLessonId
+        title: wasEditing
           ? t('page.teacher_course_builder.toast.update_lesson_title')
           : t('page.teacher_course_builder.toast.add_lesson_title'),
       });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
@@ -386,6 +644,14 @@ export function useCourseBuilderCourseMutations({
       moduleId: string;
       remainingIds: string[];
     }) => {
+      if (!lessonId) {
+        throw new Error('Сабақ ID табылмады.');
+      }
+
+      if (!moduleId) {
+        throw new Error('Модуль ID табылмады.');
+      }
+
       await deleteLesson(lessonId);
 
       if (remainingIds.length > 0) {
@@ -395,12 +661,18 @@ export function useCourseBuilderCourseMutations({
     onSuccess: async () => {
       await refetchWorkspace();
       resetLessonForm();
-      toast({ title: t('page.teacher_course_builder.toast.delete_lesson_title') });
+
+      toast({
+        title: t('page.teacher_course_builder.toast.delete_lesson_title'),
+      });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
@@ -415,11 +687,15 @@ export function useCourseBuilderCourseMutations({
       lessonId: string;
       direction: 'up' | 'down';
     }) => {
-      const module = selectedCourse?.modules.find((item: any) => item.id === moduleId);
-      if (!module) throw new Error('Module not found');
+      const course = requireSelectedCourse(selectedCourse);
+      const module = course.modules.find((item) => item.id === moduleId);
+
+      if (!module) {
+        throw new Error('Модуль табылмады.');
+      }
 
       const sortedLessons = getSortedBySortOrder(module.lessons || []);
-      const currentIndex = sortedLessons.findIndex((lesson: any) => lesson.id === lessonId);
+      const currentIndex = sortedLessons.findIndex((lesson) => lesson.id === lessonId);
       const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
 
       if (currentIndex < 0 || nextIndex < 0 || nextIndex >= sortedLessons.length) {
@@ -427,86 +703,154 @@ export function useCourseBuilderCourseMutations({
       }
 
       const nextOrder = moveItem(sortedLessons, currentIndex, nextIndex).map(
-        (lesson: any) => lesson.id
+        (lesson) => lesson.id,
       );
 
       await reorderLessons(moduleId, nextOrder);
     },
     onSuccess: async () => {
       await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.reorder_lessons_title') });
+
+      toast({
+        title: t('page.teacher_course_builder.toast.reorder_lessons_title'),
+      });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
 
   const quickStatusMutation = useMutation({
-    mutationFn: async ({ courseId, status }: { courseId: string; status: CourseStatus }) =>
-      updateCourse({ courseId, status }),
+    mutationFn: async ({
+      courseId,
+      status,
+    }: {
+      courseId: string;
+      status: CourseStatus;
+    }) => {
+      if (!courseId) {
+        throw new Error('Курс ID табылмады.');
+      }
+
+      await updateCourse({
+        courseId,
+        status,
+      });
+    },
     onSuccess: async () => {
       await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.update_status_title') });
+
+      toast({
+        title: t('page.teacher_course_builder.toast.update_status_title'),
+      });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
 
   const updateModuleTitleMutation = useMutation({
-    mutationFn: async ({ moduleId, title }: { moduleId: string; title: string }) =>
-      updateModule({ moduleId, title }),
+    mutationFn: async ({
+      moduleId,
+      title,
+    }: {
+      moduleId: string;
+      title: string;
+    }) => {
+      if (!moduleId) {
+        throw new Error('Модуль ID табылмады.');
+      }
+
+      await updateModule({
+        moduleId,
+        title: requireModuleTitle(title),
+      });
+    },
     onSuccess: async () => {
       await refetchWorkspace();
-      toast({ title: t('page.teacher_course_builder.toast.update_module_title') });
+
+      toast({
+        title: t('page.teacher_course_builder.toast.update_module_title'),
+      });
     },
-    onError: () =>
+    onError: (error) =>
       toast({
         title: t('page.teacher_course_builder.toast.error_title'),
-        description: t('page.teacher_course_builder.toast.error_text'),
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
   });
 
   const startEditLesson = (lessonId: string) => {
-    const lesson = selectedCourse?.modules
-      .flatMap((module: any) => module.lessons)
-      .find((item: any) => item.id === lessonId);
+    const found = findLessonInCourse(selectedCourse, lessonId);
 
-    if (!lesson) return;
+    if (!found) {
+      toast({
+        title: t('page.teacher_course_builder.toast.error_title'),
+        description: 'Сабақ табылмады.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const { lesson, module } = found;
 
     setEditingLessonId(lesson.id);
     setLessonForm({
-      moduleId: lesson.moduleId,
+      moduleId: module.id,
       title: lesson.title,
       contentBody: lesson.contentBody || '',
       practiceContent: lesson.practiceContent || '',
       mediaUrl: lesson.mediaUrl || '',
-      sortOrder: String(lesson.sortOrder),
-      isPublished: lesson.isPublished,
+      sortOrder: String(lesson.sortOrder || 1),
+      isPublished: Boolean(lesson.isPublished),
     });
   };
 
+  const createAccessType = normalizeAccessType(newCourse.accessType);
+  const editAccessType = normalizeAccessType(courseEdit.accessType);
+
   const canCreateCourse =
-    !!newCourse.title.trim() &&
-    !!newCourse.subjectId &&
+    Boolean(user?.id) &&
+    Boolean(newCourse.title.trim()) &&
+    Boolean(newCourse.description.trim()) &&
+    Boolean(newCourse.subjectId.trim()) &&
+    (!shouldShowCoursePricing(createAccessType) || parsePrice(newCourse.price) > 0) &&
     !createMutation.isPending;
 
   const canAddModule =
-    !!selectedCourse &&
-    !!moduleForm.title.trim() &&
+    Boolean(selectedCourse) &&
+    Boolean(moduleForm.title.trim()) &&
     !addModuleMutation.isPending;
 
   const canSaveLesson =
-    !!lessonForm.moduleId &&
-    !!lessonForm.title.trim() &&
+    Boolean(selectedCourse) &&
+    Boolean(lessonForm.moduleId) &&
+    Boolean(lessonForm.title.trim()) &&
     !addOrUpdateLessonMutation.isPending;
+
+  const canSaveCourse =
+    Boolean(selectedCourse) &&
+    Boolean(courseEdit.title.trim()) &&
+    Boolean(courseEdit.description.trim()) &&
+    Boolean(courseEdit.subjectId.trim()) &&
+    (!shouldShowCoursePricing(editAccessType) || parsePrice(courseEdit.price) > 0) &&
+    !updateCourseMutation.isPending;
 
   return {
     createMutation,
@@ -526,5 +870,6 @@ export function useCourseBuilderCourseMutations({
     canCreateCourse,
     canAddModule,
     canSaveLesson,
+    canSaveCourse,
   };
 }

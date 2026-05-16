@@ -1,7 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
 
-import t from '@/lib/i18n';
-import type { CourseAnnouncementView } from '@/lib/app-data-types';
 import {
   useCourseInvites,
   useCreateCourseAnnouncementMutation,
@@ -14,6 +12,11 @@ import {
   useDeleteLessonAttachmentMutation,
   useUpdateCourseAnnouncementMutation,
 } from '@/hooks/use-platform-data';
+import type {
+  CourseAnnouncementPriority,
+  CourseAnnouncementView,
+  TeacherCourseWorkspace,
+} from '@/lib/app-data-types';
 import {
   formatAssetTitle,
   getFilenameFromUrl,
@@ -21,6 +24,7 @@ import {
   scrollToBuilderSection,
   toDateTimeLocalValue,
 } from '@/lib/course-creator/course-builder-utils';
+import t from '@/lib/i18n';
 
 type ToastFn = (input: {
   title: string;
@@ -32,31 +36,161 @@ type SidePanelUser = {
   id: string;
 } | null | undefined;
 
+type CourseBuilderCourse = TeacherCourseWorkspace['courses'][number];
+type CourseBuilderModule = CourseBuilderCourse['modules'][number];
+type CourseBuilderLesson = CourseBuilderModule['lessons'][number];
+
+type InviteForm = {
+  maxUses: string;
+  expiresAt: string;
+};
+
+type ExternalAssetForm = {
+  title: string;
+  description: string;
+  externalUrl: string;
+};
+
+type LessonAttachmentForm = {
+  title: string;
+  description: string;
+  externalUrl: string;
+};
+
+type AnnouncementForm = {
+  title: string;
+  body: string;
+  priority: CourseAnnouncementPriority;
+  isPinned: boolean;
+  expiresAt: string;
+};
+
 type UseCourseBuilderSidePanelsInput = {
   user: SidePanelUser;
-  selectedCourse: any;
-  selectedEditingLesson: any;
+  selectedCourse?: CourseBuilderCourse | null;
+  selectedEditingLesson?: CourseBuilderLesson | null;
 
-  courseAssets: any[] | undefined;
-  lessonAttachments: any[] | undefined;
+  courseAssets: unknown[] | undefined;
+  lessonAttachments: unknown[] | undefined;
 
-  inviteForm: any;
-  setInviteForm: Dispatch<SetStateAction<any>>;
+  inviteForm: InviteForm;
+  setInviteForm: Dispatch<SetStateAction<InviteForm>>;
 
-  courseAssetForm: any;
-  setCourseAssetForm: Dispatch<SetStateAction<any>>;
+  courseAssetForm: ExternalAssetForm;
+  setCourseAssetForm: Dispatch<SetStateAction<ExternalAssetForm>>;
 
-  lessonAttachmentForm: any;
-  setLessonAttachmentForm: Dispatch<SetStateAction<any>>;
+  lessonAttachmentForm: LessonAttachmentForm;
+  setLessonAttachmentForm: Dispatch<SetStateAction<LessonAttachmentForm>>;
 
-  announcementForm: any;
-  setAnnouncementForm: Dispatch<SetStateAction<any>>;
+  announcementForm: AnnouncementForm;
+  setAnnouncementForm: Dispatch<SetStateAction<AnnouncementForm>>;
   editingAnnouncementId: string | null;
   setEditingAnnouncementId: Dispatch<SetStateAction<string | null>>;
 
   refetchWorkspace: () => Promise<void>;
   toast: ToastFn;
 };
+
+const emptyInviteForm: InviteForm = {
+  maxUses: '',
+  expiresAt: '',
+};
+
+const emptyExternalAssetForm: ExternalAssetForm = {
+  title: '',
+  description: '',
+  externalUrl: '',
+};
+
+const emptyLessonAttachmentForm: LessonAttachmentForm = {
+  title: '',
+  description: '',
+  externalUrl: '',
+};
+
+const emptyAnnouncementForm: AnnouncementForm = {
+  title: '',
+  body: '',
+  priority: 'normal',
+  isPinned: false,
+  expiresAt: '',
+};
+
+function getErrorMessage(error: unknown, fallback = 'Белгісіз қате пайда болды.') {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim()
+    : fallback;
+}
+
+function requireUserId(user: SidePanelUser) {
+  if (!user?.id) {
+    throw new Error('Пайдаланушы табылмады.');
+  }
+
+  return user.id;
+}
+
+function requireCourse(course?: CourseBuilderCourse | null) {
+  if (!course?.id) {
+    throw new Error('Курс таңдалмаған.');
+  }
+
+  return course;
+}
+
+function requireLesson(lesson?: CourseBuilderLesson | null) {
+  if (!lesson?.id) {
+    throw new Error('Сабақ таңдалмаған.');
+  }
+
+  return lesson;
+}
+
+function parseInviteMaxUses(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  const maxUses = Number(trimmed);
+
+  if (!Number.isInteger(maxUses) || maxUses <= 0) {
+    throw new Error('Қолдану лимиті бос немесе 1-ден жоғары бүтін сан болуы керек.');
+  }
+
+  return maxUses;
+}
+
+function parseOptionalDateTime(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  const date = new Date(trimmed);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('Мерзім форматы қате.');
+  }
+
+  return date.toISOString();
+}
+
+function normalizeRequiredExternalUrl(value: string) {
+  const normalized = normalizeExternalUrlInput(value);
+
+  if (!normalized) {
+    throw new Error('Сілтеме енгізіңіз.');
+  }
+
+  return normalized;
+}
+
+function normalizeTitle(value: string, fallback: string) {
+  return value.replace(/\x00/g, ' ').trim() || fallback;
+}
+
+function normalizeDescription(value: string) {
+  return value.replace(/\x00/g, ' ').trim() || null;
+}
 
 export function useCourseBuilderSidePanels({
   user,
@@ -77,10 +211,8 @@ export function useCourseBuilderSidePanels({
   refetchWorkspace,
   toast,
 }: UseCourseBuilderSidePanelsInput) {
-  const {
-    data: courseInvites,
-    isLoading: courseInvitesLoading,
-  } = useCourseInvites(selectedCourse?.id || '', !!selectedCourse?.id);
+  const { data: courseInvites, isLoading: courseInvitesLoading } =
+    useCourseInvites(selectedCourse?.id || '', Boolean(selectedCourse?.id));
 
   const createInviteMutation = useCreateCourseInviteMutation(user?.id);
   const deactivateInviteMutation = useDeactivateCourseInviteMutation(user?.id);
@@ -89,47 +221,44 @@ export function useCourseBuilderSidePanels({
   const deleteAnnouncementMutation = useDeleteCourseAnnouncementMutation(user?.id);
   const createCourseAssetMutation = useCreateCourseExternalAssetMutation(user?.id);
   const deleteCourseAssetMutation = useDeleteCourseAssetMutation(user?.id);
-  const createLessonAttachmentMutation = useCreateLessonExternalAttachmentMutation(user?.id);
+  const createLessonAttachmentMutation =
+    useCreateLessonExternalAttachmentMutation(user?.id);
   const deleteLessonAttachmentMutation = useDeleteLessonAttachmentMutation(user?.id);
 
+  const resetAnnouncementForm = () => {
+    setAnnouncementForm(emptyAnnouncementForm);
+    setEditingAnnouncementId(null);
+  };
+
   const handleCreateInvite = async () => {
-    if (!selectedCourse) return;
-
-    const maxUses = inviteForm.maxUses.trim()
-      ? Number(inviteForm.maxUses)
-      : null;
-
-    if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses <= 0)) {
-      toast({
-        title: 'Invite лимиті қате',
-        description: 'Қолдану лимиті бос немесе 1-ден жоғары бүтін сан болуы керек.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
+      const course = requireCourse(selectedCourse);
+      const teacherId = requireUserId(user);
+
+      const maxUses = parseInviteMaxUses(inviteForm.maxUses);
+      const expiresAt = parseOptionalDateTime(inviteForm.expiresAt);
+
       await createInviteMutation.mutateAsync({
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
+        courseId: course.id,
+        teacherId,
         maxUses,
-        expiresAt: inviteForm.expiresAt
-          ? new Date(inviteForm.expiresAt).toISOString()
-          : null,
+        expiresAt,
       });
 
-      setInviteForm({ maxUses: '', expiresAt: '' });
+      setInviteForm(emptyInviteForm);
       await refetchWorkspace();
 
       toast({
-        title: 'Invite code жасалды',
-        description: 'Оқушылар осы code арқылы курсқа кіре алады.',
+        title: 'Шақыру коды жасалды',
+        description: 'Оқушылар осы код арқылы курсқа кіре алады.',
       });
     } catch (error) {
       toast({
-        title: 'Invite code жасау мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : t('page.teacher_course_builder.toast.error_text'),
+        title: 'Шақыру кодын жасау мүмкін болмады',
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       });
     }
@@ -137,58 +266,78 @@ export function useCourseBuilderSidePanels({
 
   const handleDeactivateInvite = async (inviteId: string) => {
     try {
+      if (!inviteId) {
+        throw new Error('Шақыру коды табылмады.');
+      }
+
       await deactivateInviteMutation.mutateAsync(inviteId);
       await refetchWorkspace();
 
       toast({
-        title: 'Invite өшірілді',
+        title: 'Шақыру коды өшірілді',
       });
     } catch (error) {
       toast({
-        title: 'Invite өшіру мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : t('page.teacher_course_builder.toast.error_text'),
+        title: 'Шақыру кодын өшіру мүмкін болмады',
+        description: getErrorMessage(
+          error,
+          t('page.teacher_course_builder.toast.error_text'),
+        ),
         variant: 'destructive',
       });
     }
   };
 
   const copyInviteCode = async (code: string) => {
+    const cleanCode = code.trim();
+
+    if (!cleanCode) {
+      toast({
+        title: 'Код табылмады',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(code);
+      await navigator.clipboard.writeText(cleanCode);
 
       toast({
-        title: 'Invite code көшірілді',
-        description: code,
+        title: 'Шақыру коды көшірілді',
+        description: cleanCode,
       });
     } catch {
       toast({
         title: 'Көшіру мүмкін болмады',
-        description: code,
+        description: cleanCode,
         variant: 'destructive',
       });
     }
   };
 
   const handleCreateCourseAsset = async () => {
-    if (!selectedCourse || !user?.id) return;
-
     try {
-      const externalUrl = normalizeExternalUrlInput(courseAssetForm.externalUrl);
-      const filename = getFilenameFromUrl(externalUrl, courseAssetForm.title || 'Курс материалы');
+      const course = requireCourse(selectedCourse);
+      const teacherId = requireUserId(user);
+
+      const externalUrl = normalizeRequiredExternalUrl(courseAssetForm.externalUrl);
+      const filename = getFilenameFromUrl(
+        externalUrl,
+        normalizeTitle(courseAssetForm.title, 'Курс материалы'),
+      );
 
       await createCourseAssetMutation.mutateAsync({
-        ownerId: user.id,
-        courseId: selectedCourse.id,
+        ownerId: teacherId,
+        courseId: course.id,
         filename,
         externalUrl,
         title: formatAssetTitle(courseAssetForm.title, filename),
-        description: courseAssetForm.description.trim() || null,
+        description: normalizeDescription(courseAssetForm.description),
         sortOrder: (courseAssets?.length || 0) + 1,
-        teacherId: user.id,
+        teacherId,
       });
 
-      setCourseAssetForm({ title: '', description: '', externalUrl: '' });
+      setCourseAssetForm(emptyExternalAssetForm);
       await refetchWorkspace();
 
       toast({
@@ -197,21 +346,25 @@ export function useCourseBuilderSidePanels({
     } catch (error) {
       toast({
         title: 'Курс материалын қосу мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
   const handleDeleteCourseAsset = async (assetId: string) => {
-    if (!selectedCourse) return;
-
     try {
+      const course = requireCourse(selectedCourse);
+      const teacherId = requireUserId(user);
+
+      if (!assetId) {
+        throw new Error('Материал ID табылмады.');
+      }
+
       await deleteCourseAssetMutation.mutateAsync({
         assetId,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
+        courseId: course.id,
+        teacherId,
       });
 
       await refetchWorkspace();
@@ -222,22 +375,10 @@ export function useCourseBuilderSidePanels({
     } catch (error) {
       toast({
         title: 'Курс материалын өшіру мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
-  };
-
-  const resetAnnouncementForm = () => {
-    setAnnouncementForm({
-      title: '',
-      body: '',
-      priority: 'normal',
-      isPinned: false,
-      expiresAt: '',
-    });
-    setEditingAnnouncementId(null);
   };
 
   const handleEditAnnouncement = (announcement: CourseAnnouncementView) => {
@@ -255,30 +396,24 @@ export function useCourseBuilderSidePanels({
   };
 
   const handleSaveAnnouncement = async () => {
-    if (!selectedCourse || !user?.id) return;
-
-    const title = announcementForm.title.trim();
-    const body = announcementForm.body.trim();
-
-    if (!title || !body) {
-      toast({
-        title: 'Хабарландыру толық емес',
-        description: 'Тақырып пен мәтінді толтырыңыз.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
-      const expiresAt = announcementForm.expiresAt
-        ? new Date(announcementForm.expiresAt).toISOString()
-        : null;
+      const course = requireCourse(selectedCourse);
+      const teacherId = requireUserId(user);
+
+      const title = announcementForm.title.trim();
+      const body = announcementForm.body.trim();
+
+      if (!title || !body) {
+        throw new Error('Тақырып пен мәтінді толтырыңыз.');
+      }
+
+      const expiresAt = parseOptionalDateTime(announcementForm.expiresAt);
 
       if (editingAnnouncementId) {
         await updateAnnouncementMutation.mutateAsync({
           announcementId: editingAnnouncementId,
-          courseId: selectedCourse.id,
-          teacherId: user.id,
+          courseId: course.id,
+          teacherId,
           title,
           body,
           priority: announcementForm.priority,
@@ -291,9 +426,9 @@ export function useCourseBuilderSidePanels({
         });
       } else {
         await createAnnouncementMutation.mutateAsync({
-          courseId: selectedCourse.id,
-          authorId: user.id,
-          teacherId: user.id,
+          courseId: course.id,
+          authorId: teacherId,
+          teacherId,
           title,
           body,
           priority: announcementForm.priority,
@@ -311,27 +446,25 @@ export function useCourseBuilderSidePanels({
     } catch (error) {
       toast({
         title: 'Хабарландыруды сақтау мүмкін болмады',
-        description:
-          error instanceof Error
-            ? error.message
-            : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
   const handleDeleteAnnouncement = async (announcement: CourseAnnouncementView) => {
-    if (!selectedCourse) return;
-
-    if (!window.confirm('Бұл хабарландыруды өшіргіңіз келе ме?')) {
-      return;
-    }
-
     try {
+      const course = requireCourse(selectedCourse);
+      const teacherId = requireUserId(user);
+
+      if (!window.confirm('Бұл хабарландыруды өшіргіңіз келе ме?')) {
+        return;
+      }
+
       await deleteAnnouncementMutation.mutateAsync({
         announcementId: announcement.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
+        courseId: course.id,
+        teacherId,
       });
 
       if (editingAnnouncementId === announcement.id) {
@@ -346,35 +479,39 @@ export function useCourseBuilderSidePanels({
     } catch (error) {
       toast({
         title: 'Хабарландыруды өшіру мүмкін болмады',
-        description:
-          error instanceof Error
-            ? error.message
-            : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
   const handleCreateLessonAttachment = async () => {
-    if (!selectedCourse || !selectedEditingLesson || !user?.id) return;
-
     try {
-      const externalUrl = normalizeExternalUrlInput(lessonAttachmentForm.externalUrl);
-      const filename = getFilenameFromUrl(externalUrl, lessonAttachmentForm.title || 'Сабақ материалы');
+      const course = requireCourse(selectedCourse);
+      const lesson = requireLesson(selectedEditingLesson);
+      const teacherId = requireUserId(user);
+
+      const externalUrl = normalizeRequiredExternalUrl(
+        lessonAttachmentForm.externalUrl,
+      );
+      const filename = getFilenameFromUrl(
+        externalUrl,
+        normalizeTitle(lessonAttachmentForm.title, 'Сабақ материалы'),
+      );
 
       await createLessonAttachmentMutation.mutateAsync({
-        ownerId: user.id,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
+        ownerId: teacherId,
+        lessonId: lesson.id,
+        courseId: course.id,
         filename,
         externalUrl,
         title: formatAssetTitle(lessonAttachmentForm.title, filename),
-        description: lessonAttachmentForm.description.trim() || null,
+        description: normalizeDescription(lessonAttachmentForm.description),
         sortOrder: (lessonAttachments?.length || 0) + 1,
-        teacherId: user.id,
+        teacherId,
       });
 
-      setLessonAttachmentForm({ title: '', description: '', externalUrl: '' });
+      setLessonAttachmentForm(emptyLessonAttachmentForm);
       await refetchWorkspace();
 
       toast({
@@ -383,22 +520,27 @@ export function useCourseBuilderSidePanels({
     } catch (error) {
       toast({
         title: 'Сабақ файлын қосу мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
   const handleDeleteLessonAttachment = async (attachmentId: string) => {
-    if (!selectedCourse || !selectedEditingLesson) return;
-
     try {
+      const course = requireCourse(selectedCourse);
+      const lesson = requireLesson(selectedEditingLesson);
+      const teacherId = requireUserId(user);
+
+      if (!attachmentId) {
+        throw new Error('Файл ID табылмады.');
+      }
+
       await deleteLessonAttachmentMutation.mutateAsync({
         attachmentId,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
+        lessonId: lesson.id,
+        courseId: course.id,
+        teacherId,
       });
 
       await refetchWorkspace();
@@ -409,30 +551,31 @@ export function useCourseBuilderSidePanels({
     } catch (error) {
       toast({
         title: 'Сабақ файлын өшіру мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
   const canCreateCourseAsset =
-    !!selectedCourse &&
-    !!courseAssetForm.externalUrl.trim() &&
+    Boolean(selectedCourse?.id) &&
+    Boolean(user?.id) &&
+    Boolean(courseAssetForm.externalUrl.trim()) &&
     !createCourseAssetMutation.isPending;
 
   const canSaveAnnouncement =
-    !!selectedCourse &&
-    !!user?.id &&
-    !!announcementForm.title.trim() &&
-    !!announcementForm.body.trim() &&
+    Boolean(selectedCourse?.id) &&
+    Boolean(user?.id) &&
+    Boolean(announcementForm.title.trim()) &&
+    Boolean(announcementForm.body.trim()) &&
     !createAnnouncementMutation.isPending &&
     !updateAnnouncementMutation.isPending;
 
   const canCreateLessonAttachment =
-    !!selectedCourse &&
-    !!selectedEditingLesson &&
-    !!lessonAttachmentForm.externalUrl.trim() &&
+    Boolean(selectedCourse?.id) &&
+    Boolean(selectedEditingLesson?.id) &&
+    Boolean(user?.id) &&
+    Boolean(lessonAttachmentForm.externalUrl.trim()) &&
     !createLessonAttachmentMutation.isPending;
 
   return {

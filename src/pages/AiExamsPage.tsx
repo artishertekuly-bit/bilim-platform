@@ -45,6 +45,7 @@ const MAX_TITLE_CHARS = 200;
 const MAX_SUBJECT_CHARS = 120;
 const MAX_TOPIC_CHARS = 200;
 const MAX_SOURCE_TEXT_CHARS = 16_000;
+
 const LIST_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = 360_000;
 const STATUS_TIMEOUT_MS = 60_000;
@@ -63,7 +64,11 @@ type SelectFieldProps = {
 };
 
 function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);
+  return value
+    .replace(/\x00/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit);
 }
 
 function isAbortLikeError(error: unknown) {
@@ -71,6 +76,7 @@ function isAbortLikeError(error: unknown) {
   if (!(error instanceof Error)) return false;
 
   const message = error.message.toLowerCase();
+
   return (
     error.name === 'AbortError' ||
     message.includes('тоқтатылды') ||
@@ -97,6 +103,7 @@ function normalizeExamList(items: AiExamSummary[]) {
 
   for (const item of items) {
     if (!item.id || seen.has(item.id)) continue;
+
     seen.add(item.id);
     normalized.push(item);
   }
@@ -118,11 +125,11 @@ function getStatusLabel(status: string | null | undefined) {
 function getStatusTone(status: string | null | undefined) {
   switch (status) {
     case 'published':
-      return 'success';
+      return 'success' as const;
     case 'archived':
-      return 'muted';
+      return 'muted' as const;
     default:
-      return 'warning';
+      return 'warning' as const;
   }
 }
 
@@ -139,17 +146,17 @@ function getDifficultyLabel(difficulty: Difficulty) {
 function getQuestionKindLabel(kind: AiQuestionKind) {
   const labels: Record<AiQuestionKind, string> = {
     mixed: 'Аралас',
-    multiple_choice: 'Multiple choice',
+    multiple_choice: 'Жауап нұсқалары',
     short_answer: 'Қысқа жауап',
   };
 
   return labels[kind];
 }
 
-function examMeta(item: AiExamSummary) {
-  return `${item.subject || 'Пән көрсетілмеген'} · ${item.questionCount || 0} сұрақ · ${
-    item.durationMinutes || '—'
-  } мин`;
+function getExamMeta(item: AiExamSummary) {
+  return `${item.subject || 'Пән көрсетілмеген'} · ${
+    item.questionCount || 0
+  } сұрақ · ${item.durationMinutes || '—'} мин`;
 }
 
 function getCreateValidationMessage({
@@ -172,7 +179,7 @@ function getCreateValidationMessage({
     !cleanText(topic, MAX_TOPIC_CHARS) &&
     !cleanText(sourceText, MAX_SOURCE_TEXT_CHARS)
   ) {
-    return 'Емтихан мазмұнын нақтылау үшін пән, тақырып немесе source text енгізіңіз.';
+    return 'Емтихан мазмұнын нақтылау үшін пән, тақырып немесе қосымша мәтін енгізіңіз.';
   }
 
   return '';
@@ -188,7 +195,10 @@ function SelectField({
 }: SelectFieldProps) {
   return (
     <div className="space-y-1.5">
-      <Label htmlFor={id}>{label}</Label>
+      <Label htmlFor={id} className="text-xs font-semibold text-foreground">
+        {label}
+      </Label>
+
       <select
         id={id}
         value={value}
@@ -198,31 +208,6 @@ function SelectField({
       >
         {children}
       </select>
-    </div>
-  );
-}
-
-function StatBox({
-  label,
-  value,
-  tone = 'primary',
-}: {
-  label: string;
-  value: string | number;
-  tone?: 'primary' | 'success' | 'warning' | 'muted';
-}) {
-  const toneClassName = {
-    primary: 'border-primary-muted bg-primary-soft text-primary',
-    success: 'border-success-muted bg-success-soft text-success-foreground',
-    warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
-    muted: 'border-border bg-muted text-muted-foreground',
-  }[tone];
-
-  return (
-    <div className="rounded-3xl border border-border bg-card p-4 shadow-soft">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 truncate text-lg font-semibold text-foreground">{value}</p>
-      <div className={`mt-3 h-1.5 rounded-full border ${toneClassName}`} />
     </div>
   );
 }
@@ -265,7 +250,10 @@ function ExamListItem({
           <p className="line-clamp-2 text-sm font-semibold text-foreground">
             {item.title}
           </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{examMeta(item)}</p>
+
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {getExamMeta(item)}
+          </p>
         </div>
 
         <StatusBadge tone={getStatusTone(item.status)}>
@@ -343,13 +331,20 @@ function ExamListItem({
   );
 }
 
-function QuestionPreview({ question, index }: { question: AiExamQuestion; index: number }) {
+function QuestionPreview({
+  question,
+  index,
+}: {
+  question: AiExamQuestion;
+  index: number;
+}) {
   return (
     <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft">
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-foreground">Сұрақ {index + 1}</p>
+
         <StatusBadge tone="muted">
-          {question.type === 'multiple_choice' ? 'Таңдау сұрағы' : 'Қысқа жауап'}
+          {question.type === 'multiple_choice' ? 'Жауап нұсқалары' : 'Қысқа жауап'}
         </StatusBadge>
       </div>
 
@@ -414,6 +409,7 @@ export default function AiExamsPage() {
   const listAbortRef = useRef<AbortController | null>(null);
   const createAbortRef = useRef<AbortController | null>(null);
   const statusAbortRef = useRef<AbortController | null>(null);
+
   const listRequestIdRef = useRef(0);
   const createRequestIdRef = useRef(0);
   const statusRequestIdRef = useRef(0);
@@ -425,17 +421,17 @@ export default function AiExamsPage() {
 
   const draftExams = useMemo(
     () => exams.filter((item) => item.status === 'draft' || !item.status),
-    [exams]
+    [exams],
   );
 
   const publishedExams = useMemo(
     () => exams.filter((item) => item.status === 'published'),
-    [exams]
+    [exams],
   );
 
   const archivedExams = useMemo(
     () => exams.filter((item) => item.status === 'archived'),
-    [exams]
+    [exams],
   );
 
   const validationMessage = useMemo(
@@ -446,12 +442,12 @@ export default function AiExamsPage() {
         topic,
         sourceText,
       }),
-    [sourceText, subject, title, topic]
+    [sourceText, subject, title, topic],
   );
 
   const canCreateDraft = useMemo(
     () => Boolean(canUseAiExams && !isCreating && !validationMessage),
-    [canUseAiExams, isCreating, validationMessage]
+    [canUseAiExams, isCreating, validationMessage],
   );
 
   const isBusy = isCreating || isLoadingList || Boolean(statusUpdatingId);
@@ -466,6 +462,7 @@ export default function AiExamsPage() {
     listAbortRef.current?.abort();
     createAbortRef.current?.abort();
     statusAbortRef.current?.abort();
+
     listAbortRef.current = null;
     createAbortRef.current = null;
     statusAbortRef.current = null;
@@ -474,14 +471,7 @@ export default function AiExamsPage() {
   const loadExams = useCallback(async () => {
     listAbortRef.current?.abort();
 
-    if (!user) {
-      setExams([]);
-      setLatestDraft(null);
-      setErrorText('');
-      return;
-    }
-
-    if (!isTeacher) {
+    if (!user || !isTeacher) {
       setExams([]);
       setLatestDraft(null);
       setErrorText('');
@@ -491,7 +481,7 @@ export default function AiExamsPage() {
     if (!accessToken) {
       setExams([]);
       setLatestDraft(null);
-      setErrorText('AI API үшін session access token табылмады.');
+      setErrorText('AI емтихан тізімін жүктеу үшін белсенді сессия қажет.');
       return;
     }
 
@@ -579,6 +569,7 @@ export default function AiExamsPage() {
 
     if (!accessToken) {
       const authMessage = 'AI емтихан жобасын құру үшін белсенді сессия қажет.';
+
       setErrorText(authMessage);
       toast({
         title: 'Қате',
@@ -614,7 +605,7 @@ export default function AiExamsPage() {
           accessToken,
           signal: controller.signal,
           timeoutMs: CREATE_TIMEOUT_MS,
-        }
+        },
       );
 
       if (!mountedRef.current || createRequestIdRef.current !== requestId) return;
@@ -624,7 +615,9 @@ export default function AiExamsPage() {
 
       toast({
         title: 'Емтихан жобасы дайын',
-        description: `${response.exam.questionCount || response.questions?.length || 0} сұрақ құрылды.`,
+        description: `${
+          response.exam.questionCount || response.questions?.length || 0
+        } сұрақ құрылды.`,
       });
     } catch (error) {
       if (controller.signal.aborted || isAbortLikeError(error)) return;
@@ -660,7 +653,7 @@ export default function AiExamsPage() {
     const cleanExamId = cleanText(examId, 120);
 
     if (!cleanExamId) {
-      setErrorText('Емтихан id анықталмады.');
+      setErrorText('Емтихан ID анықталмады.');
       return;
     }
 
@@ -676,6 +669,7 @@ export default function AiExamsPage() {
 
     if (!accessToken) {
       const message = 'Емтихан статусын жаңарту үшін белсенді сессия қажет.';
+
       setErrorText(message);
       toast({
         title: 'Қате',
@@ -686,6 +680,7 @@ export default function AiExamsPage() {
     }
 
     const current = exams.find((item) => item.id === cleanExamId);
+
     if (current?.status === status) {
       return;
     }
@@ -711,14 +706,14 @@ export default function AiExamsPage() {
       setExams((prev) =>
         normalizeExamList(
           prev.map((item) =>
-            item.id === cleanExamId ? { ...item, ...response.exam } : item
-          )
-        )
+            item.id === cleanExamId ? { ...item, ...response.exam } : item,
+          ),
+        ),
       );
 
       if (latestDraft?.exam.id === cleanExamId) {
         setLatestDraft((prev) =>
-          prev ? { ...prev, exam: { ...prev.exam, ...response.exam } } : prev
+          prev ? { ...prev, exam: { ...prev.exam, ...response.exam } } : prev,
         );
       }
 
@@ -730,7 +725,9 @@ export default function AiExamsPage() {
       if (controller.signal.aborted || isAbortLikeError(error)) return;
 
       const errorMessage =
-        error instanceof Error ? error.message : 'Емтихан статусын жаңарту мүмкін болмады.';
+        error instanceof Error
+          ? error.message
+          : 'Емтихан статусын жаңарту мүмкін болмады.';
 
       if (mountedRef.current && statusRequestIdRef.current === requestId) {
         setErrorText(errorMessage);
@@ -755,6 +752,7 @@ export default function AiExamsPage() {
   const handleReset = () => {
     createAbortRef.current?.abort();
     statusAbortRef.current?.abort();
+
     createAbortRef.current = null;
     statusAbortRef.current = null;
 
@@ -786,7 +784,6 @@ export default function AiExamsPage() {
             }
             icon={<ClipboardList size={20} />}
             title={t('nav.ai_exams')}
-            description="AI емтихан жобаларын құру үшін мұғалім аккаунтымен кіріңіз."
           />
 
           <EmptyState
@@ -812,7 +809,6 @@ export default function AiExamsPage() {
             }
             icon={<ClipboardList size={20} />}
             title={t('nav.ai_exams')}
-            description="Бұл бөлім мұғалімдерге арналған."
           />
 
           <EmptyState
@@ -837,7 +833,6 @@ export default function AiExamsPage() {
           }
           icon={<ClipboardList size={20} />}
           title={t('nav.ai_exams')}
-          description="AI көмегімен емтихан жобасын құрып, оны жариялау, архивтеу және басқару бөлімі."
           actions={
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" asChild>
@@ -861,7 +856,12 @@ export default function AiExamsPage() {
                 Тізімді жаңарту
               </Button>
 
-              <Button variant="outline" size="sm" onClick={handleReset} disabled={isBusy}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleReset}
+                disabled={isBusy}
+              >
                 <RefreshCcw size={14} className="mr-2" />
                 Форманы тазалау
               </Button>
@@ -869,16 +869,7 @@ export default function AiExamsPage() {
           }
         />
 
-        <Card className="overflow-hidden">
-          <CardContent className="grid gap-3 p-4 sm:p-5 md:grid-cols-4">
-            <StatBox label="Жоба" value={draftExams.length} tone="warning" />
-            <StatBox label="Жарияланған" value={publishedExams.length} tone="success" />
-            <StatBox label="Архив" value={archivedExams.length} tone="muted" />
-            <StatBox label="Соңғы жоба" value={latestDraft?.exam.title || '—'} tone="primary" />
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <Card className="overflow-hidden">
             <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
@@ -891,7 +882,10 @@ export default function AiExamsPage() {
 
             <CardContent className="space-y-4 p-5">
               <div className="space-y-1.5">
-                <Label htmlFor="title">Емтихан атауы</Label>
+                <Label htmlFor="title" className="text-xs font-semibold text-foreground">
+                  Емтихан атауы
+                </Label>
+
                 <Input
                   id="title"
                   value={title}
@@ -907,7 +901,10 @@ export default function AiExamsPage() {
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="subject">Пән</Label>
+                  <Label htmlFor="subject" className="text-xs font-semibold text-foreground">
+                    Пән
+                  </Label>
+
                   <Input
                     id="subject"
                     value={subject}
@@ -922,7 +919,10 @@ export default function AiExamsPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="topic">Тақырып</Label>
+                  <Label htmlFor="topic" className="text-xs font-semibold text-foreground">
+                    Тақырып
+                  </Label>
+
                   <Input
                     id="topic"
                     value={topic}
@@ -970,7 +970,7 @@ export default function AiExamsPage() {
                   disabled={isCreating}
                 >
                   <option value="mixed">Аралас</option>
-                  <option value="multiple_choice">Multiple choice</option>
+                  <option value="multiple_choice">Жауап нұсқалары</option>
                   <option value="short_answer">Қысқа жауап</option>
                 </SelectField>
 
@@ -986,7 +986,13 @@ export default function AiExamsPage() {
                 </SelectField>
 
                 <div className="space-y-1.5 md:col-span-2">
-                  <Label htmlFor="durationMinutes">Уақыт (минут)</Label>
+                  <Label
+                    htmlFor="durationMinutes"
+                    className="text-xs font-semibold text-foreground"
+                  >
+                    Уақыт, минут
+                  </Label>
+
                   <Input
                     id="durationMinutes"
                     type="number"
@@ -1004,7 +1010,13 @@ export default function AiExamsPage() {
 
               <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <Label htmlFor="sourceText">Қосымша мазмұн немесе source text</Label>
+                  <Label
+                    htmlFor="sourceText"
+                    className="text-xs font-semibold text-foreground"
+                  >
+                    Қосымша мәтін
+                  </Label>
+
                   <div className="flex flex-wrap gap-2">
                     <StatusBadge tone="muted">{getDifficultyLabel(difficulty)}</StatusBadge>
                     <StatusBadge tone="ai">{getQuestionKindLabel(questionKind)}</StatusBadge>
@@ -1021,12 +1033,12 @@ export default function AiExamsPage() {
                     clearError();
                   }}
                   disabled={isCreating}
-                  placeholder="Қаласаңыз, AI-ға емтихан мазмұнын анықтау үшін теориялық мәтін немесе қысқаша контекст беріңіз..."
+                  placeholder="Емтихан сұрақтары сүйенетін теориялық мәтін немесе қысқа мазмұн енгізіңіз."
                   rows={7}
                 />
 
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  {sourceText.length}/{MAX_SOURCE_TEXT_CHARS} символ
+                  {sourceText.length}/{MAX_SOURCE_TEXT_CHARS} таңба
                 </p>
               </div>
 
@@ -1086,7 +1098,7 @@ export default function AiExamsPage() {
               ) : (
                 <EmptyState
                   title="Жоба әлі жоқ"
-                  text="Жаңа AI емтихан жобасы құрылғаннан кейін қысқаша ақпарат осы жерде көрінеді."
+                  text="AI емтихан жобасы құрылғаннан кейін қысқаша ақпарат осы жерде көрінеді."
                   compact
                 />
               )}
@@ -1113,19 +1125,23 @@ export default function AiExamsPage() {
                 <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
                   <ListChecks size={16} />
                 </span>
-                Құрылған сұрақтар preview
+                Құрылған сұрақтар
               </CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-4 p-5">
               {latestDraft.questions?.length ? (
                 latestDraft.questions.map((question, index) => (
-                  <QuestionPreview key={`${question.id}-${index}`} question={question} index={index} />
+                  <QuestionPreview
+                    key={`${question.id}-${index}`}
+                    question={question}
+                    index={index}
+                  />
                 ))
               ) : (
                 <EmptyState
-                  title="Сұрақ preview бос"
-                  text="Бұл жоба үшін backend сұрақ тізімін қайтармады немесе preview қолжетімсіз."
+                  title="Сұрақтар көрсетілмеді"
+                  text="Сервер бұл жоба үшін сұрақ тізімін қайтармады."
                   compact
                 />
               )}
@@ -1136,14 +1152,17 @@ export default function AiExamsPage() {
         <div className="grid gap-4 xl:grid-cols-3">
           <Card className="overflow-hidden">
             <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-              <CardTitle className="text-base font-semibold">Жобалар</CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-base font-semibold">Жобалар</CardTitle>
+                <StatusBadge tone="warning">{draftExams.length}</StatusBadge>
+              </div>
             </CardHeader>
 
             <CardContent className="space-y-3 p-5 text-sm">
               {draftExams.length === 0 ? (
                 <EmptyState
                   title="Жоба жоқ"
-                  text="Жаңа AI емтихан жобасы құрылғаннан кейін ол осы жерде көрінеді."
+                  text="Жаңа AI емтихан жобасы құрылғаннан кейін осы жерде көрінеді."
                   compact
                 />
               ) : (
@@ -1163,9 +1182,12 @@ export default function AiExamsPage() {
 
           <Card className="overflow-hidden">
             <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-              <CardTitle className="text-base font-semibold">
-                Жарияланған емтихандар
-              </CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-base font-semibold">
+                  Жарияланған
+                </CardTitle>
+                <StatusBadge tone="success">{publishedExams.length}</StatusBadge>
+              </div>
             </CardHeader>
 
             <CardContent className="space-y-3 p-5 text-sm">
@@ -1192,9 +1214,10 @@ export default function AiExamsPage() {
 
           <Card className="overflow-hidden">
             <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-              <CardTitle className="text-base font-semibold">
-                Архивтегі емтихандар
-              </CardTitle>
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-base font-semibold">Архив</CardTitle>
+                <StatusBadge tone="muted">{archivedExams.length}</StatusBadge>
+              </div>
             </CardHeader>
 
             <CardContent className="space-y-3 p-5 text-sm">

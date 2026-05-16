@@ -46,6 +46,8 @@ import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import { isYouTubeUrl, normalizeMediaUrl } from '@/lib/media-url';
 
+const MAX_NOTE_CHARS = 6_000;
+
 function formatBytes(value: number | null | undefined) {
   if (!value || value <= 0) return null;
 
@@ -65,7 +67,7 @@ function getFileUrl(file: {
 
 function LessonDetailSkeleton() {
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="space-y-4">
         <Card className="overflow-hidden">
           <CardHeader className="space-y-2 border-b border-border/70 bg-card pb-4">
@@ -73,20 +75,18 @@ function LessonDetailSkeleton() {
             <SkeletonBlock className="h-3 w-1/2" />
           </CardHeader>
 
-          <CardContent className="space-y-4 p-5">
+          <CardContent className="space-y-4 p-4 sm:p-5">
             <SkeletonBlock className="h-52 w-full rounded-3xl" />
             <SkeletonBlock className="h-40 w-full rounded-3xl" />
-            <SkeletonBlock className="h-28 w-full rounded-3xl" />
           </CardContent>
         </Card>
 
         <Card className="overflow-hidden">
-          <CardHeader className="space-y-2 border-b border-border/70 bg-card pb-4">
+          <CardHeader className="border-b border-border/70 bg-card pb-4">
             <SkeletonBlock className="h-5 w-40" />
-            <SkeletonBlock className="h-3 w-72" />
           </CardHeader>
 
-          <CardContent className="space-y-2 p-5">
+          <CardContent className="space-y-2 p-4 sm:p-5">
             <SkeletonBlock className="h-16 w-full rounded-3xl" />
             <SkeletonBlock className="h-16 w-full rounded-3xl" />
           </CardContent>
@@ -94,38 +94,19 @@ function LessonDetailSkeleton() {
       </div>
 
       <div className="space-y-4">
-        <Card className="overflow-hidden">
-          <CardHeader className="border-b border-border/70 bg-card pb-4">
-            <SkeletonBlock className="h-5 w-32" />
-          </CardHeader>
+        {Array.from({ length: 3 }).map((_, index) => (
+          <Card key={index} className="overflow-hidden">
+            <CardHeader className="border-b border-border/70 bg-card pb-4">
+              <SkeletonBlock className="h-5 w-32" />
+            </CardHeader>
 
-          <CardContent className="space-y-3 p-5">
-            <SkeletonBlock className="h-4 w-full" />
-            <SkeletonBlock className="h-4 w-5/6" />
-            <SkeletonBlock className="h-10 w-full rounded-2xl" />
-          </CardContent>
-        </Card>
-
-        <Card className="overflow-hidden">
-          <CardHeader className="border-b border-border/70 bg-card pb-4">
-            <SkeletonBlock className="h-5 w-36" />
-          </CardHeader>
-
-          <CardContent className="space-y-2 p-5">
-            <SkeletonBlock className="h-10 w-full rounded-2xl" />
-            <SkeletonBlock className="h-10 w-full rounded-2xl" />
-          </CardContent>
-        </Card>
-
-        <Card className="overflow-hidden">
-          <CardHeader className="border-b border-border/70 bg-card pb-4">
-            <SkeletonBlock className="h-5 w-28" />
-          </CardHeader>
-
-          <CardContent className="p-5">
-            <SkeletonBlock className="h-36 w-full rounded-3xl" />
-          </CardContent>
-        </Card>
+            <CardContent className="space-y-3 p-4 sm:p-5">
+              <SkeletonBlock className="h-4 w-full" />
+              <SkeletonBlock className="h-4 w-5/6" />
+              <SkeletonBlock className="h-10 w-full rounded-2xl" />
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </div>
   );
@@ -143,9 +124,9 @@ function ReadingSection({
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
+        <span className="flex h-9 w-9 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
           {icon}
-        </div>
+        </span>
 
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       </div>
@@ -184,7 +165,7 @@ function ResourceListCard({
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-3 p-5">
+      <CardContent className="space-y-3 p-4 sm:p-5">
         {items.map((item) => {
           const fileUrl = getFileUrl(item.file);
           const sizeText = formatBytes(item.file.sizeBytes);
@@ -192,7 +173,7 @@ function ResourceListCard({
           return (
             <div
               key={item.id}
-              className="flex flex-col gap-3 rounded-3xl border border-border bg-card p-4 transition-colors hover:border-primary-muted hover:bg-primary-soft/20 sm:flex-row sm:items-start sm:justify-between"
+              className="flex flex-col gap-3 rounded-3xl border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -227,7 +208,7 @@ function ResourceListCard({
               ) : (
                 <StatusBadge tone="muted">
                   <Lock size={12} />
-                  URL жоқ
+                  Сілтеме жоқ
                 </StatusBadge>
               )}
             </div>
@@ -239,10 +220,11 @@ function ResourceListCard({
 }
 
 function getQuestionTypeLabel(
-  questionType: LessonMiniQuizQuestionView['questionType']
+  questionType: LessonMiniQuizQuestionView['questionType'],
 ) {
-  if (questionType === 'multiple_choice') return 'Бірнеше дұрыс жауап';
-  return 'Бір дұрыс жауап';
+  return questionType === 'multiple_choice'
+    ? 'Бірнеше дұрыс жауап'
+    : 'Бір дұрыс жауап';
 }
 
 function getSelectedAnswerLabel(indexes: number[], options: string[]) {
@@ -301,7 +283,7 @@ function MiniQuizCard({
           <SkeletonBlock className="h-3 w-72" />
         </CardHeader>
 
-        <CardContent className="space-y-3 p-5">
+        <CardContent className="space-y-3 p-4 sm:p-5">
           <SkeletonBlock className="h-20 w-full rounded-3xl" />
           <SkeletonBlock className="h-20 w-full rounded-3xl" />
         </CardContent>
@@ -319,7 +301,7 @@ function MiniQuizCard({
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="p-5">
+        <CardContent className="p-4 sm:p-5">
           <p className="text-sm text-destructive">
             Шағын тестті жүктеу мүмкін болмады.
           </p>
@@ -374,7 +356,7 @@ function MiniQuizCard({
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4 p-5">
+      <CardContent className="space-y-4 p-4 sm:p-5">
         {quiz.questions.length === 0 ? (
           <EmptyState
             title="Сұрақ жоқ"
@@ -386,7 +368,7 @@ function MiniQuizCard({
           quiz.questions.map((question, questionIndex) => {
             const selected = answers[question.id] || [];
             const resultItem = latestResult?.breakdown?.find(
-              (item) => item.questionId === question.id
+              (item) => item.questionId === question.id,
             );
 
             return (
@@ -423,12 +405,13 @@ function MiniQuizCard({
                     const active = selected.includes(optionIndex);
                     const correct = resultItem?.correctAnswer.includes(optionIndex);
                     const wrongSelected = Boolean(resultItem && active && !correct);
+                    const isAnswerLocked = disabled || Boolean(latestResult) || quizAlreadyPassed;
 
                     return (
                       <button
                         key={`${question.id}-${optionIndex}`}
                         type="button"
-                        disabled={disabled || Boolean(latestResult) || quizAlreadyPassed}
+                        disabled={isAnswerLocked}
                         onClick={() => onToggleAnswer(question, optionIndex)}
                         className={`rounded-2xl border px-3 py-2.5 text-left text-sm transition-colors ${
                           correct
@@ -438,11 +421,7 @@ function MiniQuizCard({
                               : active
                                 ? 'border-primary-muted bg-primary-soft text-primary'
                                 : 'border-border bg-background hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary'
-                        } ${
-                          disabled || latestResult || quizAlreadyPassed
-                            ? 'cursor-default'
-                            : ''
-                        }`}
+                        } ${isAnswerLocked ? 'cursor-default' : ''}`}
                       >
                         <span className="mr-2 text-xs text-muted-foreground">
                           {String.fromCharCode(65 + optionIndex)}.
@@ -456,12 +435,16 @@ function MiniQuizCard({
                 {resultItem ? (
                   <div className="mt-3 rounded-2xl border border-border bg-muted/35 p-3 text-xs leading-5">
                     <p>
-                      <span className="font-medium text-foreground">Сіздің жауабыңыз:</span>{' '}
+                      <span className="font-medium text-foreground">
+                        Сіздің жауабыңыз:
+                      </span>{' '}
                       {getSelectedAnswerLabel(resultItem.selectedAnswer, question.options)}
                     </p>
 
                     <p className="mt-1">
-                      <span className="font-medium text-foreground">Дұрыс жауап:</span>{' '}
+                      <span className="font-medium text-foreground">
+                        Дұрыс жауап:
+                      </span>{' '}
                       {getSelectedAnswerLabel(resultItem.correctAnswer, question.options)}
                     </p>
 
@@ -550,7 +533,7 @@ function MiniQuizCard({
           </Button>
         ) : (
           <div className="rounded-2xl border border-border bg-card p-3 text-xs text-muted-foreground">
-            Мұғалім нәтиже жібермейді.
+            Мұғалім бұл жерден нәтиже жібермейді.
           </div>
         )}
       </CardContent>
@@ -590,7 +573,7 @@ export default function LessonDetailPage() {
   const { data, isLoading, error } = useLessonDetail(
     lessonId,
     isStudent ? user?.id : undefined,
-    !!lessonId && !!user?.id
+    Boolean(lessonId && user?.id),
   );
 
   const {
@@ -600,7 +583,7 @@ export default function LessonDetailPage() {
   } = useLessonLearningState(
     user?.id || '',
     lessonId,
-    Boolean(isStudent && user?.id && lessonId && data && !data.isLocked)
+    Boolean(isStudent && user?.id && lessonId && data && !data.isLocked),
   );
 
   const {
@@ -611,7 +594,7 @@ export default function LessonDetailPage() {
     lessonId,
     isStudent ? user?.id : undefined,
     Boolean(lessonId && user?.id && data && !data.isLocked),
-    !isStudent
+    !isStudent,
   );
 
   const upsertNoteMutation = useUpsertLessonNoteMutation();
@@ -623,7 +606,7 @@ export default function LessonDetailPage() {
   const normalizedMediaUrl = normalizeMediaUrl(data?.mediaUrl);
   const hasMedia = Boolean(normalizedMediaUrl);
   const isYoutubeMedia = Boolean(
-    normalizedMediaUrl && isYouTubeUrl(normalizedMediaUrl)
+    normalizedMediaUrl && isYouTubeUrl(normalizedMediaUrl),
   );
 
   const miniQuiz = miniQuizData?.quiz || data?.miniQuiz || null;
@@ -647,29 +630,29 @@ export default function LessonDetailPage() {
   const hasLessonAttachments = lessonAttachments.length > 0;
   const hasCourseAssets = courseAssets.length > 0;
   const hasAnyLessonContent = Boolean(
-    data?.contentBody || hasMedia || data?.practiceContent
+    data?.contentBody || hasMedia || data?.practiceContent,
   );
 
   const noteChanged = useMemo(
     () => noteDraft !== (learningState?.noteContent || ''),
-    [learningState?.noteContent, noteDraft]
+    [learningState?.noteContent, noteDraft],
   );
 
   const completeMutation = useMutation({
     mutationFn: async () => {
       if (!user?.id) {
-        throw new Error('User not found');
+        throw new Error('Пайдаланушы табылмады.');
       }
 
       if (!lessonId) {
-        throw new Error('Lesson not found');
+        throw new Error('Сабақ табылмады.');
       }
 
       if (!canCompleteLesson) {
         throw new Error(
           !miniQuizPassed
             ? 'Алдымен шағын тест тапсырыңыз.'
-            : 'Бұл сабақты қазір аяқтау мүмкін емес.'
+            : 'Бұл сабақты қазір аяқтау мүмкін емес.',
         );
       }
 
@@ -713,8 +696,7 @@ export default function LessonDetailPage() {
   }, [lessonId, miniQuiz?.id]);
 
   useEffect(() => {
-    if (!learningState) return;
-    if (!lessonId) return;
+    if (!learningState || !lessonId) return;
     if (noteSeededForLessonId === lessonId) return;
 
     setNoteDraft(learningState.noteContent || '');
@@ -736,7 +718,7 @@ export default function LessonDetailPage() {
         studentId: user.id,
         lessonId,
         courseId,
-        content: noteDraft,
+        content: noteDraft.slice(0, MAX_NOTE_CHARS),
       });
 
       toast({
@@ -855,7 +837,7 @@ export default function LessonDetailPage() {
 
   const handleToggleMiniQuizAnswer = (
     question: LessonMiniQuizQuestionView,
-    optionIndex: number
+    optionIndex: number,
   ) => {
     setMiniQuizAnswers((previous) => {
       const current = previous[question.id] || [];
@@ -873,7 +855,7 @@ export default function LessonDetailPage() {
 
       return {
         ...previous,
-        [question.id]: next,
+        [question.id]: next.sort((a, b) => a - b),
       };
     });
   };
@@ -901,7 +883,7 @@ export default function LessonDetailPage() {
     }
 
     const unanswered = miniQuiz.questions.some(
-      (question) => (miniQuizAnswers[question.id] || []).length === 0
+      (question) => (miniQuizAnswers[question.id] || []).length === 0,
     );
 
     if (unanswered) {
@@ -948,6 +930,12 @@ export default function LessonDetailPage() {
     }
   };
 
+  const completeButtonLabel = completeMutation.isPending
+    ? t('common.loading')
+    : !miniQuizPassed
+      ? 'Алдымен шағын тест тапсырыңыз'
+      : t('lesson.action.complete');
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -986,9 +974,17 @@ export default function LessonDetailPage() {
           }
         />
 
-        {isLoading ? <LessonDetailSkeleton /> : null}
+        {!user ? (
+          <EmptyState
+            icon={<BookOpen size={18} />}
+            title="Аккаунт анықталмады"
+            text="Сабақты көру үшін жүйеге кіріңіз."
+          />
+        ) : null}
 
-        {!isLoading && error ? (
+        {user && isLoading ? <LessonDetailSkeleton /> : null}
+
+        {user && !isLoading && error ? (
           <ErrorState
             text={t('page.lesson_detail.error')}
             action={
@@ -1009,7 +1005,20 @@ export default function LessonDetailPage() {
           />
         ) : null}
 
-        {!isLoading && !error && data?.isLocked ? (
+        {user && !isLoading && !error && !data ? (
+          <EmptyState
+            icon={<BookOpen size={18} />}
+            title="Сабақ табылмады"
+            text="Бұл сабақ жоқ немесе сізге қолжетімді емес."
+            action={
+              <Button type="button" variant="outline" onClick={() => navigate('/lessons')}>
+                Сабақтарға қайту
+              </Button>
+            }
+          />
+        ) : null}
+
+        {user && !isLoading && !error && data?.isLocked ? (
           <EmptyState
             icon={<Lock size={18} />}
             title={t('page.lesson_detail.locked_title')}
@@ -1025,8 +1034,8 @@ export default function LessonDetailPage() {
           />
         ) : null}
 
-        {!isLoading && !error && data && !data.isLocked ? (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+        {user && !isLoading && !error && data && !data.isLocked ? (
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
             <div className="space-y-4">
               <Card className="overflow-hidden">
                 <CardHeader className="border-b border-border/70 bg-card pb-4">
@@ -1058,10 +1067,10 @@ export default function LessonDetailPage() {
                   </p>
                 </CardHeader>
 
-                <CardContent className="space-y-6 p-5">
+                <CardContent className="space-y-6 p-4 sm:p-5">
                   {data.contentBody ? (
                     <ReadingSection title="Теория" icon={<FileText size={15} />}>
-                      <article className="whitespace-pre-wrap rounded-3xl border border-border bg-card p-5 text-sm leading-7 text-foreground">
+                      <article className="whitespace-pre-wrap rounded-3xl border border-border bg-card p-4 text-sm leading-7 text-foreground sm:p-5">
                         {data.contentBody}
                       </article>
                     </ReadingSection>
@@ -1103,7 +1112,7 @@ export default function LessonDetailPage() {
                       title={t('page.lesson_detail.practice_title')}
                       icon={<BookOpen size={15} />}
                     >
-                      <div className="whitespace-pre-wrap rounded-3xl border border-border bg-muted/35 p-5 text-sm leading-7 text-foreground">
+                      <div className="whitespace-pre-wrap rounded-3xl border border-border bg-muted/35 p-4 text-sm leading-7 text-foreground sm:p-5">
                         {data.practiceContent}
                       </div>
                     </ReadingSection>
@@ -1120,12 +1129,11 @@ export default function LessonDetailPage() {
               </Card>
 
               <ResourceListCard title="Сабақ файлдары" items={lessonAttachments} />
-
               <ResourceListCard title="Курс материалдары" items={courseAssets} />
 
               {!hasLessonAttachments && !hasCourseAssets ? (
                 <Card className="border-dashed">
-                  <CardContent className="p-5">
+                  <CardContent className="p-4 sm:p-5">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <FileText size={14} />
                       Қосымша файл жоқ.
@@ -1150,18 +1158,20 @@ export default function LessonDetailPage() {
               />
 
               <Card className="overflow-hidden">
-                <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                   <p className="text-sm font-semibold text-foreground">
                     Сабақты аяқтау
                   </p>
 
                   <div className="flex flex-col gap-2 sm:flex-row">
-                    <Button type="button" variant="outline" asChild>
-                      <Link to={`/courses/${courseId}`}>
-                        Курсқа қайту
-                        <ArrowRight size={15} className="ml-2" />
-                      </Link>
-                    </Button>
+                    {courseId ? (
+                      <Button type="button" variant="outline" asChild>
+                        <Link to={`/courses/${courseId}`}>
+                          Курсқа қайту
+                          <ArrowRight size={15} className="ml-2" />
+                        </Link>
+                      </Button>
+                    ) : null}
 
                     {isStudent && !data.isCompleted ? (
                       <Button
@@ -1169,11 +1179,7 @@ export default function LessonDetailPage() {
                         onClick={() => completeMutation.mutate()}
                         disabled={!canCompleteLesson || completeMutation.isPending}
                       >
-                        {completeMutation.isPending
-                          ? t('common.loading')
-                          : !miniQuizPassed
-                            ? 'Алдымен шағын тест тапсырыңыз'
-                            : t('lesson.action.complete')}
+                        {completeButtonLabel}
                       </Button>
                     ) : (
                       <Button type="button" variant="outline" disabled>
@@ -1194,7 +1200,7 @@ export default function LessonDetailPage() {
                   </CardTitle>
                 </CardHeader>
 
-                <CardContent className="space-y-3 p-5 text-sm">
+                <CardContent className="space-y-3 p-4 text-sm sm:p-5">
                   <SidebarInfoRow
                     label={t('page.lesson_detail.field.course')}
                     value={data.courseTitle}
@@ -1226,11 +1232,7 @@ export default function LessonDetailPage() {
                       onClick={() => completeMutation.mutate()}
                       disabled={!canCompleteLesson || completeMutation.isPending}
                     >
-                      {completeMutation.isPending
-                        ? t('common.loading')
-                        : !miniQuizPassed
-                          ? 'Алдымен шағын тест тапсырыңыз'
-                          : t('lesson.action.complete')}
+                      {completeButtonLabel}
                     </Button>
                   ) : !isStudent ? (
                     <div className="rounded-2xl border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
@@ -1248,7 +1250,7 @@ export default function LessonDetailPage() {
                     </CardTitle>
                   </CardHeader>
 
-                  <CardContent className="space-y-3 p-5">
+                  <CardContent className="space-y-3 p-4 sm:p-5">
                     {learningStateLoading ? (
                       <div className="space-y-2">
                         <SkeletonBlock className="h-9 w-full rounded-2xl" />
@@ -1316,14 +1318,21 @@ export default function LessonDetailPage() {
                     </CardTitle>
                   </CardHeader>
 
-                  <CardContent className="space-y-3 p-5">
+                  <CardContent className="space-y-3 p-4 sm:p-5">
                     <Textarea
                       rows={8}
                       value={noteDraft}
-                      onChange={(event) => setNoteDraft(event.target.value)}
+                      maxLength={MAX_NOTE_CHARS}
+                      onChange={(event) =>
+                        setNoteDraft(event.target.value.slice(0, MAX_NOTE_CHARS))
+                      }
                       placeholder="Жазба"
                       disabled={!learningState || learningStateLoading}
                     />
+
+                    <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                      <span>{noteDraft.length}/{MAX_NOTE_CHARS}</span>
+                    </div>
 
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -1360,7 +1369,7 @@ export default function LessonDetailPage() {
 
               {!hasAnyLessonContent ? (
                 <Card className="border-dashed">
-                  <CardContent className="p-5">
+                  <CardContent className="p-4 sm:p-5">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Lock size={14} />
                       {t('page.lesson_detail.empty_content_note')}

@@ -9,8 +9,8 @@ import {
   X,
 } from 'lucide-react';
 
-import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, LoadingState } from '@/components/common/DataState';
+import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,61 @@ type InviteFormState = {
   maxUses: string;
   expiresAt: string;
 };
+
+type InviteStatus = 'inactive' | 'exhausted' | 'active';
+
+const MAX_USES_CHARS = 6;
+
+function normalizeMaxUsesInput(value: string) {
+  return value.replace(/[^\d]/g, '').slice(0, MAX_USES_CHARS);
+}
+
+function isInviteCourse(accessType: CourseAccessType) {
+  const normalized = String(accessType || '');
+
+  return (
+    normalized === 'private_invite' ||
+    normalized === 'school_only' ||
+    normalized === 'closed' ||
+    normalized === 'invite_only'
+  );
+}
+
+function getRemainingUses(invite: CourseInviteRow) {
+  if (invite.max_uses === null) return null;
+
+  return Math.max(invite.max_uses - invite.used_count, 0);
+}
+
+function getInviteStatus(invite: CourseInviteRow): InviteStatus {
+  const remaining = getRemainingUses(invite);
+
+  if (!invite.is_active) return 'inactive';
+  if (remaining === 0) return 'exhausted';
+
+  return 'active';
+}
+
+function getInviteStatusMeta(status: InviteStatus) {
+  if (status === 'inactive') {
+    return {
+      tone: 'muted' as const,
+      label: 'Өшірілген',
+    };
+  }
+
+  if (status === 'exhausted') {
+    return {
+      tone: 'warning' as const,
+      label: 'Лимит бітті',
+    };
+  }
+
+  return {
+    tone: 'success' as const,
+    label: 'Белсенді',
+  };
+}
 
 function FieldBlock({
   label,
@@ -41,14 +96,21 @@ function FieldBlock({
   );
 }
 
-function isInviteCourse(accessType: CourseAccessType) {
-  const normalized = String(accessType || '');
+function DatePill({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null;
+}) {
+  if (!value) return null;
 
   return (
-    normalized === 'private_invite' ||
-    normalized === 'school_only' ||
-    normalized === 'closed' ||
-    normalized === 'invite_only'
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
+      <CalendarClock size={11} />
+      <span className="font-medium">{label}:</span>
+      <span>{formatDateTime(value)}</span>
+    </span>
   );
 }
 
@@ -65,6 +127,10 @@ function InlineDeactivateConfirm({
     <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
       <p className="text-xs font-semibold text-foreground">
         Шақыру коды өшірілсін бе?
+      </p>
+
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        Код өшірілгеннен кейін жаңа оқушы бұл код арқылы кіре алмайды.
       </p>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -104,15 +170,10 @@ function InviteCodeCard({
   onCopyInviteCode: (code: string) => void;
   onDeactivateInvite: (inviteId: string) => void;
 }) {
-  const remaining =
-    invite.max_uses === null
-      ? null
-      : Math.max(invite.max_uses - invite.used_count, 0);
-
-  const active = invite.is_active;
-  const exhausted = remaining === 0;
-  const statusTone = !active ? 'muted' : exhausted ? 'warning' : 'success';
-  const statusLabel = !active ? 'Өшірілген' : exhausted ? 'Лимит бітті' : 'Белсенді';
+  const remaining = getRemainingUses(invite);
+  const status = getInviteStatus(invite);
+  const statusMeta = getInviteStatusMeta(status);
+  const canDeactivate = status === 'active' || status === 'exhausted';
 
   const handleDeactivate = () => {
     onDeactivateInvite(invite.id);
@@ -122,9 +183,11 @@ function InviteCodeCard({
   return (
     <div
       className={`rounded-3xl border p-4 transition-colors ${
-        active
+        status === 'active'
           ? 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/20'
-          : 'border-border bg-muted/40 opacity-80'
+          : status === 'exhausted'
+            ? 'border-warning-muted bg-warning-soft/35'
+            : 'border-border bg-muted/40 opacity-80'
       }`}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -134,7 +197,7 @@ function InviteCodeCard({
               {invite.code}
             </p>
 
-            <StatusBadge tone={statusTone}>{statusLabel}</StatusBadge>
+            <StatusBadge tone={statusMeta.tone}>{statusMeta.label}</StatusBadge>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
@@ -149,12 +212,7 @@ function InviteCodeCard({
               Қалды: {remaining === null ? '∞' : remaining}
             </span>
 
-            {invite.expires_at ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/70 px-2.5 py-1">
-                <CalendarClock size={11} />
-                {formatDateTime(invite.expires_at)}
-              </span>
-            ) : null}
+            <DatePill label="Аяқталады" value={invite.expires_at} />
           </div>
         </div>
 
@@ -169,7 +227,7 @@ function InviteCodeCard({
             <Copy size={13} />
           </Button>
 
-          {active ? (
+          {canDeactivate ? (
             <Button
               type="button"
               variant={deactivateConfirmOpen ? 'outline' : 'destructive'}
@@ -224,6 +282,16 @@ export function CourseInviteCodesPanel({
 
   const inviteCourse = isInviteCourse(accessType);
 
+  const updateInviteField = <K extends keyof InviteFormState>(
+    key: K,
+    value: InviteFormState[K],
+  ) => {
+    setInviteForm((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
@@ -258,28 +326,25 @@ export function CourseInviteCodesPanel({
           <div className="space-y-4">
             <FieldBlock label="Қолдану лимиті">
               <Input
-                type="number"
-                min={1}
+                type="text"
+                inputMode="numeric"
                 value={inviteForm.maxUses}
                 onChange={(event) =>
-                  setInviteForm((previous) => ({
-                    ...previous,
-                    maxUses: event.target.value,
-                  }))
+                  updateInviteField(
+                    'maxUses',
+                    normalizeMaxUsesInput(event.target.value),
+                  )
                 }
                 placeholder="Шектеусіз"
               />
             </FieldBlock>
 
-            <FieldBlock label="Мерзімі">
+            <FieldBlock label="Аяқталу мерзімі">
               <Input
                 type="datetime-local"
                 value={inviteForm.expiresAt}
                 onChange={(event) =>
-                  setInviteForm((previous) => ({
-                    ...previous,
-                    expiresAt: event.target.value,
-                  }))
+                  updateInviteField('expiresAt', event.target.value)
                 }
                 min={toDateTimeLocalValue(new Date().toISOString())}
               />
@@ -330,7 +395,7 @@ export function CourseInviteCodesPanel({
                   deactivateConfirmOpen={deactivateConfirmId === invite.id}
                   onToggleDeactivateConfirm={() =>
                     setDeactivateConfirmId((current) =>
-                      current === invite.id ? null : invite.id
+                      current === invite.id ? null : invite.id,
                     )
                   }
                   onCancelDeactivateConfirm={() => setDeactivateConfirmId(null)}

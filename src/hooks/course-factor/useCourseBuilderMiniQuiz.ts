@@ -1,6 +1,5 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 
-import type { LessonMiniQuizQuestionView } from '@/lib/app-data-types';
 import {
   useCreateLessonMiniQuizQuestionMutation,
   useDeleteLessonMiniQuizMutation,
@@ -9,6 +8,10 @@ import {
   useUpdateLessonMiniQuizQuestionMutation,
   useUpsertLessonMiniQuizMutation,
 } from '@/hooks/use-platform-data';
+import type {
+  LessonMiniQuizQuestionType,
+  LessonMiniQuizQuestionView,
+} from '@/lib/app-data-types';
 import {
   moveItem,
   scrollToBuilderSection,
@@ -28,17 +31,52 @@ type MiniQuizUser = {
   id: string;
 } | null | undefined;
 
+type CourseLike = {
+  id: string;
+} | null | undefined;
+
+type LessonLike = {
+  id: string;
+} | null | undefined;
+
+type MiniQuizLike = {
+  id: string;
+  title: string;
+  description: string | null;
+  passingScore: number;
+  isPublished: boolean;
+  questions: LessonMiniQuizQuestionView[];
+  updatedAt?: string | null;
+  questionsCount?: number | null;
+} | null | undefined;
+
+type MiniQuizForm = {
+  title: string;
+  description: string;
+  passingScore: string;
+  isPublished: boolean;
+};
+
+type MiniQuizQuestionForm = {
+  questionText: string;
+  questionType: LessonMiniQuizQuestionType;
+  options: string[];
+  correctAnswer: number[];
+  explanation: string;
+  sortOrder: string;
+};
+
 type UseCourseBuilderMiniQuizInput = {
   user: MiniQuizUser;
-  selectedCourse: any;
-  selectedEditingLesson: any;
-  selectedMiniQuiz: any;
+  selectedCourse: CourseLike;
+  selectedEditingLesson: LessonLike;
+  selectedMiniQuiz: MiniQuizLike;
 
-  miniQuizForm: any;
-  setMiniQuizForm: Dispatch<SetStateAction<any>>;
+  miniQuizForm: MiniQuizForm;
+  setMiniQuizForm: Dispatch<SetStateAction<MiniQuizForm>>;
 
-  miniQuizQuestionForm: any;
-  setMiniQuizQuestionForm: Dispatch<SetStateAction<any>>;
+  miniQuizQuestionForm: MiniQuizQuestionForm;
+  setMiniQuizQuestionForm: Dispatch<SetStateAction<MiniQuizQuestionForm>>;
 
   editingMiniQuizQuestionId: string | null;
   setEditingMiniQuizQuestionId: Dispatch<SetStateAction<string | null>>;
@@ -46,6 +84,146 @@ type UseCourseBuilderMiniQuizInput = {
   refetchWorkspace: () => Promise<void>;
   toast: ToastFn;
 };
+
+const DEFAULT_MINI_QUIZ_TITLE = 'Сабақ соңындағы қысқа тест';
+const DEFAULT_PASSING_SCORE = '60';
+
+function getErrorMessage(error: unknown, fallback = 'Белгісіз қате пайда болды.') {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim()
+    : fallback;
+}
+
+function requireUserId(user: MiniQuizUser) {
+  if (!user?.id) {
+    throw new Error('Пайдаланушы табылмады.');
+  }
+
+  return user.id;
+}
+
+function requireCourse(course: CourseLike) {
+  if (!course?.id) {
+    throw new Error('Курс таңдалмаған.');
+  }
+
+  return course;
+}
+
+function requireLesson(lesson: LessonLike) {
+  if (!lesson?.id) {
+    throw new Error('Сабақ таңдалмаған.');
+  }
+
+  return lesson;
+}
+
+function getQuestions(quiz: MiniQuizLike) {
+  return Array.isArray(quiz?.questions) ? quiz.questions : [];
+}
+
+function getInitialQuestionForm(sortOrder: string): MiniQuizQuestionForm {
+  return {
+    questionText: '',
+    questionType: 'single_choice',
+    options: ['', '', '', ''],
+    correctAnswer: [],
+    explanation: '',
+    sortOrder,
+  };
+}
+
+function parsePassingScore(value: string) {
+  const passingScore = Number(value || 0);
+
+  if (!Number.isInteger(passingScore) || passingScore < 0 || passingScore > 100) {
+    throw new Error('Өту пайызы 0 мен 100 аралығындағы бүтін сан болуы керек.');
+  }
+
+  return passingScore;
+}
+
+function parseSortOrder(value: string) {
+  const sortOrder = Number(value || 1);
+
+  if (!Number.isInteger(sortOrder) || sortOrder <= 0) {
+    throw new Error('Сұрақ реті 1 немесе одан жоғары бүтін сан болуы керек.');
+  }
+
+  return sortOrder;
+}
+
+function normalizeCorrectAnswer({
+  questionType,
+  correctAnswer,
+  optionsLength,
+}: {
+  questionType: LessonMiniQuizQuestionType;
+  correctAnswer: number[];
+  optionsLength: number;
+}) {
+  const normalized = Array.from(
+    new Set(
+      correctAnswer
+        .map((item) => Number(item))
+        .filter(
+          (item) =>
+            Number.isInteger(item) &&
+            item >= 0 &&
+            item < optionsLength,
+        ),
+    ),
+  ).sort((a, b) => a - b);
+
+  if (normalized.length === 0) {
+    throw new Error('Дұрыс жауапты таңдаңыз.');
+  }
+
+  if (questionType === 'single_choice') {
+    return [normalized[0]];
+  }
+
+  return normalized;
+}
+
+function normalizeQuestionPayload(form: MiniQuizQuestionForm) {
+  const questionText = form.questionText.trim();
+
+  if (!questionText) {
+    throw new Error('Сұрақ мәтінін енгізіңіз.');
+  }
+
+  const options = normalizeQuestionOptions(form.options);
+
+  if (options.length < 2) {
+    throw new Error('Кемінде 2 жауап нұсқасын енгізіңіз.');
+  }
+
+  const correctAnswer = normalizeCorrectAnswer({
+    questionType: form.questionType,
+    correctAnswer: form.correctAnswer,
+    optionsLength: options.length,
+  });
+
+  return {
+    questionText,
+    questionType: form.questionType,
+    options,
+    correctAnswer,
+    explanation: form.explanation.trim() || null,
+    sortOrder: parseSortOrder(form.sortOrder),
+  };
+}
+
+function normalizeOptionsForEdit(question: LessonMiniQuizQuestionView) {
+  const options = [...question.options];
+
+  while (options.length < 4) {
+    options.push('');
+  }
+
+  return options;
+}
 
 export function useCourseBuilderMiniQuiz({
   user,
@@ -63,99 +241,87 @@ export function useCourseBuilderMiniQuiz({
 }: UseCourseBuilderMiniQuizInput) {
   const upsertMiniQuizMutation = useUpsertLessonMiniQuizMutation(user?.id);
   const deleteMiniQuizMutation = useDeleteLessonMiniQuizMutation(user?.id);
-  const createMiniQuizQuestionMutation = useCreateLessonMiniQuizQuestionMutation(user?.id);
-  const updateMiniQuizQuestionMutation = useUpdateLessonMiniQuizQuestionMutation(user?.id);
-  const deleteMiniQuizQuestionMutation = useDeleteLessonMiniQuizQuestionMutation(user?.id);
-  const reorderMiniQuizQuestionsMutation = useReorderLessonMiniQuizQuestionsMutation(user?.id);
-
+  const createMiniQuizQuestionMutation =
+    useCreateLessonMiniQuizQuestionMutation(user?.id);
+  const updateMiniQuizQuestionMutation =
+    useUpdateLessonMiniQuizQuestionMutation(user?.id);
+  const deleteMiniQuizQuestionMutation =
+    useDeleteLessonMiniQuizQuestionMutation(user?.id);
+  const reorderMiniQuizQuestionsMutation =
+    useReorderLessonMiniQuizQuestionsMutation(user?.id);
 
   useEffect(() => {
-    if (!selectedEditingLesson) {
-      return;
-    }
+    if (!selectedEditingLesson) return;
 
     if (!selectedMiniQuiz) {
-      setMiniQuizForm((prev: any) => ({
-        ...prev,
-        title: 'Сабақ соңындағы қысқа тест',
+      setMiniQuizForm({
+        title: DEFAULT_MINI_QUIZ_TITLE,
         description: '',
-        passingScore: '60',
+        passingScore: DEFAULT_PASSING_SCORE,
         isPublished: false,
-      }));
+      });
 
-      setMiniQuizQuestionForm((prev: any) => ({
-        ...prev,
+      setMiniQuizQuestionForm((previous) => ({
+        ...previous,
         sortOrder: '1',
       }));
+
       return;
     }
 
     setMiniQuizForm({
-      title: selectedMiniQuiz.title,
+      title: selectedMiniQuiz.title || DEFAULT_MINI_QUIZ_TITLE,
       description: selectedMiniQuiz.description || '',
-      passingScore: String(selectedMiniQuiz.passingScore),
-      isPublished: selectedMiniQuiz.isPublished,
+      passingScore: String(selectedMiniQuiz.passingScore ?? DEFAULT_PASSING_SCORE),
+      isPublished: Boolean(selectedMiniQuiz.isPublished),
     });
 
-    setMiniQuizQuestionForm((prev: any) => ({
-      ...prev,
-      sortOrder: getNextMiniQuizQuestionSortOrder(selectedMiniQuiz.questions),
+    setMiniQuizQuestionForm((previous) => ({
+      ...previous,
+      sortOrder: getNextMiniQuizQuestionSortOrder(getQuestions(selectedMiniQuiz)),
     }));
   }, [
     selectedEditingLesson?.id,
     selectedMiniQuiz?.id,
     selectedMiniQuiz?.updatedAt,
     selectedMiniQuiz?.questionsCount,
+    selectedMiniQuiz?.questions?.length,
     setMiniQuizForm,
     setMiniQuizQuestionForm,
   ]);
 
   const resetMiniQuizQuestionForm = () => {
-    setMiniQuizQuestionForm({
-      questionText: '',
-      questionType: 'single_choice',
-      options: ['', '', '', ''],
-      correctAnswer: [],
-      explanation: '',
-      sortOrder: selectedMiniQuiz
-        ? getNextMiniQuizQuestionSortOrder(selectedMiniQuiz.questions)
-        : '1',
-    });
+    setMiniQuizQuestionForm(
+      getInitialQuestionForm(
+        selectedMiniQuiz
+          ? getNextMiniQuizQuestionSortOrder(getQuestions(selectedMiniQuiz))
+          : '1',
+      ),
+    );
+
     setEditingMiniQuizQuestionId(null);
   };
 
-  const parseMiniQuizPassingScore = () => {
-    const passingScore = Number(miniQuizForm.passingScore || 0);
-
-    if (!Number.isInteger(passingScore) || passingScore < 0 || passingScore > 100) {
-      throw new Error('Өту пайызы 0 мен 100 аралығындағы бүтін сан болуы керек.');
-    }
-
-    return passingScore;
-  };
-
   const saveMiniQuizBase = async () => {
-    if (!selectedCourse || !selectedEditingLesson || !user?.id) {
-      throw new Error('Mini quiz сақтау үшін алдымен сабақты таңдаңыз.');
-    }
+    const course = requireCourse(selectedCourse);
+    const lesson = requireLesson(selectedEditingLesson);
+    const teacherId = requireUserId(user);
 
     const title = miniQuizForm.title.trim();
 
     if (!title) {
-      throw new Error('Mini quiz атауын енгізіңіз.');
+      throw new Error('Шағын тест атауын енгізіңіз.');
     }
 
-    const passingScore = parseMiniQuizPassingScore();
-
     return upsertMiniQuizMutation.mutateAsync({
-      lessonId: selectedEditingLesson.id,
-      courseId: selectedCourse.id,
-      createdBy: user.id,
-      teacherId: user.id,
+      lessonId: lesson.id,
+      courseId: course.id,
+      createdBy: teacherId,
+      teacherId,
       title,
       description: miniQuizForm.description.trim() || null,
-      isPublished: miniQuizForm.isPublished,
-      passingScore,
+      isPublished: Boolean(miniQuizForm.isPublished),
+      passingScore: parsePassingScore(miniQuizForm.passingScore),
     });
   };
 
@@ -165,111 +331,112 @@ export function useCourseBuilderMiniQuiz({
       await refetchWorkspace();
 
       toast({
-        title: 'Mini quiz сақталды',
+        title: 'Шағын тест сақталды',
       });
     } catch (error) {
       toast({
-        title: 'Mini quiz сақтау мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        title: 'Шағын тестті сақтау мүмкін болмады',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
   const handleDeleteMiniQuiz = async () => {
-    if (!selectedCourse || !selectedEditingLesson || !selectedMiniQuiz) return;
-
-    if (!window.confirm('Бұл mini quiz толық өшіріледі. Жалғастырасыз ба?')) {
-      return;
-    }
-
     try {
+      const course = requireCourse(selectedCourse);
+      const lesson = requireLesson(selectedEditingLesson);
+      const teacherId = requireUserId(user);
+
+      if (!selectedMiniQuiz?.id) {
+        throw new Error('Шағын тест табылмады.');
+      }
+
+      if (!window.confirm('Бұл шағын тест толық өшіріледі. Жалғастырасыз ба?')) {
+        return;
+      }
+
       await deleteMiniQuizMutation.mutateAsync({
         quizId: selectedMiniQuiz.id,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
+        lessonId: lesson.id,
+        courseId: course.id,
+        teacherId,
       });
 
       resetMiniQuizQuestionForm();
       await refetchWorkspace();
 
       toast({
-        title: 'Mini quiz өшірілді',
+        title: 'Шағын тест өшірілді',
       });
     } catch (error) {
       toast({
-        title: 'Mini quiz өшіру мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        title: 'Шағын тестті өшіру мүмкін болмады',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
   const handleToggleMiniQuizCorrectAnswer = (optionIndex: number) => {
-    setMiniQuizQuestionForm((prev: any) => {
-      if (prev.questionType === 'single_choice') {
+    setMiniQuizQuestionForm((previous) => {
+      const currentIndex = Number(optionIndex);
+
+      if (!Number.isInteger(currentIndex) || currentIndex < 0) {
+        return previous;
+      }
+
+      if (previous.questionType === 'single_choice') {
         return {
-          ...prev,
-          correctAnswer: [optionIndex],
+          ...previous,
+          correctAnswer: [currentIndex],
         };
       }
 
-      const exists = prev.correctAnswer.includes(optionIndex);
+      const exists = previous.correctAnswer.includes(currentIndex);
 
       return {
-        ...prev,
+        ...previous,
         correctAnswer: exists
-          ? prev.correctAnswer.filter((item: number) => item !== optionIndex)
-          : [...prev.correctAnswer, optionIndex].sort((a, b) => a - b),
+          ? previous.correctAnswer.filter((item) => item !== currentIndex)
+          : [...previous.correctAnswer, currentIndex].sort((a, b) => a - b),
       };
     });
   };
 
   const handleEditMiniQuizQuestion = (question: LessonMiniQuizQuestionView) => {
-    const options = [...question.options];
-
-    while (options.length < 4) {
-      options.push('');
-    }
-
     setEditingMiniQuizQuestionId(question.id);
+
     setMiniQuizQuestionForm({
       questionText: question.questionText,
       questionType: question.questionType,
-      options,
-      correctAnswer: question.correctAnswer,
+      options: normalizeOptionsForEdit(question),
+      correctAnswer: [...question.correctAnswer].sort((a, b) => a - b),
       explanation: question.explanation || '',
-      sortOrder: String(question.sortOrder),
+      sortOrder: String(question.sortOrder || 1),
     });
 
     scrollToBuilderSection('lesson-mini-quiz');
   };
 
   const handleSaveMiniQuizQuestion = async () => {
-    if (!selectedCourse || !selectedEditingLesson || !user?.id) return;
-
     try {
-      const options = normalizeQuestionOptions(miniQuizQuestionForm.options);
-      const sortOrder = Number(miniQuizQuestionForm.sortOrder || 1);
-
-      if (!Number.isInteger(sortOrder) || sortOrder <= 0) {
-        throw new Error('Сұрақ реті 1 немесе одан жоғары бүтін сан болуы керек.');
-      }
+      const course = requireCourse(selectedCourse);
+      const lesson = requireLesson(selectedEditingLesson);
+      const teacherId = requireUserId(user);
 
       const quizRow = selectedMiniQuiz || (await saveMiniQuizBase());
       const quizId = selectedMiniQuiz?.id || quizRow.id;
 
+      if (!quizId) {
+        throw new Error('Шағын тест ID табылмады.');
+      }
+
       const payload = {
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user.id,
-        questionText: miniQuizQuestionForm.questionText.trim(),
-        questionType: miniQuizQuestionForm.questionType,
-        options,
-        correctAnswer: miniQuizQuestionForm.correctAnswer,
-        explanation: miniQuizQuestionForm.explanation.trim() || null,
-        sortOrder,
+        lessonId: lesson.id,
+        courseId: course.id,
+        teacherId,
+        ...normalizeQuestionPayload(miniQuizQuestionForm),
       };
 
       if (editingMiniQuizQuestionId) {
@@ -278,40 +445,52 @@ export function useCourseBuilderMiniQuiz({
           questionId: editingMiniQuizQuestionId,
         });
 
-        toast({ title: 'Mini quiz сұрағы жаңартылды' });
+        toast({
+          title: 'Шағын тест сұрағы жаңартылды',
+        });
       } else {
         await createMiniQuizQuestionMutation.mutateAsync({
           ...payload,
           quizId,
         });
 
-        toast({ title: 'Mini quiz сұрағы қосылды' });
+        toast({
+          title: 'Шағын тест сұрағы қосылды',
+        });
       }
 
       resetMiniQuizQuestionForm();
       await refetchWorkspace();
     } catch (error) {
       toast({
-        title: 'Mini quiz сұрағын сақтау мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        title: 'Шағын тест сұрағын сақтау мүмкін болмады',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
-  const handleDeleteMiniQuizQuestion = async (question: LessonMiniQuizQuestionView) => {
-    if (!selectedCourse || !selectedEditingLesson) return;
-
-    if (!window.confirm('Бұл сұрақты өшіргіңіз келе ме?')) {
-      return;
-    }
-
+  const handleDeleteMiniQuizQuestion = async (
+    question: LessonMiniQuizQuestionView,
+  ) => {
     try {
+      const course = requireCourse(selectedCourse);
+      const lesson = requireLesson(selectedEditingLesson);
+      const teacherId = requireUserId(user);
+
+      if (!question?.id) {
+        throw new Error('Сұрақ ID табылмады.');
+      }
+
+      if (!window.confirm('Бұл сұрақты өшіргіңіз келе ме?')) {
+        return;
+      }
+
       await deleteMiniQuizQuestionMutation.mutateAsync({
         questionId: question.id,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
+        lessonId: lesson.id,
+        courseId: course.id,
+        teacherId,
       });
 
       if (editingMiniQuizQuestionId === question.id) {
@@ -320,11 +499,13 @@ export function useCourseBuilderMiniQuiz({
 
       await refetchWorkspace();
 
-      toast({ title: 'Mini quiz сұрағы өшірілді' });
+      toast({
+        title: 'Шағын тест сұрағы өшірілді',
+      });
     } catch (error) {
       toast({
-        title: 'Mini quiz сұрағын өшіру мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        title: 'Шағын тест сұрағын өшіру мүмкін болмады',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
@@ -332,56 +513,81 @@ export function useCourseBuilderMiniQuiz({
 
   const handleMoveMiniQuizQuestion = async (
     questionId: string,
-    direction: 'up' | 'down'
+    direction: 'up' | 'down',
   ) => {
-    if (!selectedCourse || !selectedEditingLesson || !selectedMiniQuiz) return;
-
-    const questions = selectedMiniQuiz.questions;
-    const currentIndex = questions.findIndex((question: any) => question.id === questionId);
-    const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= questions.length) {
-      return;
-    }
-
-    const orderedQuestionIds = moveItem(questions, currentIndex, nextIndex).map(
-      (question: any) => question.id
-    );
-
     try {
+      const course = requireCourse(selectedCourse);
+      const lesson = requireLesson(selectedEditingLesson);
+      const teacherId = requireUserId(user);
+
+      if (!selectedMiniQuiz?.id) {
+        throw new Error('Шағын тест табылмады.');
+      }
+
+      const questions = getQuestions(selectedMiniQuiz);
+      const currentIndex = questions.findIndex((question) => question.id === questionId);
+      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= questions.length) {
+        return;
+      }
+
+      const orderedQuestionIds = moveItem(questions, currentIndex, nextIndex).map(
+        (question) => question.id,
+      );
+
       await reorderMiniQuizQuestionsMutation.mutateAsync({
         quizId: selectedMiniQuiz.id,
         orderedQuestionIds,
-        lessonId: selectedEditingLesson.id,
-        courseId: selectedCourse.id,
-        teacherId: user?.id,
+        lessonId: lesson.id,
+        courseId: course.id,
+        teacherId,
       });
 
       await refetchWorkspace();
-      toast({ title: 'Mini quiz сұрақтарының реті жаңартылды' });
+
+      toast({
+        title: 'Шағын тест сұрақтарының реті жаңартылды',
+      });
     } catch (error) {
       toast({
-        title: 'Mini quiz сұрақтарын реттеу мүмкін болмады',
-        description: error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        title: 'Шағын тест сұрақтарын реттеу мүмкін болмады',
+        description: getErrorMessage(error),
         variant: 'destructive',
       });
     }
   };
 
+  const normalizedQuestionOptions = normalizeQuestionOptions(
+    miniQuizQuestionForm.options,
+  );
+
+  const normalizedCorrectAnswer = (() => {
+    try {
+      return normalizeCorrectAnswer({
+        questionType: miniQuizQuestionForm.questionType,
+        correctAnswer: miniQuizQuestionForm.correctAnswer,
+        optionsLength: normalizedQuestionOptions.length,
+      });
+    } catch {
+      return [];
+    }
+  })();
+
   const canSaveMiniQuiz =
-    !!selectedCourse &&
-    !!selectedEditingLesson &&
-    !!user?.id &&
-    !!miniQuizForm.title.trim() &&
+    Boolean(selectedCourse?.id) &&
+    Boolean(selectedEditingLesson?.id) &&
+    Boolean(user?.id) &&
+    Boolean(miniQuizForm.title.trim()) &&
     !upsertMiniQuizMutation.isPending;
 
   const canSaveMiniQuizQuestion =
-    !!selectedCourse &&
-    !!selectedEditingLesson &&
-    !!user?.id &&
-    !!miniQuizQuestionForm.questionText.trim() &&
-    normalizeQuestionOptions(miniQuizQuestionForm.options).length >= 2 &&
-    miniQuizQuestionForm.correctAnswer.length > 0 &&
+    Boolean(selectedCourse?.id) &&
+    Boolean(selectedEditingLesson?.id) &&
+    Boolean(user?.id) &&
+    Boolean(miniQuizQuestionForm.questionText.trim()) &&
+    normalizedQuestionOptions.length >= 2 &&
+    normalizedCorrectAnswer.length > 0 &&
     !createMiniQuizQuestionMutation.isPending &&
     !updateMiniQuizQuestionMutation.isPending;
 

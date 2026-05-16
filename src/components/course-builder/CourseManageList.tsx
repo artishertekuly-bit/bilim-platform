@@ -1,47 +1,73 @@
-import type { ReactNode } from 'react';
-import {
-  BookOpen,
-  FileText,
-  KeyRound,
-  Tag,
-  Users,
-} from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { BookOpen, FileText, KeyRound, Search, Tag, Users } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState } from '@/components/common/DataState';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { CourseAccessType, TeacherCourseWorkspace } from '@/lib/app-data-types';
-import t from '@/lib/i18n';
+import { Input } from '@/components/ui/input';
+import type {
+  CourseAccessType,
+  TeacherCourseWorkspace,
+} from '@/lib/app-data-types';
 import {
   formatPrice,
   getAccessTypeLabel,
+  getCourseStatusTone,
   shouldShowCoursePricing,
   type CourseStatus,
 } from '@/lib/course-creator/course-builder-utils';
+import t from '@/lib/i18n';
 
-function getAccessTone(accessType: CourseAccessType) {
-  const normalized = String(accessType || '');
+const MAX_SEARCH_CHARS = 160;
 
-  if (normalized === 'paid' || normalized === 'subscription_only') {
-    return 'important' as const;
+function normalizeText(value: string | null | undefined) {
+  return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function normalizeAccessType(value: unknown): CourseAccessType {
+  if (
+    value === 'public_free' ||
+    value === 'private_invite' ||
+    value === 'paid' ||
+    value === 'subscription_only' ||
+    value === 'school_only'
+  ) {
+    return value;
   }
 
-  if (
-    normalized === 'private_invite' ||
-    normalized === 'school_only' ||
-    normalized === 'closed' ||
-    normalized === 'invite_only'
-  ) {
+  if (value === 'open') return 'public_free';
+  if (value === 'closed') return 'private_invite';
+
+  return 'public_free';
+}
+
+function normalizeCourseStatus(value: unknown): CourseStatus {
+  if (value === 'published' || value === 'archived' || value === 'draft') {
+    return value;
+  }
+
+  return 'draft';
+}
+
+function getAccessTone(accessType: CourseAccessType) {
+  if (accessType === 'paid' || accessType === 'subscription_only') {
+    return 'warning' as const;
+  }
+
+  if (accessType === 'private_invite' || accessType === 'school_only') {
     return 'primary' as const;
   }
 
   return 'success' as const;
 }
 
-function getStatusTone(status: CourseStatus) {
-  if (status === 'published') return 'active' as const;
-  if (status === 'archived') return 'muted' as const;
-  return 'completed' as const;
+function getPriceLabel(course: TeacherCourseWorkspace['courses'][number]) {
+  const accessType = normalizeAccessType(course.accessType);
+  const isPaid = shouldShowCoursePricing(accessType);
+
+  if (!isPaid) return 'Тегін';
+
+  return formatPrice(Number(course.price || 0), course.currency || 'KZT');
 }
 
 function CourseMetaPill({
@@ -55,13 +81,13 @@ function CourseMetaPill({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] ${
+      className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
         emphasized
-          ? 'border-accent-muted bg-accent-soft text-accent-foreground'
+          ? 'border-warning-muted bg-warning-soft text-warning-foreground'
           : 'border-border bg-muted/55 text-muted-foreground'
       }`}
     >
-      {icon}
+      <span className="shrink-0">{icon}</span>
       <span className="truncate">{children}</span>
     </span>
   );
@@ -78,6 +104,22 @@ export function CourseManageList({
   courseStatusLabels: Record<CourseStatus, string>;
   onSelectCourse: (courseId: string) => void;
 }) {
+  const [search, setSearch] = useState('');
+
+  const filteredCourses = useMemo(() => {
+    const query = normalizeText(search);
+
+    if (!query) return courses;
+
+    return courses.filter((course) => {
+      const haystack = normalizeText(
+        `${course.title} ${course.subjectName || ''} ${course.status || ''}`,
+      );
+
+      return haystack.includes(query);
+    });
+  }, [courses, search]);
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
@@ -93,7 +135,25 @@ export function CourseManageList({
         </div>
       </CardHeader>
 
-      <CardContent className="p-4 sm:p-5">
+      <CardContent className="space-y-4 p-4 sm:p-5">
+        {courses.length > 4 ? (
+          <div className="relative">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+
+            <Input
+              value={search}
+              onChange={(event) =>
+                setSearch(event.target.value.slice(0, MAX_SEARCH_CHARS))
+              }
+              placeholder="Курс немесе пән бойынша іздеу..."
+              className="pl-9"
+            />
+          </div>
+        ) : null}
+
         <div className="max-h-[620px] space-y-3 overflow-auto pr-1">
           {courses.length === 0 ? (
             <EmptyState
@@ -101,15 +161,19 @@ export function CourseManageList({
               text={t('page.teacher_course_builder.empty.courses_text')}
               compact
             />
+          ) : filteredCourses.length === 0 ? (
+            <EmptyState
+              title="Курс табылмады"
+              text="Іздеу мәтінін өзгертіп көріңіз."
+              compact
+            />
           ) : (
-            courses.map((course) => {
-              const accessType = (course.accessType || 'public_free') as CourseAccessType;
+            filteredCourses.map((course) => {
+              const accessType = normalizeAccessType(course.accessType);
+              const status = normalizeCourseStatus(course.status);
               const isPaid = shouldShowCoursePricing(accessType);
-              const priceLabel = isPaid
-                ? formatPrice(Number(course.price || 0), course.currency || 'KZT')
-                : 'Тегін';
               const selected = selectedCourseId === course.id;
-              const status = course.status as CourseStatus;
+              const priceLabel = getPriceLabel(course);
 
               return (
                 <button
@@ -123,27 +187,27 @@ export function CourseManageList({
                       : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/35'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start gap-3">
-                        <div
-                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
-                            selected
-                              ? 'border-primary-muted bg-card text-primary'
-                              : 'border-border bg-muted/55 text-muted-foreground'
-                          }`}
-                        >
-                          <BookOpen size={16} />
-                        </div>
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${
+                        selected
+                          ? 'border-primary-muted bg-card text-primary'
+                          : 'border-border bg-muted/55 text-muted-foreground'
+                      }`}
+                    >
+                      <BookOpen size={16} />
+                    </span>
 
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="line-clamp-2 text-sm font-semibold text-foreground">
                             {course.title}
                           </p>
 
                           <div className="mt-2 flex flex-wrap gap-1.5">
-                            <StatusBadge tone={getStatusTone(status)}>
-                              {courseStatusLabels[status] || course.status}
+                            <StatusBadge tone={getCourseStatusTone(status)}>
+                              {courseStatusLabels[status] || status}
                             </StatusBadge>
 
                             <StatusBadge tone={getAccessTone(accessType)}>
@@ -152,6 +216,16 @@ export function CourseManageList({
                             </StatusBadge>
                           </div>
                         </div>
+
+                        <span
+                          className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                            selected
+                              ? 'border-primary-muted bg-card text-primary'
+                              : 'border-border bg-muted/45 text-muted-foreground'
+                          }`}
+                        >
+                          {selected ? 'Таңдалды' : 'Ашу'}
+                        </span>
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -175,16 +249,6 @@ export function CourseManageList({
                         </CourseMetaPill>
                       </div>
                     </div>
-
-                    <span
-                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                        selected
-                          ? 'border-primary-muted bg-card text-primary'
-                          : 'border-border bg-muted/45 text-muted-foreground'
-                      }`}
-                    >
-                      {selected ? 'Таңдалды' : 'Ашу'}
-                    </span>
                   </div>
                 </button>
               );

@@ -194,50 +194,29 @@ function MetricItem({
   );
 }
 
-export default function CourseCard({
+function CourseBody({
   course,
-  mode,
-  pendingCourseId = null,
-  pendingBookmarkCourseId = null,
-  inviteCourseId = null,
-  inviteCode = '',
-  onBookmarkToggle,
-  onStudentAction,
-  onRedeemInvite,
-  onInviteCodeChange,
-  onCloseInvite,
-}: CourseCardProps) {
-  const isStudentView = mode === 'student';
-  const isTeacherView = mode === 'teacher';
-  const isAdminView = mode === 'admin';
-
-  const accessType = getCourseAccessType(course);
-  const actionLabel = getStudentActionLabel(course);
-  const actionDisabled = getStudentActionDisabled(course, pendingCourseId);
-
-  const showInviteInput =
-    isStudentView &&
-    inviteCourseId === course.id &&
-    course.access?.unlockAction === 'redeem_invite';
-
-  const courseDetailPath = buildCourseDetailPath(course.id);
-  const courseEditPath = buildCourseEditPath(course.id);
-
-  const cardBody = (
+  accessType,
+}: {
+  course: CourseView;
+  accessType: CourseAccessType;
+}) {
+  return (
     <>
-      <div className="relative flex h-28 items-center justify-center overflow-hidden border-b border-border bg-muted/35">
-        <div className="flex h-14 w-14 items-center justify-center rounded-3xl border border-primary-muted bg-card text-primary">
-          <BookOpen size={25} />
+      <div className="border-b border-border bg-muted/25 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-inner-soft">
+            <BookOpen size={20} />
+          </span>
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <CourseAccessBadge accessType={accessType} />
+
+            {course.access?.pendingOrderId ? (
+              <OrderStatusBadge status="pending" />
+            ) : null}
+          </div>
         </div>
-
-        <CourseAccessBadge
-          accessType={accessType}
-          className="absolute left-3 top-3"
-        />
-
-        {course.access?.pendingOrderId ? (
-          <OrderStatusBadge status="pending" className="absolute bottom-3 left-3" />
-        ) : null}
       </div>
 
       <CardContent className="space-y-4 p-4">
@@ -292,20 +271,52 @@ export default function CourseCard({
       </CardContent>
     </>
   );
+}
+
+export default function CourseCard({
+  course,
+  mode,
+  pendingCourseId = null,
+  pendingBookmarkCourseId = null,
+  inviteCourseId = null,
+  inviteCode = '',
+  onBookmarkToggle,
+  onStudentAction,
+  onRedeemInvite,
+  onInviteCodeChange,
+  onCloseInvite,
+}: CourseCardProps) {
+  const isStudentView = mode === 'student';
+  const isTeacherView = mode === 'teacher';
+  const isAdminView = mode === 'admin';
+
+  const accessType = getCourseAccessType(course);
+  const actionLabel = getStudentActionLabel(course);
+  const actionDisabled = getStudentActionDisabled(course, pendingCourseId);
+
+  const showInviteInput =
+    isStudentView &&
+    inviteCourseId === course.id &&
+    course.access?.unlockAction === 'redeem_invite';
+
+  const courseDetailPath = buildCourseDetailPath(course.id);
+  const courseEditPath = buildCourseEditPath(course.id);
+
+  const courseBody = <CourseBody course={course} accessType={accessType} />;
 
   return (
-    <Card className="overflow-hidden border-border bg-card">
+    <Card className="overflow-hidden border-border bg-card transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-md">
       <div className="relative">
         {isStudentView && canOpenCourseDetail(course) ? (
           <Link to={courseDetailPath} className="block">
-            {cardBody}
+            {courseBody}
           </Link>
         ) : isTeacherView ? (
           <Link to={courseEditPath} className="block">
-            {cardBody}
+            {courseBody}
           </Link>
         ) : (
-          <div>{cardBody}</div>
+          <div>{courseBody}</div>
         )}
 
         {isStudentView ? (
@@ -359,8 +370,9 @@ export default function CourseCard({
                   <Input
                     value={inviteCode}
                     onChange={(event) => onInviteCodeChange?.(event.target.value)}
-                    placeholder="ABC123XYZ"
+                    placeholder="Код"
                     className="h-9 text-xs uppercase"
+                    autoComplete="off"
                   />
 
                   <div className="grid grid-cols-2 gap-2">
@@ -378,7 +390,7 @@ export default function CourseCard({
                       type="button"
                       size="sm"
                       className="text-xs"
-                      disabled={pendingCourseId === course.id}
+                      disabled={pendingCourseId === course.id || !inviteCode.trim()}
                       onClick={() => onRedeemInvite?.(course)}
                     >
                       Қабылдау
@@ -399,9 +411,7 @@ export default function CourseCard({
                 onClick={() => onStudentAction?.(course)}
                 disabled={actionDisabled}
               >
-                {pendingCourseId === course.id
-                  ? t('page.course_catalog.enrolling')
-                  : actionLabel}
+                {pendingCourseId === course.id ? t('common.loading') : actionLabel}
               </Button>
             </>
           ) : isTeacherView ? (

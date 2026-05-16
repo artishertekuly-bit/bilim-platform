@@ -17,47 +17,51 @@ type AccessVisual = {
   iconClassName: string;
   activeClassName: string;
   inactiveClassName: string;
-  dotClassName: string;
+  radioClassName: string;
 };
 
+function normalizeAccessType(value: CourseAccessType | string | null | undefined) {
+  if (value === 'open' || value === 'free') return 'public_free';
+  if (value === 'closed' || value === 'invite_only') return 'private_invite';
+
+  return String(value || 'public_free');
+}
+
 function getAccessVisual(type: CourseAccessType): AccessVisual {
-  const normalized = String(type || '');
+  const normalized = normalizeAccessType(type);
 
   if (normalized === 'paid' || normalized === 'subscription_only') {
     return {
       icon: Tag,
-      iconClassName: 'border-accent-muted bg-accent-soft text-accent-foreground',
-      activeClassName: 'border-accent-muted bg-accent-soft/70',
+      iconClassName:
+        'border-warning-muted bg-warning-soft text-warning-foreground',
+      activeClassName: 'border-warning-muted bg-warning-soft/70',
       inactiveClassName:
-        'border-border bg-card hover:border-accent-muted hover:bg-accent-soft/40',
-      dotClassName: 'border-accent bg-accent',
+        'border-border bg-card hover:border-warning-muted hover:bg-warning-soft/40',
+      radioClassName: 'border-warning bg-warning',
     };
   }
 
-  if (
-    normalized === 'private_invite' ||
-    normalized === 'school_only' ||
-    normalized === 'closed' ||
-    normalized === 'invite_only'
-  ) {
+  if (normalized === 'private_invite' || normalized === 'school_only') {
     return {
       icon: Lock,
       iconClassName: 'border-primary-muted bg-primary-soft text-primary',
       activeClassName: 'border-primary-muted bg-primary-soft/70',
       inactiveClassName:
         'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40',
-      dotClassName: 'border-primary bg-primary',
+      radioClassName: 'border-primary bg-primary',
     };
   }
 
-  if (normalized === 'public_free' || normalized === 'open' || normalized === 'free') {
+  if (normalized === 'public_free') {
     return {
       icon: Globe2,
-      iconClassName: 'border-success-muted bg-success-soft text-success-foreground',
+      iconClassName:
+        'border-success-muted bg-success-soft text-success-foreground',
       activeClassName: 'border-success-muted bg-success-soft/70',
       inactiveClassName:
         'border-border bg-card hover:border-success-muted hover:bg-success-soft/40',
-      dotClassName: 'border-success bg-success',
+      radioClassName: 'border-success bg-success',
     };
   }
 
@@ -67,7 +71,7 @@ function getAccessVisual(type: CourseAccessType): AccessVisual {
     activeClassName: 'border-primary-muted bg-primary-soft/70',
     inactiveClassName:
       'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40',
-    dotClassName: 'border-primary bg-primary',
+    radioClassName: 'border-primary bg-primary',
   };
 }
 
@@ -94,11 +98,10 @@ export function CourseAccessTypeCards({
           <button
             key={type}
             type="button"
-            onClick={() => onChange(type)}
-            aria-pressed={active}
             role="radio"
             aria-checked={active}
             aria-label={label}
+            onClick={() => onChange(type)}
             className={`rounded-3xl border p-4 text-left transition-colors active:scale-[0.99] ${
               active ? visual.activeClassName : visual.inactiveClassName
             }`}
@@ -106,23 +109,25 @@ export function CourseAccessTypeCards({
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${visual.iconClassName}`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${visual.iconClassName}`}
                 >
                   <Icon size={17} />
                 </span>
 
-                <p className="truncate text-sm font-semibold text-foreground">
+                <span className="truncate text-sm font-semibold text-foreground">
                   {label}
-                </p>
+                </span>
               </div>
 
               <span
                 className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                  active ? visual.dotClassName : 'border-muted-foreground/30 bg-card'
+                  active
+                    ? visual.radioClassName
+                    : 'border-muted-foreground/30 bg-card'
                 }`}
               >
                 {active ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-card" />
                 ) : null}
               </span>
             </div>

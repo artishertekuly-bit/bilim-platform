@@ -9,11 +9,11 @@ import {
   PlayCircle,
   RotateCcw,
   Search,
-  type LucideIcon,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
 import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, ErrorState } from '@/components/common/DataState';
 import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import LessonCard from '@/components/lesson/LessonCard';
@@ -27,8 +27,10 @@ import t from '@/lib/i18n';
 
 type LessonStatusFilter = 'all' | 'available' | 'completed' | 'locked';
 
+const MAX_SEARCH_CHARS = 160;
+
 function normalizeText(value: string | null | undefined) {
-  return (value || '').toLowerCase().trim();
+  return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 function getStatusFilterLabel(filter: LessonStatusFilter) {
@@ -45,70 +47,16 @@ function getStatusFilterLabel(filter: LessonStatusFilter) {
 function getLessonStatusFilter(lesson: LessonView): LessonStatusFilter {
   if (lesson.isCompleted) return 'completed';
   if (lesson.isLocked) return 'locked';
+
   return 'available';
-}
-
-function LessonStatCard({
-  label,
-  value,
-  icon: Icon,
-  tone = 'primary',
-}: {
-  label: string;
-  value: string | number;
-  icon: LucideIcon;
-  tone?: 'primary' | 'success' | 'warning' | 'muted';
-}) {
-  const toneClassName = {
-    primary: 'border-primary-muted bg-primary-soft text-primary',
-    success: 'border-success-muted bg-success-soft text-success-foreground',
-    warning: 'border-warning-muted bg-warning-soft text-warning-foreground',
-    muted: 'border-border bg-muted text-muted-foreground',
-  }[tone];
-
-  return (
-    <Card className="overflow-hidden">
-      <CardContent className="flex items-center gap-3 p-4 sm:p-5">
-        <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${toneClassName}`}
-        >
-          <Icon size={18} />
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-xl font-semibold tracking-tight text-foreground">
-            {value}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 function LessonsPageSkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div
-            key={index}
-            className="rounded-3xl border border-border bg-card p-5"
-          >
-            <div className="flex items-center gap-3">
-              <SkeletonBlock className="h-11 w-11 rounded-2xl" />
-              <div className="space-y-2">
-                <SkeletonBlock className="h-3 w-20" />
-                <SkeletonBlock className="h-6 w-12" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-3xl border border-border bg-card p-5">
+    <div className="space-y-5">
+      <div className="rounded-3xl border border-border bg-card p-4 sm:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <SkeletonBlock className="h-11 w-full rounded-2xl lg:max-w-md" />
+          <SkeletonBlock className="h-10 w-full rounded-2xl lg:max-w-md" />
 
           <div className="flex gap-2 overflow-hidden">
             <SkeletonBlock className="h-9 w-20 rounded-2xl" />
@@ -127,9 +75,9 @@ function LessonsPageSkeleton() {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-border bg-card p-5">
+      <div className="rounded-3xl border border-border bg-card p-4 sm:p-5">
         <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, index) => (
+          {Array.from({ length: 6 }).map((_, index) => (
             <div
               key={index}
               className="rounded-3xl border border-border bg-card p-4"
@@ -142,6 +90,7 @@ function LessonsPageSkeleton() {
                     <SkeletonBlock className="h-5 w-20 rounded-full" />
                     <SkeletonBlock className="h-5 w-24 rounded-full" />
                   </div>
+
                   <SkeletonBlock className="h-4 w-2/3" />
                   <SkeletonBlock className="h-3 w-1/2" />
                 </div>
@@ -193,7 +142,7 @@ export default function LessonsPage() {
 
   const { data, isLoading, error } = useLessons(
     isStudent ? user?.id : undefined,
-    !!user
+    Boolean(user),
   );
 
   const lessons = data || [];
@@ -202,10 +151,10 @@ export default function LessonsPage() {
     () => [
       'all',
       ...Array.from(
-        new Set(lessons.map((item) => item.subjectName).filter(Boolean))
+        new Set(lessons.map((item) => item.subjectName).filter(Boolean)),
       ),
     ],
-    [lessons]
+    [lessons],
   );
 
   const stats = useMemo(() => {
@@ -213,7 +162,7 @@ export default function LessonsPage() {
     const completed = lessons.filter((lesson) => lesson.isCompleted).length;
     const locked = lessons.filter((lesson) => lesson.isLocked).length;
     const available = lessons.filter(
-      (lesson) => !lesson.isCompleted && !lesson.isLocked
+      (lesson) => !lesson.isCompleted && !lesson.isLocked,
     ).length;
 
     return {
@@ -257,7 +206,12 @@ export default function LessonsPage() {
 
   const handleOpenLesson = (lesson: LessonView) => {
     if (lesson.isLocked) return;
+
     navigate(`/lessons/${lesson.id}`);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value.slice(0, MAX_SEARCH_CHARS));
   };
 
   const pageTitle = isStudent
@@ -300,9 +254,17 @@ export default function LessonsPage() {
           }
         />
 
-        {isLoading ? <LessonsPageSkeleton /> : null}
+        {!user ? (
+          <EmptyState
+            icon={<BookOpen size={18} />}
+            title="Аккаунт анықталмады"
+            text="Сабақтарды көру үшін жүйеге кіріңіз."
+          />
+        ) : null}
 
-        {!isLoading && error ? (
+        {user && isLoading ? <LessonsPageSkeleton /> : null}
+
+        {user && !isLoading && error ? (
           <ErrorState
             text={t('page.lessons.error')}
             action={
@@ -318,38 +280,8 @@ export default function LessonsPage() {
           />
         ) : null}
 
-        {!isLoading && !error ? (
+        {user && !isLoading && !error ? (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <LessonStatCard
-                label="Барлығы"
-                value={stats.total}
-                icon={BookOpen}
-                tone="primary"
-              />
-
-              <LessonStatCard
-                label="Ашық"
-                value={stats.available}
-                icon={PlayCircle}
-                tone="warning"
-              />
-
-              <LessonStatCard
-                label="Аяқталған"
-                value={stats.completed}
-                icon={CheckCircle2}
-                tone="success"
-              />
-
-              <LessonStatCard
-                label="Құлыпталған"
-                value={stats.locked}
-                icon={Lock}
-                tone="muted"
-              />
-            </div>
-
             <Card className="overflow-hidden">
               <CardContent className="space-y-4 p-4 sm:p-5">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -361,7 +293,7 @@ export default function LessonsPage() {
 
                     <Input
                       value={search}
-                      onChange={(event) => setSearch(event.target.value)}
+                      onChange={(event) => handleSearchChange(event.target.value)}
                       placeholder="Сабақ, курс, модуль немесе пән"
                       className="pl-10"
                     />
@@ -394,6 +326,28 @@ export default function LessonsPage() {
                       </Button>
                     ) : null}
                   </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <StatusBadge tone="info">
+                    <BookOpen size={12} />
+                    Барлығы: {stats.total}
+                  </StatusBadge>
+
+                  <StatusBadge tone="warning">
+                    <PlayCircle size={12} />
+                    Ашық: {stats.available}
+                  </StatusBadge>
+
+                  <StatusBadge tone="success">
+                    <CheckCircle2 size={12} />
+                    Аяқталған: {stats.completed}
+                  </StatusBadge>
+
+                  <StatusBadge tone="muted">
+                    <Lock size={12} />
+                    Құлыпталған: {stats.locked}
+                  </StatusBadge>
                 </div>
 
                 <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
