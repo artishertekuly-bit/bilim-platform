@@ -12,11 +12,8 @@ import {
   Check,
   Clipboard,
   Eraser,
-  Info,
   Loader2,
-  MessageCircle,
   Send,
-  Sparkles,
   Trash2,
   UserRound,
 } from 'lucide-react';
@@ -24,7 +21,7 @@ import {
 import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 export type AiPromptSuggestion = {
   id: string;
@@ -76,32 +73,26 @@ type AiPromptShellProps = {
 
 const MAX_CONVERSATION_HISTORY_MESSAGES = 8;
 const MAX_LOCAL_MESSAGES = 40;
-const MAX_PROMPT_CHARS = 4000;
-const MAX_MESSAGE_CHARS = 12000;
+const MAX_PROMPT_CHARS = 4_000;
+const MAX_MESSAGE_CHARS = 12_000;
 const MAX_META_TEXT_CHARS = 700;
 const MAX_WARNING_CHARS = 260;
 const MAX_FOLLOW_UP_PROMPTS = 4;
 
-function cleanText(value: unknown, limit?: number) {
-  const normalized = String(value || '')
-    .replace(/\x00/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return typeof limit === 'number'
-    ? normalized.slice(0, limit).trim()
-    : normalized;
+function cleanText(value: unknown, limit?: number): string {
+  return typeof limit === 'number' ? limitText(value, limit) : limitText(value, MAX_MESSAGE_CHARS);
 }
 
-function cleanMultilineText(value: unknown, limit?: number) {
-  const normalized = String(value || '')
-    .replace(/\x00/g, ' ')
+function cleanMultilineText(value: unknown, limit?: number): string {
+  const normalized = removeNullCharacters(String(value ?? ''))
     .replace(/\r\n/g, '\n')
     .trim();
 
-  return typeof limit === 'number'
-    ? normalized.slice(0, limit).trim()
-    : normalized;
+  if (typeof limit !== 'number') {
+    return normalized;
+  }
+
+  return normalized.slice(0, limit).trim();
 }
 
 function normalizeStringList(
@@ -113,7 +104,7 @@ function normalizeStringList(
     limit: number;
     itemLimit: number;
   },
-) {
+): string[] {
   if (!Array.isArray(values)) {
     return [];
   }
@@ -140,7 +131,7 @@ function normalizeStringList(
   return output;
 }
 
-function normalizeSuggestions(values: AiPromptSuggestion[] | undefined) {
+function normalizeSuggestions(values: AiPromptSuggestion[] | undefined): AiPromptSuggestion[] {
   if (!Array.isArray(values)) {
     return [];
   }
@@ -169,7 +160,7 @@ function normalizeSuggestions(values: AiPromptSuggestion[] | undefined) {
   return output;
 }
 
-function normalizeMarkdownLine(line: string) {
+function normalizeMarkdownLine(line: string): string {
   return line
     .replace(/^#{1,6}\s+/, '')
     .replace(/^[-*]\s+/, '')
@@ -235,7 +226,7 @@ function renderStructuredAnswer(answer: string) {
 function buildHistory(messages: ChatMessage[]): AiConversationMessage[] {
   return messages
     .slice(-MAX_CONVERSATION_HISTORY_MESSAGES)
-    .map((message) => ({
+    .map((message): AiConversationMessage => ({
       role: message.role,
       content: cleanMultilineText(message.content, MAX_MESSAGE_CHARS),
     }))
@@ -255,28 +246,26 @@ function createMessage(
   };
 }
 
-function appendLocalMessage(messages: ChatMessage[], message: ChatMessage) {
+function appendLocalMessage(messages: ChatMessage[], message: ChatMessage): ChatMessage[] {
   const nextMessages = [...messages, message].filter((item) => Boolean(item.content));
 
   return nextMessages.slice(-MAX_LOCAL_MESSAGES);
 }
 
-function getSubmitErrorMessage(error: unknown) {
+function getSubmitErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
+    return cleanText(error.message, 500);
   }
 
-  return 'AI сұранысын жіберу кезінде белгісіз қате пайда болды.';
+  return 'AI сұранысын жіберу кезінде қате пайда болды.';
 }
 
 export default function AiPromptShell({
   title,
-  description,
   placeholder,
   suggestions = [],
 
   contextLabel = 'Дерек',
-  contextDescription = '',
 
   disabled = true,
   disabledReason,
@@ -286,7 +275,7 @@ export default function AiPromptShell({
   error = null,
 
   answerTitle = 'AI жауабы',
-  emptyAnswerText = 'Сұрағыңызды жазыңыз. AI жауабы осы жерде көрсетіледі.',
+  emptyAnswerText = 'Сұрағыңызды жазыңыз.',
 
   contextSummary = null,
   warnings = [],
@@ -326,10 +315,6 @@ export default function AiPromptShell({
   );
 
   const normalizedContextSummary = cleanText(contextSummary, MAX_META_TEXT_CHARS);
-  const normalizedContextDescription = cleanText(
-    contextDescription,
-    MAX_META_TEXT_CHARS,
-  );
 
   const visibleError = error || localError;
   const hasPrompt = prompt.trim().length > 0;
@@ -344,12 +329,12 @@ export default function AiPromptShell({
 
   const visibleDisabledReason =
     cleanText(disabledReason, 300) ||
-    (!endpointReady ? 'AI сервері қосылмаған.' : 'AI уақытша өшірулі.');
+    (!endpointReady ? 'AI сервері қосылмаған.' : 'AI уақытша қолжетімсіз.');
 
   useEffect(() => {
     if (!copiedMessageId) return;
 
-    const timeoutId = window.setTimeout(() => setCopiedMessageId(null), 1400);
+    const timeoutId = window.setTimeout(() => setCopiedMessageId(null), 1_400);
 
     return () => window.clearTimeout(timeoutId);
   }, [copiedMessageId]);
@@ -468,34 +453,23 @@ export default function AiPromptShell({
 
                 {contextLabel ? (
                   <StatusBadge tone="ai" className="max-w-[240px] truncate">
-                    <Sparkles size={11} />
                     <span className="truncate">{contextLabel}</span>
                   </StatusBadge>
                 ) : null}
               </div>
-
-              {description ? (
-                <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
-                  {description}
-                </p>
-              ) : null}
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
-                'inline-flex w-fit items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold',
+                'inline-flex w-fit items-center rounded-full border px-3 py-1 text-[11px] font-semibold',
                 endpointReady && !disabled
                   ? 'border-ai-border bg-ai-soft text-ai-foreground'
                   : 'border-border bg-muted text-muted-foreground',
               )}
             >
-              <Sparkles
-                size={12}
-                className={endpointReady && !disabled ? 'text-primary' : ''}
-              />
-              {endpointReady && !disabled ? 'AI дайын' : 'Қолжетімсіз'}
+              {endpointReady && !disabled ? 'Дайын' : 'Қолжетімсіз'}
             </span>
 
             {hasConversation ? (
@@ -508,17 +482,11 @@ export default function AiPromptShell({
                 className="h-8 px-2 text-[11px] text-muted-foreground"
               >
                 <Trash2 size={12} className="mr-1.5" />
-                Диалогты тазалау
+                Тазалау
               </Button>
             ) : null}
           </div>
         </div>
-
-        {normalizedContextDescription ? (
-          <p className="mt-3 rounded-2xl border border-border/70 bg-card/60 px-3 py-2 text-xs leading-5 text-muted-foreground">
-            {normalizedContextDescription}
-          </p>
-        ) : null}
       </CardHeader>
 
       <CardContent className="p-0">
@@ -526,53 +494,41 @@ export default function AiPromptShell({
           <div className="flex-1 space-y-4 overflow-y-auto bg-surface-soft/40 px-4 py-5 sm:px-5">
             {hasMeta ? (
               <div className="rounded-3xl border border-border bg-card/85 p-4 shadow-soft">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
-                    <Info size={15} />
-                  </div>
+                <div className="min-w-0 space-y-3">
+                  {normalizedContextSummary ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {normalizedContextSummary}
+                    </p>
+                  ) : null}
 
-                  <div className="min-w-0 flex-1 space-y-3">
-                    {normalizedContextSummary ? (
-                      <div>
-                        <p className="text-xs font-semibold text-foreground">
-                          Қысқаша дерек
+                  {normalizedWarnings.length > 0 ? (
+                    <div className="space-y-1">
+                      {normalizedWarnings.map((warning, index) => (
+                        <p
+                          key={`${warning}-${index}`}
+                          className="rounded-2xl border border-warning-muted bg-warning-soft/65 px-3 py-2 text-xs leading-5 text-muted-foreground"
+                        >
+                          {warning}
                         </p>
+                      ))}
+                    </div>
+                  ) : null}
 
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          {normalizedContextSummary}
-                        </p>
-                      </div>
-                    ) : null}
-
-                    {normalizedWarnings.length > 0 ? (
-                      <div className="space-y-1">
-                        {normalizedWarnings.map((warning, index) => (
-                          <p
-                            key={`${warning}-${index}`}
-                            className="rounded-2xl border border-warning-muted bg-warning-soft/65 px-3 py-2 text-xs leading-5 text-muted-foreground"
-                          >
-                            {warning}
-                          </p>
-                        ))}
-                      </div>
-                    ) : null}
-
-                    {normalizedFollowUpPrompts.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {normalizedFollowUpPrompts.map((followUpPrompt, index) => (
-                          <button
-                            key={`${followUpPrompt}-${index}`}
-                            type="button"
-                            disabled={effectiveDisabled || isSubmitting}
-                            onClick={() => void submitPrompt(followUpPrompt, null)}
-                            className="rounded-full border border-primary-muted bg-primary-soft px-3 py-1.5 text-[11px] font-medium text-primary transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-card disabled:pointer-events-none disabled:opacity-60"
-                          >
-                            {followUpPrompt}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
+                  {normalizedFollowUpPrompts.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {normalizedFollowUpPrompts.map((followUpPrompt, index) => (
+                        <button
+                          key={`${followUpPrompt}-${index}`}
+                          type="button"
+                          disabled={effectiveDisabled || isSubmitting}
+                          onClick={() => void submitPrompt(followUpPrompt, null)}
+                          className="rounded-full border border-primary-muted bg-primary-soft px-3 py-1.5 text-[11px] font-medium text-primary transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-card disabled:pointer-events-none disabled:opacity-60"
+                        >
+                          {followUpPrompt}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -580,12 +536,8 @@ export default function AiPromptShell({
             {!hasConversation && !visibleError && !isSubmitting ? (
               <div className="flex min-h-[320px] items-center justify-center">
                 <div className="max-w-md rounded-3xl border border-dashed border-ai-border bg-card/80 px-6 py-7 text-center shadow-soft backdrop-blur">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-inner-soft">
-                    <MessageCircle size={18} />
-                  </div>
-
-                  <p className="mt-3 text-sm font-semibold text-foreground">
-                    Диалог дайын
+                  <p className="text-sm font-semibold text-foreground">
+                    Сұрақ жазыңыз
                   </p>
 
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -646,11 +598,9 @@ export default function AiPromptShell({
 
                   <div className="group w-full max-w-4xl overflow-hidden rounded-3xl border border-border bg-card/95 shadow-soft">
                     <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-card/80 px-4 py-3">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">
-                          {message.title || answerTitle}
-                        </p>
-                      </div>
+                      <p className="text-sm font-semibold text-foreground">
+                        {message.title || answerTitle}
+                      </p>
 
                       <Button
                         type="button"
@@ -684,7 +634,7 @@ export default function AiPromptShell({
 
                 <div className="max-w-3xl rounded-3xl border border-destructive-muted bg-destructive-soft px-4 py-3 shadow-soft">
                   <p className="text-sm font-semibold text-destructive">
-                    AI жауабын алу мүмкін болмады
+                    Жауап алу мүмкін болмады
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -770,7 +720,7 @@ export default function AiPromptShell({
             </div>
 
             <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-              Жылдам жіберу: Ctrl/⌘ + Enter.
+              Ctrl/⌘ + Enter
             </p>
           </div>
         </form>

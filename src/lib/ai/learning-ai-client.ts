@@ -1,3 +1,4 @@
+import { limitText, normalizeTextInput } from '../utils';
 import type {
   LearningAiClientResult,
   LearningAiConversationMessage,
@@ -7,6 +8,7 @@ import type {
 
 const DEFAULT_AI_ENDPOINT_PATH = '/api/learning-analysis';
 const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_TIMEOUT_MS = 600_000;
 
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_HISTORY_MESSAGES = 8;
@@ -28,11 +30,11 @@ type RequestLearningAiOptions = {
 type JsonRecord = Record<string, unknown>;
 type LearningAiConversationRole = LearningAiConversationMessage['role'];
 
-function trimTrailingSlash(value: string | undefined) {
+function trimTrailingSlash(value: string | undefined): string {
   return value?.trim().replace(/\/+$/, '') || '';
 }
 
-function trimLeadingSlash(value: string) {
+function trimLeadingSlash(value: string): string {
   return value.replace(/^\/+/, '');
 }
 
@@ -41,12 +43,13 @@ function isRecord(value: unknown): value is JsonRecord {
 }
 
 function cleanText(value: unknown, limit?: number): string {
-  const text = String(value ?? '')
-    .replace(/\x00/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const normalized = normalizeTextInput(value);
 
-  return typeof limit === 'number' ? text.slice(0, limit).trim() : text;
+  if (typeof limit !== 'number') {
+    return normalized;
+  }
+
+  return limitText(normalized, limit);
 }
 
 function getEnvValue(name: string): string {
@@ -56,14 +59,14 @@ function getEnvValue(name: string): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function getAiApiBaseUrl() {
+function getAiApiBaseUrl(): string {
   return (
     trimTrailingSlash(getEnvValue('VITE_AI_API_BASE_URL')) ||
     trimTrailingSlash(getEnvValue('VITE_AI_API_URL'))
   );
 }
 
-function getLearningAiEndpoint() {
+function getLearningAiEndpoint(): string | null {
   const baseUrl = getAiApiBaseUrl();
 
   if (!baseUrl) {
@@ -81,11 +84,11 @@ function getLearningAiEndpoint() {
   return `${baseUrl}/${trimLeadingSlash(DEFAULT_AI_ENDPOINT_PATH)}`;
 }
 
-export function isLearningAiConfigured() {
+export function isLearningAiConfigured(): boolean {
   return Boolean(getLearningAiEndpoint());
 }
 
-function isValidUuidOrEmpty(value: string | null | undefined) {
+function isValidUuidOrEmpty(value: string | null | undefined): boolean {
   return !value || UUID_RE.test(value);
 }
 
@@ -135,20 +138,16 @@ function normalizeRequest(request: LearningAiRequest): LearningAiRequest {
     cleanText(request.selectedSuggestionId, MAX_SELECTED_SUGGESTION_ID_CHARS) ||
     undefined;
 
-  const conversationHistory = normalizeConversationHistory(
-    request.conversationHistory,
-  );
-
   return {
     ...request,
     prompt: cleanText(request.prompt, MAX_PROMPT_CHARS),
     selectedSuggestionId,
     scope: normalizeScope(request.scope),
-    conversationHistory,
+    conversationHistory: normalizeConversationHistory(request.conversationHistory),
   };
 }
 
-function validateLearningAiRequest(request: LearningAiRequest) {
+function validateLearningAiRequest(request: LearningAiRequest): string | null {
   if (!request.prompt?.trim()) {
     return 'Сұрақ бос болмауы керек.';
   }
@@ -162,7 +161,7 @@ function validateLearningAiRequest(request: LearningAiRequest) {
       request.mode === 'student_course_advisor') &&
     request.role !== 'student'
   ) {
-    return 'Бұл AI режимі оқушы аккаунтына арналған.';
+    return 'Бұл режим оқушы аккаунтына арналған.';
   }
 
   if (
@@ -171,30 +170,30 @@ function validateLearningAiRequest(request: LearningAiRequest) {
       request.mode === 'teacher_course_creator_advisor') &&
     request.role !== 'teacher'
   ) {
-    return 'Бұл AI режимі мұғалім аккаунтына арналған.';
+    return 'Бұл режим мұғалім аккаунтына арналған.';
   }
 
   if (request.mode === 'teacher_course_assistant' && !request.scope?.courseId) {
-    return 'Курс бойынша AI көмекші үшін курс таңдалуы керек.';
+    return 'Курс таңдалуы керек.';
   }
 
   if (
     request.mode === 'teacher_student_assistant' &&
     (!request.scope?.courseId || !request.scope?.studentId)
   ) {
-    return 'Оқушы бойынша AI көмекші үшін курс пен оқушы таңдалуы керек.';
+    return 'Курс пен оқушы таңдалуы керек.';
   }
 
   if (!isValidUuidOrEmpty(request.scope?.courseId)) {
-    return 'Курс идентификаторы UUID форматында болуы керек.';
+    return 'Курс идентификаторы дұрыс емес.';
   }
 
   if (!isValidUuidOrEmpty(request.scope?.studentId)) {
-    return 'Оқушы идентификаторы UUID форматында болуы керек.';
+    return 'Оқушы идентификаторы дұрыс емес.';
   }
 
   if (!isValidUuidOrEmpty(request.scope?.subjectId)) {
-    return 'Пән идентификаторы UUID форматында болуы керек.';
+    return 'Пән идентификаторы дұрыс емес.';
   }
 
   return null;
@@ -220,14 +219,15 @@ async function readResponseBody(response: Response): Promise<unknown> {
   }
 }
 
-function getStringField(payload: unknown, key: string) {
+function getStringField(payload: unknown, key: string): string | null {
   if (!isRecord(payload)) {
     return null;
   }
 
   const value = payload[key];
+  const text = cleanText(value);
 
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+  return text || null;
 }
 
 function getPydanticErrorMessage(detail: unknown): string | null {
@@ -241,7 +241,7 @@ function getPydanticErrorMessage(detail: unknown): string | null {
 
       const msg = cleanText(item.msg);
       const loc = Array.isArray(item.loc)
-        ? item.loc.map((part) => String(part)).filter(Boolean).join('.')
+        ? item.loc.map((part) => cleanText(part)).filter(Boolean).join('.')
         : '';
 
       if (!msg) return '';
@@ -253,11 +253,11 @@ function getPydanticErrorMessage(detail: unknown): string | null {
   return messages.length ? messages.slice(0, 3).join('; ') : null;
 }
 
-function getBackendErrorMessage(status: number, payload: unknown) {
+function getBackendErrorMessage(status: number, payload: unknown): string {
   const detail = isRecord(payload) ? payload.detail : null;
 
   if (typeof detail === 'string' && detail.trim()) {
-    return detail.trim();
+    return cleanText(detail);
   }
 
   const pydanticMessage = getPydanticErrorMessage(detail);
@@ -274,40 +274,40 @@ function getBackendErrorMessage(status: number, payload: unknown) {
   }
 
   if (typeof payload === 'string' && payload.trim()) {
-    return payload.trim();
+    return cleanText(payload);
   }
 
   if (status === 401) {
-    return 'AI сервері авторизацияны қабылдамады. Аккаунт сессиясын жаңартып көріңіз.';
+    return 'Сессия аяқталған. Қайта кіріңіз.';
   }
 
   if (status === 403) {
-    return 'Бұл дерекке AI арқылы кіруге рұқсат жоқ. Рөл немесе курсқа қолжетімділікті тексеріңіз.';
+    return 'Бұл әрекетке рұқсат жоқ.';
   }
 
   if (status === 404) {
-    return 'AI серверінің талдау маршруты табылмады. Backend URL және /api/learning-analysis маршрутын тексеріңіз.';
+    return 'AI қызметі табылмады.';
   }
 
   if (status === 422) {
-    return 'AI сұранысының форматы дұрыс емес. Режим, рөл, курс/оқушы дерегі және сұрақ мәндерін тексеріңіз.';
+    return 'Сұраныс деректері дұрыс емес.';
   }
 
   if (status >= 500) {
-    return `AI серверінің ішкі қатесі: ${status}. Backend логтарын тексеріңіз.`;
+    return 'AI серверінде қате пайда болды.';
   }
 
   return `AI сервер қатесі: ${status}`;
 }
 
-function isAbortError(error: unknown) {
+function isAbortError(error: unknown): boolean {
   return (
     (error instanceof DOMException || error instanceof Error) &&
     error.name === 'AbortError'
   );
 }
 
-function getNetworkErrorMessage(error: unknown) {
+function getNetworkErrorMessage(error: unknown): string {
   if (isAbortError(error)) {
     return 'AI сұранысы тоқтатылды.';
   }
@@ -320,14 +320,22 @@ function getNetworkErrorMessage(error: unknown) {
     lowerMessage.includes('networkerror') ||
     lowerMessage.includes('load failed')
   ) {
-    return 'AI серверіне қосылу мүмкін болмады. VITE_AI_API_BASE_URL, Render backend status және CORS allowed origins баптауларын тексеріңіз.';
+    return 'AI серверіне қосылу мүмкін болмады.';
   }
 
   if (lowerMessage.includes('timeout') || lowerMessage.includes('timed out')) {
-    return 'AI жауабы кешікті. Қайта жіберіп көріңіз.';
+    return 'AI жауабы кешікті. Қайталап көріңіз.';
   }
 
-  return rawMessage || 'AI сұранысын орындау кезінде белгісіз қате болды.';
+  return cleanText(rawMessage) || 'AI сұранысын орындау кезінде қате пайда болды.';
+}
+
+function normalizeTimeoutMs(value?: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_TIMEOUT_MS;
+  }
+
+  return Math.max(1_000, Math.min(MAX_TIMEOUT_MS, value));
 }
 
 function createTimeoutSignal(
@@ -335,7 +343,8 @@ function createTimeoutSignal(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  const normalizedTimeoutMs = normalizeTimeoutMs(timeoutMs);
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), normalizedTimeoutMs);
 
   const abortFromExternal = () => controller.abort();
 
@@ -358,7 +367,7 @@ function createTimeoutSignal(
   };
 }
 
-function normalizeStringList(values: unknown, limit: number, itemLimit: number) {
+function normalizeStringList(values: unknown, limit: number, itemLimit: number): string[] {
   if (!Array.isArray(values)) {
     return [];
   }
@@ -416,8 +425,7 @@ export async function requestLearningAiAnalysis(
   if (!endpoint) {
     return {
       ok: false,
-      error:
-        'AI серверінің URL көрсетілмеген. Frontend env ішінде VITE_AI_API_BASE_URL=https://сіздің-backend.onrender.com болуы керек.',
+      error: 'AI серверінің мекенжайы көрсетілмеген.',
     };
   }
 
@@ -426,7 +434,7 @@ export async function requestLearningAiAnalysis(
   if (!accessToken) {
     return {
       ok: false,
-      error: 'AI сұранысы үшін аккаунт сессиясы қажет. Қайта кіріп көріңіз.',
+      error: 'AI сұранысы үшін аккаунт сессиясы қажет. Қайта кіріңіз.',
     };
   }
 
@@ -456,7 +464,7 @@ export async function requestLearningAiAnalysis(
     if (!isRecord(payload)) {
       return {
         ok: false,
-        error: 'AI сервері жауап қайтарды, бірақ жауап форматы дұрыс емес.',
+        error: 'AI серверінің жауабы дұрыс емес.',
       };
     }
 
@@ -465,14 +473,14 @@ export async function requestLearningAiAnalysis(
     if (!data.answer || typeof data.answer !== 'string' || !data.answer.trim()) {
       return {
         ok: false,
-        error: 'AI сервері жауап қайтарды, бірақ жауап мәтіні бос.',
+        error: 'AI жауабы бос келді.',
       };
     }
 
     if (!data.usedContext || !isRecord(data.usedContext)) {
       return {
         ok: false,
-        error: 'AI сервері жауап қайтарды, бірақ қолданылған дерек форматы дұрыс емес.',
+        error: 'AI жауабындағы дерек форматы дұрыс емес.',
       };
     }
 

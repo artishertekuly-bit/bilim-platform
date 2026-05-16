@@ -1,10 +1,5 @@
 import type { Dispatch, ReactNode, SetStateAction } from 'react';
-import {
-  Megaphone,
-  Pin,
-  Save,
-  X,
-} from 'lucide-react';
+import { Megaphone, Pin, Save, X } from 'lucide-react';
 
 import { EmptyState, LoadingState } from '@/components/common/DataState';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -23,6 +18,7 @@ import {
   getAnnouncementPriorityLabel,
   toDateTimeLocalValue,
 } from '@/lib/course-creator/course-builder-utils';
+import { cn, removeNullCharacters } from '@/lib/utils';
 import { CourseAnnouncementCard } from './CourseAnnouncementCard';
 
 export type CourseAnnouncementFormState = {
@@ -55,8 +51,8 @@ type CourseAnnouncementsPanelProps = {
 const MAX_TITLE_CHARS = 180;
 const MAX_BODY_CHARS = 4_000;
 
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+function sanitizeInputValue(value: string, limit: number): string {
+  return removeNullCharacters(value).slice(0, limit);
 }
 
 function getPriorityTone(priority: CourseAnnouncementPriority) {
@@ -136,13 +132,9 @@ export function CourseAnnouncementsPanel({
           </CardTitle>
 
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone="secondary">
-              {courseAnnouncements.length}
-            </StatusBadge>
+            <StatusBadge tone="secondary">{courseAnnouncements.length}</StatusBadge>
 
-            {editing ? (
-              <StatusBadge tone="primary">Өңдеу</StatusBadge>
-            ) : null}
+            {editing ? <StatusBadge tone="primary">Өңдеу</StatusBadge> : null}
           </div>
         </div>
       </CardHeader>
@@ -150,31 +142,25 @@ export function CourseAnnouncementsPanel({
       <CardContent className="space-y-5 p-4 sm:p-5">
         <section className="rounded-3xl border border-border bg-card p-4">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
-                <Megaphone size={17} />
-              </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-foreground">
+                {editing ? 'Хабарландыруды өңдеу' : 'Жаңа хабарландыру'}
+              </p>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold text-foreground">
-                  {editing ? 'Хабарландыруды өңдеу' : 'Жаңа хабарландыру'}
-                </p>
+              <StatusBadge tone={getPriorityTone(announcementForm.priority)}>
+                {getAnnouncementPriorityLabel(announcementForm.priority)}
+              </StatusBadge>
 
-                <StatusBadge tone={getPriorityTone(announcementForm.priority)}>
-                  {getAnnouncementPriorityLabel(announcementForm.priority)}
+              {announcementForm.isPinned ? (
+                <StatusBadge tone="primary">
+                  <Pin size={12} />
+                  Бекітілген
                 </StatusBadge>
-
-                {announcementForm.isPinned ? (
-                  <StatusBadge tone="primary">
-                    <Pin size={12} />
-                    Бекітілген
-                  </StatusBadge>
-                ) : null}
-              </div>
+              ) : null}
             </div>
 
             <StatusBadge tone={formComplete ? 'success' : 'muted'}>
-              {formComplete ? 'Толды' : 'Міндетті'}
+              {formComplete ? 'Дайын' : 'Толтырыңыз'}
             </StatusBadge>
           </div>
 
@@ -186,7 +172,7 @@ export function CourseAnnouncementsPanel({
                 onChange={(event) =>
                   updateAnnouncementField(
                     'title',
-                    cleanText(event.target.value, MAX_TITLE_CHARS),
+                    sanitizeInputValue(event.target.value, MAX_TITLE_CHARS),
                   )
                 }
                 placeholder="Тақырып"
@@ -201,7 +187,7 @@ export function CourseAnnouncementsPanel({
                 onChange={(event) =>
                   updateAnnouncementField(
                     'body',
-                    cleanText(event.target.value, MAX_BODY_CHARS),
+                    sanitizeInputValue(event.target.value, MAX_BODY_CHARS),
                   )
                 }
                 placeholder="Мәтін"
@@ -245,20 +231,22 @@ export function CourseAnnouncementsPanel({
             </div>
 
             <div
-              className={`rounded-3xl border p-4 transition-colors ${
+              className={cn(
+                'rounded-3xl border p-4 transition-colors',
                 announcementForm.isPinned
                   ? 'border-primary-muted bg-primary-soft/60'
-                  : 'border-border bg-muted/25'
-              }`}
+                  : 'border-border bg-muted/25',
+              )}
             >
               <div className="flex items-center justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <div
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border ${
+                    className={cn(
+                      'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border',
                       announcementForm.isPinned
                         ? 'border-primary-muted bg-card text-primary'
-                        : 'border-border bg-card text-muted-foreground'
-                    }`}
+                        : 'border-border bg-card text-muted-foreground',
+                    )}
                   >
                     <Pin size={17} />
                   </div>
@@ -315,18 +303,14 @@ export function CourseAnnouncementsPanel({
         ) : null}
 
         {!courseAnnouncementsLoading && courseAnnouncements.length === 0 ? (
-          <EmptyState
-            title="Хабарландыру жоқ"
-            text="Хабарландыру жариялаңыз."
-            compact
-          />
+          <EmptyState title="Хабарландыру жоқ" text="Әзірге дерек жоқ." compact />
         ) : null}
 
         {!courseAnnouncementsLoading && courseAnnouncements.length > 0 ? (
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 px-4 py-3">
               <p className="text-sm font-semibold text-foreground">
-                Жарияланған хабарландырулар
+                Жарияланғандар
               </p>
 
               <StatusBadge tone="muted">{courseAnnouncements.length}</StatusBadge>

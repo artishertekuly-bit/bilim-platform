@@ -13,6 +13,7 @@ import type {
   LearningAiScope,
 } from '@/lib/ai/learning-ai-types';
 import { useAuth } from '@/lib/auth-context';
+import { limitText, normalizeTextInput } from '@/lib/utils';
 
 type LearningAiAnalysisInput = Omit<
   LearningAiRequest,
@@ -37,23 +38,22 @@ type MutationSuccess = {
 type LearningAiConversationRole = LearningAiConversationMessage['role'];
 
 const MAX_CONVERSATION_HISTORY_MESSAGES = 8;
-const MAX_CONVERSATION_MESSAGE_CHARS = 6000;
-const MAX_PROMPT_CHARS = 4000;
+const MAX_CONVERSATION_MESSAGE_CHARS = 6_000;
+const MAX_PROMPT_CHARS = 4_000;
 const MAX_SCOPE_TEXT_CHARS = 240;
 const MAX_SCOPE_ID_CHARS = 160;
 
-function cleanText(value: unknown, limit?: number) {
-  const normalized = String(value || '')
-    .replace(/\x00/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function cleanText(value: unknown, limit?: number): string {
+  const normalized = normalizeTextInput(value);
 
-  return typeof limit === 'number'
-    ? normalized.slice(0, limit).trim()
-    : normalized;
+  if (typeof limit !== 'number') {
+    return normalized;
+  }
+
+  return limitText(normalized, limit);
 }
 
-function toOptionalString(value: unknown, limit = MAX_SCOPE_ID_CHARS) {
+function toOptionalString(value: unknown, limit = MAX_SCOPE_ID_CHARS): string | undefined {
   if (typeof value !== 'string') return undefined;
 
   const normalized = cleanText(value, limit);
@@ -61,7 +61,7 @@ function toOptionalString(value: unknown, limit = MAX_SCOPE_ID_CHARS) {
   return normalized || undefined;
 }
 
-function cleanConversationMessageContent(value: unknown) {
+function cleanConversationMessageContent(value: unknown): string {
   return cleanText(value, MAX_CONVERSATION_MESSAGE_CHARS);
 }
 
@@ -133,30 +133,30 @@ function buildLearningAiRequest(
   };
 }
 
-function getErrorMessage(error: unknown) {
+function getErrorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === 'AbortError') {
     return 'AI сұранысы тоқтатылды.';
   }
 
   if (error instanceof Error && error.message.trim()) {
-    const message = error.message.trim();
+    const message = cleanText(error.message);
 
     if (/failed to fetch|networkerror|network request failed/i.test(message)) {
       return 'AI серверіне қосылу мүмкін болмады.';
     }
 
     if (/unauthorized|401|jwt|token/i.test(message)) {
-      return 'AI сұранысы үшін қайта авторизация қажет.';
+      return 'Сессия аяқталған. Қайта кіріңіз.';
     }
 
     if (/timeout|timed out/i.test(message)) {
-      return 'AI жауабы кешікті. Қайта жіберіп көріңіз.';
+      return 'AI жауабы кешікті. Қайталап көріңіз.';
     }
 
-    return message;
+    return message || 'AI сұранысын орындау кезінде қате пайда болды.';
   }
 
-  return 'AI сұранысын орындау кезінде белгісіз қате болды.';
+  return 'AI сұранысын орындау кезінде қате пайда болды.';
 }
 
 function resetAnalysisState(
@@ -167,7 +167,7 @@ function resetAnalysisState(
     setError: (value: string | null) => void;
   },
   error: string | null = null,
-) {
+): void {
   setters.setAnswer(null);
   setters.setLastResponse(null);
   setters.setLastRequest(null);
@@ -227,7 +227,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
       const accessToken = accessTokenRef.current?.trim() || undefined;
 
       if (!accessToken) {
-        throw new Error('AI сұранысы үшін аккаунт авторизациясы қажет.');
+        throw new Error('Сессия аяқталған. Қайта кіріңіз.');
       }
 
       const result = await requestLearningAiAnalysis(request, {
@@ -308,7 +308,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
           signal: abortController.signal,
         });
       } catch {
-        // Error state is handled inside onError.
+        // Қате күйі onError ішінде өңделеді.
       } finally {
         if (activeRequestIdRef.current === requestId) {
           abortControllerRef.current = null;
