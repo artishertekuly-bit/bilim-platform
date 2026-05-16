@@ -1,3 +1,5 @@
+import { limitText } from './utils';
+
 export class AiApiError extends Error {
   status?: number;
   payload?: unknown;
@@ -336,26 +338,40 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function cleanText(value: unknown, limit = MAX_TEXT_FIELD_CHARS) {
-  return String(value ?? '')
-    .replace(/\x00/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, limit)
-    .trim();
+function cleanText(value: unknown, limit = MAX_TEXT_FIELD_CHARS): string {
+  return limitText(value, limit);
+}
+
+function cleanOptionalText(value: unknown, limit = MAX_TEXT_FIELD_CHARS): string | undefined {
+  const normalized = cleanText(value, limit);
+  return normalized || undefined;
+}
+
+function cleanNullableText(
+  value: unknown,
+  limit = MAX_TEXT_FIELD_CHARS,
+): string | null | undefined {
+  if (value === null) return null;
+  return cleanOptionalText(value, limit);
+}
+
+function requireText(value: unknown, message: string, limit = MAX_TEXT_FIELD_CHARS): string {
+  const normalized = cleanText(value, limit);
+
+  if (!normalized) {
+    throw new AiApiError(message);
+  }
+
+  return normalized;
 }
 
 function toNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
-
-  const normalized = cleanText(value);
-
-  return normalized || undefined;
+  return cleanOptionalText(value);
 }
 
 function toNullableString(value: unknown): string | null | undefined {
   if (value === null) return null;
-
   return toNonEmptyString(value);
 }
 
@@ -568,7 +584,6 @@ function createAbortControllerWithTimeout(
   );
 
   const timeoutId = globalThis.setTimeout(() => controller.abort(), normalizedTimeout);
-
   const abortFromExternal = () => controller.abort();
 
   const cleanup = () => {
@@ -593,7 +608,7 @@ function createAbortControllerWithTimeout(
 }
 
 function encodePathSegment(value: string): string {
-  const cleaned = value.trim();
+  const cleaned = cleanText(value, 500);
 
   if (!cleaned) {
     throw new AiApiError('AI сұранысы үшін бос id берілді.');
@@ -649,6 +664,67 @@ async function aiFetch<T>(
   }
 }
 
+function normalizeContextPayload(
+  value: string | Record<string, unknown> | unknown[] | undefined,
+): string | Record<string, unknown> | unknown[] | undefined {
+  if (typeof value === 'string') {
+    return cleanOptionalText(value);
+  }
+
+  return value;
+}
+
+function normalizeTutorContextPayload(
+  value: string | Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (typeof value === 'string') {
+    const passage = cleanOptionalText(value);
+    return passage ? { passage } : undefined;
+  }
+
+  return value;
+}
+
+function normalizeAnswerPayload(value: string | string[]): string | string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => cleanText(item, 1_000)).filter(Boolean);
+  }
+
+  return cleanText(value, 2_000);
+}
+
+function normalizeLearningScopePayload(scope?: LearningAiScope | null): LearningAiScope | null {
+  if (!scope) return null;
+
+  return {
+    courseId: scope.courseId === null ? null : cleanOptionalText(scope.courseId, 500) ?? null,
+    studentId: scope.studentId === null ? null : cleanOptionalText(scope.studentId, 500) ?? null,
+    subjectId: scope.subjectId === null ? null : cleanOptionalText(scope.subjectId, 500) ?? null,
+    subjectName:
+      scope.subjectName === null ? null : cleanOptionalText(scope.subjectName, 240) ?? null,
+    gradeLevel:
+      scope.gradeLevel === null ? null : cleanOptionalText(scope.gradeLevel, 120) ?? null,
+    targetAudience:
+      scope.targetAudience === null
+        ? null
+        : cleanOptionalText(scope.targetAudience, 240) ?? null,
+  };
+}
+
+function normalizeConversationHistoryPayload(
+  messages?: LearningAiConversationMessage[],
+): LearningAiConversationMessage[] {
+  return Array.isArray(messages)
+    ? messages
+        .map((message) => ({
+          role: message.role === 'assistant' ? 'assistant' : 'user',
+          content: cleanText(message.content, 8_000),
+        }))
+        .filter((message) => Boolean(message.content))
+        .slice(-20)
+    : [];
+}
+
 /* ================= QUESTION NORMALIZATION ================= */
 
 function normalizeGeneratedQuestionOption(
@@ -672,7 +748,7 @@ function normalizeGeneratedQuestionOption(
     '';
 
   return {
-    id: String(row.id ?? `option-${optionIndex + 1}`),
+    id: cleanText(row.id ?? `option-${optionIndex + 1}`, 200),
     text: cleanText(text, 800),
     isCorrect:
       typeof row.isCorrect === 'boolean'
@@ -745,7 +821,7 @@ function normalizeGeneratedQuestion(item: unknown, index: number): GeneratedQues
   );
 
   return {
-    id: String(row.id ?? row.question_id ?? row.questionId ?? `generated-${index + 1}`),
+    id: cleanText(row.id ?? row.question_id ?? row.questionId ?? `generated-${index + 1}`, 200),
     type,
     question: cleanText(row.question ?? row.text ?? row.questionText, 3_000),
     options: options?.length ? options : undefined,
@@ -807,7 +883,7 @@ function normalizeTutorMessage(message: unknown, fallbackId: string): TutorMessa
   const role = row.role === 'user' ? 'user' : 'assistant';
 
   return {
-    id: String(row.id ?? fallbackId),
+    id: cleanText(row.id ?? fallbackId, 200),
     role,
     content: cleanText(row.content, 8_000),
     createdAt:
@@ -832,7 +908,7 @@ function normalizeAiExamSummary(
   const row = isRecord(item) ? item : {};
 
   return {
-    id: String(row.id ?? fallback.id ?? ''),
+    id: cleanText(row.id ?? fallback.id ?? '', 200),
     title: cleanText(row.title ?? fallback.title ?? 'AI емтихан', 240),
     subject: row.subject === null ? null : toNonEmptyString(row.subject) ?? null,
     topic: row.topic === null ? null : toNonEmptyString(row.topic) ?? null,
@@ -898,7 +974,7 @@ function normalizeAiExamQuestion(item: unknown, index: number): AiExamQuestion {
             : 'short_answer';
 
   return {
-    id: String(row.id ?? row.question_id ?? row.questionId ?? `exam-question-${index + 1}`),
+    id: cleanText(row.id ?? row.question_id ?? row.questionId ?? `exam-question-${index + 1}`, 200),
     type,
     question: cleanText(row.question ?? row.questionText ?? row.text, 3_000),
     options: options?.length ? options : undefined,
@@ -951,7 +1027,7 @@ function normalizeSubmitAiExamResponse(payload: unknown): SubmitAiExamResponse {
             const part = isRecord(item) ? item : {};
 
             return {
-              questionId: String(part.question_id ?? part.questionId ?? '').trim(),
+              questionId: cleanText(part.question_id ?? part.questionId ?? '', 200),
               score: toNumber(part.score, 0) ?? 0,
               maxScore:
                 part.max_score !== undefined
@@ -992,7 +1068,7 @@ function normalizeAiExamAttemptAnswer(item: unknown): AiExamAttemptAnswer {
   const row = isRecord(item) ? item : {};
 
   return {
-    questionId: String(row.question_id ?? row.questionId ?? '').trim(),
+    questionId: cleanText(row.question_id ?? row.questionId ?? '', 200),
     answer: normalizeAnswerValue(row.answer),
   };
 }
@@ -1001,7 +1077,7 @@ function normalizeAiExamAttempt(item: unknown): AiExamAttempt {
   const row = isRecord(item) ? item : {};
 
   return {
-    id: String(row.id ?? ''),
+    id: cleanText(row.id ?? '', 200),
     examId: toNonEmptyString(row.exam_id ?? row.examId),
     userId: toNonEmptyString(row.user_id ?? row.userId),
     answers: Array.isArray(row.answers)
@@ -1135,9 +1211,9 @@ export async function generateQuestions(
     {
       method: 'POST',
       body: buildJsonBody({
-        source_text: input.sourceText,
-        topic: input.topic,
-        subject: input.subject,
+        source_text: cleanOptionalText(input.sourceText),
+        topic: cleanOptionalText(input.topic, 240),
+        subject: cleanOptionalText(input.subject, 240),
         difficulty: input.difficulty,
         count: requestedCount,
         question_count: requestedCount,
@@ -1160,14 +1236,16 @@ export async function evaluateAnswer(
     {
       method: 'POST',
       body: buildJsonBody({
-        question_id: input.questionId,
-        question: input.question,
-        expected_answer: input.expectedAnswer,
-        reference_answer: input.referenceAnswer,
-        student_answer: input.studentAnswer,
-        rubric: input.rubric,
-        context: input.context,
-        options: input.options ?? [],
+        question_id: cleanOptionalText(input.questionId, 200),
+        question: requireText(input.question, 'Сұрақ мәтіні бос болмауы керек.', 3_000),
+        expected_answer: cleanOptionalText(input.expectedAnswer, 3_000),
+        reference_answer: cleanOptionalText(input.referenceAnswer, 3_000),
+        student_answer: requireText(input.studentAnswer, 'Жауап мәтіні бос болмауы керек.', 3_000),
+        rubric: cleanOptionalText(input.rubric, 3_000),
+        context: normalizeContextPayload(input.context),
+        options: Array.isArray(input.options)
+          ? input.options.map((item) => cleanText(item, 1_000)).filter(Boolean)
+          : [],
         answer_format: input.answerFormat,
       }),
     },
@@ -1214,10 +1292,10 @@ export async function createTutorSession(
     {
       method: 'POST',
       body: buildJsonBody({
-        lesson_id: input.lessonId,
-        topic: input.topic,
-        subject: input.subject,
-        initial_context: input.initialContext,
+        lesson_id: cleanOptionalText(input.lessonId, 200),
+        topic: cleanOptionalText(input.topic, 240),
+        subject: cleanOptionalText(input.subject, 240),
+        initial_context: cleanOptionalText(input.initialContext, 8_000),
       }),
     },
     options,
@@ -1228,7 +1306,7 @@ export async function createTutorSession(
 
   return {
     session: {
-      id: String(session.id ?? row.id ?? ''),
+      id: cleanText(session.id ?? row.id ?? '', 200),
       title: toNonEmptyString(session.title ?? row.title),
       lessonId:
         session.lesson_id === null
@@ -1266,24 +1344,20 @@ export async function sendTutorMessage(
   input: SendTutorMessageRequest,
   options?: RequestOptions,
 ): Promise<SendTutorMessageResponse> {
-  const normalizedContext =
-    typeof input.context === 'string'
-      ? input.context.trim()
-        ? { passage: input.context.trim() }
-        : undefined
-      : input.context;
+  const sessionId = requireText(input.sessionId, 'AI сессиясының id мәні бос болмауы керек.', 200);
+  const message = requireText(input.message, 'Хабарлама мәтіні бос болмауы керек.', 8_000);
 
   const payload = await aiFetch<unknown>(
     '/api/ai/tutor/chat',
     {
       method: 'POST',
       body: buildJsonBody({
-        session_id: input.sessionId,
-        message: input.message,
-        lesson_id: input.lessonId,
-        topic: input.topic,
-        subject: input.subject,
-        context: normalizedContext,
+        session_id: sessionId,
+        message,
+        lesson_id: cleanOptionalText(input.lessonId, 200),
+        topic: cleanOptionalText(input.topic, 240),
+        subject: cleanOptionalText(input.subject, 240),
+        context: normalizeTutorContextPayload(input.context),
       }),
     },
     options,
@@ -1292,14 +1366,14 @@ export async function sendTutorMessage(
   const row = isRecord(payload) ? payload : {};
 
   return {
-    sessionId: String(row.session_id ?? row.sessionId ?? input.sessionId),
+    sessionId: cleanText(row.session_id ?? row.sessionId ?? sessionId, 200),
     reply: normalizeTutorMessage(row.reply ?? { content: '' }, 'assistant-reply'),
     messages: Array.isArray(row.messages)
       ? row.messages
-          .map((message, index) =>
-            normalizeTutorMessage(message, `message-${index + 1}`),
+          .map((messageRow, index) =>
+            normalizeTutorMessage(messageRow, `message-${index + 1}`),
           )
-          .filter((message) => Boolean(message.content))
+          .filter((messageRow) => Boolean(messageRow.content))
       : undefined,
     raw: payload,
   };
@@ -1309,20 +1383,25 @@ export async function createAiExam(
   input: CreateAiExamRequest,
   options?: RequestOptions,
 ): Promise<CreateAiExamResponse> {
+  const title = requireText(input.title, 'Емтихан атауы бос болмауы керек.', 240);
+
   const payload = await aiFetch<unknown>(
     '/api/ai/exams',
     {
       method: 'POST',
       body: buildJsonBody({
-        title: input.title,
-        source_text: input.sourceText,
-        topic: input.topic,
-        subject: input.subject,
+        title,
+        source_text: cleanOptionalText(input.sourceText),
+        topic: cleanOptionalText(input.topic, 240),
+        subject: cleanOptionalText(input.subject, 240),
         difficulty: input.difficulty,
         kind: input.kind,
         exam_mode: input.examMode,
         question_count: clampNumber(input.questionCount ?? 10, 1, 50),
-        duration_minutes: input.durationMinutes,
+        duration_minutes:
+          typeof input.durationMinutes === 'number'
+            ? clampNumber(input.durationMinutes, 1, 600)
+            : undefined,
       }),
     },
     options,
@@ -1332,7 +1411,7 @@ export async function createAiExam(
 
   return {
     exam: normalizeAiExamSummary(row.exam ?? row, {
-      title: input.title,
+      title,
     }),
     questions: normalizeAiExamQuestions(row.questions),
     meta: normalizeGenerationMeta(payload),
@@ -1479,10 +1558,12 @@ export async function submitAiExam(
     {
       method: 'POST',
       body: buildJsonBody({
-        answers: input.answers.map((item) => ({
-          question_id: item.questionId,
-          answer: item.answer,
-        })),
+        answers: input.answers
+          .map((item) => ({
+            question_id: cleanText(item.questionId, 200),
+            answer: normalizeAnswerPayload(item.answer),
+          }))
+          .filter((item) => Boolean(item.question_id)),
       }),
     },
     options,
@@ -1495,6 +1576,8 @@ export async function createLearningAnalysis(
   input: LearningAiRequest,
   options?: RequestOptions,
 ): Promise<LearningAiResponse> {
+  const prompt = requireText(input.prompt, 'AI сұранысының мәтіні бос болмауы керек.', 12_000);
+
   const payload = await aiFetch<unknown>(
     '/api/learning-analysis',
     {
@@ -1502,10 +1585,13 @@ export async function createLearningAnalysis(
       body: buildJsonBody({
         mode: input.mode,
         role: input.role,
-        prompt: input.prompt,
-        selectedSuggestionId: input.selectedSuggestionId,
-        scope: input.scope,
-        conversationHistory: input.conversationHistory ?? [],
+        prompt,
+        selectedSuggestionId:
+          input.selectedSuggestionId === null
+            ? null
+            : cleanOptionalText(input.selectedSuggestionId, 200),
+        scope: normalizeLearningScopePayload(input.scope),
+        conversationHistory: normalizeConversationHistoryPayload(input.conversationHistory),
       }),
     },
     options,
