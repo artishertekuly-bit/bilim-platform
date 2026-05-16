@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BrainCircuit, RotateCcw, Sparkles } from 'lucide-react';
 
 import AiPromptShell, {
+  type AiConversationMessage,
   type AiPromptSubmitPayload,
   type AiPromptSuggestion,
 } from '@/components/ai-tools/AiPromptShell';
@@ -295,23 +296,29 @@ function shouldUseTeacherCourseCreatorAdvisor(
 }
 
 function normalizeSubmitPayload(payload: AiPromptSubmitPayload): AiPromptSubmitPayload {
-  return {
-    prompt: cleanMultilineText(payload.prompt, MAX_PROMPT_CHARS),
-    selectedSuggestionId: payload.selectedSuggestionId
-      ? cleanText(payload.selectedSuggestionId, MAX_SUGGESTION_ID_CHARS)
-      : null,
-    conversationHistory: Array.isArray(payload.conversationHistory)
-      ? payload.conversationHistory
-          .slice(-MAX_HISTORY_MESSAGES)
-          .map((message) => ({
+  const conversationHistory: AiConversationMessage[] = Array.isArray(
+    payload.conversationHistory,
+  )
+    ? payload.conversationHistory
+        .slice(-MAX_HISTORY_MESSAGES)
+        .map(
+          (message): AiConversationMessage => ({
             role: message.role === 'assistant' ? 'assistant' : 'user',
             content: cleanMultilineText(
               message.content,
               MAX_HISTORY_MESSAGE_CHARS,
             ),
-          }))
-          .filter((message) => message.content.length > 0)
-      : [],
+          }),
+        )
+        .filter((message) => message.content.length > 0)
+    : [];
+
+  return {
+    prompt: cleanMultilineText(payload.prompt, MAX_PROMPT_CHARS),
+    selectedSuggestionId: payload.selectedSuggestionId
+      ? cleanText(payload.selectedSuggestionId, MAX_SUGGESTION_ID_CHARS)
+      : null,
+    conversationHistory,
   };
 }
 
