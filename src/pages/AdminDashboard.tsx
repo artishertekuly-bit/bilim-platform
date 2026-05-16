@@ -36,21 +36,58 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
+
+const MAX_ID_CHARS = 180;
+const MAX_TEXT_CHARS = 240;
+const MAX_REASON_CHARS = 500;
+const MAX_ERROR_CHARS = 700;
+const DEFAULT_CURRENCY = 'KZT';
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TEXT_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function cleanReason(value: unknown): string {
+  return cleanText(value, MAX_REASON_CHARS);
+}
+
+function getErrorMessage(error: unknown, fallback = 'Белгісіз қате пайда болды.'): string {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
+  }
+
+  return fallback;
+}
 
 function formatReviewDate(value: string | null | undefined) {
-  if (!value) return t('page.admin_dashboard.not_available');
+  const rawValue = cleanText(value, 80);
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
+  if (!rawValue) return t('page.admin_dashboard.not_available');
+
+  const parsed = new Date(rawValue);
+
+  if (Number.isNaN(parsed.getTime())) return rawValue;
 
   return parsed.toLocaleDateString('kk-KZ');
 }
 
 function formatDateTime(value: string | null | undefined) {
-  if (!value) return '—';
+  const rawValue = cleanText(value, 80);
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
+  if (!rawValue) return '—';
+
+  const parsed = new Date(rawValue);
+
+  if (Number.isNaN(parsed.getTime())) return rawValue;
 
   return parsed.toLocaleString('kk-KZ', {
     year: 'numeric',
@@ -63,7 +100,7 @@ function formatDateTime(value: string | null | undefined) {
 
 function formatMoney(amount: number | string | null | undefined, currency?: string | null) {
   const value = Number(amount || 0);
-  const code = currency || 'KZT';
+  const code = cleanText(currency, 12) || DEFAULT_CURRENCY;
 
   if (!Number.isFinite(value)) return `0 ${code}`;
 
@@ -71,23 +108,29 @@ function formatMoney(amount: number | string | null | undefined, currency?: stri
 }
 
 function truncateId(value: string | null | undefined) {
-  if (!value) return '—';
-  if (value.length <= 14) return value;
+  const id = cleanId(value);
 
-  return `${value.slice(0, 8)}…${value.slice(-4)}`;
+  if (!id) return '—';
+  if (id.length <= 14) return id;
+
+  return `${id.slice(0, 8)}…${id.slice(-4)}`;
 }
 
 function getContentTypeLabel(value: string) {
+  const normalized = cleanText(value, 80);
+
   const map: Record<string, string> = {
     course: t('nav.courses'),
     lesson: t('nav.lessons'),
     test: t('nav.tests'),
   };
 
-  return map[value] || value;
+  return map[normalized] || normalized || 'Контент';
 }
 
 function getReviewStatusLabel(value: string) {
+  const normalized = cleanText(value, 80);
+
   const map: Record<string, string> = {
     under_review: t('page.admin_dashboard.review_status.under_review'),
     published: t('course.status.published'),
@@ -95,14 +138,44 @@ function getReviewStatusLabel(value: string) {
     archived: t('course.status.archived'),
   };
 
-  return map[value] || value;
+  return map[normalized] || normalized || '—';
 }
 
 function getReviewStatusTone(value: string) {
-  if (value === 'published') return 'success' as const;
-  if (value === 'under_review') return 'warning' as const;
-  if (value === 'archived') return 'muted' as const;
+  const normalized = cleanText(value, 80);
+
+  if (normalized === 'published') return 'success' as const;
+  if (normalized === 'under_review') return 'warning' as const;
+  if (normalized === 'archived') return 'muted' as const;
+
   return 'completed' as const;
+}
+
+function getOrderStatusLabel(value: unknown): string {
+  const normalized = cleanText(value, 80).toLowerCase();
+
+  const map: Record<string, string> = {
+    pending: 'Күтуде',
+    paid: 'Төленді',
+    approved: 'Расталды',
+    rejected: 'Қабылданбады',
+    cancelled: 'Бас тартылды',
+  };
+
+  return map[normalized] || cleanText(value, 80) || 'Күтуде';
+}
+
+function getProductTypeLabel(value: unknown): string {
+  const normalized = cleanText(value, 80).toLowerCase();
+
+  const map: Record<string, string> = {
+    course: 'Курс',
+    lesson: 'Сабақ',
+    test: 'Тест',
+    bundle: 'Жинақ',
+  };
+
+  return map[normalized] || cleanText(value, 80) || 'Өнім';
 }
 
 function getScoreTone(value: number | null | undefined) {
@@ -111,6 +184,14 @@ function getScoreTone(value: number | null | undefined) {
   if (score >= 80) return 'success' as const;
   if (score >= 60) return 'warning' as const;
   return 'danger' as const;
+}
+
+function formatScore(value: number | null | undefined) {
+  const score = Number(value || 0);
+
+  if (!Number.isFinite(score)) return '—';
+
+  return `${Math.max(0, Math.min(100, Math.round(score)))}%`;
 }
 
 function StatRow({
@@ -132,7 +213,12 @@ function StatRow({
   }[tone];
 
   return (
-    <div className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 ${toneClassName}`}>
+    <div
+      className={cn(
+        'flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5',
+        toneClassName,
+      )}
+    >
       <span className="inline-flex min-w-0 items-center gap-2 text-xs">
         {icon ? (
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground">
@@ -217,11 +303,17 @@ function QuickActionCard({
   return (
     <Link
       to={to}
-      className={`group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99] ${toneClassName.card}`}
+      className={cn(
+        'group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]',
+        toneClassName.card,
+      )}
     >
       <div className="flex items-start gap-3">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName.icon}`}
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            toneClassName.icon,
+          )}
         >
           {icon}
         </div>
@@ -337,8 +429,11 @@ export default function AdminDashboard() {
   });
 
   const firstName = useMemo(
-    () => user?.fullName?.trim().split(/\s+/)[0] || t('role.admin'),
-    [user?.fullName]
+    () =>
+      cleanText(user?.fullName, 120).split(/\s+/)[0] ||
+      cleanText(user?.email?.split('@')[0], 120) ||
+      t('role.admin'),
+    [user?.email, user?.fullName],
   );
 
   const pendingReviews = useMemo(
@@ -346,14 +441,15 @@ export default function AdminDashboard() {
       [...(data?.pendingReviews || [])].sort((a, b) => {
         const da = a.reviewed_at ? new Date(a.reviewed_at).getTime() : 0;
         const db = b.reviewed_at ? new Date(b.reviewed_at).getTime() : 0;
+
         return db - da;
       }),
-    [data?.pendingReviews]
+    [data?.pendingReviews],
   );
 
   const subjectStats = useMemo(
     () => data?.subjectStats || [],
-    [data?.subjectStats]
+    [data?.subjectStats],
   );
 
   const sortedPendingOrders = useMemo(
@@ -361,42 +457,55 @@ export default function AdminDashboard() {
       [...(pendingOrders || [])].sort((a, b) => {
         const da = a.created_at ? new Date(a.created_at).getTime() : 0;
         const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+
         return db - da;
       }),
-    [pendingOrders]
+    [pendingOrders],
   );
 
+  const updateManualGrantForm = (
+    key: keyof typeof manualGrantForm,
+    value: string,
+  ) => {
+    setManualGrantForm((previous) => ({
+      ...previous,
+      [key]: key === 'reason' ? cleanReason(value) : cleanId(value),
+    }));
+  };
+
   const approveOrder = async (orderId: string) => {
+    const safeOrderId = cleanId(orderId);
+
+    if (!safeOrderId) return;
+
     try {
-      await approveOrderMutation.mutateAsync(orderId);
+      await approveOrderMutation.mutateAsync(safeOrderId);
 
       toast({
-        title: 'Order расталды',
-        description: 'Оқушыға курс access берілді.',
+        title: 'Тапсырыс расталды',
+        description: 'Оқушыға курс қолжетімділігі берілді.',
       });
     } catch (approveError) {
       toast({
-        title: 'Order растау мүмкін болмады',
-        description:
-          approveError instanceof Error
-            ? approveError.message
-            : 'Белгісіз қате пайда болды.',
+        title: 'Тапсырысты растау мүмкін болмады',
+        description: getErrorMessage(approveError),
         variant: 'destructive',
       });
     }
   };
 
   const grantManualAccess = async () => {
-    const userId = manualGrantForm.userId.trim();
-    const courseId = manualGrantForm.courseId.trim();
-    const reason = manualGrantForm.reason.trim();
+    const userId = cleanId(manualGrantForm.userId);
+    const courseId = cleanId(manualGrantForm.courseId);
+    const reason = cleanReason(manualGrantForm.reason);
 
     if (!userId || !courseId) {
       toast({
-        title: 'User ID және Course ID қажет',
-        description: 'Manual access беру үшін екі ID да толтырылуы керек.',
+        title: 'Оқушы ID және курс ID қажет',
+        description: 'Қолжетімділік беру үшін екі ID да толтырылуы керек.',
         variant: 'destructive',
       });
+
       return;
     }
 
@@ -404,8 +513,8 @@ export default function AdminDashboard() {
       await manualGrantMutation.mutateAsync({
         userId,
         courseId,
-        reason: reason || 'Manual admin grant',
-        adminId: user?.id,
+        reason: reason || 'Әкімші қолмен берді',
+        adminId: cleanId(user?.id),
       });
 
       setManualGrantForm({
@@ -415,16 +524,13 @@ export default function AdminDashboard() {
       });
 
       toast({
-        title: 'Access берілді',
-        description: 'Оқушыға курс entitlement қосылды.',
+        title: 'Қолжетімділік берілді',
+        description: 'Оқушыға курс ашылды.',
       });
     } catch (grantError) {
       toast({
-        title: 'Manual access беру мүмкін болмады',
-        description:
-          grantError instanceof Error
-            ? grantError.message
-            : 'Белгісіз қате пайда болды.',
+        title: 'Қолжетімділік беру мүмкін болмады',
+        description: getErrorMessage(grantError),
         variant: 'destructive',
       });
     }
@@ -439,6 +545,9 @@ export default function AdminDashboard() {
   const totalContentStatus =
     publishedCount + underReviewCount + draftCount + archivedCount;
 
+  const publishedRatio =
+    totalContentStatus > 0 ? Math.round((publishedCount / totalContentStatus) * 100) : 0;
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -446,12 +555,11 @@ export default function AdminDashboard() {
           eyebrow={
             <>
               <LayoutDashboard size={13} />
-              Admin dashboard
+              Әкімші кабинеті
             </>
           }
           icon={<ShieldCheck size={20} />}
           title={`${t('dashboard.welcome', { name: firstName })}!`}
-          description={t('page.admin_dashboard.subtitle')}
           actions={
             <Button type="button" asChild>
               <Link to="/manage-users">
@@ -528,7 +636,7 @@ export default function AdminDashboard() {
             <div className="grid gap-3 md:grid-cols-4">
               <QuickActionCard
                 title="Курстар"
-                text="Курстарды қарау, тексеру және басқару."
+                text="Курстарды қарау және басқару."
                 to="/manage-courses"
                 icon={<BookOpen size={18} />}
                 tone="primary"
@@ -536,7 +644,7 @@ export default function AdminDashboard() {
 
               <QuickActionCard
                 title="Сабақтар"
-                text="Сабақ контентін басқару және модерациялау."
+                text="Сабақ контентін басқару."
                 to="/manage-lessons"
                 icon={<FileText size={18} />}
                 tone="success"
@@ -544,7 +652,7 @@ export default function AdminDashboard() {
 
               <QuickActionCard
                 title="Тесттер"
-                text="Тесттерді қарап, жалпы контент сапасын бақылау."
+                text="Тесттерді қарау және басқару."
                 to="/manage-tests"
                 icon={<ClipboardList size={18} />}
                 tone="accent"
@@ -552,7 +660,7 @@ export default function AdminDashboard() {
 
               <QuickActionCard
                 title="Модерация"
-                text={`${pendingReviewsCount} review элементі бақылауда.`}
+                text={`${pendingReviewsCount} элемент тексеруде.`}
                 to="/moderation"
                 icon={<Eye size={18} />}
                 tone="warning"
@@ -567,7 +675,7 @@ export default function AdminDashboard() {
                   action={
                     pendingOrdersCount > 0 ? (
                       <StatusBadge tone="warning">
-                        {pendingOrdersCount} pending
+                        {pendingOrdersCount} күтуде
                       </StatusBadge>
                     ) : (
                       <StatusBadge tone="success">Таза</StatusBadge>
@@ -575,19 +683,19 @@ export default function AdminDashboard() {
                   }
                 >
                   {pendingOrdersLoading ? (
-                    <LoadingState text="Pending order-лар жүктелуде..." compact />
+                    <LoadingState text="Сұраныстар жүктелуде..." compact />
                   ) : null}
 
                   {pendingOrdersError ? (
-                    <ErrorState text="Pending order-ларды жүктеу мүмкін болмады." compact />
+                    <ErrorState text="Сұраныстарды жүктеу мүмкін болмады." compact />
                   ) : null}
 
                   {!pendingOrdersLoading &&
                   !pendingOrdersError &&
                   sortedPendingOrders.length === 0 ? (
                     <EmptyState
-                      title="Pending order жоқ"
-                      text="Оқушылардан ақылы курсқа access сұранысы түскен жоқ."
+                      title="Күтудегі сұраныс жоқ"
+                      text="Ақылы курсқа жаңа сұраныс түскен жоқ."
                       compact
                     />
                   ) : null}
@@ -596,86 +704,81 @@ export default function AdminDashboard() {
                   !pendingOrdersError &&
                   sortedPendingOrders.length > 0 ? (
                     <div className="space-y-3">
-                      {sortedPendingOrders.map((order) => (
-                        <div
-                          key={order.id}
-                          className="rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md"
-                        >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                            <div className="min-w-0 space-y-2">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <StatusBadge tone="warning">
-                                  {order.status}
-                                </StatusBadge>
+                      {sortedPendingOrders.map((order) => {
+                        const orderId = cleanId(order.id);
 
-                                <StatusBadge tone="muted">
-                                  {order.product_type}
-                                </StatusBadge>
+                        return (
+                          <div
+                            key={orderId}
+                            className="rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md"
+                          >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                              <div className="min-w-0 space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <StatusBadge tone="warning">
+                                    {getOrderStatusLabel(order.status)}
+                                  </StatusBadge>
+
+                                  <StatusBadge tone="muted">
+                                    {getProductTypeLabel(order.product_type)}
+                                  </StatusBadge>
+                                </div>
+
+                                <p className="text-base font-semibold text-foreground">
+                                  {formatMoney(order.amount, order.currency)}
+                                </p>
+
+                                <div className="grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-2">
+                                  <p>Тапсырыс: #{truncateId(order.id)}</p>
+                                  <p>Сатып алушы: #{truncateId(order.buyer_id)}</p>
+                                  <p>Өнім: #{truncateId(order.product_id)}</p>
+                                  <p>Жіберілді: {formatDateTime(order.created_at)}</p>
+                                </div>
                               </div>
 
-                              <p className="text-base font-semibold text-foreground">
-                                {formatMoney(order.amount, order.currency)}
-                              </p>
-
-                              <div className="grid gap-1 text-[11px] text-muted-foreground sm:grid-cols-2">
-                                <p>Order: #{truncateId(order.id)}</p>
-                                <p>Buyer: #{truncateId(order.buyer_id)}</p>
-                                <p>Course/Product: #{truncateId(order.product_id)}</p>
-                                <p>Жіберілген уақыты: {formatDateTime(order.created_at)}</p>
-                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => approveOrder(orderId)}
+                                disabled={approveOrderMutation.isPending}
+                              >
+                                <CheckCircle2 size={14} className="mr-1.5" />
+                                {approveOrderMutation.isPending ? 'Расталуда...' : 'Растау'}
+                              </Button>
                             </div>
-
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => approveOrder(order.id)}
-                              disabled={approveOrderMutation.isPending}
-                            >
-                              <CheckCircle2 size={14} className="mr-1.5" />
-                              {approveOrderMutation.isPending ? 'Расталуда...' : 'Approve'}
-                            </Button>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : null}
                 </PanelCard>
 
                 <PanelCard
-                  title="Manual course access"
+                  title="Курсты қолмен ашу"
                   icon={<ShieldCheck size={14} />}
                 >
-                  <div className="rounded-3xl border border-ai-border bg-ai-soft/65 p-4 text-xs leading-5 text-muted-foreground">
-                    Payment толық қосылмай тұрып, admin оқушыға ақылы немесе жабық
-                    курсқа access бере алады. Бұл MVP кезеңіндегі қолмен басқару құралы.
-                  </div>
-
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label>User ID</Label>
+                      <Label>Оқушы ID</Label>
                       <Input
                         value={manualGrantForm.userId}
+                        maxLength={MAX_ID_CHARS}
                         onChange={(event) =>
-                          setManualGrantForm((previous) => ({
-                            ...previous,
-                            userId: event.target.value,
-                          }))
+                          updateManualGrantForm('userId', event.target.value)
                         }
-                        placeholder="student user_id"
+                        placeholder="Оқушы ID"
                       />
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label>Course ID</Label>
+                      <Label>Курс ID</Label>
                       <Input
                         value={manualGrantForm.courseId}
+                        maxLength={MAX_ID_CHARS}
                         onChange={(event) =>
-                          setManualGrantForm((previous) => ({
-                            ...previous,
-                            courseId: event.target.value,
-                          }))
+                          updateManualGrantForm('courseId', event.target.value)
                         }
-                        placeholder="course id"
+                        placeholder="Курс ID"
                       />
                     </div>
                   </div>
@@ -684,13 +787,11 @@ export default function AdminDashboard() {
                     <Label>Себебі</Label>
                     <Input
                       value={manualGrantForm.reason}
+                      maxLength={MAX_REASON_CHARS}
                       onChange={(event) =>
-                        setManualGrantForm((previous) => ({
-                          ...previous,
-                          reason: event.target.value,
-                        }))
+                        updateManualGrantForm('reason', event.target.value)
                       }
-                      placeholder="Мысалы: қолма-қол төледі / тест үшін ашылды"
+                      placeholder="Мысалы: қолма-қол төледі"
                     />
                   </div>
 
@@ -701,7 +802,9 @@ export default function AdminDashboard() {
                       disabled={manualGrantMutation.isPending}
                     >
                       <KeyRound size={14} className="mr-1.5" />
-                      {manualGrantMutation.isPending ? 'Беріліп жатыр...' : 'Access беру'}
+                      {manualGrantMutation.isPending
+                        ? 'Берілуде...'
+                        : 'Қолжетімділік беру'}
                     </Button>
                   </div>
                 </PanelCard>
@@ -726,31 +829,36 @@ export default function AdminDashboard() {
                     />
                   ) : (
                     <div className="space-y-3">
-                      {pendingReviews.map((review) => (
-                        <div
-                          key={review.id}
-                          className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-sm font-semibold text-foreground">
-                                {getContentTypeLabel(review.content_type)}
-                              </p>
+                      {pendingReviews.map((review) => {
+                        const reviewId = cleanId(review.id);
+                        const contentId = truncateId(review.content_id);
 
-                              <StatusBadge tone={getReviewStatusTone(review.status)}>
-                                {getReviewStatusLabel(review.status)}
-                              </StatusBadge>
+                        return (
+                          <div
+                            key={reviewId}
+                            className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/45 hover:shadow-soft-md"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-semibold text-foreground">
+                                  {getContentTypeLabel(review.content_type)}
+                                </p>
+
+                                <StatusBadge tone={getReviewStatusTone(review.status)}>
+                                  {getReviewStatusLabel(review.status)}
+                                </StatusBadge>
+                              </div>
+
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                {t('page.admin_dashboard.review_label')} #{contentId} ·{' '}
+                                {formatReviewDate(review.reviewed_at)}
+                              </p>
                             </div>
 
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {t('page.admin_dashboard.review_label')} #{review.content_id} ·{' '}
-                              {formatReviewDate(review.reviewed_at)}
-                            </p>
+                            <ArrowRight size={14} className="text-muted-foreground" />
                           </div>
-
-                          <ArrowRight size={14} className="text-muted-foreground" />
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </PanelCard>
@@ -767,34 +875,38 @@ export default function AdminDashboard() {
                     />
                   ) : (
                     <div className="space-y-3">
-                      {subjectStats.map((subject) => (
-                        <div
-                          key={subject.name}
-                          className="rounded-3xl border border-border bg-card p-4 shadow-soft"
-                        >
-                          <div className="mb-3 flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="line-clamp-1 text-sm font-semibold text-foreground">
-                                {subject.name}
-                              </p>
-                              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                {subject.courses} {t('dashboard.total_courses')} ·{' '}
-                                {subject.lessons} {t('dashboard.total_lessons')}
-                              </p>
+                      {subjectStats.map((subject) => {
+                        const subjectName = cleanText(subject.name) || 'Пән';
+
+                        return (
+                          <div
+                            key={subjectName}
+                            className="rounded-3xl border border-border bg-card p-4 shadow-soft"
+                          >
+                            <div className="mb-3 flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="line-clamp-1 text-sm font-semibold text-foreground">
+                                  {subjectName}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {Number(subject.courses || 0)} {t('dashboard.total_courses')} ·{' '}
+                                  {Number(subject.lessons || 0)} {t('dashboard.total_lessons')}
+                                </p>
+                              </div>
+
+                              <StatusBadge tone={getScoreTone(subject.avgScore)}>
+                                {formatScore(subject.avgScore)}
+                              </StatusBadge>
                             </div>
 
-                            <StatusBadge tone={getScoreTone(subject.avgScore)}>
-                              {subject.avgScore}%
-                            </StatusBadge>
+                            <ProgressBar
+                              value={Number(subject.avgScore || 0)}
+                              size="sm"
+                              tone={getScoreTone(subject.avgScore)}
+                            />
                           </div>
-
-                          <ProgressBar
-                            value={subject.avgScore}
-                            size="sm"
-                            tone={getScoreTone(subject.avgScore)}
-                          />
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </PanelCard>
@@ -829,25 +941,14 @@ export default function AdminDashboard() {
                     <div className="rounded-3xl border border-border bg-surface-soft/60 p-4">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <span className="text-xs text-muted-foreground">
-                          Published ratio
+                          Жарияланған үлесі
                         </span>
                         <span className="text-xs font-semibold text-foreground">
-                          {totalContentStatus > 0
-                            ? Math.round((publishedCount / totalContentStatus) * 100)
-                            : 0}
-                          %
+                          {publishedRatio}%
                         </span>
                       </div>
 
-                      <ProgressBar
-                        value={
-                          totalContentStatus > 0
-                            ? Math.round((publishedCount / totalContentStatus) * 100)
-                            : 0
-                        }
-                        size="sm"
-                        tone="success"
-                      />
+                      <ProgressBar value={publishedRatio} size="sm" tone="success" />
                     </div>
                   </div>
                 </PanelCard>
@@ -889,10 +990,10 @@ export default function AdminDashboard() {
                   </div>
                 </PanelCard>
 
-                <PanelCard title="Admin қысқаша бақылау">
+                <PanelCard title="Қысқаша бақылау">
                   <div className="space-y-3">
                     <StatRow
-                      label="Pending order"
+                      label="Күтудегі төлем"
                       value={
                         <StatusBadge tone={pendingOrdersCount > 0 ? 'warning' : 'success'}>
                           {pendingOrdersCount}
@@ -903,7 +1004,7 @@ export default function AdminDashboard() {
                     />
 
                     <StatRow
-                      label="Review queue"
+                      label="Тексеру кезегі"
                       value={
                         <StatusBadge tone={pendingReviewsCount > 0 ? 'warning' : 'success'}>
                           {pendingReviewsCount}
@@ -914,8 +1015,7 @@ export default function AdminDashboard() {
                     />
 
                     <div className="rounded-3xl border border-ai-border bg-ai-soft/65 p-4 text-xs leading-5 text-muted-foreground">
-                      Бұл dashboard MVP admin бақылауын көрсетеді: user саны,
-                      контент статусы, ақылы course access және moderation queue.
+                      Қолданушылар, контент, төлем сұраныстары және модерация көрсетіледі.
                     </div>
                   </div>
                 </PanelCard>

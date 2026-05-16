@@ -26,13 +26,37 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTeacherDashboard } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
+
+const MAX_ID_CHARS = 160;
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+const MAX_NAME_CHARS = 120;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
 
 function buildCourseEditPath(courseId: string) {
-  return `/create-course?courseId=${encodeURIComponent(courseId)}`;
+  return `/create-course?courseId=${encodeURIComponent(cleanId(courseId))}`;
 }
 
 function formatPercent(value: number | null | undefined) {
-  return value === null || value === undefined ? '—' : `${value}%`;
+  if (value === null || value === undefined) return '—';
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return '—';
+
+  return `${Math.max(0, Math.min(100, Math.round(numberValue)))}%`;
 }
 
 function getTeacherHealthStatus(stats: {
@@ -47,10 +71,10 @@ function getTeacherHealthStatus(stats: {
 
   const avgScore = Number(stats.avgScore || 0);
 
-  if (avgScore >= 80) return 'Жақсы динамика';
-  if (avgScore >= 50) return 'Орташа динамика';
+  if (avgScore >= 80) return 'Жақсы';
+  if (avgScore >= 50) return 'Орташа';
 
-  return 'Қосымша бақылау керек';
+  return 'Назар керек';
 }
 
 function getTeacherHealthTone(stats: {
@@ -84,19 +108,21 @@ function SummaryRow({
 }) {
   return (
     <div
-      className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 ${
+      className={cn(
+        'flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5',
         emphasized
           ? 'border-primary-muted bg-primary-soft/70'
-          : 'border-border bg-surface-soft/60'
-      }`}
+          : 'border-border bg-surface-soft/60',
+      )}
     >
       <span className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <span
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border ${
+          className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border',
             emphasized
               ? 'border-primary-muted bg-card text-primary'
-              : 'border-border bg-card text-muted-foreground'
-          }`}
+              : 'border-border bg-card text-muted-foreground',
+          )}
         >
           {icon}
         </span>
@@ -164,11 +190,17 @@ function QuickActionCard({
   return (
     <Link
       to={to}
-      className={`group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99] ${toneClassName.card}`}
+      className={cn(
+        'group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]',
+        toneClassName.card,
+      )}
     >
       <div className="flex items-start gap-3">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName.icon}`}
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            toneClassName.icon,
+          )}
         >
           {icon}
         </div>
@@ -198,9 +230,13 @@ function CourseListItem({
     lessons: number;
   };
 }) {
+  const courseId = cleanId(course.id);
+  const title = cleanText(course.title);
+  const subjectName = cleanText(course.subjectName, MAX_META_CHARS);
+
   return (
     <Link
-      to={buildCourseEditPath(course.id)}
+      to={buildCourseEditPath(courseId)}
       className="group block rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/55 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]"
     >
       <div className="flex items-start justify-between gap-3">
@@ -213,24 +249,22 @@ function CourseListItem({
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="line-clamp-1 text-sm font-semibold text-foreground">
-                  {course.title}
+                  {title || 'Курс'}
                 </p>
 
-                {course.subjectName ? (
+                {subjectName ? (
                   <StatusBadge tone="primary">
                     <BookOpen size={12} />
-                    {course.subjectName}
+                    {subjectName}
                   </StatusBadge>
                 ) : null}
               </div>
 
               <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
                 {[
-                  `${course.students} ${t('page.teacher_dashboard.students_label')}`,
-                  `${course.lessons} ${t('course.lessons_count')}`,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
+                  `${Number(course.students || 0)} ${t('page.teacher_dashboard.students_label')}`,
+                  `${Number(course.lessons || 0)} ${t('course.lessons_count')}`,
+                ].join(' · ')}
               </p>
             </div>
           </div>
@@ -321,8 +355,11 @@ export default function TeacherDashboard() {
   const { data, isLoading, error } = useTeacherDashboard(user?.id || '', !!user?.id);
 
   const firstName = useMemo(
-    () => user?.fullName?.trim().split(/\s+/)[0] || t('role.teacher'),
-    [user?.fullName]
+    () =>
+      cleanText(user?.fullName, MAX_NAME_CHARS).split(/\s+/)[0] ||
+      cleanText(user?.email?.split('@')[0], MAX_NAME_CHARS) ||
+      t('role.teacher'),
+    [user?.email, user?.fullName],
   );
 
   const courses = useMemo(() => data?.courses || [], [data?.courses]);
@@ -336,12 +373,11 @@ export default function TeacherDashboard() {
           eyebrow={
             <>
               <GraduationCap size={13} />
-              Мұғалім dashboard
+              Мұғалім кабинеті
             </>
           }
           icon={<GraduationCap size={20} />}
           title={`${t('dashboard.welcome', { name: firstName })}!`}
-          description={t('page.teacher_dashboard.subtitle')}
           actions={
             <Button type="button" asChild>
               <Link to="/create-course">
@@ -414,7 +450,7 @@ export default function TeacherDashboard() {
             <div className="grid gap-3 md:grid-cols-3">
               <QuickActionCard
                 title="Курс құру"
-                text="Жаңа курс ашып, модульдер мен сабақтарды қосыңыз."
+                text="Жаңа курс ашып, сабақтарды қосыңыз."
                 to="/create-course"
                 icon={<Plus size={18} />}
                 tone="primary"
@@ -422,15 +458,15 @@ export default function TeacherDashboard() {
 
               <QuickActionCard
                 title="Тест құру"
-                text="Оқушыларға арналған бақылау немесе жаттығу тестін жасаңыз."
+                text="Оқушыларға арналған тест жасаңыз."
                 to="/create-test"
                 icon={<ClipboardList size={18} />}
                 tone="accent"
               />
 
               <QuickActionCard
-                title="AI question builder"
-                text="AI арқылы сұрақтар мен емтихан материалдарын дайындаңыз."
+                title="ЖИ сұрақ құрастыру"
+                text="ЖИ арқылы сұрақтар дайындаңыз."
                 to="/ai-question-builder"
                 icon={<Sparkles size={18} />}
                 tone="ai"
@@ -467,7 +503,7 @@ export default function TeacherDashboard() {
                   ) : (
                     <div className="space-y-3">
                       {courses.map((course) => (
-                        <CourseListItem key={course.id} course={course} />
+                        <CourseListItem key={cleanId(course.id)} course={course} />
                       ))}
                     </div>
                   )}
@@ -521,7 +557,7 @@ export default function TeacherDashboard() {
                     >
                       <Link to="/analytics">
                         <LineChart size={14} className="mr-2" />
-                        Аналитиканы ашу
+                        Талдауды ашу
                       </Link>
                     </Button>
                   </div>
@@ -554,30 +590,27 @@ export default function TeacherDashboard() {
                 </PanelCard>
 
                 <PanelCard title="Жалпы жағдай">
-                  <div className="space-y-3">
-                    <div className="rounded-3xl border border-border bg-surface-soft/60 p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-                          <Target size={16} />
-                        </div>
+                  <div className="rounded-3xl border border-border bg-surface-soft/60 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+                        <Target size={16} />
+                      </div>
 
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-foreground">
-                              Статус
-                            </p>
-
-                            <StatusBadge tone={healthTone}>
-                              <CheckCircle2 size={12} />
-                              {healthStatus}
-                            </StatusBadge>
-                          </div>
-
-                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                            Курстар, тесттер және оқушылар саны көбейген сайын бұл
-                            dashboard мұғалімге нақты оқу динамикасын көрсетеді.
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-foreground">
+                            Статус
                           </p>
+
+                          <StatusBadge tone={healthTone}>
+                            <CheckCircle2 size={12} />
+                            {healthStatus}
+                          </StatusBadge>
                         </div>
+
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                          Курс, оқушы және тест саны бойынша есептеледі.
+                        </p>
                       </div>
                     </div>
                   </div>

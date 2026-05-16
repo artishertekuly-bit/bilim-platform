@@ -27,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useParentDashboard } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type ParentChildDashboardItem = {
   studentId: string;
@@ -52,12 +53,36 @@ type ParentChildDashboardItem = {
   };
 };
 
-function formatPercent(value: number | null | undefined) {
-  return value === null || value === undefined ? '—' : `${value}%`;
+const MAX_ID_CHARS = 160;
+const MAX_NAME_CHARS = 160;
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+const MAX_ERROR_CHARS = 700;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
 }
 
 function safeText(value: string | null | undefined) {
-  return value?.trim() || '—';
+  return cleanText(value, MAX_META_CHARS) || '—';
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (value === null || value === undefined) return '—';
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return '—';
+
+  return `${Math.max(0, Math.min(100, Math.round(numberValue)))}%`;
 }
 
 function getScoreTone(score: number | null | undefined) {
@@ -70,20 +95,22 @@ function getScoreTone(score: number | null | undefined) {
 
 function getLearningStatus(
   avgScore: number | null | undefined,
-  completedLessons: number
+  completedLessons: number,
 ) {
   const score = Number(avgScore || 0);
 
-  if (score >= 80 && completedLessons >= 5) return 'Жақсы динамика';
-  if (score >= 50 || completedLessons >= 3) return 'Орташа динамика';
+  if (score >= 80 && completedLessons >= 5) return 'Жақсы';
+  if (score >= 50 || completedLessons >= 3) return 'Орташа';
 
-  return 'Назар қажет';
+  return 'Назар керек';
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return null;
+  const rawValue = cleanText(value, 80);
 
-  const parsed = new Date(value);
+  if (!rawValue) return null;
+
+  const parsed = new Date(rawValue);
 
   if (Number.isNaN(parsed.getTime())) {
     return null;
@@ -94,6 +121,14 @@ function formatDate(value?: string | null) {
     month: 'short',
     day: 'numeric',
   });
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
+  }
+
+  return 'Ата-ана кабинетін жүктеу мүмкін болмады.';
 }
 
 function PanelCard({
@@ -150,11 +185,17 @@ function QuickActionCard({
   return (
     <Link
       to={to}
-      className={`group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99] ${toneClassName.card}`}
+      className={cn(
+        'group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]',
+        toneClassName.card,
+      )}
     >
       <div className="flex items-start gap-3">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName.icon}`}
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            toneClassName.icon,
+          )}
         >
           {icon}
         </div>
@@ -186,19 +227,21 @@ function SummaryRow({
 }) {
   return (
     <div
-      className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 ${
+      className={cn(
+        'flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5',
         emphasized
           ? 'border-primary-muted bg-primary-soft/70'
-          : 'border-border bg-surface-soft/60'
-      }`}
+          : 'border-border bg-surface-soft/60',
+      )}
     >
       <span className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <span
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border ${
+          className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border',
             emphasized
               ? 'border-primary-muted bg-card text-primary'
-              : 'border-border bg-card text-muted-foreground'
-          }`}
+              : 'border-border bg-card text-muted-foreground',
+          )}
         >
           {icon}
         </span>
@@ -314,14 +357,16 @@ function ChildSelector({
   children: ParentChildDashboardItem[];
   onSelect: (studentId: string) => void;
 }) {
+  const childName = cleanText(child.name, MAX_NAME_CHARS) || 'Оқушы';
+
   return (
     <Card className="overflow-hidden border-primary-muted bg-primary-soft/35">
       <CardContent className="p-4 sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <UserAvatar
-              name={child.name}
-              avatarUrl={child.avatarUrl}
+              name={childName}
+              avatarUrl={cleanText(child.avatarUrl, 1_000) || null}
               className="h-12 w-12"
               fallbackClassName="bg-primary-soft text-sm font-semibold text-primary"
             />
@@ -329,7 +374,7 @@ function ChildSelector({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="truncate text-sm font-semibold text-foreground">
-                  {child.name}
+                  {childName}
                 </p>
 
                 <StatusBadge tone={getScoreTone(child.summary.stats.avgScore)}>
@@ -339,10 +384,10 @@ function ChildSelector({
               </div>
 
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Linked student ·{' '}
+                Оқушы ·{' '}
                 {getLearningStatus(
                   child.summary.stats.avgScore,
-                  Number(child.summary.stats.completedLessons || 0)
+                  Number(child.summary.stats.completedLessons || 0),
                 )}
               </p>
             </div>
@@ -350,17 +395,21 @@ function ChildSelector({
 
           {children.length > 1 ? (
             <div className="flex flex-wrap gap-2">
-              {children.map((item) => (
-                <Button
-                  key={item.studentId}
-                  type="button"
-                  size="sm"
-                  variant={item.studentId === child.studentId ? 'default' : 'outline'}
-                  onClick={() => onSelect(item.studentId)}
-                >
-                  {item.name}
-                </Button>
-              ))}
+              {children.map((item) => {
+                const studentId = cleanId(item.studentId);
+
+                return (
+                  <Button
+                    key={studentId}
+                    type="button"
+                    size="sm"
+                    variant={studentId === cleanId(child.studentId) ? 'default' : 'outline'}
+                    onClick={() => onSelect(studentId)}
+                  >
+                    {cleanText(item.name, MAX_NAME_CHARS) || 'Оқушы'}
+                  </Button>
+                );
+              })}
             </div>
           ) : null}
         </div>
@@ -377,40 +426,43 @@ export default function ParentDashboard() {
 
   const children = useMemo(
     () => ((data || []) as ParentChildDashboardItem[]),
-    [data]
+    [data],
   );
 
   useEffect(() => {
     if (selectedChildId) return;
     if (children.length === 0) return;
 
-    setSelectedChildId(children[0].studentId);
+    setSelectedChildId(cleanId(children[0].studentId));
   }, [children, selectedChildId]);
 
   const child = useMemo(() => {
     if (children.length === 0) return null;
 
     return (
-      children.find((item) => item.studentId === selectedChildId) ||
+      children.find((item) => cleanId(item.studentId) === cleanId(selectedChildId)) ||
       children[0] ||
       null
     );
   }, [children, selectedChildId]);
 
-  const firstName = user?.fullName?.trim().split(/\s+/)[0] || 'Ата-ана';
+  const firstName =
+    cleanText(user?.fullName, MAX_NAME_CHARS).split(/\s+/)[0] ||
+    cleanText(user?.email?.split('@')[0], MAX_NAME_CHARS) ||
+    'Ата-ана';
 
   const recentAttempts = useMemo(() => child?.summary.recentAttempts || [], [child]);
 
   const learningStatus = child
     ? getLearningStatus(
         child.summary.stats.avgScore,
-        Number(child.summary.stats.completedLessons || 0)
+        Number(child.summary.stats.completedLessons || 0),
       )
     : '';
 
   const avgScore = Number(child?.summary.stats.avgScore || 0);
-  const weakSubject = child?.summary.stats.weakSubject || null;
-  const bestSubject = child?.summary.stats.bestSubject || null;
+  const weakSubject = cleanText(child?.summary.stats.weakSubject, MAX_META_CHARS) || null;
+  const bestSubject = cleanText(child?.summary.stats.bestSubject, MAX_META_CHARS) || null;
   const completedLessons = Number(child?.summary.stats.completedLessons || 0);
   const enrolledCourses = Number(child?.summary.stats.enrolledCourses || 0);
 
@@ -421,12 +473,11 @@ export default function ParentDashboard() {
           eyebrow={
             <>
               <LayoutDashboard size={13} />
-              Ата-ана dashboard
+              Ата-ана кабинеті
             </>
           }
           icon={<Users size={20} />}
           title={`${t('dashboard.welcome')}, ${firstName}!`}
-          description="Балаңыздың оқу үлгерімін бақылаңыз."
           actions={
             <Button type="button" asChild>
               <Link to="/children">
@@ -441,11 +492,7 @@ export default function ParentDashboard() {
 
         {!isLoading && error ? (
           <ErrorState
-            text={
-              error instanceof Error
-                ? error.message
-                : 'Ата-ана кабинетін жүктеу мүмкін болмады.'
-            }
+            text={getErrorMessage(error)}
             action={
               <Button
                 type="button"
@@ -463,11 +510,11 @@ export default function ParentDashboard() {
           <EmptyState
             icon={<UserPlus size={18} />}
             title="Бала байланыстырылмаған"
-            text="Оқушы өз профилінде ата-ана сұранысын қабылдағаннан кейін бұл жерде оқу үлгерімі көрінеді."
+            text="Оқушы сұранысты қабылдағаннан кейін оқу үлгерімі көрсетіледі."
             action={
               <Button type="button" asChild>
                 <Link to="/children">
-                  Баланы байланыстыру бетіне өту
+                  Баланы байланыстыру
                   <ArrowRight size={15} className="ml-2" />
                 </Link>
               </Button>
@@ -512,8 +559,8 @@ export default function ParentDashboard() {
 
             <div className="grid gap-3 md:grid-cols-3">
               <QuickActionCard
-                title="Прогресс"
-                text="Баланың оқу барысын толық аналитикадан қараңыз."
+                title="Оқу барысы"
+                text="Баланың оқу нәтижесін қараңыз."
                 to="/child-progress"
                 icon={<BarChart3 size={18} />}
                 tone="primary"
@@ -521,7 +568,7 @@ export default function ParentDashboard() {
 
               <QuickActionCard
                 title="Тесттер"
-                text="Соңғы тест нәтижелері мен балл динамикасын бақылаңыз."
+                text="Соңғы тест нәтижелерін қараңыз."
                 to="/child-tests"
                 icon={<ClipboardList size={18} />}
                 tone="accent"
@@ -529,7 +576,7 @@ export default function ParentDashboard() {
 
               <QuickActionCard
                 title="Жетістіктер"
-                text="Баланың марапаттары мен оқу белсенділігін көріңіз."
+                text="Марапаттар мен белсенділік."
                 to="/child-achievements"
                 icon={<Trophy size={18} />}
                 tone="success"
@@ -552,7 +599,7 @@ export default function ParentDashboard() {
                   {recentAttempts.length === 0 ? (
                     <EmptyState
                       title="Тест нәтижесі жоқ"
-                      text="Оқушы тест тапсырмаған."
+                      text="Оқушы әлі тест тапсырмаған."
                       action={
                         <Button type="button" variant="outline" asChild>
                           <Link to="/child-tests">
@@ -570,15 +617,15 @@ export default function ParentDashboard() {
 
                         return (
                           <div
-                            key={test.id}
+                            key={cleanId(test.id)}
                             className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/50 hover:shadow-soft-md"
                           >
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-foreground">
-                                {test.title}
+                                {cleanText(test.title)}
                               </p>
                               <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                {test.subjectName}
+                                {cleanText(test.subjectName, MAX_META_CHARS)}
                                 {dateText ? ` · ${dateText}` : ''}
                               </p>
                             </div>
@@ -628,8 +675,7 @@ export default function ParentDashboard() {
                     </div>
 
                     <div className="rounded-3xl border border-ai-border bg-ai-soft/65 p-4 text-xs leading-5 text-muted-foreground">
-                      Бұл блок баланың оқу белсенділігін тез бағалауға арналған.
-                      Толық мәліметті “Прогресс” бетінде көруге болады.
+                      Толық мәлімет “Оқу барысы” бетінде көрсетіледі.
                     </div>
                   </div>
                 </PanelCard>
@@ -680,7 +726,7 @@ export default function ParentDashboard() {
                         <span className="font-semibold text-foreground">
                           {weakSubject}
                         </span>{' '}
-                        пәні бойынша қосымша қайталау қажет болуы мүмкін.
+                        пәнін қосымша қайталау қажет болуы мүмкін.
                       </div>
                     ) : (
                       <div className="rounded-3xl border border-success-muted bg-success-soft/65 p-4 text-xs leading-5 text-muted-foreground">
@@ -690,11 +736,11 @@ export default function ParentDashboard() {
 
                     {avgScore >= 80 ? (
                       <div className="rounded-3xl border border-success-muted bg-success-soft/65 p-4 text-xs leading-5 text-success-foreground">
-                        Нәтиже жақсы. Осы оқу қарқынын сақтауға көмектесіңіз.
+                        Нәтиже жақсы. Осы қарқынды сақтауға көмектесіңіз.
                       </div>
                     ) : (
                       <div className="rounded-3xl border border-warning-muted bg-warning-soft/65 p-4 text-xs leading-5 text-warning-foreground">
-                        Аптасына кемінде 2–3 рет қысқа қайталау жасаған дұрыс.
+                        Аптасына 2–3 рет қысқа қайталау жасаған дұрыс.
                       </div>
                     )}
                   </div>

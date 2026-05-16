@@ -7,7 +7,6 @@ import {
   Brain,
   CheckCircle,
   CheckCircle2,
-  ClipboardList,
   Flame,
   GraduationCap,
   LayoutDashboard,
@@ -43,6 +42,44 @@ import type {
 } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
+
+const MAX_ID_CHARS = 160;
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+const MAX_NAME_CHARS = 120;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function formatPercent(value: unknown): string {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) {
+    return '0%';
+  }
+
+  return `${Math.max(0, Math.min(100, Math.round(numberValue)))}%`;
+}
+
+function formatScore(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '—';
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return '—';
+
+  return `${Math.round(numberValue)}%`;
+}
 
 function getStudyStatus(avgScore: number, completedLessons: number) {
   if (avgScore >= 80 && completedLessons >= 5) {
@@ -82,9 +119,11 @@ type IncomingParentLinkRequestItem = {
 };
 
 function formatDateTime(value: string | null | undefined) {
-  if (!value) return '—';
+  const rawValue = cleanText(value, 80);
 
-  const date = new Date(value);
+  if (!rawValue) return '—';
+
+  const date = new Date(rawValue);
 
   if (Number.isNaN(date.getTime())) {
     return '—';
@@ -214,11 +253,17 @@ function QuickActionCard({
   return (
     <Link
       to={to}
-      className={`group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99] ${toneClassName.card}`}
+      className={cn(
+        'group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]',
+        toneClassName.card,
+      )}
     >
       <div className="flex items-start gap-3">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName.icon}`}
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            toneClassName.icon,
+          )}
         >
           {icon}
         </div>
@@ -280,7 +325,12 @@ function resolveOverallRisk(snapshot: StudentLearningSnapshot): LearningRiskLeve
 
 function formatNullablePercent(value: number | null | undefined) {
   if (value === null || value === undefined) return '—';
-  return `${value}%`;
+
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return '—';
+
+  return `${Math.round(numberValue)}%`;
 }
 
 function MiniMetric({
@@ -305,7 +355,10 @@ function MiniMetric({
     <div className="rounded-3xl border border-border bg-card p-3 shadow-soft">
       <div className="flex items-start gap-3">
         <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+          className={cn(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            toneClassName,
+          )}
         >
           {icon}
         </div>
@@ -330,7 +383,7 @@ function LearningAnalyticsPanel({
 }) {
   if (isLoading) {
     return (
-      <PanelCard title="Оқу аналитикасы">
+      <PanelCard title="Оқу талдауы">
         <div className="space-y-3">
           <SkeletonBlock className="h-16 w-full rounded-3xl" />
           <SkeletonBlock className="h-16 w-full rounded-3xl" />
@@ -342,22 +395,18 @@ function LearningAnalyticsPanel({
 
   if (hasError) {
     return (
-      <PanelCard title="Оқу аналитикасы">
-        <ErrorState
-          text="Оқу аналитикасын жүктеу мүмкін болмады."
-          hint="Бұл бөлім тек оқу нәтижелері мен progress деректері бойынша есептеледі."
-          compact
-        />
+      <PanelCard title="Оқу талдауы">
+        <ErrorState text="Оқу талдауын жүктеу мүмкін болмады." compact />
       </PanelCard>
     );
   }
 
   if (!snapshot) {
     return (
-      <PanelCard title="Оқу аналитикасы">
+      <PanelCard title="Оқу талдауы">
         <EmptyState
-          title="Аналитика әзірге жоқ"
-          text="Сабақ аяқталуы, mini quiz немесе тест нәтижелері пайда болғаннан кейін бұл жерде ұсыныстар көрінеді."
+          title="Талдау әзірге жоқ"
+          text="Сабақ немесе тест нәтижесі шыққанда көрсетіледі."
           compact
           tone="ai"
         />
@@ -371,7 +420,7 @@ function LearningAnalyticsPanel({
 
   return (
     <PanelCard
-      title="Оқу аналитикасы"
+      title="Оқу талдауы"
       action={
         <StatusBadge tone={getRiskLevelTone(overallRisk)}>
           {getRiskLevelLabel(overallRisk)}
@@ -386,11 +435,10 @@ function LearningAnalyticsPanel({
 
           <div className="min-w-0">
             <p className="text-sm font-semibold text-foreground">
-              Нәтижеге негізделген snapshot
+              Нәтиже талдауы
             </p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Бұл блок click/time tracking қолданбайды. Тек progress, mini quiz,
-              тест, сақталған және қайталау белгіленген сабақтар бойынша есептеледі.
+              Сабақ, шағын тест және жалпы нәтиже бойынша есептеледі.
             </p>
           </div>
         </div>
@@ -398,28 +446,28 @@ function LearningAnalyticsPanel({
 
       <div className="grid grid-cols-2 gap-2">
         <MiniMetric
-          label="Жалпы прогресс"
-          value={`${snapshot.totals.progressPct}%`}
+          label="Жалпы нәтиже"
+          value={formatPercent(snapshot.totals.progressPct)}
           icon={<Target size={14} />}
           tone="success"
         />
 
         <MiniMetric
-          label="Mini quiz орташа"
+          label="Шағын тест"
           value={formatNullablePercent(snapshot.totals.miniQuizAvgScore)}
           icon={<Brain size={14} />}
           tone="ai"
         />
 
         <MiniMetric
-          label="Қайталау керек"
+          label="Қайталау"
           value={snapshot.totals.reviewLaterItems}
           icon={<RotateCcw size={14} />}
           tone="warning"
         />
 
         <MiniMetric
-          label="Сақталған сабақ"
+          label="Сақталған"
           value={snapshot.totals.savedLessons}
           icon={<Star size={14} />}
           tone="primary"
@@ -436,22 +484,22 @@ function LearningAnalyticsPanel({
           </div>
 
           <p className="text-sm font-semibold text-foreground">
-            {primaryRecommendation.title}
+            {cleanText(primaryRecommendation.title)}
           </p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {primaryRecommendation.description}
+            {cleanText(primaryRecommendation.description, 500)}
           </p>
 
           {primaryRecommendation.lessonId ? (
             <Button type="button" variant="outline" size="sm" className="mt-3" asChild>
-              <Link to={`/lessons/${primaryRecommendation.lessonId}`}>
+              <Link to={`/lessons/${cleanId(primaryRecommendation.lessonId)}`}>
                 Сабақты ашу
                 <ArrowRight size={13} className="ml-1.5" />
               </Link>
             </Button>
           ) : primaryRecommendation.courseId ? (
             <Button type="button" variant="outline" size="sm" className="mt-3" asChild>
-              <Link to={`/courses/${primaryRecommendation.courseId}`}>
+              <Link to={`/courses/${cleanId(primaryRecommendation.courseId)}`}>
                 Курсты ашу
                 <ArrowRight size={13} className="ml-1.5" />
               </Link>
@@ -469,24 +517,24 @@ function LearningAnalyticsPanel({
 
           {weakLessons.map((lesson) => (
             <Link
-              key={lesson.lessonId}
-              to={`/lessons/${lesson.lessonId}`}
+              key={cleanId(lesson.lessonId)}
+              to={`/lessons/${cleanId(lesson.lessonId)}`}
               className="block rounded-3xl border border-border bg-card p-3 text-xs shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-warning-muted hover:bg-warning-soft/50 hover:shadow-soft-md"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="line-clamp-1 font-semibold text-foreground">
-                    {lesson.lessonTitle}
+                    {cleanText(lesson.lessonTitle)}
                   </p>
                   <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
-                    {lesson.courseTitle}
+                    {cleanText(lesson.courseTitle)}
                   </p>
                 </div>
 
                 <StatusBadge tone={lesson.failedAttempts > 0 ? 'warning' : 'primary'}>
                   {lesson.failedAttempts > 0
-                    ? `${lesson.failedAttempts} failed`
-                    : 'review'}
+                    ? `${lesson.failedAttempts} қате`
+                    : 'Қайталау'}
                 </StatusBadge>
               </div>
             </Link>
@@ -522,6 +570,8 @@ function NextLessonCard({
     );
   }
 
+  const nextLessonId = cleanId(nextLesson.id);
+
   return (
     <>
       <div className="rounded-3xl border border-primary-muted bg-primary-soft/65 p-4 shadow-soft">
@@ -547,11 +597,12 @@ function NextLessonCard({
             </div>
 
             <h3 className="mt-3 line-clamp-2 text-base font-semibold text-foreground">
-              {nextLesson.title}
+              {cleanText(nextLesson.title)}
             </h3>
 
             <p className="mt-1 text-xs text-muted-foreground">
-              {nextLesson.subjectName} · {nextLesson.courseTitle}
+              {cleanText(nextLesson.subjectName, MAX_META_CHARS)} ·{' '}
+              {cleanText(nextLesson.courseTitle, MAX_META_CHARS)}
             </p>
 
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
@@ -568,7 +619,7 @@ function NextLessonCard({
             </Button>
           ) : (
             <Button type="button" asChild>
-              <Link to={`/lessons/${nextLesson.id}`}>
+              <Link to={`/lessons/${nextLessonId}`}>
                 {t('course.continue')}
                 <ArrowRight size={14} className="ml-2" />
               </Link>
@@ -583,10 +634,12 @@ function NextLessonCard({
             {t('page.student_dashboard.next_lessons')}
           </p>
 
-          {upcomingLessons.map((lesson) =>
-            lesson.isLocked ? (
+          {upcomingLessons.map((lesson) => {
+            const lessonId = cleanId(lesson.id);
+
+            return lesson.isLocked ? (
               <div
-                key={lesson.id}
+                key={lessonId}
                 className="flex items-center gap-3 rounded-3xl border border-border bg-muted/45 p-3 opacity-80"
               >
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-border bg-card">
@@ -595,10 +648,11 @@ function NextLessonCard({
 
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-foreground">
-                    {lesson.title}
+                    {cleanText(lesson.title)}
                   </p>
                   <p className="truncate text-[11px] text-muted-foreground">
-                    {lesson.subjectName} · {lesson.courseTitle}
+                    {cleanText(lesson.subjectName, MAX_META_CHARS)} ·{' '}
+                    {cleanText(lesson.courseTitle, MAX_META_CHARS)}
                   </p>
                 </div>
 
@@ -606,8 +660,8 @@ function NextLessonCard({
               </div>
             ) : (
               <Link
-                key={lesson.id}
-                to={`/lessons/${lesson.id}`}
+                key={lessonId}
+                to={`/lessons/${lessonId}`}
                 className="flex items-center gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/55 hover:shadow-soft-md"
               >
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
@@ -616,15 +670,16 @@ function NextLessonCard({
 
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-foreground">
-                    {lesson.title}
+                    {cleanText(lesson.title)}
                   </p>
                   <p className="truncate text-[11px] text-muted-foreground">
-                    {lesson.subjectName} · {lesson.courseTitle}
+                    {cleanText(lesson.subjectName, MAX_META_CHARS)} ·{' '}
+                    {cleanText(lesson.courseTitle, MAX_META_CHARS)}
                   </p>
                 </div>
               </Link>
-            )
-          )}
+            );
+          })}
         </div>
       ) : null}
     </>
@@ -658,12 +713,15 @@ export default function StudentDashboard() {
         .sort(
           (a, b) =>
             new Date(b.requestedAt || 0).getTime() -
-            new Date(a.requestedAt || 0).getTime()
+            new Date(a.requestedAt || 0).getTime(),
         ),
-    [incomingParentRequestsData]
+    [incomingParentRequestsData],
   );
 
-  const firstName = user?.fullName?.trim().split(/\s+/)[0] || 'оқушы';
+  const firstName =
+    cleanText(user?.fullName, MAX_NAME_CHARS).split(/\s+/)[0] ||
+    cleanText(user?.email?.split('@')[0], MAX_NAME_CHARS) ||
+    'оқушы';
 
   const nextLesson =
     data?.nextLessons?.find((lesson) => !lesson.isLocked) ||
@@ -688,18 +746,17 @@ export default function StudentDashboard() {
           eyebrow={
             <>
               <LayoutDashboard size={13} />
-              Оқушы dashboard
+              Оқушы кабинеті
             </>
           }
           icon={<GraduationCap size={20} />}
           title={`Қош келдіңіз, ${firstName}!`}
-          description={t('page.student_dashboard.greeting_subtitle')}
           actions={
             <Button type="button" asChild>
               <Link
                 to={
                   nextLesson && !nextLesson.isLocked
-                    ? `/lessons/${nextLesson.id}`
+                    ? `/lessons/${cleanId(nextLesson.id)}`
                     : '/courses'
                 }
               >
@@ -714,7 +771,7 @@ export default function StudentDashboard() {
 
         {!isLoading && error ? (
           <ErrorState
-            text="Оқушы панеліндегі мәліметтерді жүктеу мүмкін болмады."
+            text="Оқушы мәліметтерін жүктеу мүмкін болмады."
             action={
               <Button
                 type="button"
@@ -731,8 +788,8 @@ export default function StudentDashboard() {
         {!isLoading && !error && !data ? (
           <EmptyState
             icon={<BookOpen size={18} />}
-            title="Оқу деректері әзірге қолжетімді емес"
-            text="Мәліметтер жаңартылғаннан кейін бұл бөлімде сіздің оқу барысыңыз көрсетіледі."
+            title="Оқу деректері жоқ"
+            text="Курсқа жазылғаннан кейін оқу барысы көрсетіледі."
             action={
               <Button type="button" asChild>
                 <Link to="/courses">
@@ -755,13 +812,13 @@ export default function StudentDashboard() {
               />
               <StatCard
                 label={t('dashboard.avg_score')}
-                value={`${data.stats.avgScore}%`}
+                value={formatPercent(data.stats.avgScore)}
                 icon={<Target size={16} />}
                 tone="success"
               />
               <StatCard
                 label={t('dashboard.streak')}
-                value={`${data.stats.streakDays} ${t('common.days')}`}
+                value={`${Number(data.stats.streakDays || 0)} ${t('common.days')}`}
                 icon={<Flame size={16} />}
                 tone="warning"
               />
@@ -769,7 +826,9 @@ export default function StudentDashboard() {
                 label={t('dashboard.points')}
                 value={data.stats.points}
                 icon={<Star size={16} />}
-                subtitle={`${t('dashboard.rank')} ${data.stats.rank ? `#${data.stats.rank}` : '—'}`}
+                subtitle={`${t('dashboard.rank')} ${
+                  data.stats.rank ? `#${data.stats.rank}` : '—'
+                }`}
                 tone="accent"
               />
             </div>
@@ -777,20 +836,20 @@ export default function StudentDashboard() {
             <div className="grid gap-3 md:grid-cols-3">
               <QuickActionCard
                 title="Курстар"
-                text="Жаңа курстарды қарап, оқуды жалғастырыңыз."
+                text="Курстарды қарап, оқуды жалғастырыңыз."
                 to="/courses"
                 icon={<BookOpen size={18} />}
                 tone="primary"
               />
               <QuickActionCard
                 title="Сақталған сабақтар"
-                text="Кейін оқуға белгілеген сабақтарыңыз."
+                text="Кейін оқуға белгіленген сабақтар."
                 to="/saved-lessons"
                 icon={<Star size={18} />}
                 tone="accent"
               />
               <QuickActionCard
-                title="AI tutor"
+                title="ЖИ көмекші"
                 text="Түсінбеген тақырып бойынша көмек алыңыз."
                 to="/ai-tutor"
                 icon={<MessageCircle size={18} />}
@@ -834,36 +893,42 @@ export default function StudentDashboard() {
                     />
                   ) : (
                     <div className="space-y-3">
-                      {data.enrolledCourses.map((course) => (
-                        <Link
-                          key={course.id}
-                          to={`/courses/${course.id}`}
-                          className="block rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/55 hover:shadow-soft-md"
-                        >
-                          <div className="mb-3 flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="line-clamp-1 text-sm font-semibold text-foreground">
-                                {course.title}
-                              </p>
-                              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                                {[
-                                  course.subjectName,
-                                  `${course.lessons} ${t('course.lessons_count')}`,
-                                  course.teacherName,
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ')}
-                              </p>
+                      {data.enrolledCourses.map((course) => {
+                        const courseId = cleanId(course.id);
+
+                        return (
+                          <Link
+                            key={courseId}
+                            to={`/courses/${courseId}`}
+                            className="block rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/55 hover:shadow-soft-md"
+                          >
+                            <div className="mb-3 flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="line-clamp-1 text-sm font-semibold text-foreground">
+                                  {cleanText(course.title)}
+                                </p>
+                                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                  {[
+                                    cleanText(course.subjectName, MAX_META_CHARS),
+                                    `${Number(course.lessons || 0)} ${t(
+                                      'course.lessons_count',
+                                    )}`,
+                                    cleanText(course.teacherName, MAX_META_CHARS),
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </p>
+                              </div>
+
+                              <StatusBadge tone={getScoreTone(course.progress)}>
+                                {formatPercent(course.progress)}
+                              </StatusBadge>
                             </div>
 
-                            <StatusBadge tone={getScoreTone(course.progress)}>
-                              {course.progress}%
-                            </StatusBadge>
-                          </div>
-
-                          <ProgressBar value={course.progress} size="sm" />
-                        </Link>
-                      ))}
+                            <ProgressBar value={Number(course.progress || 0)} size="sm" />
+                          </Link>
+                        );
+                      })}
                     </div>
                   )}
                 </PanelCard>
@@ -878,7 +943,7 @@ export default function StudentDashboard() {
 
                 <PanelCard title="Ата-ана сұраныстары">
                   {isIncomingParentRequestsLoading ? (
-                    <LoadingState text="Сұраныстар жүктеліп жатыр..." compact />
+                    <LoadingState text="Сұраныстар жүктелуде..." compact />
                   ) : null}
 
                   {incomingParentRequestsError ? (
@@ -890,7 +955,7 @@ export default function StudentDashboard() {
                   pendingParentRequests.length === 0 ? (
                     <EmptyState
                       title="Жаңа сұраныс жоқ"
-                      text="Әзірге ата-ана тарапынан жаңа сұраныстар жоқ."
+                      text="Әзірге жаңа сұраныс жоқ."
                       compact
                     />
                   ) : null}
@@ -900,26 +965,26 @@ export default function StudentDashboard() {
                   pendingParentRequests.length > 0
                     ? pendingParentRequests.map((request) => (
                         <div
-                          key={request.id}
+                          key={cleanId(request.id)}
                           className="rounded-3xl border border-border bg-card p-4 shadow-soft"
                         >
                           <div className="space-y-2">
                             <div className="flex items-center justify-between gap-3">
                               <p className="text-sm font-semibold text-foreground">
-                                {request.parentName?.trim() || 'Ата-ана профилі'}
+                                {cleanText(request.parentName, MAX_NAME_CHARS) ||
+                                  'Ата-ана'}
                               </p>
                               <StatusBadge tone="warning">
                                 <Users size={12} />
-                                Pending
+                                Күтуде
                               </StatusBadge>
                             </div>
 
                             <p className="text-[11px] text-muted-foreground">
-                              Сұраныс жіберілген уақыт:{' '}
-                              {formatDateTime(request.requestedAt)}
+                              Жіберілді: {formatDateTime(request.requestedAt)}
                             </p>
                             <p className="text-[11px] text-muted-foreground">
-                              Жарамдылық мерзімі: {formatDateTime(request.expiresAt)}
+                              Мерзімі: {formatDateTime(request.expiresAt)}
                             </p>
                           </div>
 
@@ -929,13 +994,13 @@ export default function StudentDashboard() {
                               size="sm"
                               onClick={() =>
                                 acceptParentLinkRequestMutation.mutate({
-                                  requestId: request.id,
+                                  requestId: cleanId(request.id),
                                 })
                               }
                               disabled={parentRequestPending}
                             >
                               {acceptParentLinkRequestMutation.isPending
-                                ? 'Қабылданып жатыр...'
+                                ? 'Қабылдануда...'
                                 : 'Қабылдау'}
                             </Button>
 
@@ -945,13 +1010,13 @@ export default function StudentDashboard() {
                               variant="outline"
                               onClick={() =>
                                 declineParentLinkRequestMutation.mutate({
-                                  requestId: request.id,
+                                  requestId: cleanId(request.id),
                                 })
                               }
                               disabled={parentRequestPending}
                             >
                               {declineParentLinkRequestMutation.isPending
-                                ? 'Бас тартылып жатыр...'
+                                ? 'Бас тартылуда...'
                                 : 'Бас тарту'}
                             </Button>
                           </div>
@@ -989,22 +1054,21 @@ export default function StudentDashboard() {
                     <div className="space-y-2">
                       {data.recentAttempts.slice(0, 4).map((test) => (
                         <Link
-                          key={test.id}
+                          key={cleanId(test.id)}
                           to="/tests"
                           className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/50 hover:shadow-soft-md"
                         >
                           <div className="min-w-0">
                             <p className="truncate text-xs font-semibold text-foreground">
-                              {test.title}
+                              {cleanText(test.title)}
                             </p>
                             <p className="truncate text-[11px] text-muted-foreground">
-                              {test.subjectName}
+                              {cleanText(test.subjectName, MAX_META_CHARS)}
                             </p>
                           </div>
 
                           <StatusBadge tone={getScoreTone(test.score)}>
-                            {test.score ?? '—'}
-                            {test.score !== null ? '%' : ''}
+                            {formatScore(test.score)}
                           </StatusBadge>
                         </Link>
                       ))}
@@ -1029,7 +1093,8 @@ export default function StudentDashboard() {
                       </span>
                       <span className="flex items-center gap-1 text-xs font-semibold text-foreground">
                         <CheckCircle size={12} className="text-success-foreground" />
-                        {data.stats.bestSubject || t('common.not_defined_yet')}
+                        {cleanText(data.stats.bestSubject, MAX_META_CHARS) ||
+                          t('common.not_defined_yet')}
                       </span>
                     </div>
 
@@ -1038,7 +1103,8 @@ export default function StudentDashboard() {
                         {t('page.student_dashboard.attention_subject')}
                       </span>
                       <span className="text-xs font-semibold text-foreground">
-                        {data.stats.weakSubject || t('common.not_defined_yet')}
+                        {cleanText(data.stats.weakSubject, MAX_META_CHARS) ||
+                          t('common.not_defined_yet')}
                       </span>
                     </div>
 
