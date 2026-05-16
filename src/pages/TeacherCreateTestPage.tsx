@@ -47,7 +47,6 @@ import {
   ArrowDown,
   ArrowUp,
   ClipboardList,
-  FileText,
   LayoutDashboard,
   Plus,
   RotateCcw,
@@ -75,6 +74,23 @@ type QuestionFormState = {
   sortOrder: string;
   multiple: boolean;
 };
+
+const MAX_TEST_TITLE_CHARS = 180;
+const MAX_TEST_TOPIC_CHARS = 220;
+const MAX_QUESTION_TEXT_CHARS = 1_200;
+const MAX_OPTION_CHARS = 400;
+const MAX_OPTIONS = 8;
+const MAX_EXPLANATION_CHARS = 1_500;
+const MAX_DURATION_CHARS = 3;
+const MAX_SORT_ORDER_CHARS = 4;
+
+function cleanText(value: string, limit: number) {
+  return value.replace(/\x00/g, ' ').slice(0, limit);
+}
+
+function normalizeNumericInput(value: string, limit: number) {
+  return value.replace(/[^\d]/g, '').slice(0, limit);
+}
 
 function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
   const next = [...items];
@@ -167,19 +183,35 @@ function parseCorrectAnswerIndexes(value: string) {
       value
         .split(',')
         .map((item) => Number(item.trim()) - 1)
-        .filter((item) => Number.isFinite(item) && item >= 0),
+        .filter((item) => Number.isInteger(item) && item >= 0),
     ),
-  );
+  ).sort((a, b) => a - b);
 }
 
 function getOptionLinesForEditor(value: string) {
-  const lines = value.split('\n');
+  const lines = value.split('\n').slice(0, MAX_OPTIONS);
 
   while (lines.length < 2) {
     lines.push('');
   }
 
   return lines;
+}
+
+function getNormalizedOptionRows(value: string) {
+  return getOptionLinesForEditor(value)
+    .map((option, originalIndex) => ({
+      originalIndex,
+      text: option.trim(),
+    }))
+    .filter((option) => option.text.length > 0);
+}
+
+function formatCorrectAnswer(indexes: number[]) {
+  return indexes
+    .sort((a, b) => a - b)
+    .map((index) => index + 1)
+    .join(',');
 }
 
 function TestBuilderSkeleton() {
@@ -498,7 +530,9 @@ export default function TeacherCreateTestPage() {
   }, [courseOptions, newTest.courseId]);
 
   useEffect(() => {
-    if (!workspace?.tests?.length) {
+    if (!workspace) return;
+
+    if (!workspace.tests?.length) {
       if (selectedTestId) {
         setSelectedTestId('');
       }
@@ -586,33 +620,32 @@ export default function TeacherCreateTestPage() {
       throw new Error('Сұрақ мәтіні міндетті.');
     }
 
-    const options = questionForm.optionsText
-      .split('\n')
-      .map((item) => item.trim())
-      .filter(Boolean);
+    const optionRows = getNormalizedOptionRows(questionForm.optionsText);
 
-    if (options.length < 2) {
+    if (optionRows.length < 2) {
       throw new Error(t('page.teacher_test_builder.validation.options_min'));
     }
 
+    const originalIndexToNormalizedIndex = new Map(
+      optionRows.map((option, normalizedIndex) => [
+        option.originalIndex,
+        normalizedIndex,
+      ]),
+    );
+
     const correct = Array.from(
       new Set(
-        questionForm.correctAnswer
-          .split(',')
-          .map((value) => Number(value.trim()) - 1)
-          .filter((value) => Number.isFinite(value) && value >= 0),
+        parseCorrectAnswerIndexes(questionForm.correctAnswer).flatMap((index) => {
+          const normalizedIndex = originalIndexToNormalizedIndex.get(index);
+
+          return normalizedIndex === undefined ? [] : [normalizedIndex];
+        }),
       ),
-    );
+    ).sort((a, b) => a - b);
 
     if (correct.length === 0) {
       throw new Error(
         t('page.teacher_test_builder.validation.correct_answer_required'),
-      );
-    }
-
-    if (correct.some((value) => value >= options.length)) {
-      throw new Error(
-        t('page.teacher_test_builder.validation.correct_answer_range'),
       );
     }
 
@@ -625,7 +658,7 @@ export default function TeacherCreateTestPage() {
     return {
       questionText,
       explanation,
-      options,
+      options: optionRows.map((option) => option.text),
       correct,
     };
   };
@@ -953,20 +986,31 @@ export default function TeacherCreateTestPage() {
   const updateQuestionOption = (optionIndex: number, value: string) => {
     setQuestionForm((previous) => {
       const nextOptions = getOptionLinesForEditor(previous.optionsText);
-      nextOptions[optionIndex] = value;
+      nextOptions[optionIndex] = cleanText(value, MAX_OPTION_CHARS);
+
+      const nextCorrect = parseCorrectAnswerIndexes(previous.correctAnswer).filter(
+        (index) => nextOptions[index]?.trim(),
+      );
 
       return {
         ...previous,
         optionsText: nextOptions.join('\n'),
+        correctAnswer: formatCorrectAnswer(nextCorrect),
       };
     });
   };
 
   const addQuestionOption = () => {
-    setQuestionForm((previous) => ({
-      ...previous,
-      optionsText: `${previous.optionsText}\n`,
-    }));
+    setQuestionForm((previous) => {
+      const currentOptions = getOptionLinesForEditor(previous.optionsText);
+
+      if (currentOptions.length >= MAX_OPTIONS) return previous;
+
+      return {
+        ...previous,
+        optionsText: `${currentOptions.join('\n')}\n`,
+      };
+    });
   };
 
   const removeQuestionOption = (optionIndex: number) => {
@@ -983,13 +1027,12 @@ export default function TeacherCreateTestPage() {
 
           return [index];
         })
-        .map((index) => index + 1)
-        .join(',');
+        .filter((index) => nextOptions[index]?.trim());
 
       return {
         ...previous,
         optionsText: nextOptions.join('\n'),
-        correctAnswer: nextCorrect,
+        correctAnswer: formatCorrectAnswer(nextCorrect),
       };
     });
   };
@@ -1011,10 +1054,7 @@ export default function TeacherCreateTestPage() {
 
       return {
         ...previous,
-        correctAnswer: next
-          .sort((a, b) => a - b)
-          .map((index) => index + 1)
-          .join(','),
+        correctAnswer: formatCorrectAnswer(next),
       };
     });
   };
@@ -1026,7 +1066,12 @@ export default function TeacherCreateTestPage() {
     !createTestMutation.isPending;
 
   const canSaveQuestion =
-    !!questionForm.questionText.trim() && !saveQuestionMutation.isPending;
+    !!questionForm.questionText.trim() &&
+    getNormalizedOptionRows(questionForm.optionsText).length >= 2 &&
+    parseCorrectAnswerIndexes(questionForm.correctAnswer).some((index) =>
+      getOptionLinesForEditor(questionForm.optionsText)[index]?.trim(),
+    ) &&
+    !saveQuestionMutation.isPending;
 
   const canImportAiQuestions =
     !!selectedTest &&
@@ -1206,7 +1251,7 @@ export default function TeacherCreateTestPage() {
                       onChange={(event) =>
                         setNewTest((previous) => ({
                           ...previous,
-                          title: event.target.value,
+                          title: cleanText(event.target.value, MAX_TEST_TITLE_CHARS),
                         }))
                       }
                       placeholder={t('page.teacher_test_builder.placeholder.test_title')}
@@ -1219,7 +1264,7 @@ export default function TeacherCreateTestPage() {
                       onChange={(event) =>
                         setNewTest((previous) => ({
                           ...previous,
-                          topic: event.target.value,
+                          topic: cleanText(event.target.value, MAX_TEST_TOPIC_CHARS),
                         }))
                       }
                       placeholder={t('page.teacher_test_builder.placeholder.topic')}
@@ -1235,7 +1280,7 @@ export default function TeacherCreateTestPage() {
                         onChange={(event) =>
                           setNewTest((previous) => ({
                             ...previous,
-                            duration: event.target.value,
+                            duration: normalizeNumericInput(event.target.value, MAX_DURATION_CHARS),
                           }))
                         }
                       />
@@ -1368,7 +1413,7 @@ export default function TeacherCreateTestPage() {
                               onChange={(event) =>
                                 setTestEdit((previous) => ({
                                   ...previous,
-                                  title: event.target.value,
+                                  title: cleanText(event.target.value, MAX_TEST_TITLE_CHARS),
                                 }))
                               }
                             />
@@ -1382,7 +1427,7 @@ export default function TeacherCreateTestPage() {
                               onChange={(event) =>
                                 setTestEdit((previous) => ({
                                   ...previous,
-                                  topic: event.target.value,
+                                  topic: cleanText(event.target.value, MAX_TEST_TOPIC_CHARS),
                                 }))
                               }
                             />
@@ -1397,7 +1442,7 @@ export default function TeacherCreateTestPage() {
                             onChange={(event) =>
                               setTestEdit((previous) => ({
                                 ...previous,
-                                duration: event.target.value,
+                                duration: normalizeNumericInput(event.target.value, MAX_DURATION_CHARS),
                               }))
                             }
                           />
@@ -1697,7 +1742,7 @@ export default function TeacherCreateTestPage() {
                           onChange={(event) =>
                             setQuestionForm((previous) => ({
                               ...previous,
-                              questionText: event.target.value,
+                              questionText: cleanText(event.target.value, MAX_QUESTION_TEXT_CHARS),
                             }))
                           }
                           placeholder="Сұрақ"
@@ -1714,6 +1759,7 @@ export default function TeacherCreateTestPage() {
                           {questionOptions.map((option, optionIndex) => {
                             const checked = correctAnswerIndexes.includes(optionIndex);
                             const inputType = questionForm.multiple ? 'checkbox' : 'radio';
+                            const canMarkCorrect = option.trim().length > 0;
 
                             return (
                               <div
@@ -1728,8 +1774,9 @@ export default function TeacherCreateTestPage() {
                                   type={inputType}
                                   name="test-correct-answer"
                                   checked={checked}
+                                  disabled={!canMarkCorrect}
                                   onChange={() => toggleCorrectOption(optionIndex)}
-                                  className="h-4 w-4 accent-primary"
+                                  className="h-4 w-4 accent-primary disabled:cursor-not-allowed disabled:opacity-50"
                                 />
 
                                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-xs font-semibold text-muted-foreground">
@@ -1766,6 +1813,7 @@ export default function TeacherCreateTestPage() {
                           variant="outline"
                           size="sm"
                           onClick={addQuestionOption}
+                          disabled={questionOptions.length >= MAX_OPTIONS}
                         >
                           <Plus size={14} className="mr-1.5" />
                           Нұсқа қосу
@@ -1781,7 +1829,7 @@ export default function TeacherCreateTestPage() {
                             onChange={(event) =>
                               setQuestionForm((previous) => ({
                                 ...previous,
-                                sortOrder: event.target.value,
+                                sortOrder: normalizeNumericInput(event.target.value, MAX_SORT_ORDER_CHARS),
                               }))
                             }
                           />
@@ -1826,7 +1874,7 @@ export default function TeacherCreateTestPage() {
                           onChange={(event) =>
                             setQuestionForm((previous) => ({
                               ...previous,
-                              explanation: event.target.value,
+                              explanation: cleanText(event.target.value, MAX_EXPLANATION_CHARS),
                             }))
                           }
                           placeholder="Түсіндірме"
