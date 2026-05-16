@@ -44,6 +44,12 @@ export function noDescriptionLabel(locale: Locale) {
   return localizedText(locale, 'Сипаттама жоқ', 'Описание отсутствует');
 }
 
+export function isSoftSchemaError(message: string) {
+  return /does not exist|schema cache|column .* does not exist|relation .* does not exist/i.test(
+    message,
+  );
+}
+
 export function noTopicLabel(locale: Locale) {
   return localizedText(locale, 'Тақырып жоқ', 'Тема не указана');
 }
