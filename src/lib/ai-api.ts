@@ -714,15 +714,22 @@ function normalizeLearningScopePayload(scope?: LearningAiScope | null): Learning
 function normalizeConversationHistoryPayload(
   messages?: LearningAiConversationMessage[],
 ): LearningAiConversationMessage[] {
-  return Array.isArray(messages)
-    ? messages
-        .map((message) => ({
-          role: message.role === 'assistant' ? 'assistant' : 'user',
-          content: cleanText(message.content, 8_000),
-        }))
-        .filter((message) => Boolean(message.content))
-        .slice(-20)
-    : [];
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .map((message): LearningAiConversationMessage => {
+      const role: LearningAiConversationMessage['role'] =
+        message.role === 'assistant' ? 'assistant' : 'user';
+
+      return {
+        role,
+        content: cleanText(message.content, 8_000),
+      };
+    })
+    .filter((message) => Boolean(message.content))
+    .slice(-20);
 }
 
 /* ================= QUESTION NORMALIZATION ================= */

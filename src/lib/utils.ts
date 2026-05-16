@@ -44,3 +44,4 @@ export function limitText(value: unknown, maxLength: number): string {
     ? normalizedValue.slice(0, maxLength).trim()
     : normalizedValue;
 }
+
