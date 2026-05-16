@@ -31,6 +31,7 @@ type TestQuestionRow = Tables<'test_questions'>;
 type TestAttemptScoreRow = Pick<Tables<'test_attempts'>, 'test_id' | 'score'>;
 type LessonMiniQuizRow = Pick<Tables<'lesson_mini_quizzes'>, 'id' | 'lesson_id'>;
 type LessonMiniQuizQuestionRow = Pick<Tables<'lesson_mini_quiz_questions'>, 'id' | 'quiz_id'>;
+type LessonAttachmentMetaRow = Pick<Tables<'lesson_attachments'>, 'id' | 'lesson_id'>;
 
 function unique<T>(items: T[]) {
   return Array.from(new Set(items));
@@ -96,20 +97,58 @@ function groupAttemptsByTestId(rows: TestAttemptScoreRow[]) {
   return map;
 }
 
+function normalizeCourseAccessType(value: unknown): CourseAccessType {
+  if (
+    value === 'public_free' ||
+    value === 'private_invite' ||
+    value === 'paid' ||
+    value === 'subscription_only' ||
+    value === 'school_only'
+  ) {
+    return value;
+  }
+
+  if (value === 'open' || value === 'free') return 'public_free';
+  if (value === 'closed' || value === 'invite_only') return 'private_invite';
+
+  return 'public_free';
+}
+
+function normalizeCourseVisibility(value: unknown): CourseVisibility {
+  if (value === 'public' || value === 'unlisted' || value === 'private') {
+    return value;
+  }
+
+  if (value === 'school') return 'private';
+
+  return 'public';
+}
+
+function normalizeCurrency(value: unknown): CurrencyCode {
+  const normalized = String(value || 'KZT')
+    .replace(/[^a-zA-Z]/g, '')
+    .toUpperCase()
+    .slice(0, 3);
+
+  return (normalized || 'KZT') as CurrencyCode;
+}
+
 function getCourseAccessType(course: CourseRow): CourseAccessType {
-  return course.access_type || 'public_free';
+  return normalizeCourseAccessType(course.access_type);
 }
 
 function getCourseVisibility(course: CourseRow): CourseVisibility {
-  return course.visibility || 'public';
+  return normalizeCourseVisibility(course.visibility);
 }
 
 function getCoursePrice(course: CourseRow): number {
-  return Number(course.price ?? 0);
+  const price = Number(course.price ?? 0);
+
+  return Number.isFinite(price) && price >= 0 ? price : 0;
 }
 
 function getCourseCurrency(course: CourseRow): CurrencyCode {
-  return course.currency || 'KZT';
+  return normalizeCurrency(course.currency);
 }
 
 function getCourseEnrollmentOpen(course: CourseRow): boolean {
@@ -260,6 +299,33 @@ async function getMiniQuizMetaForLessons(lessonIds: string[]) {
     quizByLessonId,
     questionCountByQuizId,
   };
+}
+
+
+async function getLessonAttachmentCountsForLessons(lessonIds: string[]) {
+  const normalizedLessonIds = unique(lessonIds.filter(Boolean));
+
+  if (normalizedLessonIds.length === 0) {
+    return new Map<string, number>();
+  }
+
+  const rows = (await queryOrThrow(
+    supabase
+      .from('lesson_attachments')
+      .select('id, lesson_id')
+      .in('lesson_id', normalizedLessonIds),
+  )) as LessonAttachmentMetaRow[];
+
+  const countByLessonId = new Map<string, number>();
+
+  rows.forEach((row) => {
+    countByLessonId.set(
+      row.lesson_id,
+      (countByLessonId.get(row.lesson_id) || 0) + 1,
+    );
+  });
+
+  return countByLessonId;
 }
 
 export async function getTeacherDashboard(
@@ -434,20 +500,23 @@ export async function getTeacherCourseWorkspace(
   const modules = await getModulesForCourses(courseIds);
   const lessons = await getLessonsForModules(modules.map((module) => module.id));
 
-  const [allEnrollments, profiles, miniQuizMeta] = await Promise.all([
-    courseIds.length
-      ? (queryOrThrow(
-          supabase
-            .from('course_enrollments')
-            .select('course_id, progress_pct')
-            .in('course_id', courseIds),
-        ) as Promise<Array<Pick<EnrollmentRow, 'course_id' | 'progress_pct'>>>)
-      : Promise.resolve([] as Array<Pick<EnrollmentRow, 'course_id' | 'progress_pct'>>),
+  const [allEnrollments, profiles, miniQuizMeta, attachmentCountsByLessonId] =
+    await Promise.all([
+      courseIds.length
+        ? (queryOrThrow(
+            supabase
+              .from('course_enrollments')
+              .select('course_id, progress_pct')
+              .in('course_id', courseIds),
+          ) as Promise<Array<Pick<EnrollmentRow, 'course_id' | 'progress_pct'>>>)
+        : Promise.resolve([] as Array<Pick<EnrollmentRow, 'course_id' | 'progress_pct'>>),
 
-    getProfilesMap(unique(courses.map((course) => course.teacher_id))),
+      getProfilesMap(unique(courses.map((course) => course.teacher_id))),
 
-    getMiniQuizMetaForLessons(lessons.map((lesson) => lesson.id)),
-  ]);
+      getMiniQuizMetaForLessons(lessons.map((lesson) => lesson.id)),
+
+      getLessonAttachmentCountsForLessons(lessons.map((lesson) => lesson.id)),
+    ]);
 
   const subjectMap = Object.fromEntries(subjects.map((subject) => [subject.id, subject])) as SubjectMap;
   const lessonsByModuleId = groupLessonsByModuleId(lessons);
@@ -485,6 +554,7 @@ export async function getTeacherCourseWorkspace(
 
           hasMiniQuiz: Boolean(quiz),
           miniQuizQuestionsCount,
+          attachmentsCount: attachmentCountsByLessonId.get(lesson.id) || 0,
         };
       }),
     }));

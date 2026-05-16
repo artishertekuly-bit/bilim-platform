@@ -27,10 +27,58 @@ type ContentReviewRow = Tables<'content_reviews'>;
 
 type TestQuestionCountRow = Pick<Tables<'test_questions'>, 'id' | 'test_id'>;
 
+type CurrentAdminContext = {
+  userId: string;
+  isAdmin: boolean;
+};
+
+/* ================= AUTH ================= */
+
+async function getCurrentAdminContext(): Promise<CurrentAdminContext> {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!user?.id) {
+    throw new Error('Авторизация қажет.');
+  }
+
+  const { data: isAdmin, error: roleError } = await supabase.rpc('has_role', {
+    _user_id: user.id,
+    _role: 'admin',
+  });
+
+  if (roleError) {
+    throw new Error(roleError.message);
+  }
+
+  return {
+    userId: user.id,
+    isAdmin: Boolean(isAdmin),
+  };
+}
+
+async function assertAdmin() {
+  const context = await getCurrentAdminContext();
+
+  if (!context.isAdmin) {
+    throw new Error('Бұл әрекетке admin рөлі қажет.');
+  }
+
+  return context;
+}
+
 /* ================= HELPERS ================= */
 
 function truncateText(value: string | null | undefined, limit = 70) {
-  const text = String(value || '').trim();
+  const text = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
   if (!text) return '';
 
@@ -38,14 +86,13 @@ function truncateText(value: string | null | undefined, limit = 70) {
 }
 
 function getAverageScore(rows: Array<{ score: number | null }>) {
-  const scoredRows = rows.filter((row) => row.score !== null);
+  const scores = rows
+    .map((row) => Number(row.score))
+    .filter((score) => Number.isFinite(score));
 
-  if (scoredRows.length === 0) return 0;
+  if (scores.length === 0) return 0;
 
-  return Math.round(
-    scoredRows.reduce((sum, row) => sum + Number(row.score || 0), 0) /
-      scoredRows.length,
-  );
+  return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
 }
 
 function groupTestsBySubjectId(rows: TestRow[]) {
@@ -66,6 +113,8 @@ function groupAttemptsByTestId(rows: TestAttemptRow[]) {
   const map = new Map<string, TestAttemptRow[]>();
 
   rows.forEach((attempt) => {
+    if (!attempt.test_id) return;
+
     const current = map.get(attempt.test_id) || [];
     current.push(attempt);
     map.set(attempt.test_id, current);
@@ -78,6 +127,8 @@ function getQuestionCountMap(rows: TestQuestionCountRow[]) {
   const map = new Map<string, number>();
 
   rows.forEach((question) => {
+    if (!question.test_id) return;
+
     map.set(question.test_id, (map.get(question.test_id) || 0) + 1);
   });
 
@@ -88,13 +139,40 @@ function getProfileNameMap(rows: Array<Pick<ProfileRow, 'user_id' | 'full_name'>
   return new Map(rows.map((profile) => [profile.user_id, profile.full_name]));
 }
 
-function compareCreatedAtDesc(a: { createdAt: string }, b: { createdAt: string }) {
-  return b.createdAt.localeCompare(a.createdAt);
+function compareCreatedAtDesc(a: { createdAt: string | null }, b: { createdAt: string | null }) {
+  const left = a.createdAt || '';
+  const right = b.createdAt || '';
+
+  return right.localeCompare(left);
+}
+
+function getCourseStatusCounts(courses: CourseRow[]) {
+  return {
+    published: courses.filter((row) => row.status === 'published').length,
+    underReview: courses.filter((row) => row.status === 'under_review').length,
+    draft: courses.filter((row) => row.status === 'draft').length,
+    archived: courses.filter((row) => row.status === 'archived').length,
+  };
+}
+
+function getTestStatusCounts(tests: TestRow[]) {
+  return {
+    published: tests.filter((row) => row.status === 'published').length,
+    underReview: tests.filter((row) => row.status === 'under_review').length,
+    draft: tests.filter((row) => row.status === 'draft').length,
+    archived: tests.filter((row) => row.status === 'archived').length,
+  };
+}
+
+function getModerationStatus(row: Pick<CourseRow | TestRow, 'status'>) {
+  return row.status || 'draft';
 }
 
 /* ================= ADMIN DASHBOARD ================= */
 
 export async function getAdminDashboard(locale: Locale = 'kk') {
+  await assertAdmin();
+
   const [roles, courses, lessons, tests, reviews, subjects, attempts] =
     await Promise.all([
       queryOrThrow(
@@ -145,6 +223,10 @@ export async function getAdminDashboard(locale: Locale = 'kk') {
       (course) => course.subject_id === subject.id,
     );
 
+    const subjectLessons = lessons.filter(
+      (lesson) => lesson.subject_id === subject.id,
+    );
+
     const subjectTests = testsBySubjectId.get(subject.id) || [];
 
     const subjectAttempts = subjectTests.flatMap((test) =>
@@ -156,7 +238,7 @@ export async function getAdminDashboard(locale: Locale = 'kk') {
     return {
       name: subjectLabel(subject, locale),
       courses: subjectCourses.length,
-      lessons: lessons.filter((lesson) => lesson.subject_id === subject.id).length,
+      lessons: subjectLessons.length,
       avgScore: getAverageScore(subjectAttempts),
     };
   });
@@ -168,6 +250,9 @@ export async function getAdminDashboard(locale: Locale = 'kk') {
     admins: roles.filter((row) => row.role === 'admin').length,
   };
 
+  const courseStatusCounts = getCourseStatusCounts(courses);
+  const testStatusCounts = getTestStatusCounts(tests);
+
   return {
     stats: {
       totalStudents: roleCounts.students,
@@ -177,10 +262,10 @@ export async function getAdminDashboard(locale: Locale = 'kk') {
     },
     roleCounts,
     contentStatus: {
-      published: courses.filter((row) => row.status === 'published').length,
-      underReview: courses.filter((row) => row.status === 'under_review').length,
-      draft: courses.filter((row) => row.status === 'draft').length,
-      archived: courses.filter((row) => row.status === 'archived').length,
+      published: courseStatusCounts.published + testStatusCounts.published,
+      underReview: courseStatusCounts.underReview + testStatusCounts.underReview,
+      draft: courseStatusCounts.draft + testStatusCounts.draft,
+      archived: courseStatusCounts.archived + testStatusCounts.archived,
     },
     pendingReviews: reviews.filter((review) => review.status === 'under_review'),
     subjectStats,
@@ -192,6 +277,8 @@ export async function getAdminDashboard(locale: Locale = 'kk') {
 export async function getModerationQueue(
   locale: Locale = 'kk',
 ): Promise<ModerationItem[]> {
+  await assertAdmin();
+
   const [subjects, courses, tests, profiles, questions] = await Promise.all([
     getSubjects(),
 
@@ -240,7 +327,7 @@ export async function getModerationQueue(
       ),
       authorName:
         profileNameByUserId.get(course.teacher_id) || unknownTeacherLabel(locale),
-      status: course.status,
+      status: getModerationStatus(course),
       createdAt: course.created_at,
       extra: truncateText(course.description, 70) || noDescriptionLabel(locale),
     })),
@@ -255,7 +342,7 @@ export async function getModerationQueue(
       ),
       authorName:
         profileNameByUserId.get(test.created_by) || unknownTeacherLabel(locale),
-      status: test.status,
+      status: getModerationStatus(test),
       createdAt: test.created_at,
       extra: `${questionCountByTestId.get(test.id) || 0} ${localizedText(
         locale,
@@ -271,6 +358,8 @@ export async function getModerationQueue(
 /* ================= USERS ================= */
 
 export async function getUsersWithRoles(locale: Locale = 'kk') {
+  await assertAdmin();
+
   const [roles, profiles] = await Promise.all([
     queryOrThrow(
       supabase

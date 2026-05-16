@@ -71,6 +71,13 @@ type LessonReferenceRow = {
   course_id?: string | null;
 };
 
+
+type CurrentUserContext = {
+  userId: string;
+  isTeacher: boolean;
+  isAdmin: boolean;
+};
+
 /* ================= BASIC HELPERS ================= */
 
 function toNumber(value: unknown, fallback = 0) {
@@ -187,6 +194,102 @@ function attachCourseIdFromLesson<T extends LessonReferenceRow>(
     ...row,
     course_id: resolveCourseIdFromLesson(row, lessonsById),
   }));
+}
+
+/* ================= AUTH / ACCESS HELPERS ================= */
+
+async function getCurrentUserContext(): Promise<CurrentUserContext> {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!user?.id) {
+    throw new Error('Авторизация қажет.');
+  }
+
+  const [teacherResult, adminResult] = await Promise.all([
+    supabase.rpc('has_role', {
+      _user_id: user.id,
+      _role: 'teacher',
+    }),
+    supabase.rpc('has_role', {
+      _user_id: user.id,
+      _role: 'admin',
+    }),
+  ]);
+
+  if (teacherResult.error) {
+    throw new Error(teacherResult.error.message);
+  }
+
+  if (adminResult.error) {
+    throw new Error(adminResult.error.message);
+  }
+
+  return {
+    userId: user.id,
+    isTeacher: Boolean(teacherResult.data),
+    isAdmin: Boolean(adminResult.data),
+  };
+}
+
+async function assertCanReadStudentAnalytics(studentId: string) {
+  const context = await getCurrentUserContext();
+
+  if (context.isAdmin || context.isTeacher || context.userId === studentId) {
+    return context;
+  }
+
+  throw new Error('Бұл оқушының analytics деректерін көруге рұқсатыңыз жоқ.');
+}
+
+async function assertCanReadCourseAnalytics(courseId: string) {
+  if (!courseId) {
+    throw new Error('Course ID бос болмауы керек.');
+  }
+
+  const context = await getCurrentUserContext();
+
+  if (context.isAdmin) {
+    return context;
+  }
+
+  const courseRows = (await queryOrThrow(
+    supabase
+      .from('courses')
+      .select('id, teacher_id')
+      .eq('id', courseId),
+  )) as Array<Pick<Tables<'courses'>, 'id' | 'teacher_id'>>;
+
+  const course = courseRows[0] || null;
+
+  if (!course) {
+    throw new Error('Курс табылмады.');
+  }
+
+  if (context.isTeacher && course.teacher_id === context.userId) {
+    return context;
+  }
+
+  throw new Error('Бұл курстың analytics деректерін көруге рұқсатыңыз жоқ.');
+}
+
+async function getTeacherOwnedCourseIds(teacherId: string) {
+  if (!teacherId) return [];
+
+  const courseRows = (await queryOrThrow(
+    supabase
+      .from('courses')
+      .select('id')
+      .eq('teacher_id', teacherId),
+  )) as Array<Pick<Tables<'courses'>, 'id'>>;
+
+  return courseRows.map((course) => course.id).filter(Boolean);
 }
 
 /* ================= RECOMMENDATIONS ================= */
@@ -522,6 +625,8 @@ export async function getStudentLearningSnapshot(
     };
   }
 
+  await assertCanReadStudentAnalytics(studentId);
+
   const [
     enrollments,
     rawLessonProgress,
@@ -750,7 +855,7 @@ export async function getStudentLearningSnapshot(
         subjectName: meta?.subjectName || null,
         reason:
           failedAttempts > 0
-            ? `Mini quiz бойынша ${failedAttempts} сәтсіз attempt бар.`
+            ? `Шағын тест бойынша ${failedAttempts} сәтсіз әрекет бар.`
             : 'Оқушы бұл сабақты кейін қайталауға белгілеген.',
         miniQuizAvgScore: avgScore,
         failedAttempts,
@@ -807,19 +912,34 @@ export async function getTeacherStudentLearningSnapshot(input: {
   studentId: string;
   courseId?: string | null;
 }): Promise<TeacherStudentLearningSnapshot> {
+  const context = await getCurrentUserContext();
+
+  if (!context.isAdmin && (!context.isTeacher || context.userId !== input.teacherId)) {
+    throw new Error('Бұл оқушының analytics деректерін көруге рұқсатыңыз жоқ.');
+  }
+
+  const allowedCourseIds = input.courseId
+    ? [input.courseId]
+    : await getTeacherOwnedCourseIds(input.teacherId);
+
+  if (input.courseId) {
+    await assertCanReadCourseAnalytics(input.courseId);
+  }
+
+  const allowedCourseIdSet = new Set(allowedCourseIds);
   const snapshot = await getStudentLearningSnapshot(input.studentId);
 
-  const filteredCourses = input.courseId
-    ? snapshot.courses.filter((course) => course.courseId === input.courseId)
-    : snapshot.courses;
+  const filteredCourses = snapshot.courses.filter((course) =>
+    allowedCourseIdSet.has(course.courseId),
+  );
 
-  const filteredWeakLessons = input.courseId
-    ? snapshot.weakLessons.filter((lesson) => lesson.courseId === input.courseId)
-    : snapshot.weakLessons;
+  const filteredWeakLessons = snapshot.weakLessons.filter((lesson) =>
+    allowedCourseIdSet.has(lesson.courseId),
+  );
 
-  const filteredRecommendations = input.courseId
-    ? snapshot.recommendations.filter((item) => item.courseId === input.courseId)
-    : snapshot.recommendations;
+  const filteredRecommendations = snapshot.recommendations.filter((item) =>
+    item.courseId ? allowedCourseIdSet.has(item.courseId) : true,
+  );
 
   return {
     ...snapshot,
@@ -829,7 +949,7 @@ export async function getTeacherStudentLearningSnapshot(input: {
     weakLessons: filteredWeakLessons,
     recommendations: filteredRecommendations,
     teacherScopeNote:
-      'Бұл snapshot тек оқу нәтижелері мен progress деректеріне негізделеді. Бұл автоматты баға немесе педагогикалық үкім емес.',
+      'Бұл snapshot тек мұғалімнің өз курстары бойынша оқу нәтижелері мен progress деректеріне негізделеді. Бұл автоматты баға немесе педагогикалық үкім емес.',
   };
 }
 
@@ -839,6 +959,8 @@ export async function getCourseAnalyticsStudents(
   courseId: string,
 ): Promise<CourseAnalyticsStudentOptionView[]> {
   if (!courseId) return [];
+
+  await assertCanReadCourseAnalytics(courseId);
 
   const generatedCourseMeta = await getCourseMeta([courseId]);
   const courseMeta = generatedCourseMeta.get(courseId);
@@ -999,6 +1121,8 @@ export async function getCourseLearningSnapshot(
 ): Promise<CourseLearningSnapshot> {
   const generatedAt = new Date().toISOString();
 
+  await assertCanReadCourseAnalytics(courseId);
+
   const [courseRows, enrollments, lessons, testAttempts] = await Promise.all([
     queryOrThrow(
       supabase
@@ -1116,7 +1240,7 @@ export async function getCourseLearningSnapshot(
       lessonTitle: quiz.lessonTitle,
       courseTitle: course?.title || 'Курс',
       subjectName: subject?.name_kk || subject?.name_ru || null,
-      reason: `Mini quiz pass rate ${quiz.passRatePct ?? 0}%. Мұғалім бұл сабақты қайта қарап, түсіндіруді күшейте алады.`,
+      reason: `Шағын тесттен өту көрсеткіші ${quiz.passRatePct ?? 0}%. Мұғалім бұл сабақты қайта қарап, түсіндіруді күшейте алады.`,
       miniQuizAvgScore: quiz.avgScore,
       failedAttempts: quiz.failed,
       reviewLater: false,

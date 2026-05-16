@@ -36,6 +36,22 @@ function normalizeNullableText(value: unknown) {
   return normalized || null;
 }
 
+function normalizeMultilineText(value: unknown) {
+  return String(value ?? '')
+    .replace(/\x00/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+}
+
+function normalizeNullableMultilineText(value: unknown) {
+  const normalized = normalizeMultilineText(value);
+
+  return normalized || null;
+}
+
 function normalizeDuration(value: unknown) {
   if (value === null || value === undefined || value === '') return null;
 
@@ -78,6 +94,17 @@ function normalizeUnknownStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
 
   return value.map((item) => normalizeText(item)).filter(Boolean);
+}
+
+function normalizeQuestionType(
+  value: unknown,
+  correctAnswer: number[],
+): QuestionType {
+  if (value === 'single_choice' || value === 'multiple_choice') {
+    return value as QuestionType;
+  }
+
+  return (correctAnswer.length > 1 ? 'multiple_choice' : 'single_choice') as QuestionType;
 }
 
 function toJson(value: unknown): Json {
@@ -125,8 +152,26 @@ function assertQuestionPayload(input: {
   }
 
   if (input.questionType === 'single_choice' && input.correctAnswer.length !== 1) {
-    throw new Error('Single choice сұрақта бір ғана дұрыс жауап болуы керек.');
+    throw new Error('Бір дұрыс жауапты сұрақта бір ғана дұрыс жауап болуы керек.');
   }
+}
+
+function assertOrderedQuestionIds(ids: string[]) {
+  const normalizedIds = [
+    ...new Set(ids.map((id) => id.trim()).filter(Boolean)),
+  ];
+
+  if (normalizedIds.length !== ids.length) {
+    throw new Error(
+      localizedText(
+        'kk',
+        'Сұрақтар тізімінде бос немесе қайталанған ID бар.',
+        'В списке вопросов есть пустые или повторяющиеся ID.',
+      ),
+    );
+  }
+
+  return normalizedIds;
 }
 
 /* ================= AUTH / OWNERSHIP ================= */
@@ -215,7 +260,7 @@ async function assertTestOwner(testId: string) {
 
   if (!data.course_id) {
     throw new Error(
-      'Бұл тест курсқа байланбаған. Course-based test builder үшін әр тестте course_id болуы керек.',
+      'Бұл тест курсқа байланбаған. Курсқа арналған test builder үшін әр тестте course_id болуы керек.',
     );
   }
 
@@ -324,7 +369,10 @@ export async function updateTestQuestion(input: {
       ? normalizeIndexes(input.correctAnswer)
       : normalizeUnknownIndexes(currentQuestion.correct_answer);
 
-  const questionType = input.questionType ?? currentQuestion.question_type;
+  const questionType = normalizeQuestionType(
+    input.questionType ?? currentQuestion.question_type,
+    correctAnswer,
+  );
 
   assertQuestionPayload({
     questionText,
@@ -348,7 +396,7 @@ export async function updateTestQuestion(input: {
   }
 
   if (input.explanation !== undefined) {
-    patch.explanation = normalizeNullableText(input.explanation);
+    patch.explanation = normalizeNullableMultilineText(input.explanation);
   }
 
   if (input.sortOrder !== undefined) {
@@ -418,9 +466,7 @@ export async function createTestQuestion(input: {
   const questionText = normalizeText(input.questionText);
   const options = normalizeQuestionOptions(input.options);
   const correctAnswer = normalizeIndexes(input.correctAnswer);
-  const questionType =
-    input.questionType ||
-    (correctAnswer.length > 1 ? 'multiple_choice' : 'single_choice');
+  const questionType = normalizeQuestionType(input.questionType, correctAnswer);
 
   assertQuestionPayload({
     questionText,
@@ -434,7 +480,7 @@ export async function createTestQuestion(input: {
     question_text: questionText,
     options: toJson(options),
     correct_answer: toJson(correctAnswer),
-    explanation: normalizeNullableText(input.explanation),
+    explanation: normalizeNullableMultilineText(input.explanation),
     sort_order: normalizeSortOrder(input.sortOrder),
     question_type: questionType,
   };
@@ -491,22 +537,25 @@ export async function reorderTestQuestions(
 ) {
   await assertTestOwner(testId);
 
-  const normalizedIds = [
-    ...new Set(orderedQuestionIds.map((id) => id.trim()).filter(Boolean)),
-  ];
-
-  if (normalizedIds.length !== orderedQuestionIds.length) {
-    throw new Error(
-      localizedText(
-        'kk',
-        'Сұрақтар тізімінде бос немесе қайталанған ID бар.',
-        'В списке вопросов есть пустые или повторяющиеся ID.',
-      ),
-    );
-  }
+  const normalizedIds = assertOrderedQuestionIds(orderedQuestionIds);
 
   if (normalizedIds.length === 0) {
     return;
+  }
+
+  const rows = (await queryOrThrow(
+    supabase
+      .from('test_questions')
+      .select('id, test_id')
+      .in('id', normalizedIds),
+  )) as Array<Pick<Tables<'test_questions'>, 'id' | 'test_id'>>;
+
+  const validIds = new Set(
+    rows.filter((row) => row.test_id === testId).map((row) => row.id),
+  );
+
+  if (validIds.size !== normalizedIds.length) {
+    throw new Error('Сұрақтардың бір бөлігі бұл тестке тиесілі емес.');
   }
 
   await execOrThrow(

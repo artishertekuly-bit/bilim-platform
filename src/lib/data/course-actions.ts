@@ -90,6 +90,82 @@ function normalizeNullableText(value: unknown) {
   return normalized || null;
 }
 
+function normalizeMultilineText(value: unknown) {
+  return String(value ?? '')
+    .replace(/\x00/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+}
+
+function normalizeNullableMultilineText(value: unknown) {
+  const normalized = normalizeMultilineText(value);
+
+  return normalized || null;
+}
+
+function normalizeCourseAccessType(value: unknown): CourseAccessType {
+  if (
+    value === 'public_free' ||
+    value === 'private_invite' ||
+    value === 'paid' ||
+    value === 'subscription_only' ||
+    value === 'school_only'
+  ) {
+    return value;
+  }
+
+  if (value === 'open' || value === 'free') return 'public_free';
+  if (value === 'closed' || value === 'invite_only') return 'private_invite';
+
+  return 'public_free';
+}
+
+function getDefaultVisibilityForAccessType(
+  accessType: CourseAccessType,
+): CourseVisibility {
+  if (accessType === 'private_invite' || accessType === 'school_only') {
+    return 'private';
+  }
+
+  if (accessType === 'paid' || accessType === 'subscription_only') {
+    return 'unlisted';
+  }
+
+  return 'public';
+}
+
+function normalizeCourseVisibility(
+  value: unknown,
+  accessType: CourseAccessType,
+): CourseVisibility {
+  if (value === 'public' || value === 'unlisted' || value === 'private') {
+    return value;
+  }
+
+  if (value === 'school') {
+    return 'private';
+  }
+
+  return getDefaultVisibilityForAccessType(accessType);
+}
+
+function normalizeOptionalIsoDate(value: unknown) {
+  const normalized = normalizeNullableText(value);
+
+  if (!normalized) return null;
+
+  const date = new Date(normalized);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('Мерзім форматы қате.');
+  }
+
+  return date.toISOString();
+}
+
 function normalizeCurrency(currency?: string | null) {
   return normalizeText(currency || 'KZT').toUpperCase();
 }
@@ -253,7 +329,7 @@ function assertMiniQuizBase(input: {
   passingScore: number;
 }) {
   if (!input.title) {
-    throw new Error('Mini quiz атауы міндетті.');
+    throw new Error('Шағын тест атауы міндетті.');
   }
 
   if (
@@ -261,7 +337,7 @@ function assertMiniQuizBase(input: {
     input.passingScore < 0 ||
     input.passingScore > 100
   ) {
-    throw new Error('Passing score 0 мен 100 аралығында болуы керек.');
+    throw new Error('Өту пайызы 0 мен 100 аралығында болуы керек.');
   }
 }
 
@@ -515,7 +591,7 @@ async function assertLessonMiniQuizOwner(quizId: string) {
   }
 
   if (!data) {
-    throw new Error('Mini quiz табылмады.');
+    throw new Error('Шағын тест табылмады.');
   }
 
   await assertCourseOwner(data.course_id);
@@ -539,7 +615,7 @@ async function assertLessonMiniQuizQuestionOwner(questionId: string) {
   }
 
   if (!data) {
-    throw new Error('Mini quiz сұрағы табылмады.');
+    throw new Error('Шағын тест сұрағы табылмады.');
   }
 
   await assertLessonMiniQuizOwner(data.quiz_id);
@@ -550,11 +626,11 @@ async function assertLessonMiniQuizQuestionOwner(questionId: string) {
 /* ================= HELPERS ================= */
 
 function normalizeAccessSettings(input: CourseAccessSettingsPayload) {
-  const accessType = input.accessType as CourseAccessType;
-  const visibility = input.visibility as CourseVisibility;
+  const accessType = normalizeCourseAccessType(input.accessType);
+  const visibility = normalizeCourseVisibility(input.visibility, accessType);
   const price = Number(input.price ?? 0);
   const currency = normalizeCurrency(input.currency);
-  const enrollmentOpen = input.enrollmentOpen;
+  const enrollmentOpen = input.enrollmentOpen ?? true;
   const maxStudents = input.maxStudents ?? null;
 
   assertNonNegativePrice(price);
@@ -750,7 +826,7 @@ export async function updateCourse(input: {
   }
 
   if (input.description !== undefined) {
-    patch.description = normalizeNullableText(input.description);
+    patch.description = normalizeNullableMultilineText(input.description);
   }
 
   if (input.subjectId !== undefined) {
@@ -769,8 +845,16 @@ export async function updateCourse(input: {
     }
   }
 
-  if (input.accessType !== undefined) patch.access_type = input.accessType;
-  if (input.visibility !== undefined) patch.visibility = input.visibility;
+  if (input.accessType !== undefined) {
+    patch.access_type = normalizeCourseAccessType(input.accessType);
+  }
+
+  if (input.visibility !== undefined) {
+    patch.visibility = normalizeCourseVisibility(
+      input.visibility,
+      patch.access_type || input.accessType || 'public_free',
+    );
+  }
 
   if (input.price !== undefined) {
     assertNonNegativePrice(input.price);
@@ -879,11 +963,11 @@ export async function updateLesson(input: {
   }
 
   if (input.contentBody !== undefined) {
-    patch.content_body = normalizeNullableText(input.contentBody);
+    patch.content_body = normalizeNullableMultilineText(input.contentBody);
   }
 
   if (input.practiceContent !== undefined) {
-    patch.practice_content = normalizeNullableText(input.practiceContent);
+    patch.practice_content = normalizeNullableMultilineText(input.practiceContent);
   }
 
   if (input.mediaUrl !== undefined) {
@@ -933,7 +1017,8 @@ export async function createCourse(input: {
   const currency = normalizeCurrency(input.currency);
   const price = Number(input.price ?? 0);
   const maxStudents = input.maxStudents ?? null;
-  const accessType = input.accessType || 'public_free';
+  const accessType = normalizeCourseAccessType(input.accessType);
+  const visibility = normalizeCourseVisibility(input.visibility, accessType);
 
   assertCurrency(currency);
   assertNonNegativePrice(price);
@@ -951,12 +1036,12 @@ export async function createCourse(input: {
 
   const payload: CourseInsert = {
     title,
-    description: normalizeNullableText(input.description),
+    description: normalizeNullableMultilineText(input.description),
     subject_id: input.subjectId || null,
     teacher_id: context.isAdmin && input.teacherId ? input.teacherId : context.userId,
     status: input.status || 'draft',
     access_type: accessType,
-    visibility: input.visibility || 'public',
+    visibility,
     price,
     currency,
     enrollment_open: input.enrollmentOpen ?? true,
@@ -1016,8 +1101,8 @@ export async function createLesson(input: {
     module_id: input.moduleId,
     subject_id: input.subjectId || null,
     title,
-    content_body: normalizeNullableText(input.contentBody),
-    practice_content: normalizeNullableText(input.practiceContent),
+    content_body: normalizeNullableMultilineText(input.contentBody),
+    practice_content: normalizeNullableMultilineText(input.practiceContent),
     media_url: normalizeNullableText(input.mediaUrl),
     sort_order: normalizePositiveInteger(input.sortOrder),
     is_published: input.isPublished ?? false,
@@ -1188,7 +1273,7 @@ export async function createCourseAnnouncement(
   const owner = await assertCourseOwner(input.courseId);
 
   const title = normalizeText(input.title);
-  const body = normalizeText(input.body);
+  const body = normalizeMultilineText(input.body);
 
   assertAnnouncementText(title, body);
 
@@ -1199,8 +1284,8 @@ export async function createCourseAnnouncement(
     body,
     priority: input.priority || 'normal',
     is_pinned: input.isPinned ?? false,
-    published_at: input.publishedAt || new Date().toISOString(),
-    expires_at: input.expiresAt || null,
+    published_at: normalizeOptionalIsoDate(input.publishedAt) || new Date().toISOString(),
+    expires_at: normalizeOptionalIsoDate(input.expiresAt),
   };
 
   return queryOrThrow(
@@ -1218,7 +1303,7 @@ export async function updateCourseAnnouncement(
   await assertCourseAnnouncementOwner(input.announcementId);
 
   const title = normalizeText(input.title);
-  const body = normalizeText(input.body);
+  const body = normalizeMultilineText(input.body);
 
   assertAnnouncementText(title, body);
 
@@ -1227,9 +1312,13 @@ export async function updateCourseAnnouncement(
     body,
     priority: input.priority,
     is_pinned: input.isPinned,
-    published_at: input.publishedAt || new Date().toISOString(),
-    expires_at: input.expiresAt || null,
+    expires_at: normalizeOptionalIsoDate(input.expiresAt),
   };
+
+  if (input.publishedAt !== undefined) {
+    patch.published_at =
+      normalizeOptionalIsoDate(input.publishedAt) || new Date().toISOString();
+  }
 
   return queryOrThrow(
     supabase
@@ -1336,7 +1425,7 @@ export async function upsertLessonMiniQuiz(input: UpsertLessonMiniQuizPayload) {
   const lessonOwner = await assertLessonOwner(input.lessonId);
 
   if (lessonOwner.courseId !== input.courseId) {
-    throw new Error('Mini quiz courseId lesson-ға сәйкес емес.');
+    throw new Error('Шағын тест courseId сабаққа сәйкес емес.');
   }
 
   const title = normalizeText(input.title);
@@ -1474,7 +1563,7 @@ export async function reorderLessonMiniQuizQuestions(
 
   const orderedQuestionIds = assertOrderedIds(
     input.orderedQuestionIds,
-    'Mini quiz сұрақтары',
+    'Шағын тест сұрақтары',
   );
 
   if (orderedQuestionIds.length === 0) {
@@ -1493,7 +1582,7 @@ export async function reorderLessonMiniQuizQuestions(
   );
 
   if (validIds.size !== orderedQuestionIds.length) {
-    throw new Error('Mini quiz сұрақтары қате.');
+    throw new Error('Шағын тест сұрақтары қате.');
   }
 
   await Promise.all(
@@ -1520,7 +1609,7 @@ export async function submitLessonMiniQuiz(
   const currentUserId = await getCurrentUserId();
 
   if (currentUserId !== input.studentId) {
-    throw new Error('Mini quiz attempt тек ағымдағы оқушы аккаунтымен жіберіледі.');
+    throw new Error('Шағын тест тек ағымдағы оқушы аккаунтымен жіберіледі.');
   }
 
   const { quiz } = await getLessonMiniQuiz({
@@ -1530,19 +1619,19 @@ export async function submitLessonMiniQuiz(
   });
 
   if (!quiz) {
-    throw new Error('Mini quiz табылмады немесе жарияланбаған.');
+    throw new Error('Шағын тест табылмады немесе жарияланбаған.');
   }
 
   if (quiz.id !== input.quizId) {
-    throw new Error('Mini quiz lesson-ға сәйкес емес.');
+    throw new Error('Шағын тест сабаққа сәйкес емес.');
   }
 
   if (quiz.courseId !== input.courseId) {
-    throw new Error('Mini quiz courseId сәйкес емес.');
+    throw new Error('Шағын тест courseId сәйкес емес.');
   }
 
   if (quiz.questions.length === 0) {
-    throw new Error('Mini quiz ішінде сұрақ жоқ.');
+    throw new Error('Шағын тест ішінде сұрақ жоқ.');
   }
 
   const normalizedAnswers = normalizeMiniQuizAnswers(input.answers);
@@ -1623,8 +1712,10 @@ export async function createCourseInvite(input: CreateCourseInvitePayload) {
     args.p_max_uses = input.maxUses;
   }
 
-  if (input.expiresAt) {
-    args.p_expires_at = input.expiresAt;
+  const expiresAt = normalizeOptionalIsoDate(input.expiresAt);
+
+  if (expiresAt) {
+    args.p_expires_at = expiresAt;
   }
 
   return queryOrThrow(

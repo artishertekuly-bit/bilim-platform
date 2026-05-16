@@ -76,6 +76,12 @@ type ReviewLaterItemInsert = TablesInsert<'review_later_items'>;
 type LessonAttachmentInsert = TablesInsert<'lesson_attachments'>;
 type CourseAssetInsert = TablesInsert<'course_assets'>;
 
+type CurrentUserContext = {
+  userId: string;
+  isTeacher: boolean;
+  isAdmin: boolean;
+};
+
 /* ================= SUPABASE HELPERS ================= */
 
 async function unwrap<T>(request: PromiseLike<SupabaseResponse<T>>): Promise<T> {
@@ -132,6 +138,22 @@ function normalizeNullableText(value: unknown) {
   return normalized || null;
 }
 
+function normalizeMultilineText(value: unknown) {
+  return String(value ?? '')
+    .replace(/\x00/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+}
+
+function normalizeNullableMultilineText(value: unknown) {
+  const normalized = normalizeMultilineText(value);
+
+  return normalized || null;
+}
+
 function normalizeExternalUrl(value: string) {
   const trimmed = value.trim();
 
@@ -155,7 +177,7 @@ function normalizeExternalUrl(value: string) {
 }
 
 function normalizeFilename(value: string, fallbackUrl?: string) {
-  const trimmed = value.trim();
+  const trimmed = normalizeText(value);
 
   if (trimmed) return trimmed;
 
@@ -217,6 +239,128 @@ function assertNonEmptyId(value: string, label: string) {
   if (!value.trim()) {
     throw new Error(`${label} бос болмауы керек.`);
   }
+}
+
+/* ================= AUTH / OWNERSHIP HELPERS ================= */
+
+async function getCurrentUserContext(): Promise<CurrentUserContext> {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!user?.id) {
+    throw new Error('Авторизация қажет.');
+  }
+
+  const [teacherResult, adminResult] = await Promise.all([
+    supabase.rpc('has_role', {
+      _user_id: user.id,
+      _role: 'teacher',
+    }),
+    supabase.rpc('has_role', {
+      _user_id: user.id,
+      _role: 'admin',
+    }),
+  ]);
+
+  if (teacherResult.error) {
+    throw new Error(teacherResult.error.message);
+  }
+
+  if (adminResult.error) {
+    throw new Error(adminResult.error.message);
+  }
+
+  return {
+    userId: user.id,
+    isTeacher: Boolean(teacherResult.data),
+    isAdmin: Boolean(adminResult.data),
+  };
+}
+
+async function assertCourseManager(courseId: string) {
+  assertNonEmptyId(courseId, 'Course ID');
+
+  const context = await getCurrentUserContext();
+
+  const course = await unwrapMaybe<{
+    id: string;
+    teacher_id: string | null;
+  }>(
+    supabase
+      .from('courses')
+      .select('id, teacher_id')
+      .eq('id', courseId)
+      .maybeSingle(),
+  );
+
+  if (!course) {
+    throw new Error('Курс табылмады.');
+  }
+
+  if (!context.isAdmin && course.teacher_id !== context.userId) {
+    throw new Error('Бұл курстың материалдарын басқаруға рұқсатыңыз жоқ.');
+  }
+
+  return {
+    ...context,
+    courseId: course.id,
+    teacherId: course.teacher_id,
+  };
+}
+
+async function assertLessonBelongsToCourse(lessonId: string, courseId: string) {
+  const actualCourseId = await getCourseIdForLesson(lessonId);
+
+  if (actualCourseId !== courseId) {
+    throw new Error('Сабақ көрсетілген курсқа тиесілі емес.');
+  }
+
+  return actualCourseId;
+}
+
+async function assertLessonManager(lessonId: string, courseId?: string) {
+  assertNonEmptyId(lessonId, 'Lesson ID');
+
+  const actualCourseId = courseId
+    ? await assertLessonBelongsToCourse(lessonId, courseId)
+    : await getCourseIdForLesson(lessonId);
+
+  await assertCourseManager(actualCourseId);
+
+  return actualCourseId;
+}
+
+async function assertFileAssetOwner(fileAssetId: string) {
+  assertNonEmptyId(fileAssetId, 'File asset ID');
+
+  const context = await getCurrentUserContext();
+
+  const file = await unwrapMaybe<{
+    id: string;
+    owner_id: string;
+  }>(
+    supabase
+      .from('file_assets')
+      .select('id, owner_id')
+      .eq('id', fileAssetId)
+      .maybeSingle(),
+  );
+
+  if (!file) {
+    throw new Error('Файл табылмады.');
+  }
+
+  if (!context.isAdmin && file.owner_id !== context.userId) {
+    throw new Error('Бұл файлды өшіруге рұқсатыңыз жоқ.');
+  }
+
+  return file;
 }
 
 /* ================= MAPPERS ================= */
@@ -373,6 +517,38 @@ async function getExistingReviewLaterItem(input: {
   return unwrapMaybe<ReviewLaterItemRow>(query.maybeSingle());
 }
 
+async function deleteFileAssetIfUnused(fileAssetId: string) {
+  if (!fileAssetId) return;
+
+  const [lessonRefs, courseRefs] = await Promise.all([
+    unwrap<Array<{ id: string }>>(
+      supabase
+        .from('lesson_attachments')
+        .select('id')
+        .eq('file_asset_id', fileAssetId)
+        .limit(1),
+    ),
+    unwrap<Array<{ id: string }>>(
+      supabase
+        .from('course_assets')
+        .select('id')
+        .eq('file_asset_id', fileAssetId)
+        .limit(1),
+    ),
+  ]);
+
+  if (lessonRefs.length > 0 || courseRefs.length > 0) {
+    return;
+  }
+
+  await execute(
+    supabase
+      .from('file_assets')
+      .delete()
+      .eq('id', fileAssetId),
+  );
+}
+
 /* ================= LESSON LEARNING STATE ================= */
 
 export async function getLessonLearningState(input: {
@@ -446,7 +622,7 @@ export async function upsertLessonNote(
     student_id: input.studentId,
     lesson_id: input.lessonId,
     course_id: input.courseId,
-    content: input.content,
+    content: normalizeMultilineText(input.content),
   };
 
   return unwrap<StudentLessonNoteRow>(
@@ -667,7 +843,7 @@ export async function toggleReviewLater(
     lesson_id: input.lessonId || null,
     test_question_id: input.testQuestionId || null,
     title: normalizeNullableText(input.title),
-    note: normalizeNullableText(input.note),
+    note: normalizeNullableMultilineText(input.note),
   };
 
   if (existing) {
@@ -739,7 +915,7 @@ export async function createExternalFileAsset(
 export async function deleteFileAsset(input: DeleteFileAssetPayload | string) {
   const fileAssetId = typeof input === 'string' ? input : input.fileAssetId;
 
-  assertNonEmptyId(fileAssetId, 'File asset ID');
+  await assertFileAssetOwner(fileAssetId);
 
   await execute(
     supabase
@@ -782,13 +958,15 @@ export async function createLessonAttachment(
   assertNonEmptyId(input.fileAssetId, 'File asset ID');
   assertNonEmptyId(input.createdBy, 'Created by');
 
+  await assertLessonManager(input.lessonId, input.courseId);
+
   const payload: LessonAttachmentInsert = {
     lesson_id: input.lessonId,
     course_id: input.courseId,
     file_asset_id: input.fileAssetId,
     created_by: input.createdBy,
     title: normalizeNullableText(input.title),
-    description: normalizeNullableText(input.description),
+    description: normalizeNullableMultilineText(input.description),
     sort_order: normalizeSortOrder(input.sortOrder),
   };
 
@@ -813,6 +991,12 @@ export async function createLessonAttachment(
 export async function createLessonExternalAttachment(
   input: CreateLessonExternalAttachmentPayload,
 ): Promise<LessonAttachmentView> {
+  assertNonEmptyId(input.ownerId, 'Owner ID');
+  assertNonEmptyId(input.lessonId, 'Lesson ID');
+  assertNonEmptyId(input.courseId, 'Course ID');
+
+  await assertLessonManager(input.lessonId, input.courseId);
+
   const fileAsset = await createExternalFileAsset({
     ownerId: input.ownerId,
     filename: input.filename || input.title || 'Сабақ материалы',
@@ -827,15 +1011,20 @@ export async function createLessonExternalAttachment(
     },
   });
 
-  return createLessonAttachment({
-    lessonId: input.lessonId,
-    courseId: input.courseId,
-    fileAssetId: fileAsset.id,
-    createdBy: input.ownerId,
-    title: input.title || fileAsset.filename,
-    description: input.description || null,
-    sortOrder: input.sortOrder || 1,
-  });
+  try {
+    return await createLessonAttachment({
+      lessonId: input.lessonId,
+      courseId: input.courseId,
+      fileAssetId: fileAsset.id,
+      createdBy: input.ownerId,
+      title: input.title || fileAsset.filename,
+      description: input.description || null,
+      sortOrder: input.sortOrder || 1,
+    });
+  } catch (error) {
+    await deleteFileAsset(fileAsset.id).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function deleteLessonAttachment(
@@ -845,12 +1034,28 @@ export async function deleteLessonAttachment(
 
   assertNonEmptyId(attachmentId, 'Attachment ID');
 
+  const row = await unwrapMaybe<LessonAttachmentRow>(
+    supabase
+      .from('lesson_attachments')
+      .select('*')
+      .eq('id', attachmentId)
+      .maybeSingle(),
+  );
+
+  if (!row) {
+    throw new Error('Сабақ материалы табылмады.');
+  }
+
+  await assertLessonManager(row.lesson_id, row.course_id);
+
   await execute(
     supabase
       .from('lesson_attachments')
       .delete()
       .eq('id', attachmentId),
   );
+
+  await deleteFileAssetIfUnused(row.file_asset_id);
 }
 
 /* ================= COURSE ASSETS ================= */
@@ -885,12 +1090,14 @@ export async function createCourseAsset(
   assertNonEmptyId(input.fileAssetId, 'File asset ID');
   assertNonEmptyId(input.createdBy, 'Created by');
 
+  await assertCourseManager(input.courseId);
+
   const payload: CourseAssetInsert = {
     course_id: input.courseId,
     file_asset_id: input.fileAssetId,
     created_by: input.createdBy,
     title: normalizeNullableText(input.title),
-    description: normalizeNullableText(input.description),
+    description: normalizeNullableMultilineText(input.description),
     sort_order: normalizeSortOrder(input.sortOrder),
   };
 
@@ -915,6 +1122,11 @@ export async function createCourseAsset(
 export async function createCourseExternalAsset(
   input: CreateCourseExternalAssetPayload,
 ): Promise<CourseAssetView> {
+  assertNonEmptyId(input.ownerId, 'Owner ID');
+  assertNonEmptyId(input.courseId, 'Course ID');
+
+  await assertCourseManager(input.courseId);
+
   const fileAsset = await createExternalFileAsset({
     ownerId: input.ownerId,
     filename: input.filename || input.title || 'Курс материалы',
@@ -928,14 +1140,19 @@ export async function createCourseExternalAsset(
     },
   });
 
-  return createCourseAsset({
-    courseId: input.courseId,
-    fileAssetId: fileAsset.id,
-    createdBy: input.ownerId,
-    title: input.title || fileAsset.filename,
-    description: input.description || null,
-    sortOrder: input.sortOrder || 1,
-  });
+  try {
+    return await createCourseAsset({
+      courseId: input.courseId,
+      fileAssetId: fileAsset.id,
+      createdBy: input.ownerId,
+      title: input.title || fileAsset.filename,
+      description: input.description || null,
+      sortOrder: input.sortOrder || 1,
+    });
+  } catch (error) {
+    await deleteFileAsset(fileAsset.id).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function deleteCourseAsset(input: DeleteCourseAssetPayload | string) {
@@ -943,10 +1160,26 @@ export async function deleteCourseAsset(input: DeleteCourseAssetPayload | string
 
   assertNonEmptyId(assetId, 'Course asset ID');
 
+  const row = await unwrapMaybe<CourseAssetRow>(
+    supabase
+      .from('course_assets')
+      .select('*')
+      .eq('id', assetId)
+      .maybeSingle(),
+  );
+
+  if (!row) {
+    throw new Error('Курс материалы табылмады.');
+  }
+
+  await assertCourseManager(row.course_id);
+
   await execute(
     supabase
       .from('course_assets')
       .delete()
       .eq('id', assetId),
   );
+
+  await deleteFileAssetIfUnused(row.file_asset_id);
 }
