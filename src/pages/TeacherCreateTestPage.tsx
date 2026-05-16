@@ -35,6 +35,7 @@ import {
   getPendingAiQuestionImport,
   type PendingAiQuestionImport,
 } from '@/lib/ai-question-import';
+import { cn, removeNullCharacters } from '@/lib/utils';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -84,15 +85,36 @@ const MAX_EXPLANATION_CHARS = 1_500;
 const MAX_DURATION_CHARS = 3;
 const MAX_SORT_ORDER_CHARS = 4;
 
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+function sanitizeInputValue(value: unknown, limit: number): string {
+  return removeNullCharacters(String(value ?? '')).slice(0, limit);
 }
 
-function normalizeNumericInput(value: string, limit: number) {
-  return value.replace(/[^\d]/g, '').slice(0, limit);
+function cleanText(value: unknown, limit: number): string {
+  return sanitizeInputValue(value, limit).replace(/\s+/g, ' ').trim();
 }
 
-function moveItem<T>(items: T[], fromIndex: number, toIndex: number) {
+function cleanMultilineText(value: unknown, limit: number): string {
+  return sanitizeInputValue(value, limit)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+}
+
+function normalizeNumericInput(value: unknown, limit: number): string {
+  return removeNullCharacters(String(value ?? ''))
+    .replace(/[^\d]/g, '')
+    .slice(0, limit);
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? cleanText(error.message, 900)
+    : t('page.teacher_test_builder.toast.error_text');
+}
+
+function moveItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
   const next = [...items];
   const [moved] = next.splice(fromIndex, 1);
   next.splice(toIndex, 0, moved);
@@ -111,14 +133,14 @@ function buildQuestionForm(nextSortOrder = '1'): QuestionFormState {
   };
 }
 
-function getSortedQuestions<T extends { sort_order: number }>(questions: T[] = []) {
+function getSortedQuestions<T extends { sort_order: number }>(questions: T[] = []): T[] {
   return [...questions].sort((a, b) => a.sort_order - b.sort_order);
 }
 
 function getNextSortOrder<T extends { sort_order: number }>(
   questions: T[] = [],
   extra = 1,
-) {
+): string {
   const maxSortOrder = questions.reduce(
     (max, question) => Math.max(max, Number(question.sort_order) || 0),
     0,
@@ -155,21 +177,21 @@ function normalizeCourseOptions(workspace: unknown): CourseOption[] {
 
       const subjectId =
         typeof row.subjectId === 'string'
-          ? row.subjectId
+          ? cleanText(row.subjectId, 120)
           : typeof row.subject_id === 'string'
-            ? row.subject_id
+            ? cleanText(row.subject_id, 120)
             : '';
 
       const subjectName =
         typeof row.subjectName === 'string'
-          ? row.subjectName
+          ? cleanText(row.subjectName, 180)
           : typeof row.subject_name === 'string'
-            ? row.subject_name
+            ? cleanText(row.subject_name, 180)
             : null;
 
       return {
-        id: String(row.id || row.courseId || '').trim(),
-        title: String(row.title || row.courseTitle || 'Курс').trim(),
+        id: cleanText(row.id || row.courseId || '', 120),
+        title: cleanText(row.title || row.courseTitle || 'Курс', 240),
         subjectId,
         subjectName,
       };
@@ -177,10 +199,10 @@ function normalizeCourseOptions(workspace: unknown): CourseOption[] {
     .filter((course) => course.id.length > 0);
 }
 
-function parseCorrectAnswerIndexes(value: string) {
+function parseCorrectAnswerIndexes(value: string): number[] {
   return Array.from(
     new Set(
-      value
+      removeNullCharacters(value)
         .split(',')
         .map((item) => Number(item.trim()) - 1)
         .filter((item) => Number.isInteger(item) && item >= 0),
@@ -188,8 +210,11 @@ function parseCorrectAnswerIndexes(value: string) {
   ).sort((a, b) => a - b);
 }
 
-function getOptionLinesForEditor(value: string) {
-  const lines = value.split('\n').slice(0, MAX_OPTIONS);
+function getOptionLinesForEditor(value: string): string[] {
+  const lines = removeNullCharacters(value)
+    .split('\n')
+    .slice(0, MAX_OPTIONS)
+    .map((line) => sanitizeInputValue(line, MAX_OPTION_CHARS));
 
   while (lines.length < 2) {
     lines.push('');
@@ -202,12 +227,12 @@ function getNormalizedOptionRows(value: string) {
   return getOptionLinesForEditor(value)
     .map((option, originalIndex) => ({
       originalIndex,
-      text: option.trim(),
+      text: cleanText(option, MAX_OPTION_CHARS),
     }))
     .filter((option) => option.text.length > 0);
 }
 
-function formatCorrectAnswer(indexes: number[]) {
+function formatCorrectAnswer(indexes: number[]): string {
   return indexes
     .sort((a, b) => a - b)
     .map((index) => index + 1)
@@ -317,11 +342,12 @@ function InlineConfirm({
 }) {
   return (
     <div
-      className={`rounded-2xl border p-3 ${
+      className={cn(
+        'rounded-2xl border p-3',
         variant === 'danger'
           ? 'border-destructive/30 bg-destructive/5'
-          : 'border-warning-muted bg-warning-soft/60'
-      }`}
+          : 'border-warning-muted bg-warning-soft/60',
+      )}
     >
       <p className="text-xs font-semibold text-foreground">{title}</p>
 
@@ -353,7 +379,7 @@ export default function TeacherCreateTestPage() {
     useTeacherCourseWorkspace(user?.id || '', !!user?.id);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const requestedTestId = searchParams.get('testId') || '';
+  const requestedTestId = cleanText(searchParams.get('testId') || '', 120);
 
   const courseOptions = useMemo(
     () => normalizeCourseOptions(courseWorkspace),
@@ -440,9 +466,10 @@ export default function TeacherCreateTestPage() {
   const syncTestParam = useCallback(
     (testId?: string) => {
       const next = new URLSearchParams(searchParams);
+      const cleanTestId = cleanText(testId || '', 120);
 
-      if (testId) {
-        next.set('testId', testId);
+      if (cleanTestId) {
+        next.set('testId', cleanTestId);
       } else {
         next.delete('testId');
       }
@@ -467,23 +494,28 @@ export default function TeacherCreateTestPage() {
   );
 
   const selectTest = (testId: string) => {
-    setSelectedTestId(testId);
-    syncTestParam(testId);
+    const cleanTestId = cleanText(testId, 120);
+
+    if (!cleanTestId) return;
+
+    setSelectedTestId(cleanTestId);
+    syncTestParam(cleanTestId);
     setEditingQuestionId(null);
     setQuestionDeleteId(null);
     setDeleteTestConfirmOpen(false);
   };
 
   const seedEditFromTest = (testId: string) => {
-    const test = workspace?.tests.find((item) => item.id === testId);
+    const cleanTestId = cleanText(testId, 120);
+    const test = workspace?.tests.find((item) => item.id === cleanTestId);
     if (!test) return;
 
-    selectTest(testId);
+    selectTest(cleanTestId);
     setTestEdit({
-      title: test.title,
-      topic: test.topic || '',
-      duration: String(test.durationMinutes || 20),
-      subjectId: test.subjectId || '',
+      title: cleanText(test.title, MAX_TEST_TITLE_CHARS),
+      topic: cleanText(test.topic || '', MAX_TEST_TOPIC_CHARS),
+      duration: normalizeNumericInput(test.durationMinutes || 20, MAX_DURATION_CHARS) || '20',
+      subjectId: cleanText(test.subjectId || '', 120),
       status: test.status as TestStatus,
     });
     setQuestionForm(buildQuestionForm(getNextSortOrder(test.questions || [])));
@@ -500,8 +532,12 @@ export default function TeacherCreateTestPage() {
 
     setNewTest((prev) => ({
       ...prev,
-      title: prev.title || pendingAiImport.titleSuggestion || '',
-      topic: prev.topic || pendingAiImport.topic || '',
+      title:
+        prev.title ||
+        cleanText(pendingAiImport.titleSuggestion || '', MAX_TEST_TITLE_CHARS),
+      topic:
+        prev.topic ||
+        cleanText(pendingAiImport.topic || '', MAX_TEST_TOPIC_CHARS),
       duration: prev.duration || '20',
     }));
   }, [pendingAiImport]);
@@ -567,10 +603,10 @@ export default function TeacherCreateTestPage() {
     lastSeededTestId.current = selectedTest.id;
 
     setTestEdit({
-      title: selectedTest.title,
-      topic: selectedTest.topic || '',
-      duration: String(selectedTest.durationMinutes || 20),
-      subjectId: selectedTest.subjectId || '',
+      title: cleanText(selectedTest.title, MAX_TEST_TITLE_CHARS),
+      topic: cleanText(selectedTest.topic || '', MAX_TEST_TOPIC_CHARS),
+      duration: normalizeNumericInput(selectedTest.durationMinutes || 20, MAX_DURATION_CHARS) || '20',
+      subjectId: cleanText(selectedTest.subjectId || '', 120),
       status: selectedTest.status as TestStatus,
     });
 
@@ -613,8 +649,14 @@ export default function TeacherCreateTestPage() {
   };
 
   const parseQuestionPayload = () => {
-    const questionText = questionForm.questionText.trim();
-    const explanation = questionForm.explanation.trim();
+    const questionText = cleanMultilineText(
+      questionForm.questionText,
+      MAX_QUESTION_TEXT_CHARS,
+    );
+    const explanation = cleanMultilineText(
+      questionForm.explanation,
+      MAX_EXPLANATION_CHARS,
+    );
 
     if (!questionText) {
       throw new Error('Сұрақ мәтіні міндетті.');
@@ -668,11 +710,11 @@ export default function TeacherCreateTestPage() {
       if (!user) throw new Error('Пайдаланушы табылмады.');
 
       return createTest({
-        title: newTest.title.trim(),
-        courseId: newTest.courseId,
-        topic: newTest.topic.trim(),
-        subjectId: newTest.subjectId,
-        durationMinutes: Number(newTest.duration) || 20,
+        title: cleanText(newTest.title, MAX_TEST_TITLE_CHARS),
+        courseId: cleanText(newTest.courseId, 120),
+        topic: cleanText(newTest.topic, MAX_TEST_TOPIC_CHARS),
+        subjectId: cleanText(newTest.subjectId, 120),
+        durationMinutes: Number(normalizeNumericInput(newTest.duration, MAX_DURATION_CHARS)) || 20,
         createdBy: user.id,
         status: 'draft',
       });
@@ -691,18 +733,13 @@ export default function TeacherCreateTestPage() {
 
       toast({
         title: t('page.teacher_test_builder.toast.create_test_title'),
-        description: pendingAiImport
-          ? 'AI сұрақтарды осы тестке қосуға болады.'
-          : undefined,
+        description: pendingAiImport ? 'AI сұрақтарды осы тестке қосуға болады.' : undefined,
       });
     },
     onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_test_builder.toast.error_text'),
+        description: getErrorMessage(error),
         variant: 'destructive',
       }),
   });
@@ -713,10 +750,10 @@ export default function TeacherCreateTestPage() {
 
       return updateTest({
         testId: selectedTest.id,
-        title: testEdit.title.trim(),
-        topic: testEdit.topic.trim(),
-        subjectId: testEdit.subjectId || null,
-        durationMinutes: Number(testEdit.duration) || 20,
+        title: cleanText(testEdit.title, MAX_TEST_TITLE_CHARS),
+        topic: cleanText(testEdit.topic, MAX_TEST_TOPIC_CHARS),
+        subjectId: cleanText(testEdit.subjectId, 120) || null,
+        durationMinutes: Number(normalizeNumericInput(testEdit.duration, MAX_DURATION_CHARS)) || 20,
         status: testEdit.status,
       });
     },
@@ -727,20 +764,18 @@ export default function TeacherCreateTestPage() {
     onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_test_builder.toast.error_text'),
+        description: getErrorMessage(error),
         variant: 'destructive',
       }),
   });
 
   const deleteTestMutation = useMutation({
     mutationFn: async (testId: string) => {
-      await deleteTest(testId);
+      await deleteTest(cleanText(testId, 120));
     },
     onSuccess: async (_data, testId) => {
-      const nextTestId = workspace?.tests.find((test) => test.id !== testId)?.id || '';
+      const deletedTestId = cleanText(testId, 120);
+      const nextTestId = workspace?.tests.find((test) => test.id !== deletedTestId)?.id || '';
 
       setEditingQuestionId(null);
       setDeleteTestConfirmOpen(false);
@@ -761,10 +796,7 @@ export default function TeacherCreateTestPage() {
     onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_test_builder.toast.error_text'),
+        description: getErrorMessage(error),
         variant: 'destructive',
       }),
   });
@@ -774,6 +806,8 @@ export default function TeacherCreateTestPage() {
       if (!selectedTest) throw new Error('Тест таңдалмаған.');
 
       const { questionText, explanation, options, correct } = parseQuestionPayload();
+      const sortOrder = Number(normalizeNumericInput(questionForm.sortOrder, MAX_SORT_ORDER_CHARS)) || 1;
+      const questionType = questionForm.multiple ? 'multiple_choice' : 'single_choice';
 
       if (editingQuestionId) {
         return updateTestQuestion({
@@ -782,8 +816,8 @@ export default function TeacherCreateTestPage() {
           options,
           correctAnswer: correct,
           explanation: explanation || null,
-          sortOrder: Number(questionForm.sortOrder) || 1,
-          questionType: questionForm.multiple ? 'multiple_choice' : 'single_choice',
+          sortOrder,
+          questionType,
         });
       }
 
@@ -793,8 +827,8 @@ export default function TeacherCreateTestPage() {
         options,
         correctAnswer: correct,
         explanation,
-        sortOrder: Number(questionForm.sortOrder) || selectedTest.questions.length + 1,
-        questionType: questionForm.multiple ? 'multiple_choice' : 'single_choice',
+        sortOrder: sortOrder || selectedTest.questions.length + 1,
+        questionType,
       });
     },
     onSuccess: async () => {
@@ -814,10 +848,7 @@ export default function TeacherCreateTestPage() {
     onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_test_builder.toast.error_text'),
+        description: getErrorMessage(error),
         variant: 'destructive',
       }),
   });
@@ -832,10 +863,15 @@ export default function TeacherCreateTestPage() {
     }) => {
       if (!selectedTest) throw new Error('Тест таңдалмаған.');
 
-      await deleteTestQuestion(questionId);
+      const cleanQuestionId = cleanText(questionId, 120);
+      const cleanRemainingIds = remainingIds
+        .map((id) => cleanText(id, 120))
+        .filter(Boolean);
 
-      if (remainingIds.length > 0) {
-        await reorderTestQuestions(selectedTest.id, remainingIds);
+      await deleteTestQuestion(cleanQuestionId);
+
+      if (cleanRemainingIds.length > 0) {
+        await reorderTestQuestions(selectedTest.id, cleanRemainingIds);
       }
     },
     onSuccess: async (_data, variables) => {
@@ -850,10 +886,7 @@ export default function TeacherCreateTestPage() {
     onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_test_builder.toast.error_text'),
+        description: getErrorMessage(error),
         variant: 'destructive',
       }),
   });
@@ -868,7 +901,10 @@ export default function TeacherCreateTestPage() {
     }) => {
       if (!selectedTest) throw new Error('Тест таңдалмаған.');
 
-      const currentIndex = sortedSelectedQuestions.findIndex((question) => question.id === questionId);
+      const cleanQuestionId = cleanText(questionId, 120);
+      const currentIndex = sortedSelectedQuestions.findIndex(
+        (question) => question.id === cleanQuestionId,
+      );
       const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
 
       if (
@@ -894,10 +930,7 @@ export default function TeacherCreateTestPage() {
     onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_test_builder.toast.error_text'),
+        description: getErrorMessage(error),
         variant: 'destructive',
       }),
   });
@@ -918,10 +951,13 @@ export default function TeacherCreateTestPage() {
       for (const [index, question] of pendingAiImport.questions.entries()) {
         await createTestQuestion({
           testId: selectedTest.id,
-          questionText: question.questionText,
-          options: question.options,
+          questionText: cleanMultilineText(question.questionText, MAX_QUESTION_TEXT_CHARS),
+          options: question.options
+            .map((option) => cleanText(option, MAX_OPTION_CHARS))
+            .filter(Boolean)
+            .slice(0, MAX_OPTIONS),
           correctAnswer: question.correctAnswer,
-          explanation: question.explanation || '',
+          explanation: cleanMultilineText(question.explanation || '', MAX_EXPLANATION_CHARS),
           sortOrder: startSortOrder + index + 1,
           questionType: question.questionType,
         });
@@ -949,10 +985,7 @@ export default function TeacherCreateTestPage() {
     onError: (error) =>
       toast({
         title: t('page.teacher_test_builder.toast.error_title'),
-        description:
-          error instanceof Error
-            ? error.message
-            : t('page.teacher_test_builder.toast.error_text'),
+        description: getErrorMessage(error),
         variant: 'destructive',
       }),
   });
@@ -964,21 +997,22 @@ export default function TeacherCreateTestPage() {
   };
 
   const editQuestion = (questionId: string) => {
-    const question = selectedTest?.questions.find((item) => item.id === questionId);
+    const cleanQuestionId = cleanText(questionId, 120);
+    const question = selectedTest?.questions.find((item) => item.id === cleanQuestionId);
     if (!question) return;
 
     setQuestionDeleteId(null);
     setEditingQuestionId(question.id);
     setQuestionForm({
-      questionText: question.question_text,
+      questionText: cleanMultilineText(question.question_text, MAX_QUESTION_TEXT_CHARS),
       optionsText: Array.isArray(question.options)
-        ? question.options.map(String).join('\n')
+        ? question.options.map((value) => sanitizeInputValue(value, MAX_OPTION_CHARS)).join('\n')
         : '',
       correctAnswer: Array.isArray(question.correct_answer)
         ? question.correct_answer.map((value: unknown) => Number(value) + 1).join(',')
         : '1',
-      explanation: question.explanation || '',
-      sortOrder: String(question.sort_order),
+      explanation: cleanMultilineText(question.explanation || '', MAX_EXPLANATION_CHARS),
+      sortOrder: normalizeNumericInput(question.sort_order, MAX_SORT_ORDER_CHARS) || '1',
       multiple: question.question_type === 'multiple_choice',
     });
   };
@@ -986,7 +1020,7 @@ export default function TeacherCreateTestPage() {
   const updateQuestionOption = (optionIndex: number, value: string) => {
     setQuestionForm((previous) => {
       const nextOptions = getOptionLinesForEditor(previous.optionsText);
-      nextOptions[optionIndex] = cleanText(value, MAX_OPTION_CHARS);
+      nextOptions[optionIndex] = sanitizeInputValue(value, MAX_OPTION_CHARS);
 
       const nextCorrect = parseCorrectAnswerIndexes(previous.correctAnswer).filter(
         (index) => nextOptions[index]?.trim(),
@@ -1060,13 +1094,13 @@ export default function TeacherCreateTestPage() {
   };
 
   const canCreateTest =
-    !!newTest.title.trim() &&
-    !!newTest.courseId &&
-    !!newTest.subjectId &&
+    !!cleanText(newTest.title, MAX_TEST_TITLE_CHARS) &&
+    !!cleanText(newTest.courseId, 120) &&
+    !!cleanText(newTest.subjectId, 120) &&
     !createTestMutation.isPending;
 
   const canSaveQuestion =
-    !!questionForm.questionText.trim() &&
+    !!cleanMultilineText(questionForm.questionText, MAX_QUESTION_TEXT_CHARS) &&
     getNormalizedOptionRows(questionForm.optionsText).length >= 2 &&
     parseCorrectAnswerIndexes(questionForm.correctAnswer).some((index) =>
       getOptionLinesForEditor(questionForm.optionsText)[index]?.trim(),
@@ -1147,7 +1181,7 @@ export default function TeacherCreateTestPage() {
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-foreground">
-                    {pendingAiImport.titleSuggestion || 'AI тест'}
+                    {cleanText(pendingAiImport.titleSuggestion || 'AI тест', MAX_TEST_TITLE_CHARS)}
                   </p>
 
                   {pendingAiImport.skippedCount > 0 ? (
@@ -1203,7 +1237,7 @@ export default function TeacherCreateTestPage() {
                     </CardTitle>
 
                     <StatusBadge tone={canCreateTest ? 'success' : 'muted'}>
-                      {canCreateTest ? 'Дайын' : 'Міндетті'}
+                      {canCreateTest ? 'Дайын' : 'Толтырыңыз'}
                     </StatusBadge>
                   </div>
                 </CardHeader>
@@ -1213,7 +1247,7 @@ export default function TeacherCreateTestPage() {
                     <select
                       value={newTest.courseId}
                       onChange={(event) => {
-                        const courseId = event.target.value;
+                        const courseId = cleanText(event.target.value, 120);
                         const course = courseOptions.find((item) => item.id === courseId);
 
                         setNewTest((previous) => ({
@@ -1248,10 +1282,11 @@ export default function TeacherCreateTestPage() {
                   >
                     <Input
                       value={newTest.title}
+                      maxLength={MAX_TEST_TITLE_CHARS}
                       onChange={(event) =>
                         setNewTest((previous) => ({
                           ...previous,
-                          title: cleanText(event.target.value, MAX_TEST_TITLE_CHARS),
+                          title: sanitizeInputValue(event.target.value, MAX_TEST_TITLE_CHARS),
                         }))
                       }
                       placeholder={t('page.teacher_test_builder.placeholder.test_title')}
@@ -1261,10 +1296,11 @@ export default function TeacherCreateTestPage() {
                   <FieldBlock label={t('page.teacher_test_builder.field.topic')}>
                     <Input
                       value={newTest.topic}
+                      maxLength={MAX_TEST_TOPIC_CHARS}
                       onChange={(event) =>
                         setNewTest((previous) => ({
                           ...previous,
-                          topic: cleanText(event.target.value, MAX_TEST_TOPIC_CHARS),
+                          topic: sanitizeInputValue(event.target.value, MAX_TEST_TOPIC_CHARS),
                         }))
                       }
                       placeholder={t('page.teacher_test_builder.placeholder.topic')}
@@ -1295,7 +1331,7 @@ export default function TeacherCreateTestPage() {
                         onChange={(event) =>
                           setNewTest((previous) => ({
                             ...previous,
-                            subjectId: event.target.value,
+                            subjectId: cleanText(event.target.value, 120),
                           }))
                         }
                         className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -1314,6 +1350,7 @@ export default function TeacherCreateTestPage() {
                   </div>
 
                   <Button
+                    type="button"
                     className="w-full"
                     onClick={() => createTestMutation.mutate()}
                     disabled={!canCreateTest}
@@ -1356,11 +1393,12 @@ export default function TeacherCreateTestPage() {
                           type="button"
                           onClick={() => seedEditFromTest(test.id)}
                           aria-pressed={selectedTest?.id === test.id}
-                          className={`w-full rounded-3xl border p-4 text-left transition-colors active:scale-[0.99] ${
+                          className={cn(
+                            'w-full rounded-3xl border p-4 text-left transition-colors active:scale-[0.99]',
                             selectedTest?.id === test.id
                               ? 'border-primary-muted bg-primary-soft'
-                              : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40'
-                          }`}
+                              : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40',
+                          )}
                         >
                           <p className="truncate text-sm font-semibold text-foreground">
                             {test.title}
@@ -1410,10 +1448,14 @@ export default function TeacherCreateTestPage() {
                           >
                             <Input
                               value={testEdit.title}
+                              maxLength={MAX_TEST_TITLE_CHARS}
                               onChange={(event) =>
                                 setTestEdit((previous) => ({
                                   ...previous,
-                                  title: cleanText(event.target.value, MAX_TEST_TITLE_CHARS),
+                                  title: sanitizeInputValue(
+                                    event.target.value,
+                                    MAX_TEST_TITLE_CHARS,
+                                  ),
                                 }))
                               }
                             />
@@ -1424,10 +1466,14 @@ export default function TeacherCreateTestPage() {
                           <FieldBlock label={t('page.teacher_test_builder.field.topic')}>
                             <Input
                               value={testEdit.topic}
+                              maxLength={MAX_TEST_TOPIC_CHARS}
                               onChange={(event) =>
                                 setTestEdit((previous) => ({
                                   ...previous,
-                                  topic: cleanText(event.target.value, MAX_TEST_TOPIC_CHARS),
+                                  topic: sanitizeInputValue(
+                                    event.target.value,
+                                    MAX_TEST_TOPIC_CHARS,
+                                  ),
                                 }))
                               }
                             />
@@ -1442,7 +1488,10 @@ export default function TeacherCreateTestPage() {
                             onChange={(event) =>
                               setTestEdit((previous) => ({
                                 ...previous,
-                                duration: normalizeNumericInput(event.target.value, MAX_DURATION_CHARS),
+                                duration: normalizeNumericInput(
+                                  event.target.value,
+                                  MAX_DURATION_CHARS,
+                                ),
                               }))
                             }
                           />
@@ -1474,7 +1523,7 @@ export default function TeacherCreateTestPage() {
                               onChange={(event) =>
                                 setTestEdit((previous) => ({
                                   ...previous,
-                                  subjectId: event.target.value,
+                                  subjectId: cleanText(event.target.value, 120),
                                 }))
                               }
                               className="h-10 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
@@ -1495,6 +1544,7 @@ export default function TeacherCreateTestPage() {
 
                       <div className="flex justify-end pt-1">
                         <Button
+                          type="button"
                           onClick={() => updateTestMutation.mutate()}
                           disabled={updateTestMutation.isPending}
                         >
@@ -1559,6 +1609,7 @@ export default function TeacherCreateTestPage() {
                         ) : null}
 
                         <Button
+                          type="button"
                           variant={deleteTestConfirmOpen ? 'outline' : 'destructive'}
                           size="sm"
                           className="w-full"
@@ -1739,10 +1790,14 @@ export default function TeacherCreateTestPage() {
                         <Textarea
                           rows={4}
                           value={questionForm.questionText}
+                          maxLength={MAX_QUESTION_TEXT_CHARS}
                           onChange={(event) =>
                             setQuestionForm((previous) => ({
                               ...previous,
-                              questionText: cleanText(event.target.value, MAX_QUESTION_TEXT_CHARS),
+                              questionText: sanitizeInputValue(
+                                event.target.value,
+                                MAX_QUESTION_TEXT_CHARS,
+                              ),
                             }))
                           }
                           placeholder="Сұрақ"
@@ -1764,11 +1819,12 @@ export default function TeacherCreateTestPage() {
                             return (
                               <div
                                 key={optionIndex}
-                                className={`flex items-center gap-3 rounded-2xl border p-2 transition-colors ${
+                                className={cn(
+                                  'flex items-center gap-3 rounded-2xl border p-2 transition-colors',
                                   checked
                                     ? 'border-success-muted bg-success-soft/70'
-                                    : 'border-border bg-card'
-                                }`}
+                                    : 'border-border bg-card',
+                                )}
                               >
                                 <input
                                   type={inputType}
@@ -1785,6 +1841,7 @@ export default function TeacherCreateTestPage() {
 
                                 <Input
                                   value={option}
+                                  maxLength={MAX_OPTION_CHARS}
                                   onChange={(event) =>
                                     updateQuestionOption(optionIndex, event.target.value)
                                   }
@@ -1829,18 +1886,22 @@ export default function TeacherCreateTestPage() {
                             onChange={(event) =>
                               setQuestionForm((previous) => ({
                                 ...previous,
-                                sortOrder: normalizeNumericInput(event.target.value, MAX_SORT_ORDER_CHARS),
+                                sortOrder: normalizeNumericInput(
+                                  event.target.value,
+                                  MAX_SORT_ORDER_CHARS,
+                                ),
                               }))
                             }
                           />
                         </FieldBlock>
 
                         <div
-                          className={`rounded-2xl border px-4 py-3 transition-colors ${
+                          className={cn(
+                            'rounded-2xl border px-4 py-3 transition-colors',
                             questionForm.multiple
                               ? 'border-primary-muted bg-primary-soft/70'
-                              : 'border-border bg-muted/30'
-                          }`}
+                              : 'border-border bg-muted/30',
+                          )}
                         >
                           <div className="flex items-center justify-between gap-4">
                             <Label
@@ -1871,10 +1932,14 @@ export default function TeacherCreateTestPage() {
                         <Textarea
                           rows={3}
                           value={questionForm.explanation}
+                          maxLength={MAX_EXPLANATION_CHARS}
                           onChange={(event) =>
                             setQuestionForm((previous) => ({
                               ...previous,
-                              explanation: cleanText(event.target.value, MAX_EXPLANATION_CHARS),
+                              explanation: sanitizeInputValue(
+                                event.target.value,
+                                MAX_EXPLANATION_CHARS,
+                              ),
                             }))
                           }
                           placeholder="Түсіндірме"
@@ -1883,6 +1948,7 @@ export default function TeacherCreateTestPage() {
 
                       <div className="flex flex-wrap gap-2 pt-1">
                         <Button
+                          type="button"
                           onClick={() => saveQuestionMutation.mutate()}
                           disabled={!canSaveQuestion}
                         >
@@ -1894,7 +1960,11 @@ export default function TeacherCreateTestPage() {
                         </Button>
 
                         {editingQuestionId ? (
-                          <Button variant="outline" onClick={() => resetQuestionForm()}>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => resetQuestionForm()}
+                          >
                             {t('page.teacher_test_builder.action.clear_form')}
                           </Button>
                         ) : null}

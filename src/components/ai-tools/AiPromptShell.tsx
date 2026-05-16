@@ -78,21 +78,29 @@ const MAX_MESSAGE_CHARS = 12_000;
 const MAX_META_TEXT_CHARS = 700;
 const MAX_WARNING_CHARS = 260;
 const MAX_FOLLOW_UP_PROMPTS = 4;
+const MAX_TITLE_CHARS = 160;
+const MAX_PLACEHOLDER_CHARS = 240;
+const MAX_ERROR_CHARS = 700;
 
-function cleanText(value: unknown, limit?: number): string {
-  return typeof limit === 'number' ? limitText(value, limit) : limitText(value, MAX_MESSAGE_CHARS);
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
 }
 
-function cleanMultilineText(value: unknown, limit?: number): string {
-  const normalized = removeNullCharacters(String(value ?? ''))
+function cleanText(value: unknown, limit = MAX_MESSAGE_CHARS): string {
+  const normalized = cleanRawText(value).replace(/\s+/g, ' ').trim();
+
+  return limitText(normalized, limit);
+}
+
+function cleanMultilineText(value: unknown, limit = MAX_MESSAGE_CHARS): string {
+  const normalized = cleanRawText(value)
     .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
     .trim();
 
-  if (typeof limit !== 'number') {
-    return normalized;
-  }
-
-  return normalized.slice(0, limit).trim();
+  return limitText(normalized, limit);
 }
 
 function normalizeStringList(
@@ -137,19 +145,30 @@ function normalizeSuggestions(values: AiPromptSuggestion[] | undefined): AiPromp
   }
 
   const output: AiPromptSuggestion[] = [];
-  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  const seenContent = new Set<string>();
 
   for (const suggestion of values) {
-    const id = cleanText(suggestion?.id, 80) || `suggestion-${output.length + 1}`;
+    const baseId = cleanText(suggestion?.id, 80) || `suggestion-${output.length + 1}`;
     const label = cleanText(suggestion?.label, 120);
     const prompt = cleanMultilineText(suggestion?.prompt, MAX_PROMPT_CHARS);
     const key = `${label.toLowerCase()}::${prompt.toLowerCase()}`;
 
-    if (!label || !prompt || seen.has(key)) {
+    if (!label || !prompt || seenContent.has(key)) {
       continue;
     }
 
-    seen.add(key);
+    let id = baseId;
+    let suffix = 2;
+
+    while (seenIds.has(id)) {
+      id = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+
+    seenIds.add(id);
+    seenContent.add(key);
+
     output.push({
       id,
       label,
@@ -171,7 +190,7 @@ function normalizeMarkdownLine(line: string): string {
 }
 
 function renderStructuredAnswer(answer: string) {
-  const lines = answer
+  const lines = cleanMultilineText(answer, MAX_MESSAGE_CHARS)
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
@@ -254,7 +273,7 @@ function appendLocalMessage(messages: ChatMessage[], message: ChatMessage): Chat
 
 function getSubmitErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
-    return cleanText(error.message, 500);
+    return cleanText(error.message, MAX_ERROR_CHARS);
   }
 
   return 'AI сұранысын жіберу кезінде қате пайда болды.';
@@ -291,6 +310,12 @@ export default function AiPromptShell({
   const lastAppliedAnswerRef = useRef<string | null>(null);
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
 
+  const normalizedTitle = cleanText(title, MAX_TITLE_CHARS);
+  const normalizedPlaceholder = cleanText(placeholder, MAX_PLACEHOLDER_CHARS);
+  const normalizedAnswerTitle = cleanText(answerTitle, MAX_TITLE_CHARS) || 'AI жауабы';
+  const normalizedEmptyAnswerText = cleanText(emptyAnswerText, MAX_META_TEXT_CHARS);
+  const normalizedContextLabel = cleanText(contextLabel, 120);
+
   const normalizedSuggestions = useMemo(
     () => normalizeSuggestions(suggestions),
     [suggestions],
@@ -315,8 +340,10 @@ export default function AiPromptShell({
   );
 
   const normalizedContextSummary = cleanText(contextSummary, MAX_META_TEXT_CHARS);
+  const normalizedExternalError = cleanText(error, MAX_ERROR_CHARS);
+  const normalizedLocalError = cleanText(localError, MAX_ERROR_CHARS);
 
-  const visibleError = error || localError;
+  const visibleError = normalizedExternalError || normalizedLocalError;
   const hasPrompt = prompt.trim().length > 0;
   const endpointReady = Boolean(onSubmit);
   const effectiveDisabled = disabled || !endpointReady;
@@ -357,10 +384,10 @@ export default function AiPromptShell({
     setMessages((currentMessages) =>
       appendLocalMessage(
         currentMessages,
-        createMessage('assistant', normalizedAnswer, answerTitle),
+        createMessage('assistant', normalizedAnswer, normalizedAnswerTitle),
       ),
     );
-  }, [answer, answerTitle]);
+  }, [answer, normalizedAnswerTitle]);
 
   useEffect(() => {
     scrollAnchorRef.current?.scrollIntoView({
@@ -394,6 +421,7 @@ export default function AiPromptShell({
       return;
     }
 
+    const selectedSuggestionId = suggestionId ? cleanText(suggestionId, 120) : null;
     const history = buildHistory(messages);
     const userMessage = createMessage('user', promptText);
 
@@ -405,7 +433,7 @@ export default function AiPromptShell({
     try {
       await onSubmit({
         prompt: promptText,
-        selectedSuggestionId: suggestionId,
+        selectedSuggestionId,
         conversationHistory: history,
       });
     } catch (submitError) {
@@ -428,14 +456,20 @@ export default function AiPromptShell({
   };
 
   const copyMessage = async (message: ChatMessage) => {
-    if (!message.content || !navigator.clipboard) return;
+    const content = cleanMultilineText(message.content, MAX_MESSAGE_CHARS);
+
+    if (!content || !navigator.clipboard) return;
 
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(content);
       setCopiedMessageId(message.id);
     } catch {
       setCopiedMessageId(null);
     }
+  };
+
+  const handlePromptChange = (value: string) => {
+    setPrompt(cleanMultilineText(value, MAX_PROMPT_CHARS));
   };
 
   return (
@@ -449,11 +483,13 @@ export default function AiPromptShell({
 
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+                <CardTitle className="text-base sm:text-lg">
+                  {normalizedTitle}
+                </CardTitle>
 
-                {contextLabel ? (
+                {normalizedContextLabel ? (
                   <StatusBadge tone="ai" className="max-w-[240px] truncate">
-                    <span className="truncate">{contextLabel}</span>
+                    <span className="truncate">{normalizedContextLabel}</span>
                   </StatusBadge>
                 ) : null}
               </div>
@@ -540,9 +576,11 @@ export default function AiPromptShell({
                     Сұрақ жазыңыз
                   </p>
 
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    {emptyAnswerText}
-                  </p>
+                  {normalizedEmptyAnswerText ? (
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      {normalizedEmptyAnswerText}
+                    </p>
+                  ) : null}
 
                   {hasSuggestions ? (
                     <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -599,7 +637,7 @@ export default function AiPromptShell({
                   <div className="group w-full max-w-4xl overflow-hidden rounded-3xl border border-border bg-card/95 shadow-soft">
                     <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-card/80 px-4 py-3">
                       <p className="text-sm font-semibold text-foreground">
-                        {message.title || answerTitle}
+                        {message.title || normalizedAnswerTitle}
                       </p>
 
                       <Button
@@ -675,11 +713,9 @@ export default function AiPromptShell({
             <div className="rounded-3xl border border-border bg-card px-3 py-3 shadow-inner-soft transition-all duration-200 ease-soft focus-within:border-primary-muted focus-within:ring-2 focus-within:ring-ring/25">
               <textarea
                 value={prompt}
-                onChange={(event) =>
-                  setPrompt(event.target.value.slice(0, MAX_PROMPT_CHARS))
-                }
+                onChange={(event) => handlePromptChange(event.target.value)}
                 onKeyDown={handleTextareaKeyDown}
-                placeholder={placeholder}
+                placeholder={normalizedPlaceholder}
                 rows={3}
                 maxLength={MAX_PROMPT_CHARS}
                 disabled={effectiveDisabled || isSubmitting}

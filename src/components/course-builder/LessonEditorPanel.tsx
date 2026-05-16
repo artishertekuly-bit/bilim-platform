@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import type { CourseBuilderModuleView } from '@/lib/app-data-types';
 import t from '@/lib/i18n';
 import { normalizeMediaUrl } from '@/lib/media-url';
+import { removeNullCharacters } from '@/lib/utils';
 
 type LessonFormState = {
   moduleId: string;
@@ -40,12 +41,14 @@ const MAX_PRACTICE_CHARS = 10_000;
 const MAX_MEDIA_URL_CHARS = 700;
 const MAX_SORT_ORDER_CHARS = 4;
 
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+function sanitizeInputValue(value: string, limit: number): string {
+  return removeNullCharacters(value).slice(0, limit);
 }
 
-function normalizeSortOrderInput(value: string) {
-  return value.replace(/[^\d]/g, '').slice(0, MAX_SORT_ORDER_CHARS);
+function normalizeSortOrderInput(value: string): string {
+  return removeNullCharacters(value)
+    .replace(/[^\d]/g, '')
+    .slice(0, MAX_SORT_ORDER_CHARS);
 }
 
 function FieldBlock({
@@ -105,7 +108,7 @@ export function LessonEditorPanel({
   const handleMediaUrlBlur = (mediaUrl: string) => {
     updateLessonField(
       'mediaUrl',
-      cleanText(normalizeMediaUrl(mediaUrl) || '', MAX_MEDIA_URL_CHARS),
+      sanitizeInputValue(normalizeMediaUrl(mediaUrl) || '', MAX_MEDIA_URL_CHARS),
     );
   };
 
@@ -135,11 +138,7 @@ export function LessonEditorPanel({
 
       <CardContent className="space-y-5 p-4 sm:p-5">
         {!hasModules ? (
-          <EmptyState
-            title="Модуль жоқ"
-            text="Сабақ қосу үшін алдымен курсқа кемінде бір модуль қосыңыз."
-            compact
-          />
+          <EmptyState title="Модуль жоқ" text="Алдымен модуль қосыңыз." compact />
         ) : null}
 
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_140px]">
@@ -194,7 +193,7 @@ export function LessonEditorPanel({
             onChange={(event) =>
               updateLessonField(
                 'title',
-                cleanText(event.target.value, MAX_TITLE_CHARS),
+                sanitizeInputValue(event.target.value, MAX_TITLE_CHARS),
               )
             }
             placeholder="Сабақ атауы"
@@ -209,7 +208,7 @@ export function LessonEditorPanel({
             onChange={(event) =>
               updateLessonField(
                 'contentBody',
-                cleanText(event.target.value, MAX_THEORY_CHARS),
+                sanitizeInputValue(event.target.value, MAX_THEORY_CHARS),
               )
             }
             placeholder="Теория"
@@ -228,7 +227,7 @@ export function LessonEditorPanel({
             onChange={(event) =>
               updateLessonField(
                 'practiceContent',
-                cleanText(event.target.value, MAX_PRACTICE_CHARS),
+                sanitizeInputValue(event.target.value, MAX_PRACTICE_CHARS),
               )
             }
             placeholder="Практика"
@@ -246,7 +245,7 @@ export function LessonEditorPanel({
             onChange={(event) =>
               updateLessonField(
                 'mediaUrl',
-                cleanText(event.target.value, MAX_MEDIA_URL_CHARS),
+                sanitizeInputValue(event.target.value, MAX_MEDIA_URL_CHARS),
               )
             }
             onBlur={(event) => handleMediaUrlBlur(event.target.value)}
@@ -266,7 +265,7 @@ export function LessonEditorPanel({
             {!titleReady || !moduleReady ? (
               <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <AlertCircle size={12} />
-                Жариялау үшін модуль мен сабақ атауы қажет.
+                Модуль мен атау қажет.
               </p>
             ) : null}
           </div>

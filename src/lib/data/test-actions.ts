@@ -5,6 +5,7 @@ import type {
   TablesInsert,
   TablesUpdate,
 } from '@/integrations/supabase/types';
+import { removeNullCharacters } from '@/lib/utils';
 import { execOrThrow, localizedText, queryOrThrow } from './common';
 
 /* ================= TYPES ================= */
@@ -26,19 +27,18 @@ type CurrentUserContext = {
 
 /* ================= NORMALIZE ================= */
 
-function normalizeText(value: unknown) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+function normalizeText(value: unknown): string {
+  return removeNullCharacters(String(value ?? '')).replace(/\s+/g, ' ').trim();
 }
 
-function normalizeNullableText(value: unknown) {
+function normalizeNullableText(value: unknown): string | null {
   const normalized = normalizeText(value);
 
   return normalized || null;
 }
 
-function normalizeMultilineText(value: unknown) {
-  return String(value ?? '')
-    .replace(/\x00/g, ' ')
+function normalizeMultilineText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''))
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/[ \t]+\n/g, '\n')
@@ -46,16 +46,18 @@ function normalizeMultilineText(value: unknown) {
     .trim();
 }
 
-function normalizeNullableMultilineText(value: unknown) {
+function normalizeNullableMultilineText(value: unknown): string | null {
   const normalized = normalizeMultilineText(value);
 
   return normalized || null;
 }
 
-function normalizeDuration(value: unknown) {
-  if (value === null || value === undefined || value === '') return null;
+function normalizeDuration(value: unknown): number | null {
+  const normalized = normalizeText(value);
 
-  const parsed = Number(value);
+  if (!normalized) return null;
+
+  const parsed = Number(normalized);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     throw new Error('Тест ұзақтығы 1 минуттан жоғары болуы керек.');
@@ -64,8 +66,8 @@ function normalizeDuration(value: unknown) {
   return Math.round(parsed);
 }
 
-function normalizeSortOrder(value: unknown) {
-  const parsed = Number(value);
+function normalizeSortOrder(value: unknown): number {
+  const parsed = Number(normalizeText(value));
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return 1;
@@ -74,23 +76,23 @@ function normalizeSortOrder(value: unknown) {
   return Math.round(parsed);
 }
 
-function normalizeIndexes(value: readonly number[]) {
+function normalizeIndexes(value: readonly number[]): number[] {
   return [...new Set(value.map(Number))]
     .filter((item) => Number.isInteger(item) && item >= 0)
     .sort((a, b) => a - b);
 }
 
-function normalizeUnknownIndexes(value: unknown) {
+function normalizeUnknownIndexes(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
 
   return normalizeIndexes(value.map(Number));
 }
 
-function normalizeQuestionOptions(options: readonly string[]) {
+function normalizeQuestionOptions(options: readonly string[]): string[] {
   return options.map((option) => normalizeText(option)).filter(Boolean);
 }
 
-function normalizeUnknownStringArray(value: unknown) {
+function normalizeUnknownStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
 
   return value.map((item) => normalizeText(item)).filter(Boolean);
@@ -113,13 +115,13 @@ function toJson(value: unknown): Json {
 
 /* ================= ASSERTIONS ================= */
 
-function assertNonEmptyId(value: string, label: string) {
-  if (!value.trim()) {
+function assertNonEmptyId(value: string, label: string): void {
+  if (!normalizeText(value)) {
     throw new Error(`${label} бос болмауы керек.`);
   }
 }
 
-function assertTestTitle(title: string) {
+function assertTestTitle(title: string): void {
   if (!title) {
     throw new Error('Тест атауы міндетті.');
   }
@@ -130,7 +132,7 @@ function assertQuestionPayload(input: {
   options: string[];
   correctAnswer: number[];
   questionType: QuestionType;
-}) {
+}): void {
   if (!input.questionText) {
     throw new Error('Сұрақ мәтіні міндетті.');
   }
@@ -156,12 +158,11 @@ function assertQuestionPayload(input: {
   }
 }
 
-function assertOrderedQuestionIds(ids: string[]) {
-  const normalizedIds = [
-    ...new Set(ids.map((id) => id.trim()).filter(Boolean)),
-  ];
+function assertOrderedQuestionIds(ids: string[]): string[] {
+  const normalizedIds = ids.map((id) => normalizeText(id)).filter(Boolean);
+  const uniqueIds = [...new Set(normalizedIds)];
 
-  if (normalizedIds.length !== ids.length) {
+  if (uniqueIds.length !== ids.length || uniqueIds.length !== normalizedIds.length) {
     throw new Error(
       localizedText(
         'kk',
@@ -171,7 +172,7 @@ function assertOrderedQuestionIds(ids: string[]) {
     );
   }
 
-  return normalizedIds;
+  return uniqueIds;
 }
 
 /* ================= AUTH / OWNERSHIP ================= */
@@ -206,7 +207,7 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
 }
 
 async function assertCourseOwner(courseId: string) {
-  const trimmedCourseId = courseId.trim();
+  const trimmedCourseId = normalizeText(courseId);
 
   assertNonEmptyId(trimmedCourseId, 'Course ID');
 
@@ -240,7 +241,7 @@ async function assertCourseOwner(courseId: string) {
 }
 
 async function assertTestOwner(testId: string) {
-  const trimmedTestId = testId.trim();
+  const trimmedTestId = normalizeText(testId);
 
   assertNonEmptyId(trimmedTestId, 'Test ID');
 
@@ -276,7 +277,7 @@ async function assertTestOwner(testId: string) {
 }
 
 async function assertTestQuestionOwner(questionId: string) {
-  const trimmedQuestionId = questionId.trim();
+  const trimmedQuestionId = normalizeText(questionId);
 
   assertNonEmptyId(trimmedQuestionId, 'Question ID');
 
@@ -309,7 +310,9 @@ export async function updateTest(input: {
   durationMinutes?: number | null;
   status?: TestStatus;
 }) {
-  await assertTestOwner(input.testId);
+  const testId = normalizeText(input.testId);
+
+  await assertTestOwner(testId);
 
   const patch: TestPatch = {};
 
@@ -324,7 +327,7 @@ export async function updateTest(input: {
   }
 
   if (input.subjectId !== undefined) {
-    patch.subject_id = input.subjectId || null;
+    patch.subject_id = normalizeNullableText(input.subjectId);
   }
 
   if (input.durationMinutes !== undefined) {
@@ -338,7 +341,7 @@ export async function updateTest(input: {
   const { error } = await supabase
     .from('tests')
     .update(patch)
-    .eq('id', input.testId);
+    .eq('id', testId);
 
   if (error) throw new Error(error.message);
 }
@@ -352,7 +355,8 @@ export async function updateTestQuestion(input: {
   sortOrder?: number;
   questionType?: QuestionType;
 }) {
-  const currentQuestion = await assertTestQuestionOwner(input.questionId);
+  const questionId = normalizeText(input.questionId);
+  const currentQuestion = await assertTestQuestionOwner(questionId);
 
   const questionText =
     input.questionText !== undefined
@@ -410,7 +414,7 @@ export async function updateTestQuestion(input: {
   const { error } = await supabase
     .from('test_questions')
     .update(patch)
-    .eq('id', input.questionId);
+    .eq('id', questionId);
 
   if (error) throw new Error(error.message);
 }
@@ -436,7 +440,7 @@ export async function createTest(input: {
   const payload: TestInsert = {
     title,
     course_id: courseId,
-    subject_id: input.subjectId || courseSubjectId || null,
+    subject_id: normalizeNullableText(input.subjectId) || courseSubjectId || null,
     topic: normalizeNullableText(input.topic),
     duration_minutes: normalizeDuration(input.durationMinutes ?? null),
     created_by: userId,
@@ -461,7 +465,9 @@ export async function createTestQuestion(input: {
   sortOrder?: number;
   questionType?: QuestionType;
 }) {
-  await assertTestOwner(input.testId);
+  const testId = normalizeText(input.testId);
+
+  await assertTestOwner(testId);
 
   const questionText = normalizeText(input.questionText);
   const options = normalizeQuestionOptions(input.options);
@@ -476,7 +482,7 @@ export async function createTestQuestion(input: {
   });
 
   const payload: TestQuestionInsert = {
-    test_id: input.testId,
+    test_id: testId,
     question_text: questionText,
     options: toJson(options),
     correct_answer: toJson(correctAnswer),
@@ -497,12 +503,14 @@ export async function createTestQuestion(input: {
 /* ================= STATUS ================= */
 
 export async function updateTestStatus(testId: string, status: TestStatus) {
-  await assertTestOwner(testId);
+  const normalizedTestId = normalizeText(testId);
+
+  await assertTestOwner(normalizedTestId);
 
   const { error } = await supabase
     .from('tests')
     .update({ status })
-    .eq('id', testId);
+    .eq('id', normalizedTestId);
 
   if (error) throw new Error(error.message);
 }
@@ -510,21 +518,25 @@ export async function updateTestStatus(testId: string, status: TestStatus) {
 /* ================= DELETE ================= */
 
 export async function deleteTestQuestion(questionId: string) {
-  await assertTestQuestionOwner(questionId);
+  const normalizedQuestionId = normalizeText(questionId);
+
+  await assertTestQuestionOwner(normalizedQuestionId);
 
   await execOrThrow(
     supabase.rpc('delete_test_question_deep', {
-      p_question_id: questionId,
+      p_question_id: normalizedQuestionId,
     }),
   );
 }
 
 export async function deleteTest(testId: string) {
-  await assertTestOwner(testId);
+  const normalizedTestId = normalizeText(testId);
+
+  await assertTestOwner(normalizedTestId);
 
   await execOrThrow(
     supabase.rpc('delete_test_deep', {
-      p_test_id: testId,
+      p_test_id: normalizedTestId,
     }),
   );
 }
@@ -535,7 +547,9 @@ export async function reorderTestQuestions(
   testId: string,
   orderedQuestionIds: string[],
 ) {
-  await assertTestOwner(testId);
+  const normalizedTestId = normalizeText(testId);
+
+  await assertTestOwner(normalizedTestId);
 
   const normalizedIds = assertOrderedQuestionIds(orderedQuestionIds);
 
@@ -551,7 +565,7 @@ export async function reorderTestQuestions(
   )) as Array<Pick<Tables<'test_questions'>, 'id' | 'test_id'>>;
 
   const validIds = new Set(
-    rows.filter((row) => row.test_id === testId).map((row) => row.id),
+    rows.filter((row) => row.test_id === normalizedTestId).map((row) => row.id),
   );
 
   if (validIds.size !== normalizedIds.length) {
@@ -560,7 +574,7 @@ export async function reorderTestQuestions(
 
   await execOrThrow(
     supabase.rpc('reorder_test_questions', {
-      p_test_id: testId,
+      p_test_id: normalizedTestId,
       p_question_ids: normalizedIds,
     }),
   );

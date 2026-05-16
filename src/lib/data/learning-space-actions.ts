@@ -31,6 +31,7 @@ import type {
   ToggleReviewLaterPayload,
   UpsertLessonNotePayload,
 } from '@/lib/app-data-types';
+import { removeNullCharacters } from '@/lib/utils';
 
 /* ================= TYPES ================= */
 
@@ -110,7 +111,7 @@ async function unwrapMaybe<T>(
   return data || null;
 }
 
-async function execute(request: PromiseLike<SupabaseResponse<unknown>>) {
+async function execute(request: PromiseLike<SupabaseResponse<unknown>>): Promise<void> {
   const { error } = await request;
 
   if (error) {
@@ -120,27 +121,26 @@ async function execute(request: PromiseLike<SupabaseResponse<unknown>>) {
 
 /* ================= BASIC HELPERS ================= */
 
-function unique<T>(items: T[]) {
+function unique<T>(items: T[]): T[] {
   return Array.from(new Set(items));
 }
 
-function uniqueStrings(items: Array<string | null | undefined>) {
-  return unique(items.filter(Boolean) as string[]);
+function uniqueStrings(items: Array<string | null | undefined>): string[] {
+  return unique(items.map((item) => normalizeText(item)).filter(Boolean));
 }
 
-function normalizeText(value: unknown) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+function normalizeText(value: unknown): string {
+  return removeNullCharacters(String(value ?? '')).replace(/\s+/g, ' ').trim();
 }
 
-function normalizeNullableText(value: unknown) {
+function normalizeNullableText(value: unknown): string | null {
   const normalized = normalizeText(value);
 
   return normalized || null;
 }
 
-function normalizeMultilineText(value: unknown) {
-  return String(value ?? '')
-    .replace(/\x00/g, ' ')
+function normalizeMultilineText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''))
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/[ \t]+\n/g, '\n')
@@ -148,14 +148,14 @@ function normalizeMultilineText(value: unknown) {
     .trim();
 }
 
-function normalizeNullableMultilineText(value: unknown) {
+function normalizeNullableMultilineText(value: unknown): string | null {
   const normalized = normalizeMultilineText(value);
 
   return normalized || null;
 }
 
-function normalizeExternalUrl(value: string) {
-  const trimmed = value.trim();
+function normalizeExternalUrl(value: string): string {
+  const trimmed = normalizeText(value);
 
   if (!trimmed) {
     throw new Error('Файл сілтемесін енгізіңіз.');
@@ -176,7 +176,7 @@ function normalizeExternalUrl(value: string) {
   return parsed.toString();
 }
 
-function normalizeFilename(value: string, fallbackUrl?: string) {
+function normalizeFilename(value: string, fallbackUrl?: string): string {
   const trimmed = normalizeText(value);
 
   if (trimmed) return trimmed;
@@ -187,7 +187,7 @@ function normalizeFilename(value: string, fallbackUrl?: string) {
       const lastPart = parsed.pathname.split('/').filter(Boolean).at(-1);
 
       if (lastPart) {
-        return decodeURIComponent(lastPart);
+        return normalizeText(decodeURIComponent(lastPart)) || 'Қосымша материал';
       }
     } catch {
       // Fallback below.
@@ -197,7 +197,7 @@ function normalizeFilename(value: string, fallbackUrl?: string) {
   return 'Қосымша материал';
 }
 
-function normalizeSortOrder(value: number | undefined) {
+function normalizeSortOrder(value: number | undefined): number {
   if (value === undefined || value === null) return 1;
 
   if (!Number.isInteger(value) || value <= 0) {
@@ -207,7 +207,7 @@ function normalizeSortOrder(value: number | undefined) {
   return value;
 }
 
-function normalizeSizeBytes(value: number | null | undefined) {
+function normalizeSizeBytes(value: number | null | undefined): number | null {
   if (value === undefined || value === null) return null;
 
   if (!Number.isFinite(value) || value < 0) {
@@ -229,14 +229,14 @@ function toJson(value: unknown): Json {
   return value as Json;
 }
 
-function getSubjectName(subject?: SubjectLiteRow | null) {
+function getSubjectName(subject?: SubjectLiteRow | null): string {
   if (!subject) return 'Пән көрсетілмеген';
 
   return subject.name_kk || subject.name_ru || 'Пән көрсетілмеген';
 }
 
-function assertNonEmptyId(value: string, label: string) {
-  if (!value.trim()) {
+function assertNonEmptyId(value: string, label: string): void {
+  if (!normalizeText(value)) {
     throw new Error(`${label} бос болмауы керек.`);
   }
 }
@@ -284,7 +284,9 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
 }
 
 async function assertCourseManager(courseId: string) {
-  assertNonEmptyId(courseId, 'Course ID');
+  const normalizedCourseId = normalizeText(courseId);
+
+  assertNonEmptyId(normalizedCourseId, 'Course ID');
 
   const context = await getCurrentUserContext();
 
@@ -295,7 +297,7 @@ async function assertCourseManager(courseId: string) {
     supabase
       .from('courses')
       .select('id, teacher_id')
-      .eq('id', courseId)
+      .eq('id', normalizedCourseId)
       .maybeSingle(),
   );
 
@@ -314,22 +316,28 @@ async function assertCourseManager(courseId: string) {
   };
 }
 
-async function assertLessonBelongsToCourse(lessonId: string, courseId: string) {
+async function assertLessonBelongsToCourse(
+  lessonId: string,
+  courseId: string,
+): Promise<string> {
   const actualCourseId = await getCourseIdForLesson(lessonId);
+  const normalizedCourseId = normalizeText(courseId);
 
-  if (actualCourseId !== courseId) {
+  if (actualCourseId !== normalizedCourseId) {
     throw new Error('Сабақ көрсетілген курсқа тиесілі емес.');
   }
 
   return actualCourseId;
 }
 
-async function assertLessonManager(lessonId: string, courseId?: string) {
-  assertNonEmptyId(lessonId, 'Lesson ID');
+async function assertLessonManager(lessonId: string, courseId?: string): Promise<string> {
+  const normalizedLessonId = normalizeText(lessonId);
+
+  assertNonEmptyId(normalizedLessonId, 'Lesson ID');
 
   const actualCourseId = courseId
-    ? await assertLessonBelongsToCourse(lessonId, courseId)
-    : await getCourseIdForLesson(lessonId);
+    ? await assertLessonBelongsToCourse(normalizedLessonId, courseId)
+    : await getCourseIdForLesson(normalizedLessonId);
 
   await assertCourseManager(actualCourseId);
 
@@ -337,7 +345,9 @@ async function assertLessonManager(lessonId: string, courseId?: string) {
 }
 
 async function assertFileAssetOwner(fileAssetId: string) {
-  assertNonEmptyId(fileAssetId, 'File asset ID');
+  const normalizedFileAssetId = normalizeText(fileAssetId);
+
+  assertNonEmptyId(normalizedFileAssetId, 'File asset ID');
 
   const context = await getCurrentUserContext();
 
@@ -348,7 +358,7 @@ async function assertFileAssetOwner(fileAssetId: string) {
     supabase
       .from('file_assets')
       .select('id, owner_id')
-      .eq('id', fileAssetId)
+      .eq('id', normalizedFileAssetId)
       .maybeSingle(),
   );
 
@@ -433,12 +443,14 @@ function mapReviewLaterItem(row: ReviewLaterItemRow): ReviewLaterItemView {
 
 /* ================= DATA HELPERS ================= */
 
-async function getCourseIdForLesson(lessonId: string) {
-  assertNonEmptyId(lessonId, 'Lesson ID');
+async function getCourseIdForLesson(lessonId: string): Promise<string> {
+  const normalizedLessonId = normalizeText(lessonId);
+
+  assertNonEmptyId(normalizedLessonId, 'Lesson ID');
 
   const courseId = await unwrap<string | null>(
     supabase.rpc('get_lesson_course_id', {
-      p_lesson_id: lessonId,
+      p_lesson_id: normalizedLessonId,
     }),
   );
 
@@ -449,7 +461,7 @@ async function getCourseIdForLesson(lessonId: string) {
   return courseId;
 }
 
-async function getFileAssetsByIds(fileAssetIds: string[]) {
+async function getFileAssetsByIds(fileAssetIds: string[]): Promise<Map<string, FileAssetRow>> {
   const uniqueIds = uniqueStrings(fileAssetIds);
 
   if (uniqueIds.length === 0) {
@@ -466,10 +478,14 @@ async function getFileAssetsByIds(fileAssetIds: string[]) {
   return new Map(rows.map((row) => [row.id, row]));
 }
 
-async function getCompletedLessonIds(studentId: string, lessonIds: string[]) {
+async function getCompletedLessonIds(
+  studentId: string,
+  lessonIds: string[],
+): Promise<Set<string>> {
+  const normalizedStudentId = normalizeText(studentId);
   const uniqueLessonIds = uniqueStrings(lessonIds);
 
-  if (!studentId || uniqueLessonIds.length === 0) {
+  if (!normalizedStudentId || uniqueLessonIds.length === 0) {
     return new Set<string>();
   }
 
@@ -477,7 +493,7 @@ async function getCompletedLessonIds(studentId: string, lessonIds: string[]) {
     supabase
       .from('lesson_progress')
       .select('lesson_id, is_completed, completed_at')
-      .eq('student_id', studentId)
+      .eq('student_id', normalizedStudentId)
       .in('lesson_id', uniqueLessonIds),
   );
 
@@ -494,22 +510,27 @@ async function getExistingReviewLaterItem(input: {
   testQuestionId?: string | null;
   itemId?: string | null;
   itemType?: ReviewLaterItemRow['item_type'] | null;
-}) {
-  assertNonEmptyId(input.studentId, 'Student ID');
+}): Promise<ReviewLaterItemRow | null> {
+  const studentId = normalizeText(input.studentId);
+  const lessonId = normalizeNullableText(input.lessonId);
+  const testQuestionId = normalizeNullableText(input.testQuestionId);
+  const itemId = normalizeNullableText(input.itemId);
+
+  assertNonEmptyId(studentId, 'Student ID');
 
   let query = supabase
     .from('review_later_items')
     .select('*')
-    .eq('student_id', input.studentId);
+    .eq('student_id', studentId);
 
-  if (input.lessonId) {
-    query = query.eq('lesson_id', input.lessonId);
-  } else if (input.testQuestionId) {
-    query = query.eq('test_question_id', input.testQuestionId);
-  } else if (input.itemId && input.itemType) {
+  if (lessonId) {
+    query = query.eq('lesson_id', lessonId);
+  } else if (testQuestionId) {
+    query = query.eq('test_question_id', testQuestionId);
+  } else if (itemId && input.itemType) {
     query = query
       .eq('item_type', input.itemType)
-      .eq('item_id', input.itemId);
+      .eq('item_id', itemId);
   } else {
     return null;
   }
@@ -517,22 +538,24 @@ async function getExistingReviewLaterItem(input: {
   return unwrapMaybe<ReviewLaterItemRow>(query.maybeSingle());
 }
 
-async function deleteFileAssetIfUnused(fileAssetId: string) {
-  if (!fileAssetId) return;
+async function deleteFileAssetIfUnused(fileAssetId: string): Promise<void> {
+  const normalizedFileAssetId = normalizeText(fileAssetId);
+
+  if (!normalizedFileAssetId) return;
 
   const [lessonRefs, courseRefs] = await Promise.all([
     unwrap<Array<{ id: string }>>(
       supabase
         .from('lesson_attachments')
         .select('id')
-        .eq('file_asset_id', fileAssetId)
+        .eq('file_asset_id', normalizedFileAssetId)
         .limit(1),
     ),
     unwrap<Array<{ id: string }>>(
       supabase
         .from('course_assets')
         .select('id')
-        .eq('file_asset_id', fileAssetId)
+        .eq('file_asset_id', normalizedFileAssetId)
         .limit(1),
     ),
   ]);
@@ -545,7 +568,7 @@ async function deleteFileAssetIfUnused(fileAssetId: string) {
     supabase
       .from('file_assets')
       .delete()
-      .eq('id', fileAssetId),
+      .eq('id', normalizedFileAssetId),
   );
 }
 
@@ -555,10 +578,13 @@ export async function getLessonLearningState(input: {
   studentId: string;
   lessonId: string;
 }): Promise<LessonLearningState> {
-  assertNonEmptyId(input.studentId, 'Student ID');
-  assertNonEmptyId(input.lessonId, 'Lesson ID');
+  const studentId = normalizeText(input.studentId);
+  const lessonId = normalizeText(input.lessonId);
 
-  const courseId = await getCourseIdForLesson(input.lessonId);
+  assertNonEmptyId(studentId, 'Student ID');
+  assertNonEmptyId(lessonId, 'Lesson ID');
+
+  const courseId = await getCourseIdForLesson(lessonId);
 
   const [note, bookmark, reviewLaterItem, attachments, courseAssets] =
     await Promise.all([
@@ -566,34 +592,34 @@ export async function getLessonLearningState(input: {
         supabase
           .from('student_lesson_notes')
           .select('*')
-          .eq('student_id', input.studentId)
-          .eq('lesson_id', input.lessonId)
+          .eq('student_id', studentId)
+          .eq('lesson_id', lessonId)
           .maybeSingle(),
       ),
       unwrapMaybe<StudentLessonBookmarkRow>(
         supabase
           .from('student_lesson_bookmarks')
           .select('*')
-          .eq('student_id', input.studentId)
-          .eq('lesson_id', input.lessonId)
+          .eq('student_id', studentId)
+          .eq('lesson_id', lessonId)
           .maybeSingle(),
       ),
       unwrapMaybe<ReviewLaterItemRow>(
         supabase
           .from('review_later_items')
           .select('*')
-          .eq('student_id', input.studentId)
-          .eq('lesson_id', input.lessonId)
+          .eq('student_id', studentId)
+          .eq('lesson_id', lessonId)
           .maybeSingle(),
       ),
-      getLessonAttachments(input.lessonId),
+      getLessonAttachments(lessonId),
       getCourseAssets(courseId),
     ]);
 
   return {
-    lessonId: input.lessonId,
+    lessonId,
     courseId,
-    studentId: input.studentId,
+    studentId,
 
     note,
     noteContent: note?.content || '',
@@ -614,14 +640,18 @@ export async function getLessonLearningState(input: {
 export async function upsertLessonNote(
   input: UpsertLessonNotePayload,
 ): Promise<StudentLessonNoteRow> {
-  assertNonEmptyId(input.studentId, 'Student ID');
-  assertNonEmptyId(input.lessonId, 'Lesson ID');
-  assertNonEmptyId(input.courseId, 'Course ID');
+  const studentId = normalizeText(input.studentId);
+  const lessonId = normalizeText(input.lessonId);
+  const courseId = normalizeText(input.courseId);
+
+  assertNonEmptyId(studentId, 'Student ID');
+  assertNonEmptyId(lessonId, 'Lesson ID');
+  assertNonEmptyId(courseId, 'Course ID');
 
   const payload: StudentLessonNoteInsert = {
-    student_id: input.studentId,
-    lesson_id: input.lessonId,
-    course_id: input.courseId,
+    student_id: studentId,
+    lesson_id: lessonId,
+    course_id: courseId,
     content: normalizeMultilineText(input.content),
   };
 
@@ -636,16 +666,19 @@ export async function upsertLessonNote(
   );
 }
 
-export async function deleteLessonNote(input: DeleteLessonNotePayload) {
-  assertNonEmptyId(input.studentId, 'Student ID');
-  assertNonEmptyId(input.lessonId, 'Lesson ID');
+export async function deleteLessonNote(input: DeleteLessonNotePayload): Promise<void> {
+  const studentId = normalizeText(input.studentId);
+  const lessonId = normalizeText(input.lessonId);
+
+  assertNonEmptyId(studentId, 'Student ID');
+  assertNonEmptyId(lessonId, 'Lesson ID');
 
   await execute(
     supabase
       .from('student_lesson_notes')
       .delete()
-      .eq('student_id', input.studentId)
-      .eq('lesson_id', input.lessonId),
+      .eq('student_id', studentId)
+      .eq('lesson_id', lessonId),
   );
 }
 
@@ -654,15 +687,19 @@ export async function deleteLessonNote(input: DeleteLessonNotePayload) {
 export async function toggleLessonBookmark(
   input: ToggleLessonBookmarkPayload,
 ): Promise<StudentLessonBookmarkRow | null> {
-  assertNonEmptyId(input.studentId, 'Student ID');
-  assertNonEmptyId(input.lessonId, 'Lesson ID');
-  assertNonEmptyId(input.courseId, 'Course ID');
+  const studentId = normalizeText(input.studentId);
+  const lessonId = normalizeText(input.lessonId);
+  const courseId = normalizeText(input.courseId);
+
+  assertNonEmptyId(studentId, 'Student ID');
+  assertNonEmptyId(lessonId, 'Lesson ID');
+  assertNonEmptyId(courseId, 'Course ID');
 
   if (input.bookmarked) {
     const payload: StudentLessonBookmarkInsert = {
-      student_id: input.studentId,
-      lesson_id: input.lessonId,
-      course_id: input.courseId,
+      student_id: studentId,
+      lesson_id: lessonId,
+      course_id: courseId,
     };
 
     return unwrap<StudentLessonBookmarkRow>(
@@ -680,21 +717,23 @@ export async function toggleLessonBookmark(
     supabase
       .from('student_lesson_bookmarks')
       .delete()
-      .eq('student_id', input.studentId)
-      .eq('lesson_id', input.lessonId),
+      .eq('student_id', studentId)
+      .eq('lesson_id', lessonId),
   );
 
   return null;
 }
 
 export async function getSavedLessons(studentId: string): Promise<SavedLessonView[]> {
-  if (!studentId) return [];
+  const normalizedStudentId = normalizeText(studentId);
+
+  if (!normalizedStudentId) return [];
 
   const bookmarks = await unwrap<StudentLessonBookmarkRow[]>(
     supabase
       .from('student_lesson_bookmarks')
       .select('*')
-      .eq('student_id', studentId)
+      .eq('student_id', normalizedStudentId)
       .order('created_at', { ascending: false }),
   );
 
@@ -749,7 +788,7 @@ export async function getSavedLessons(studentId: string): Promise<SavedLessonVie
     : [];
 
   const subjectsById = new Map(subjects.map((subject) => [subject.id, subject]));
-  const completedLessonIds = await getCompletedLessonIds(studentId, lessonIds);
+  const completedLessonIds = await getCompletedLessonIds(normalizedStudentId, lessonIds);
 
   return bookmarks
     .map((bookmark) => {
@@ -784,16 +823,19 @@ export async function getSavedLessons(studentId: string): Promise<SavedLessonVie
     .filter((item): item is SavedLessonView => item !== null);
 }
 
-export async function removeSavedLesson(input: RemoveSavedLessonPayload) {
-  assertNonEmptyId(input.studentId, 'Student ID');
-  assertNonEmptyId(input.lessonId, 'Lesson ID');
+export async function removeSavedLesson(input: RemoveSavedLessonPayload): Promise<void> {
+  const studentId = normalizeText(input.studentId);
+  const lessonId = normalizeText(input.lessonId);
+
+  assertNonEmptyId(studentId, 'Student ID');
+  assertNonEmptyId(lessonId, 'Lesson ID');
 
   await execute(
     supabase
       .from('student_lesson_bookmarks')
       .delete()
-      .eq('student_id', input.studentId)
-      .eq('lesson_id', input.lessonId),
+      .eq('student_id', studentId)
+      .eq('lesson_id', lessonId),
   );
 }
 
@@ -802,24 +844,29 @@ export async function removeSavedLesson(input: RemoveSavedLessonPayload) {
 export async function toggleReviewLater(
   input: ToggleReviewLaterPayload,
 ): Promise<ReviewLaterItemRow | null> {
-  assertNonEmptyId(input.studentId, 'Student ID');
+  const studentId = normalizeText(input.studentId);
+  const lessonId = normalizeNullableText(input.lessonId);
+  const testQuestionId = normalizeNullableText(input.testQuestionId);
+  const itemType = input.itemType;
+
+  assertNonEmptyId(studentId, 'Student ID');
 
   const courseId =
-    input.courseId ||
-    (input.lessonId ? await getCourseIdForLesson(input.lessonId) : null);
+    normalizeNullableText(input.courseId) ||
+    (lessonId ? await getCourseIdForLesson(lessonId) : null);
 
   const itemId =
-    input.itemId ||
-    input.lessonId ||
-    input.testQuestionId ||
+    normalizeNullableText(input.itemId) ||
+    lessonId ||
+    testQuestionId ||
     null;
 
   const existing = await getExistingReviewLaterItem({
-    studentId: input.studentId,
-    lessonId: input.lessonId,
-    testQuestionId: input.testQuestionId,
+    studentId,
+    lessonId,
+    testQuestionId,
     itemId,
-    itemType: input.itemType,
+    itemType,
   });
 
   if (!input.reviewLater) {
@@ -836,12 +883,12 @@ export async function toggleReviewLater(
   }
 
   const payload: ReviewLaterItemInsert = {
-    student_id: input.studentId,
-    item_type: input.itemType,
+    student_id: studentId,
+    item_type: itemType,
     item_id: itemId,
     course_id: courseId,
-    lesson_id: input.lessonId || null,
-    test_question_id: input.testQuestionId || null,
+    lesson_id: lessonId,
+    test_question_id: testQuestionId,
     title: normalizeNullableText(input.title),
     note: normalizeNullableMultilineText(input.note),
   };
@@ -867,13 +914,15 @@ export async function toggleReviewLater(
 }
 
 export async function getReviewLaterItems(studentId: string): Promise<ReviewLaterItemView[]> {
-  if (!studentId) return [];
+  const normalizedStudentId = normalizeText(studentId);
+
+  if (!normalizedStudentId) return [];
 
   const rows = await unwrap<ReviewLaterItemRow[]>(
     supabase
       .from('review_later_items')
       .select('*')
-      .eq('student_id', studentId)
+      .eq('student_id', normalizedStudentId)
       .order('created_at', { ascending: false }),
   );
 
@@ -885,20 +934,22 @@ export async function getReviewLaterItems(studentId: string): Promise<ReviewLate
 export async function createExternalFileAsset(
   input: CreateExternalFileAssetPayload,
 ): Promise<FileAssetRow> {
-  assertNonEmptyId(input.ownerId, 'Owner ID');
+  const ownerId = normalizeText(input.ownerId);
+
+  assertNonEmptyId(ownerId, 'Owner ID');
 
   const externalUrl = normalizeExternalUrl(input.externalUrl);
   const filename = normalizeFilename(input.filename, externalUrl);
   const sizeBytes = normalizeSizeBytes(input.sizeBytes);
 
   const payload: FileAssetInsert = {
-    owner_id: input.ownerId,
+    owner_id: ownerId,
     visibility: input.visibility || 'course',
     storage_bucket: null,
     storage_path: null,
     external_url: externalUrl,
     filename,
-    mime_type: input.mimeType || null,
+    mime_type: normalizeNullableText(input.mimeType),
     size_bytes: sizeBytes,
     metadata: toJson(input.metadata || {}),
   };
@@ -912,8 +963,10 @@ export async function createExternalFileAsset(
   );
 }
 
-export async function deleteFileAsset(input: DeleteFileAssetPayload | string) {
-  const fileAssetId = typeof input === 'string' ? input : input.fileAssetId;
+export async function deleteFileAsset(input: DeleteFileAssetPayload | string): Promise<void> {
+  const fileAssetId = normalizeText(
+    typeof input === 'string' ? input : input.fileAssetId,
+  );
 
   await assertFileAssetOwner(fileAssetId);
 
@@ -927,14 +980,18 @@ export async function deleteFileAsset(input: DeleteFileAssetPayload | string) {
 
 /* ================= LESSON ATTACHMENTS ================= */
 
-export async function getLessonAttachments(lessonId: string): Promise<LessonAttachmentView[]> {
-  if (!lessonId) return [];
+export async function getLessonAttachments(
+  lessonId: string,
+): Promise<LessonAttachmentView[]> {
+  const normalizedLessonId = normalizeText(lessonId);
+
+  if (!normalizedLessonId) return [];
 
   const rows = await unwrap<LessonAttachmentRow[]>(
     supabase
       .from('lesson_attachments')
       .select('*')
-      .eq('lesson_id', lessonId)
+      .eq('lesson_id', normalizedLessonId)
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true }),
   );
@@ -953,18 +1010,23 @@ export async function getLessonAttachments(lessonId: string): Promise<LessonAtta
 export async function createLessonAttachment(
   input: CreateLessonAttachmentPayload,
 ): Promise<LessonAttachmentView> {
-  assertNonEmptyId(input.lessonId, 'Lesson ID');
-  assertNonEmptyId(input.courseId, 'Course ID');
-  assertNonEmptyId(input.fileAssetId, 'File asset ID');
-  assertNonEmptyId(input.createdBy, 'Created by');
+  const lessonId = normalizeText(input.lessonId);
+  const courseId = normalizeText(input.courseId);
+  const fileAssetId = normalizeText(input.fileAssetId);
+  const createdBy = normalizeText(input.createdBy);
 
-  await assertLessonManager(input.lessonId, input.courseId);
+  assertNonEmptyId(lessonId, 'Lesson ID');
+  assertNonEmptyId(courseId, 'Course ID');
+  assertNonEmptyId(fileAssetId, 'File asset ID');
+  assertNonEmptyId(createdBy, 'Created by');
+
+  await assertLessonManager(lessonId, courseId);
 
   const payload: LessonAttachmentInsert = {
-    lesson_id: input.lessonId,
-    course_id: input.courseId,
-    file_asset_id: input.fileAssetId,
-    created_by: input.createdBy,
+    lesson_id: lessonId,
+    course_id: courseId,
+    file_asset_id: fileAssetId,
+    created_by: createdBy,
     title: normalizeNullableText(input.title),
     description: normalizeNullableMultilineText(input.description),
     sort_order: normalizeSortOrder(input.sortOrder),
@@ -991,14 +1053,18 @@ export async function createLessonAttachment(
 export async function createLessonExternalAttachment(
   input: CreateLessonExternalAttachmentPayload,
 ): Promise<LessonAttachmentView> {
-  assertNonEmptyId(input.ownerId, 'Owner ID');
-  assertNonEmptyId(input.lessonId, 'Lesson ID');
-  assertNonEmptyId(input.courseId, 'Course ID');
+  const ownerId = normalizeText(input.ownerId);
+  const lessonId = normalizeText(input.lessonId);
+  const courseId = normalizeText(input.courseId);
 
-  await assertLessonManager(input.lessonId, input.courseId);
+  assertNonEmptyId(ownerId, 'Owner ID');
+  assertNonEmptyId(lessonId, 'Lesson ID');
+  assertNonEmptyId(courseId, 'Course ID');
+
+  await assertLessonManager(lessonId, courseId);
 
   const fileAsset = await createExternalFileAsset({
-    ownerId: input.ownerId,
+    ownerId,
     filename: input.filename || input.title || 'Сабақ материалы',
     externalUrl: input.externalUrl,
     mimeType: input.mimeType || null,
@@ -1006,17 +1072,17 @@ export async function createLessonExternalAttachment(
     visibility: 'course',
     metadata: {
       source: 'lesson_attachment',
-      lesson_id: input.lessonId,
-      course_id: input.courseId,
+      lesson_id: lessonId,
+      course_id: courseId,
     },
   });
 
   try {
     return await createLessonAttachment({
-      lessonId: input.lessonId,
-      courseId: input.courseId,
+      lessonId,
+      courseId,
       fileAssetId: fileAsset.id,
-      createdBy: input.ownerId,
+      createdBy: ownerId,
       title: input.title || fileAsset.filename,
       description: input.description || null,
       sortOrder: input.sortOrder || 1,
@@ -1029,8 +1095,10 @@ export async function createLessonExternalAttachment(
 
 export async function deleteLessonAttachment(
   input: DeleteLessonAttachmentPayload | string,
-) {
-  const attachmentId = typeof input === 'string' ? input : input.attachmentId;
+): Promise<void> {
+  const attachmentId = normalizeText(
+    typeof input === 'string' ? input : input.attachmentId,
+  );
 
   assertNonEmptyId(attachmentId, 'Attachment ID');
 
@@ -1061,13 +1129,15 @@ export async function deleteLessonAttachment(
 /* ================= COURSE ASSETS ================= */
 
 export async function getCourseAssets(courseId: string): Promise<CourseAssetView[]> {
-  if (!courseId) return [];
+  const normalizedCourseId = normalizeText(courseId);
+
+  if (!normalizedCourseId) return [];
 
   const rows = await unwrap<CourseAssetRow[]>(
     supabase
       .from('course_assets')
       .select('*')
-      .eq('course_id', courseId)
+      .eq('course_id', normalizedCourseId)
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true }),
   );
@@ -1086,16 +1156,20 @@ export async function getCourseAssets(courseId: string): Promise<CourseAssetView
 export async function createCourseAsset(
   input: CreateCourseAssetPayload,
 ): Promise<CourseAssetView> {
-  assertNonEmptyId(input.courseId, 'Course ID');
-  assertNonEmptyId(input.fileAssetId, 'File asset ID');
-  assertNonEmptyId(input.createdBy, 'Created by');
+  const courseId = normalizeText(input.courseId);
+  const fileAssetId = normalizeText(input.fileAssetId);
+  const createdBy = normalizeText(input.createdBy);
 
-  await assertCourseManager(input.courseId);
+  assertNonEmptyId(courseId, 'Course ID');
+  assertNonEmptyId(fileAssetId, 'File asset ID');
+  assertNonEmptyId(createdBy, 'Created by');
+
+  await assertCourseManager(courseId);
 
   const payload: CourseAssetInsert = {
-    course_id: input.courseId,
-    file_asset_id: input.fileAssetId,
-    created_by: input.createdBy,
+    course_id: courseId,
+    file_asset_id: fileAssetId,
+    created_by: createdBy,
     title: normalizeNullableText(input.title),
     description: normalizeNullableMultilineText(input.description),
     sort_order: normalizeSortOrder(input.sortOrder),
@@ -1122,13 +1196,16 @@ export async function createCourseAsset(
 export async function createCourseExternalAsset(
   input: CreateCourseExternalAssetPayload,
 ): Promise<CourseAssetView> {
-  assertNonEmptyId(input.ownerId, 'Owner ID');
-  assertNonEmptyId(input.courseId, 'Course ID');
+  const ownerId = normalizeText(input.ownerId);
+  const courseId = normalizeText(input.courseId);
 
-  await assertCourseManager(input.courseId);
+  assertNonEmptyId(ownerId, 'Owner ID');
+  assertNonEmptyId(courseId, 'Course ID');
+
+  await assertCourseManager(courseId);
 
   const fileAsset = await createExternalFileAsset({
-    ownerId: input.ownerId,
+    ownerId,
     filename: input.filename || input.title || 'Курс материалы',
     externalUrl: input.externalUrl,
     mimeType: input.mimeType || null,
@@ -1136,15 +1213,15 @@ export async function createCourseExternalAsset(
     visibility: 'course',
     metadata: {
       source: 'course_asset',
-      course_id: input.courseId,
+      course_id: courseId,
     },
   });
 
   try {
     return await createCourseAsset({
-      courseId: input.courseId,
+      courseId,
       fileAssetId: fileAsset.id,
-      createdBy: input.ownerId,
+      createdBy: ownerId,
       title: input.title || fileAsset.filename,
       description: input.description || null,
       sortOrder: input.sortOrder || 1,
@@ -1155,8 +1232,10 @@ export async function createCourseExternalAsset(
   }
 }
 
-export async function deleteCourseAsset(input: DeleteCourseAssetPayload | string) {
-  const assetId = typeof input === 'string' ? input : input.assetId;
+export async function deleteCourseAsset(
+  input: DeleteCourseAssetPayload | string,
+): Promise<void> {
+  const assetId = normalizeText(typeof input === 'string' ? input : input.assetId);
 
   assertNonEmptyId(assetId, 'Course asset ID');
 

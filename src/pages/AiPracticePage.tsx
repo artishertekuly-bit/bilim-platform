@@ -40,6 +40,7 @@ import {
 } from '@/lib/ai-api';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, removeNullCharacters } from '@/lib/utils';
 
 const MAX_SUBJECT_CHARS = 120;
 const MAX_TOPIC_CHARS = 200;
@@ -65,15 +66,30 @@ type SelectFieldProps = {
   disabled?: boolean;
 };
 
-function cleanText(value: unknown, limit?: number) {
-  const text = String(value ?? '')
-    .replace(/\x00/g, ' ')
+function sanitizeInputValue(value: unknown, limit?: number): string {
+  const text = removeNullCharacters(String(value ?? ''));
+
+  return typeof limit === 'number' ? text.slice(0, limit) : text;
+}
+
+function cleanText(value: unknown, limit?: number): string {
+  const text = sanitizeInputValue(value, limit).replace(/\s+/g, ' ').trim();
+
+  return typeof limit === 'number' ? text.slice(0, limit).trim() : text;
+}
+
+function cleanMultilineText(value: unknown, limit?: number): string {
+  const text = sanitizeInputValue(value, limit)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
     .trim();
 
   return typeof limit === 'number' ? text.slice(0, limit).trim() : text;
 }
 
-function isAbortLikeError(error: unknown) {
+function isAbortLikeError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') return true;
   if (!(error instanceof Error)) return false;
 
@@ -87,13 +103,13 @@ function isAbortLikeError(error: unknown) {
   );
 }
 
-function normalizeErrorMessage(error: unknown, fallback: string) {
+function normalizeErrorMessage(error: unknown, fallback: string): string {
   if (isAbortLikeError(error)) {
     return '';
   }
 
   if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
+    return cleanText(error.message, 700);
   }
 
   return fallback;
@@ -103,7 +119,7 @@ function normalizeQuestionId(
   question: GeneratedQuestion,
   index: number,
   seen: Set<string>,
-) {
+): string {
   const rawId = cleanText(question.id, 120) || `practice-question-${index + 1}`;
   let id = rawId;
   let suffix = 2;
@@ -172,10 +188,10 @@ function getQuestionContext({
   topic: string;
   subject: string;
   passage?: string;
-}) {
+}): string | undefined {
   const contextParts = [
-    cleanText(sourceText, MAX_SOURCE_TEXT_CHARS),
-    cleanText(passage, 5_000),
+    cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS),
+    cleanMultilineText(passage, 5_000),
     cleanText(question.topic, 200),
     cleanText(topic, MAX_TOPIC_CHARS),
     cleanText(subject, MAX_SUBJECT_CHARS),
@@ -184,7 +200,7 @@ function getQuestionContext({
   return contextParts.join('\n\n') || undefined;
 }
 
-function getFeedbackTone(feedback: EvaluateAnswerResponse) {
+function getFeedbackTone(feedback: EvaluateAnswerResponse): string {
   if (feedback.isCorrect === true) {
     return 'border-success-muted bg-success-soft/70 text-success-foreground';
   }
@@ -196,7 +212,7 @@ function getFeedbackTone(feedback: EvaluateAnswerResponse) {
   return 'border-warning-muted bg-warning-soft/60 text-warning-foreground';
 }
 
-function getDifficultyLabel(difficulty: Difficulty) {
+function getDifficultyLabel(difficulty: Difficulty): string {
   const labels: Record<Difficulty, string> = {
     easy: 'Оңай',
     medium: 'Орташа',
@@ -206,7 +222,7 @@ function getDifficultyLabel(difficulty: Difficulty) {
   return labels[difficulty];
 }
 
-function getQuestionKindLabel(kind: AiQuestionKind) {
+function getQuestionKindLabel(kind: AiQuestionKind): string {
   const labels: Record<AiQuestionKind, string> = {
     mixed: 'Аралас',
     multiple_choice: 'Жауап нұсқалары',
@@ -216,7 +232,7 @@ function getQuestionKindLabel(kind: AiQuestionKind) {
   return labels[kind];
 }
 
-function getQuestionTypeLabel(type: GeneratedQuestion['type']) {
+function getQuestionTypeLabel(type: GeneratedQuestion['type']): string {
   return type === 'multiple_choice' ? 'Жауап нұсқалары' : 'Қысқа жауап';
 }
 
@@ -295,11 +311,11 @@ export default function AiPracticePage() {
 
   const generatedCount = result?.questions.length || 0;
   const isAuthMissing = !accessToken;
-  const generatedPassage = result?.meta?.passage?.trim() || '';
+  const generatedPassage = cleanMultilineText(result?.meta?.passage, 5_000);
 
   const canGenerate = useMemo(() => {
-    const hasTopic = topic.trim().length > 0;
-    const hasSource = sourceText.trim().length > 0;
+    const hasTopic = cleanText(topic, MAX_TOPIC_CHARS).length > 0;
+    const hasSource = cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS).length > 0;
 
     return isStudent && !isGenerating && !isAuthMissing && (hasTopic || hasSource);
   }, [isAuthMissing, isGenerating, isStudent, sourceText, topic]);
@@ -310,7 +326,7 @@ export default function AiPracticePage() {
     return result.questions.filter((question) => {
       const value = answers[question.id];
 
-      return typeof value === 'string' && value.trim().length > 0;
+      return typeof value === 'string' && cleanMultilineText(value).length > 0;
     }).length;
   }, [answers, result]);
 
@@ -354,22 +370,20 @@ export default function AiPracticePage() {
   const handleGenerate = async () => {
     const subjectText = cleanText(subject, MAX_SUBJECT_CHARS);
     const topicText = cleanText(topic, MAX_TOPIC_CHARS);
-    const source = cleanText(sourceText, MAX_SOURCE_TEXT_CHARS);
+    const source = cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS);
 
     if (!topicText && !source) {
-      setErrorText('Кемінде тақырып немесе қысқаша мазмұн енгізіңіз.');
+      setErrorText('Тақырып немесе мәтін енгізіңіз.');
       return;
     }
 
     if (!isStudent) {
-      setErrorText('AI жаттығу тек оқушы аккаунтына арналған.');
+      setErrorText('Бұл бөлім оқушыға арналған.');
       return;
     }
 
     if (!accessToken) {
-      const message = user
-        ? 'AI жаттығуды қолдану үшін белсенді сессия қажет.'
-        : 'AI жаттығуды қолдану үшін жүйеге кіру қажет.';
+      const message = user ? 'Белсенді сессия қажет.' : 'Жүйеге кіріңіз.';
 
       setErrorText(message);
 
@@ -421,14 +435,14 @@ export default function AiPracticePage() {
 
       toast({
         title: 'Жаттығу дайын',
-        description: `${normalizedResponse.questions.length} сұрақ генерацияланды.`,
+        description: `${normalizedResponse.questions.length} сұрақ құрылды.`,
       });
     } catch (error) {
       if (!mountedRef.current || generationRequestIdRef.current !== requestId) return;
 
       const message = normalizeErrorMessage(
         error,
-        'Жаттығу сұрақтарын генерациялау мүмкін болмады.',
+        'Жаттығу сұрақтарын құру мүмкін болмады.',
       );
 
       if (!message) return;
@@ -463,46 +477,47 @@ export default function AiPracticePage() {
   };
 
   const handleAnswerChange = (questionId: string, value: string) => {
-    const nextValue = cleanText(value, MAX_ANSWER_CHARS);
+    const cleanQuestionId = cleanText(questionId, 160);
+    const nextValue = cleanMultilineText(value, MAX_ANSWER_CHARS);
+
+    if (!cleanQuestionId) return;
 
     clearError();
 
     setAnswers((prev) => ({
       ...prev,
-      [questionId]: nextValue,
+      [cleanQuestionId]: nextValue,
     }));
 
     setFeedback((prev) => {
-      if (!prev[questionId]) return prev;
+      if (!prev[cleanQuestionId]) return prev;
 
       const next = { ...prev };
-      delete next[questionId];
+      delete next[cleanQuestionId];
 
       return next;
     });
   };
 
   const handleEvaluateQuestion = async (question: GeneratedQuestion) => {
-    const studentAnswer = cleanText(answers[question.id], MAX_ANSWER_CHARS);
+    const studentAnswer = cleanMultilineText(answers[question.id], MAX_ANSWER_CHARS);
 
     if (!studentAnswer) {
       toast({
         title: 'Жауап жоқ',
-        description: 'Алдымен осы сұраққа жауап беріңіз.',
+        description: 'Алдымен жауап беріңіз.',
         variant: 'destructive',
       });
       return;
     }
 
     if (!isStudent) {
-      setErrorText('AI жаттығу тек оқушы аккаунтына арналған.');
+      setErrorText('Бұл бөлім оқушыға арналған.');
       return;
     }
 
     if (!accessToken) {
-      const message = user
-        ? 'Жауапты тексеру үшін белсенді сессия қажет.'
-        : 'Жауапты тексеру үшін жүйеге кіру қажет.';
+      const message = user ? 'Белсенді сессия қажет.' : 'Жүйеге кіріңіз.';
 
       setErrorText(message);
 
@@ -588,7 +603,7 @@ export default function AiPracticePage() {
           eyebrow={
             <>
               <Sparkles size={13} />
-              AI құралдар
+              ЖИ құралдары
             </>
           }
           icon={<BrainCircuit size={20} />}
@@ -617,17 +632,13 @@ export default function AiPracticePage() {
         />
 
         {!user ? (
-          <EmptyState
-            title="Аккаунт анықталмады"
-            text="AI жаттығуды қолдану үшін оқушы аккаунтымен жүйеге кіріңіз."
-            tone="ai"
-          />
+          <EmptyState title="Аккаунт анықталмады" text="Жүйеге кіріңіз." tone="ai" />
         ) : null}
 
         {user && !isStudent ? (
           <EmptyState
             title="Бұл бөлім оқушыға арналған"
-            text="Жаттығу сұрақтарын генерациялау және жауап тексеру оқушы режимінде қолданылады."
+            text="Оқушы аккаунтымен кіріңіз."
             tone="ai"
           />
         ) : null}
@@ -658,7 +669,9 @@ export default function AiPracticePage() {
                         value={subject}
                         maxLength={MAX_SUBJECT_CHARS}
                         onChange={(event) => {
-                          setSubject(event.target.value.slice(0, MAX_SUBJECT_CHARS));
+                          setSubject(
+                            sanitizeInputValue(event.target.value, MAX_SUBJECT_CHARS),
+                          );
                           clearError();
                         }}
                         disabled={isGenerating}
@@ -679,7 +692,9 @@ export default function AiPracticePage() {
                         value={topic}
                         maxLength={MAX_TOPIC_CHARS}
                         onChange={(event) => {
-                          setTopic(event.target.value.slice(0, MAX_TOPIC_CHARS));
+                          setTopic(
+                            sanitizeInputValue(event.target.value, MAX_TOPIC_CHARS),
+                          );
                           clearError();
                         }}
                         disabled={isGenerating}
@@ -689,7 +704,7 @@ export default function AiPracticePage() {
 
                     <SelectField
                       id="difficulty"
-                      label="Қиындық деңгейі"
+                      label="Қиындық"
                       value={difficulty}
                       onChange={(value) => setDifficulty(value as Difficulty)}
                       disabled={isGenerating}
@@ -733,7 +748,7 @@ export default function AiPracticePage() {
                       htmlFor="sourceText"
                       className="text-xs font-semibold text-foreground"
                     >
-                      Қосымша мазмұн
+                      Қосымша мәтін
                     </Label>
 
                     <Textarea
@@ -741,16 +756,18 @@ export default function AiPracticePage() {
                       value={sourceText}
                       maxLength={MAX_SOURCE_TEXT_CHARS}
                       onChange={(event) => {
-                        setSourceText(event.target.value.slice(0, MAX_SOURCE_TEXT_CHARS));
+                        setSourceText(
+                          sanitizeInputValue(event.target.value, MAX_SOURCE_TEXT_CHARS),
+                        );
                         clearError();
                       }}
                       disabled={isGenerating}
-                      placeholder="Қысқаша теория немесе контекст жазыңыз."
+                      placeholder="Қысқаша теория немесе контекст"
                       rows={6}
                     />
 
                     <p className="text-[11px] text-muted-foreground">
-                      {sourceText.length}/{MAX_SOURCE_TEXT_CHARS} таңба
+                      {sourceText.length}/{MAX_SOURCE_TEXT_CHARS}
                     </p>
                   </div>
 
@@ -766,12 +783,12 @@ export default function AiPracticePage() {
                     ) : (
                       <Sparkles size={16} className="mr-2" />
                     )}
-                    {isGenerating ? 'Жаттығу дайындалып жатыр...' : 'Жаттығу генерациялау'}
+                    {isGenerating ? 'Құрылуда...' : 'Жаттығу құру'}
                   </Button>
 
                   {isAuthMissing ? (
                     <p className="rounded-2xl border border-warning-muted bg-warning-soft px-3 py-2 text-xs leading-5 text-warning-foreground">
-                      AI жаттығуды қолдану үшін белсенді авторизация сессиясы қажет.
+                      Белсенді сессия қажет.
                     </p>
                   ) : null}
                 </CardContent>
@@ -779,9 +796,7 @@ export default function AiPracticePage() {
 
               <Card className="overflow-hidden">
                 <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-                  <CardTitle className="text-base font-semibold">
-                    Прогресс
-                  </CardTitle>
+                  <CardTitle className="text-base font-semibold">Прогресс</CardTitle>
                 </CardHeader>
 
                 <CardContent className="space-y-4 p-4 sm:p-5">
@@ -790,52 +805,19 @@ export default function AiPracticePage() {
                     <ProgressCell label="Жауап" value={answeredCount} />
                     <ProgressCell label="Тексеру" value={evaluatedCount} />
                   </div>
-
-                  {result?.meta ? (
-                    <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 text-xs leading-5 text-muted-foreground shadow-inner-soft">
-                      <p>
-                        Режим: {result.meta.mode || '—'}
-                        {result.meta.requestedKind
-                          ? ` · Түрі: ${getQuestionKindLabel(result.meta.requestedKind)}`
-                          : ''}
-                        {result.meta.examMode ? ` · Емтихан: ${result.meta.examMode}` : ''}
-                      </p>
-
-                      {result.meta.subject ? <p>Пән: {result.meta.subject}</p> : null}
-                      {result.meta.topic ? <p>Тақырып: {result.meta.topic}</p> : null}
-                    </div>
-                  ) : null}
                 </CardContent>
               </Card>
             </div>
 
-            {isGenerating ? (
-              <LoadingState text="Жаттығу сұрақтары дайындалып жатыр..." />
-            ) : null}
+            {isGenerating ? <LoadingState text="Сұрақтар құрылуда..." /> : null}
 
             {errorText ? <ErrorState text={errorText} /> : null}
 
             {!isGenerating && !errorText && result && result.questions.length === 0 ? (
               <EmptyState
-                title="Сұрақтар табылмады"
-                text="AI жауап қайтарды, бірақ қолдануға болатын сұрақтар жоқ. Тақырыпты нақтылап көріңіз."
+                title="Сұрақ жоқ"
+                text="Тақырыпты нақтылап көріңіз."
               />
-            ) : null}
-
-            {!isGenerating && generatedPassage ? (
-              <Card className="overflow-hidden">
-                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-                  <CardTitle className="text-base font-semibold">
-                    Қосымша мәтін
-                  </CardTitle>
-                </CardHeader>
-
-                <CardContent className="p-4 sm:p-5">
-                  <p className="whitespace-pre-wrap text-sm leading-7 text-muted-foreground">
-                    {generatedPassage}
-                  </p>
-                </CardContent>
-              </Card>
             ) : null}
 
             {!isGenerating && result && result.questions.length > 0 ? (
@@ -876,16 +858,18 @@ export default function AiPracticePage() {
                                   type="button"
                                   onClick={() => handleAnswerChange(question.id, option.text)}
                                   disabled={isEvaluating}
-                                  className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+                                  className={cn(
+                                    'flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70',
                                     checked
                                       ? 'border-primary bg-primary/5'
-                                      : 'border-border bg-card hover:bg-accent'
-                                  }`}
+                                      : 'border-border bg-card hover:bg-accent',
+                                  )}
                                 >
                                   <span
-                                    className={`mt-0.5 inline-block h-4 w-4 rounded-full border ${
-                                      checked ? 'border-primary bg-primary' : ''
-                                    }`}
+                                    className={cn(
+                                      'mt-0.5 inline-block h-4 w-4 rounded-full border',
+                                      checked ? 'border-primary bg-primary' : 'border-border',
+                                    )}
                                   />
                                   <span>{option.text}</span>
                                 </button>
@@ -901,12 +885,12 @@ export default function AiPracticePage() {
                               }
                               disabled={isEvaluating}
                               maxLength={MAX_ANSWER_CHARS}
-                              placeholder="Жауабыңызды жазыңыз..."
+                              placeholder="Жауабыңызды жазыңыз"
                               rows={4}
                             />
 
                             <p className="text-[11px] text-muted-foreground">
-                              {currentAnswer.length}/{MAX_ANSWER_CHARS} таңба
+                              {currentAnswer.length}/{MAX_ANSWER_CHARS}
                             </p>
                           </div>
                         )}
@@ -926,14 +910,15 @@ export default function AiPracticePage() {
                           ) : (
                             <BrainCircuit size={16} className="mr-2" />
                           )}
-                          {isEvaluating ? 'Тексерілуде...' : 'Жауапты тексеру'}
+                          {isEvaluating ? 'Тексерілуде...' : 'Тексеру'}
                         </Button>
 
                         {currentFeedback ? (
                           <div
-                            className={`rounded-3xl border p-4 shadow-inner-soft ${getFeedbackTone(
-                              currentFeedback,
-                            )}`}
+                            className={cn(
+                              'rounded-3xl border p-4 shadow-inner-soft',
+                              getFeedbackTone(currentFeedback),
+                            )}
                           >
                             <div className="mb-3 flex flex-wrap items-center gap-2">
                               <CheckCircle2 size={15} className="text-primary" />

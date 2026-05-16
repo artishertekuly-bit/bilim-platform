@@ -23,6 +23,7 @@ import {
   shouldShowCoursePricing,
 } from '@/lib/course-creator/course-builder-utils';
 import t from '@/lib/i18n';
+import { removeNullCharacters } from '@/lib/utils';
 
 type NewCourseForm = {
   title: string;
@@ -51,7 +52,7 @@ type CourseBasicCreateCardProps = {
 };
 
 const MAX_TITLE_CHARS = 180;
-const MAX_DESCRIPTION_CHARS = 1200;
+const MAX_DESCRIPTION_CHARS = 1_200;
 const MAX_CURRENCY_CHARS = 3;
 const MAX_MAX_STUDENTS_CHARS = 6;
 const DEFAULT_MODULE_TITLE = 'Кіріспе';
@@ -59,23 +60,25 @@ const DEFAULT_LESSON_TITLE = 'Курсқа кіріспе';
 const DEFAULT_PAID_PRICE = '5000';
 const DEFAULT_CURRENCY = 'KZT';
 
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+function sanitizeInputValue(value: string, limit: number): string {
+  return removeNullCharacters(value).slice(0, limit);
 }
 
-function normalizeCurrencyInput(value: string) {
-  return value
+function normalizeCurrencyInput(value: string): string {
+  return removeNullCharacters(value)
     .replace(/[^a-zA-Z]/g, '')
     .toUpperCase()
     .slice(0, MAX_CURRENCY_CHARS);
 }
 
-function normalizePositiveIntegerInput(value: string) {
-  return value.replace(/[^\d]/g, '').slice(0, MAX_MAX_STUDENTS_CHARS);
+function normalizePositiveIntegerInput(value: string): string {
+  return removeNullCharacters(value)
+    .replace(/[^\d]/g, '')
+    .slice(0, MAX_MAX_STUDENTS_CHARS);
 }
 
-function normalizePriceInput(value: string) {
-  return value.replace(/[^\d.]/g, '').slice(0, 12);
+function normalizePriceInput(value: string): string {
+  return removeNullCharacters(value).replace(/[^\d.]/g, '').slice(0, 12);
 }
 
 function ensureInitialCourseStructure(course: NewCourseForm): NewCourseForm {
@@ -152,7 +155,7 @@ export function CourseBasicCreateCard({
     newCourse.description.trim().length > 0 &&
     newCourse.subjectId.trim().length > 0;
 
-  const createButtonDisabled = creating || !basicsComplete;
+  const createButtonDisabled = creating || !basicsComplete || !canCreateCourse;
 
   useEffect(() => {
     if (!newCourse.title.trim()) return;
@@ -193,14 +196,7 @@ export function CourseBasicCreateCard({
   const handleCreateClick = () => {
     if (createButtonDisabled) return;
 
-    const normalizedCourse = ensureInitialCourseStructure(newCourse);
-
     setNewCourse((previous) => ensureInitialCourseStructure(previous));
-
-    if (!canCreateCourse && (!normalizedCourse.moduleTitle || !normalizedCourse.lessonTitle)) {
-      return;
-    }
-
     onCreateCourse();
   };
 
@@ -213,7 +209,7 @@ export function CourseBasicCreateCard({
           </CardTitle>
 
           <StatusBadge tone={canCreateCourse ? 'success' : 'muted'}>
-            {canCreateCourse ? 'Дайын' : 'Міндетті өрістер'}
+            {canCreateCourse ? 'Дайын' : 'Толтырыңыз'}
           </StatusBadge>
         </div>
       </CardHeader>
@@ -224,7 +220,7 @@ export function CourseBasicCreateCard({
           icon={<BookOpen size={16} />}
           aside={
             <StatusBadge tone={basicsComplete ? 'success' : 'muted'}>
-              {basicsComplete ? 'Толды' : 'Міндетті'}
+              {basicsComplete ? 'Дайын' : 'Толтырыңыз'}
             </StatusBadge>
           }
         >
@@ -239,7 +235,7 @@ export function CourseBasicCreateCard({
                 onChange={(event) =>
                   updateCourseField(
                     'title',
-                    cleanText(event.target.value, MAX_TITLE_CHARS),
+                    sanitizeInputValue(event.target.value, MAX_TITLE_CHARS),
                   )
                 }
                 placeholder={t(
@@ -259,7 +255,7 @@ export function CourseBasicCreateCard({
                 onChange={(event) =>
                   updateCourseField(
                     'description',
-                    cleanText(event.target.value, MAX_DESCRIPTION_CHARS),
+                    sanitizeInputValue(event.target.value, MAX_DESCRIPTION_CHARS),
                   )
                 }
                 placeholder={t(
@@ -278,7 +274,9 @@ export function CourseBasicCreateCard({
             >
               <select
                 value={newCourse.subjectId}
-                onChange={(event) => updateCourseField('subjectId', event.target.value)}
+                onChange={(event) =>
+                  updateCourseField('subjectId', event.target.value)
+                }
                 className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
               >
                 <option value="">
@@ -320,7 +318,10 @@ export function CourseBasicCreateCard({
                       inputMode="decimal"
                       value={newCourse.price}
                       onChange={(event) =>
-                        updateCourseField('price', normalizePriceInput(event.target.value))
+                        updateCourseField(
+                          'price',
+                          normalizePriceInput(event.target.value),
+                        )
                       }
                       placeholder={DEFAULT_PAID_PRICE}
                     />
@@ -360,11 +361,7 @@ export function CourseBasicCreateCard({
           </div>
         </CompactSection>
 
-        <div className="flex flex-col gap-3 rounded-3xl border border-primary-muted bg-primary-soft/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs leading-5 text-muted-foreground">
-            Курс құрылғаннан кейін модуль, сабақ, материал және жариялау баптаулары ашылады.
-          </p>
-
+        <div className="flex justify-end">
           <Button
             type="button"
             className="w-full sm:w-auto"

@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { normalizeMediaUrl } from '@/lib/media-url';
+import { removeNullCharacters } from '@/lib/utils';
 
 type CourseAssetFormState = {
   title: string;
@@ -35,18 +36,18 @@ type CourseAssetItem = {
 };
 
 const MAX_TITLE_CHARS = 180;
-const MAX_DESCRIPTION_CHARS = 1000;
+const MAX_DESCRIPTION_CHARS = 1_000;
 const MAX_EXTERNAL_URL_CHARS = 900;
 
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+function sanitizeInputValue(value: string, limit: number): string {
+  return removeNullCharacters(value).slice(0, limit);
 }
 
-function normalizeExternalUrl(value: string) {
-  return cleanText(normalizeMediaUrl(value) || '', MAX_EXTERNAL_URL_CHARS);
+function normalizeExternalUrl(value: string): string {
+  return sanitizeInputValue(normalizeMediaUrl(value) || '', MAX_EXTERNAL_URL_CHARS);
 }
 
-function getVisibleFileLabel(asset: CourseAssetItem) {
+function getVisibleFileLabel(asset: CourseAssetItem): string {
   return asset.file.externalUrl || asset.file.filename || 'Файл көрсетілмеген';
 }
 
@@ -82,9 +83,7 @@ function InlineDeleteConfirm({
 }) {
   return (
     <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
-      <p className="text-xs font-semibold text-foreground">
-        Материал өшірілсін бе?
-      </p>
+      <p className="text-xs font-semibold text-foreground">Материал өшірілсін бе?</p>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
@@ -140,7 +139,7 @@ function CourseAssetCard({
                 </p>
 
                 <StatusBadge tone={externalUrl ? 'primary' : 'muted'}>
-                  {externalUrl ? 'Сілтеме' : 'Сілтеме жоқ'}
+                  {externalUrl ? 'Сілтеме' : 'Жоқ'}
                 </StatusBadge>
               </div>
 
@@ -164,7 +163,7 @@ function CourseAssetCard({
               variant="outline"
               size="icon-sm"
               asChild
-              aria-label="Курс материалын ашу"
+              aria-label="Материалды ашу"
             >
               <a href={externalUrl} target="_blank" rel="noreferrer">
                 <ExternalLink size={13} />
@@ -178,7 +177,7 @@ function CourseAssetCard({
             size="icon-sm"
             disabled={deleting}
             onClick={onToggleDeleteConfirm}
-            aria-label="Курс материалын өшіру"
+            aria-label="Материалды өшіру"
           >
             {deleteConfirmOpen ? <X size={13} /> : <Trash2 size={13} />}
           </Button>
@@ -242,7 +241,7 @@ export function CourseMaterialsPanel({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
             <FolderOpen size={16} />
-            Курс материалдары
+            Материалдар
           </CardTitle>
 
           <StatusBadge tone="secondary">
@@ -266,7 +265,7 @@ export function CourseMaterialsPanel({
             </div>
 
             <StatusBadge tone={formComplete ? 'success' : 'muted'}>
-              {formComplete ? 'Толды' : 'Сілтеме қажет'}
+              {formComplete ? 'Дайын' : 'Толтырыңыз'}
             </StatusBadge>
           </div>
 
@@ -278,7 +277,7 @@ export function CourseMaterialsPanel({
                 onChange={(event) =>
                   updateCourseAssetField(
                     'title',
-                    cleanText(event.target.value, MAX_TITLE_CHARS),
+                    sanitizeInputValue(event.target.value, MAX_TITLE_CHARS),
                   )
                 }
                 placeholder="Материал атауы"
@@ -292,7 +291,7 @@ export function CourseMaterialsPanel({
                 onChange={(event) =>
                   updateCourseAssetField(
                     'externalUrl',
-                    cleanText(event.target.value, MAX_EXTERNAL_URL_CHARS),
+                    sanitizeInputValue(event.target.value, MAX_EXTERNAL_URL_CHARS),
                   )
                 }
                 onBlur={(event) =>
@@ -313,7 +312,7 @@ export function CourseMaterialsPanel({
                 onChange={(event) =>
                   updateCourseAssetField(
                     'description',
-                    cleanText(event.target.value, MAX_DESCRIPTION_CHARS),
+                    sanitizeInputValue(event.target.value, MAX_DESCRIPTION_CHARS),
                   )
                 }
                 placeholder="Сипаттама"
@@ -339,19 +338,13 @@ export function CourseMaterialsPanel({
         ) : null}
 
         {!courseAssetsLoading && courseAssets.length === 0 ? (
-          <EmptyState
-            title="Материал жоқ"
-            text="Материал қосыңыз."
-            compact
-          />
+          <EmptyState title="Материал жоқ" text="Әзірге дерек жоқ." compact />
         ) : null}
 
         {!courseAssetsLoading && courseAssets.length > 0 ? (
           <section className="space-y-3">
             <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 px-4 py-3">
-              <p className="text-sm font-semibold text-foreground">
-                Қосылған материалдар
-              </p>
+              <p className="text-sm font-semibold text-foreground">Қосылғандар</p>
 
               <StatusBadge tone="muted">{courseAssets.length}</StatusBadge>
             </div>

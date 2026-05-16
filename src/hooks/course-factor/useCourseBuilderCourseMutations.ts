@@ -32,6 +32,7 @@ import {
 } from '@/lib/course-creator/course-builder-utils';
 import t from '@/lib/i18n';
 import { normalizeMediaUrl } from '@/lib/media-url';
+import { removeNullCharacters } from '@/lib/utils';
 
 type ToastFn = (input: {
   title: string;
@@ -119,6 +120,18 @@ type CourseBuilderCourseMutationsInput = {
 
 const DEFAULT_CURRENCY = 'KZT';
 
+function cleanText(value: string): string {
+  return removeNullCharacters(value).trim();
+}
+
+function cleanLooseText(value: string | null | undefined): string {
+  return removeNullCharacters(value ?? '').trim();
+}
+
+function cleanContent(value: string | null | undefined): string {
+  return removeNullCharacters(value ?? '').trim();
+}
+
 function normalizeAccessType(value: unknown): CourseAccessType {
   if (
     value === 'public_free' ||
@@ -136,21 +149,21 @@ function normalizeAccessType(value: unknown): CourseAccessType {
   return 'public_free';
 }
 
-function normalizeSortOrder(value: unknown) {
+function normalizeSortOrder(value: unknown): number {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 1;
 }
 
-function normalizeNullableText(value: string) {
-  const normalized = value.replace(/\x00/g, ' ').trim();
+function normalizeNullableText(value: string | null | undefined): string | null {
+  const normalized = cleanLooseText(value);
 
   return normalized || null;
 }
 
-function getErrorMessage(error: unknown, fallback: string) {
+function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message.trim()
-    ? error.message.trim()
+    ? cleanLooseText(error.message)
     : fallback;
 }
 
@@ -160,9 +173,9 @@ function getPaidCourseMeta(input: {
   currency: string;
 }) {
   const isPaidCourse = shouldShowCoursePricing(input.accessType);
-  const price = isPaidCourse ? parsePrice(input.price) : 0;
+  const price = isPaidCourse ? parsePrice(cleanLooseText(input.price)) : 0;
   const currency = isPaidCourse
-    ? normalizeCurrency(input.currency || DEFAULT_CURRENCY)
+    ? normalizeCurrency(cleanLooseText(input.currency) || DEFAULT_CURRENCY)
     : DEFAULT_CURRENCY;
 
   if (isPaidCourse && price <= 0) {
@@ -194,8 +207,8 @@ function requireSelectedCourse(
   return selectedCourse;
 }
 
-function requireCourseTitle(title: string) {
-  const normalized = title.trim();
+function requireCourseTitle(title: string): string {
+  const normalized = cleanText(title);
 
   if (!normalized) {
     throw new Error('Курс атауын енгізіңіз.');
@@ -204,8 +217,8 @@ function requireCourseTitle(title: string) {
   return normalized;
 }
 
-function requireCourseDescription(description: string) {
-  const normalized = description.trim();
+function requireCourseDescription(description: string): string {
+  const normalized = cleanText(description);
 
   if (!normalized) {
     throw new Error('Курс сипаттамасын енгізіңіз.');
@@ -214,8 +227,8 @@ function requireCourseDescription(description: string) {
   return normalized;
 }
 
-function requireSubjectId(subjectId: string) {
-  const normalized = subjectId.trim();
+function requireSubjectId(subjectId: string): string {
+  const normalized = cleanText(subjectId);
 
   if (!normalized) {
     throw new Error('Пән таңдаңыз.');
@@ -224,8 +237,8 @@ function requireSubjectId(subjectId: string) {
   return normalized;
 }
 
-function requireModuleTitle(title: string) {
-  const normalized = title.trim();
+function requireModuleTitle(title: string): string {
+  const normalized = cleanText(title);
 
   if (!normalized) {
     throw new Error('Модуль атауын енгізіңіз.');
@@ -234,8 +247,8 @@ function requireModuleTitle(title: string) {
   return normalized;
 }
 
-function requireLessonTitle(title: string) {
-  const normalized = title.trim();
+function requireLessonTitle(title: string): string {
+  const normalized = cleanText(title);
 
   if (!normalized) {
     throw new Error('Сабақ атауын енгізіңіз.');
@@ -270,7 +283,7 @@ function findLessonInCourse(
 function getRemainingCourseId(
   workspace: TeacherCourseWorkspace | null | undefined,
   deletedCourseId: string,
-) {
+): string {
   return (
     workspace?.courses.find((course) => course.id !== deletedCourseId)?.id || ''
   );
@@ -321,7 +334,7 @@ export function useCourseBuilderCourseMutations({
         price,
         currency,
         enrollmentOpen: Boolean(newCourse.enrollmentOpen),
-        maxStudents: parseMaxStudents(newCourse.maxStudents),
+        maxStudents: parseMaxStudents(cleanLooseText(newCourse.maxStudents)),
       });
 
       if (!course?.id) {
@@ -331,7 +344,7 @@ export function useCourseBuilderCourseMutations({
       const module = await createModule({
         courseId: course.id,
         title:
-          newCourse.moduleTitle.trim() ||
+          cleanText(newCourse.moduleTitle) ||
           t('page.teacher_course_builder.defaults.module_short'),
         sortOrder: 1,
       });
@@ -344,11 +357,11 @@ export function useCourseBuilderCourseMutations({
         moduleId: module.id,
         subjectId,
         title:
-          newCourse.lessonTitle.trim() ||
+          cleanText(newCourse.lessonTitle) ||
           t('page.teacher_course_builder.defaults.lesson_short'),
-        contentBody: newCourse.lessonBody,
-        practiceContent: newCourse.lessonPractice,
-        mediaUrl: normalizeMediaUrl(newCourse.lessonVideo),
+        contentBody: cleanContent(newCourse.lessonBody),
+        practiceContent: cleanContent(newCourse.lessonPractice),
+        mediaUrl: normalizeMediaUrl(cleanLooseText(newCourse.lessonVideo)),
         sortOrder: 1,
         isPublished: false,
       });
@@ -390,15 +403,17 @@ export function useCourseBuilderCourseMutations({
         courseId: course.id,
         title: requireCourseTitle(courseEdit.title),
         description: requireCourseDescription(courseEdit.description),
-        subjectId: courseEdit.subjectId.trim() || null,
-        thumbnailUrl: normalizeNullableText(normalizeMediaUrl(courseEdit.thumbnailUrl)),
+        subjectId: normalizeNullableText(courseEdit.subjectId),
+        thumbnailUrl: normalizeNullableText(
+          normalizeMediaUrl(cleanLooseText(courseEdit.thumbnailUrl)),
+        ),
         status: courseEdit.status,
         accessType,
         visibility: resolveVisibilityFromAccessType(accessType),
         price,
         currency,
         enrollmentOpen: Boolean(courseEdit.enrollmentOpen),
-        maxStudents: parseMaxStudents(courseEdit.maxStudents),
+        maxStudents: parseMaxStudents(cleanLooseText(courseEdit.maxStudents)),
       });
     },
     onSuccess: async () => {
@@ -571,8 +586,8 @@ export function useCourseBuilderCourseMutations({
     mutationFn: async () => {
       const course = requireSelectedCourse(selectedCourse);
       const title = requireLessonTitle(lessonForm.title);
-      const sortOrder = normalizeSortOrder(lessonForm.sortOrder);
-      const mediaUrl = normalizeMediaUrl(lessonForm.mediaUrl);
+      const sortOrder = normalizeSortOrder(cleanLooseText(lessonForm.sortOrder));
+      const mediaUrl = normalizeMediaUrl(cleanLooseText(lessonForm.mediaUrl));
 
       if (!lessonForm.moduleId) {
         throw new Error('Модуль таңдалмаған.');
@@ -590,8 +605,8 @@ export function useCourseBuilderCourseMutations({
         await updateLesson({
           lessonId: editingLessonId,
           title,
-          contentBody: lessonForm.contentBody,
-          practiceContent: lessonForm.practiceContent,
+          contentBody: cleanContent(lessonForm.contentBody),
+          practiceContent: cleanContent(lessonForm.practiceContent),
           mediaUrl,
           sortOrder,
           isPublished: lessonForm.isPublished,
@@ -604,8 +619,8 @@ export function useCourseBuilderCourseMutations({
         moduleId: lessonForm.moduleId,
         subjectId: course.subjectId || undefined,
         title,
-        contentBody: lessonForm.contentBody,
-        practiceContent: lessonForm.practiceContent,
+        contentBody: cleanContent(lessonForm.contentBody),
+        practiceContent: cleanContent(lessonForm.practiceContent),
         mediaUrl,
         sortOrder,
         isPublished: lessonForm.isPublished,
@@ -827,29 +842,31 @@ export function useCourseBuilderCourseMutations({
 
   const canCreateCourse =
     Boolean(user?.id) &&
-    Boolean(newCourse.title.trim()) &&
-    Boolean(newCourse.description.trim()) &&
-    Boolean(newCourse.subjectId.trim()) &&
-    (!shouldShowCoursePricing(createAccessType) || parsePrice(newCourse.price) > 0) &&
+    Boolean(cleanText(newCourse.title)) &&
+    Boolean(cleanText(newCourse.description)) &&
+    Boolean(cleanText(newCourse.subjectId)) &&
+    (!shouldShowCoursePricing(createAccessType) ||
+      parsePrice(cleanLooseText(newCourse.price)) > 0) &&
     !createMutation.isPending;
 
   const canAddModule =
     Boolean(selectedCourse) &&
-    Boolean(moduleForm.title.trim()) &&
+    Boolean(cleanText(moduleForm.title)) &&
     !addModuleMutation.isPending;
 
   const canSaveLesson =
     Boolean(selectedCourse) &&
-    Boolean(lessonForm.moduleId) &&
-    Boolean(lessonForm.title.trim()) &&
+    Boolean(cleanText(lessonForm.moduleId)) &&
+    Boolean(cleanText(lessonForm.title)) &&
     !addOrUpdateLessonMutation.isPending;
 
   const canSaveCourse =
     Boolean(selectedCourse) &&
-    Boolean(courseEdit.title.trim()) &&
-    Boolean(courseEdit.description.trim()) &&
-    Boolean(courseEdit.subjectId.trim()) &&
-    (!shouldShowCoursePricing(editAccessType) || parsePrice(courseEdit.price) > 0) &&
+    Boolean(cleanText(courseEdit.title)) &&
+    Boolean(cleanText(courseEdit.description)) &&
+    Boolean(cleanText(courseEdit.subjectId)) &&
+    (!shouldShowCoursePricing(editAccessType) ||
+      parsePrice(cleanLooseText(courseEdit.price)) > 0) &&
     !updateCourseMutation.isPending;
 
   return {

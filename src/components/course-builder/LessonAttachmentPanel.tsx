@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { normalizeMediaUrl } from '@/lib/media-url';
+import { removeNullCharacters } from '@/lib/utils';
 
 type LessonAttachmentFormState = {
   title: string;
@@ -40,22 +41,22 @@ type LessonAttachmentLike = {
 };
 
 const MAX_TITLE_CHARS = 180;
-const MAX_DESCRIPTION_CHARS = 1000;
+const MAX_DESCRIPTION_CHARS = 1_000;
 const MAX_EXTERNAL_URL_CHARS = 900;
 
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+function sanitizeInputValue(value: string, limit: number): string {
+  return removeNullCharacters(value).slice(0, limit);
 }
 
-function normalizeExternalUrl(value: string) {
-  return cleanText(normalizeMediaUrl(value) || '', MAX_EXTERNAL_URL_CHARS);
+function normalizeExternalUrl(value: string): string {
+  return sanitizeInputValue(normalizeMediaUrl(value) || '', MAX_EXTERNAL_URL_CHARS);
 }
 
-function getVisibleFileLabel(attachment: LessonAttachmentLike) {
+function getVisibleFileLabel(attachment: LessonAttachmentLike): string {
   return attachment.file.externalUrl || attachment.file.filename || 'Файл көрсетілмеген';
 }
 
-function getVisibleTitle(attachment: LessonAttachmentLike) {
+function getVisibleTitle(attachment: LessonAttachmentLike): string {
   return attachment.title || attachment.file.filename || 'Сабақ материалы';
 }
 
@@ -91,9 +92,7 @@ function InlineDeleteConfirm({
 }) {
   return (
     <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-3">
-      <p className="text-xs font-semibold text-foreground">
-        Материал өшірілсін бе?
-      </p>
+      <p className="text-xs font-semibold text-foreground">Материал өшірілсін бе?</p>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <Button
@@ -149,7 +148,7 @@ function AttachmentCard({
                 </p>
 
                 <StatusBadge tone={externalUrl ? 'primary' : 'muted'}>
-                  {externalUrl ? 'Сілтеме' : 'Сілтеме жоқ'}
+                  {externalUrl ? 'Сілтеме' : 'Жоқ'}
                 </StatusBadge>
               </div>
 
@@ -258,7 +257,7 @@ export function LessonAttachmentPanel({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
             <Paperclip size={16} />
-            Сабақ материалдары
+            Материалдар
           </CardTitle>
 
           <StatusBadge tone="secondary">
@@ -270,11 +269,7 @@ export function LessonAttachmentPanel({
 
       <CardContent className="space-y-5 p-4 sm:p-5">
         {!hasSelectedLesson ? (
-          <EmptyState
-            title="Сабақ таңдалмаған"
-            text="Алдымен сабақты сақтаңыз."
-            compact
-          />
+          <EmptyState title="Сабақ таңдалмаған" text="Сабақты сақтаңыз." compact />
         ) : (
           <>
             <section className="rounded-3xl border border-border bg-card p-4">
@@ -290,7 +285,7 @@ export function LessonAttachmentPanel({
                 </div>
 
                 <StatusBadge tone={formComplete ? 'success' : 'muted'}>
-                  {formComplete ? 'Толды' : 'Сілтеме қажет'}
+                  {formComplete ? 'Дайын' : 'Толтырыңыз'}
                 </StatusBadge>
               </div>
 
@@ -302,7 +297,7 @@ export function LessonAttachmentPanel({
                     onChange={(event) =>
                       updateLessonAttachmentField(
                         'title',
-                        cleanText(event.target.value, MAX_TITLE_CHARS),
+                        sanitizeInputValue(event.target.value, MAX_TITLE_CHARS),
                       )
                     }
                     placeholder="Материал атауы"
@@ -316,7 +311,10 @@ export function LessonAttachmentPanel({
                     onChange={(event) =>
                       updateLessonAttachmentField(
                         'externalUrl',
-                        cleanText(event.target.value, MAX_EXTERNAL_URL_CHARS),
+                        sanitizeInputValue(
+                          event.target.value,
+                          MAX_EXTERNAL_URL_CHARS,
+                        ),
                       )
                     }
                     onBlur={(event) =>
@@ -337,7 +335,10 @@ export function LessonAttachmentPanel({
                     onChange={(event) =>
                       updateLessonAttachmentField(
                         'description',
-                        cleanText(event.target.value, MAX_DESCRIPTION_CHARS),
+                        sanitizeInputValue(
+                          event.target.value,
+                          MAX_DESCRIPTION_CHARS,
+                        ),
                       )
                     }
                     placeholder="Сипаттама"
@@ -363,19 +364,13 @@ export function LessonAttachmentPanel({
             ) : null}
 
             {!lessonAttachmentsLoading && lessonAttachments.length === 0 ? (
-              <EmptyState
-                title="Материал жоқ"
-                text="Материал қосыңыз."
-                compact
-              />
+              <EmptyState title="Материал жоқ" text="Әзірге дерек жоқ." compact />
             ) : null}
 
             {!lessonAttachmentsLoading && lessonAttachments.length > 0 ? (
               <section className="space-y-3">
                 <div className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 px-4 py-3">
-                  <p className="text-sm font-semibold text-foreground">
-                    Қосылған материалдар
-                  </p>
+                  <p className="text-sm font-semibold text-foreground">Қосылғандар</p>
 
                   <StatusBadge tone="muted">
                     {lessonAttachments.length}

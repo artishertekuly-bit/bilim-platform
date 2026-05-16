@@ -27,10 +27,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { CourseBuilderModuleView } from '@/lib/app-data-types';
-import {
-  getSortedBySortOrder,
-} from '@/lib/course-creator/course-builder-utils';
+import { getSortedBySortOrder } from '@/lib/course-creator/course-builder-utils';
 import t from '@/lib/i18n';
+import { removeNullCharacters } from '@/lib/utils';
 
 type ModuleFormState = {
   title: string;
@@ -68,14 +67,14 @@ type ModuleListPanelProps = {
 
 const MAX_MODULE_TITLE_CHARS = 180;
 
-function cleanTitle(value: string) {
-  return value.replace(/\x00/g, ' ').slice(0, MAX_MODULE_TITLE_CHARS);
+function cleanTitle(value: string): string {
+  return removeNullCharacters(value).slice(0, MAX_MODULE_TITLE_CHARS);
 }
 
 function getRemainingLessonIds(
   lessons: CourseBuilderModuleView['lessons'],
   deletedLessonId: string,
-) {
+): string[] {
   return getSortedBySortOrder(lessons || [])
     .filter((lesson) => lesson.id !== deletedLessonId)
     .map((lesson) => lesson.id);
@@ -290,11 +289,7 @@ export function ModuleListPanel({
 
       <CardContent className="space-y-5 p-4 sm:p-5">
         {selectedCourseModules.length === 0 ? (
-          <EmptyState
-            title={t('page.teacher_course_builder.empty.modules_title')}
-            text={t('page.teacher_course_builder.empty.modules_text')}
-            compact
-          />
+          <EmptyState title="Модуль жоқ" text="Алдымен модуль қосыңыз." compact />
         ) : (
           <div className="space-y-4">
             {selectedCourseModules.map((module, moduleIndex) => {
@@ -374,7 +369,7 @@ export function ModuleListPanel({
                           title="Модуль өшірілсін бе?"
                           text={
                             sortedLessons.length > 0
-                              ? 'Бұл модуль ішіндегі сабақтармен бірге өшіріледі.'
+                              ? 'Ішіндегі сабақтар да өшеді.'
                               : undefined
                           }
                           disabled={deleteModulePending}
@@ -391,7 +386,7 @@ export function ModuleListPanel({
                   <div className="space-y-2 p-4">
                     {sortedLessons.length === 0 ? (
                       <div className="rounded-3xl border border-dashed border-border bg-muted/25 p-4 text-xs text-muted-foreground">
-                        {t('page.teacher_course_builder.empty.lessons_inline')}
+                        Сабақ жоқ.
                       </div>
                     ) : (
                       sortedLessons.map((lesson, lessonIndex) => {
@@ -438,7 +433,7 @@ export function ModuleListPanel({
 
                                       {lesson.mediaUrl ? (
                                         <LessonMetaPill icon={<Video size={11} />}>
-                                          {t('page.teacher_course_builder.lesson_has_video')}
+                                          Видео
                                         </LessonMetaPill>
                                       ) : null}
 
@@ -450,7 +445,7 @@ export function ModuleListPanel({
 
                                       {lesson.hasMiniQuiz ? (
                                         <LessonMetaPill icon={<CheckCircle2 size={11} />}>
-                                          Шағын тест
+                                          Тест
                                         </LessonMetaPill>
                                       ) : null}
                                     </div>
@@ -554,9 +549,7 @@ export function ModuleListPanel({
               <Plus size={17} />
             </div>
 
-            <p className="text-sm font-semibold text-foreground">
-              Жаңа модуль
-            </p>
+            <p className="text-sm font-semibold text-foreground">Жаңа модуль</p>
           </div>
 
           <div className="space-y-3">
@@ -578,7 +571,7 @@ export function ModuleListPanel({
               />
             </div>
 
-            <Button size="sm" onClick={onAddModule} disabled={!canAddModule}>
+            <Button type="button" size="sm" onClick={onAddModule} disabled={!canAddModule}>
               <Plus size={14} className="mr-2" />
               {t('page.teacher_course_builder.action.add_module')}
             </Button>

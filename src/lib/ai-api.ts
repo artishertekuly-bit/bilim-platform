@@ -1,4 +1,4 @@
-import { limitText } from './utils';
+import { limitText, removeNullCharacters } from './utils';
 
 export class AiApiError extends Error {
   status?: number;
@@ -315,6 +315,7 @@ const MAX_ERROR_MESSAGE_LENGTH = 1_000;
 const MAX_TEXT_FIELD_CHARS = 12_000;
 const MAX_GENERATED_QUESTIONS = 100;
 const MAX_AI_EXAM_QUESTIONS = 100;
+const MAX_OPTIONS_PER_QUESTION = 8;
 
 function getEnv(): Record<string, unknown> {
   return (import.meta as ImportMeta & { env?: Record<string, unknown> }).env ?? {};
@@ -326,9 +327,7 @@ function getAiApiBaseUrl(): string {
   const baseUrl = typeof rawBaseUrl === 'string' ? rawBaseUrl.trim() : '';
 
   if (!baseUrl) {
-    throw new AiApiError(
-      'AI серверінің URL көрсетілмеген. .env файлына VITE_AI_API_BASE_URL мәнін қосыңыз.',
-    );
+    throw new AiApiError('AI серверінің URL мәні көрсетілмеген.');
   }
 
   return baseUrl.replace(/\/+$/, '');
@@ -338,12 +337,42 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function cleanText(value: unknown, limit = MAX_TEXT_FIELD_CHARS): string {
-  return limitText(value, limit);
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
 }
 
-function cleanOptionalText(value: unknown, limit = MAX_TEXT_FIELD_CHARS): string | undefined {
+function cleanText(value: unknown, limit = MAX_TEXT_FIELD_CHARS): string {
+  const normalized = cleanRawText(value).replace(/\s+/g, ' ').trim();
+
+  return limitText(normalized, limit);
+}
+
+function cleanMultilineText(value: unknown, limit = MAX_TEXT_FIELD_CHARS): string {
+  const normalized = cleanRawText(value)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+
+  return limitText(normalized, limit);
+}
+
+function cleanOptionalText(
+  value: unknown,
+  limit = MAX_TEXT_FIELD_CHARS,
+): string | undefined {
   const normalized = cleanText(value, limit);
+
+  return normalized || undefined;
+}
+
+function cleanOptionalMultilineText(
+  value: unknown,
+  limit = MAX_TEXT_FIELD_CHARS,
+): string | undefined {
+  const normalized = cleanMultilineText(value, limit);
+
   return normalized || undefined;
 }
 
@@ -352,11 +381,30 @@ function cleanNullableText(
   limit = MAX_TEXT_FIELD_CHARS,
 ): string | null | undefined {
   if (value === null) return null;
+
   return cleanOptionalText(value, limit);
 }
 
-function requireText(value: unknown, message: string, limit = MAX_TEXT_FIELD_CHARS): string {
+function requireText(
+  value: unknown,
+  message: string,
+  limit = MAX_TEXT_FIELD_CHARS,
+): string {
   const normalized = cleanText(value, limit);
+
+  if (!normalized) {
+    throw new AiApiError(message);
+  }
+
+  return normalized;
+}
+
+function requireMultilineText(
+  value: unknown,
+  message: string,
+  limit = MAX_TEXT_FIELD_CHARS,
+): string {
+  const normalized = cleanMultilineText(value, limit);
 
   if (!normalized) {
     throw new AiApiError(message);
@@ -367,11 +415,13 @@ function requireText(value: unknown, message: string, limit = MAX_TEXT_FIELD_CHA
 
 function toNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
+
   return cleanOptionalText(value);
 }
 
 function toNullableString(value: unknown): string | null | undefined {
   if (value === null) return null;
+
   return toNonEmptyString(value);
 }
 
@@ -452,8 +502,10 @@ function buildHeaders(auth?: AiAuthOptions, initHeaders?: HeadersInit): Headers 
     headers.set('Authorization', `Bearer ${accessToken}`);
   }
 
-  if (shouldSendDebugUserIdHeader() && auth?.userId?.trim()) {
-    headers.set('X-User-Id', auth.userId.trim());
+  const debugUserId = cleanOptionalText(auth?.userId, 200);
+
+  if (shouldSendDebugUserIdHeader() && debugUserId) {
+    headers.set('X-User-Id', debugUserId);
   }
 
   return headers;
@@ -463,9 +515,7 @@ function ensureRequiredAuth(options?: RequestOptions): void {
   if (options?.requireAuth === false) return;
 
   if (!options?.accessToken?.trim()) {
-    throw new AiApiError(
-      'AI сервисін қолдану үшін аккаунт сессиясы қажет. Қайта кіріп көріңіз.',
-    );
+    throw new AiApiError('AI сервисін қолдану үшін белсенді сессия қажет.');
   }
 }
 
@@ -474,9 +524,11 @@ function buildJsonBody(payload: Record<string, unknown>): string {
 }
 
 function truncateErrorMessage(value: string): string {
-  return value.length > MAX_ERROR_MESSAGE_LENGTH
-    ? `${value.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
-    : value;
+  const normalized = cleanText(value, MAX_ERROR_MESSAGE_LENGTH + 50);
+
+  return normalized.length > MAX_ERROR_MESSAGE_LENGTH
+    ? `${normalized.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
+    : normalized;
 }
 
 function extractFastApiValidationMessage(detail: unknown): string | undefined {
@@ -484,12 +536,12 @@ function extractFastApiValidationMessage(detail: unknown): string | undefined {
 
   const messages = detail
     .map((item) => {
-      if (typeof item === 'string') return item.trim();
+      if (typeof item === 'string') return cleanText(item, 300);
       if (!isRecord(item)) return '';
 
       const msg = toNonEmptyString(item.msg) ?? toNonEmptyString(item.message);
       const loc = Array.isArray(item.loc)
-        ? item.loc.map((part) => String(part)).join('.')
+        ? item.loc.map((part) => cleanText(part, 80)).filter(Boolean).join('.')
         : undefined;
 
       return msg ? (loc ? `${loc}: ${msg}` : msg) : '';
@@ -502,7 +554,7 @@ function extractFastApiValidationMessage(detail: unknown): string | undefined {
 function extractErrorMessage(body: unknown, status: number): string {
   if (isRecord(body)) {
     if (typeof body.detail === 'string' && body.detail.trim()) {
-      return truncateErrorMessage(body.detail.trim());
+      return truncateErrorMessage(body.detail);
     }
 
     const validationMessage = extractFastApiValidationMessage(body.detail);
@@ -512,36 +564,36 @@ function extractErrorMessage(body: unknown, status: number): string {
     }
 
     if (typeof body.message === 'string' && body.message.trim()) {
-      return truncateErrorMessage(body.message.trim());
+      return truncateErrorMessage(body.message);
     }
 
     if (typeof body.error === 'string' && body.error.trim()) {
-      return truncateErrorMessage(body.error.trim());
+      return truncateErrorMessage(body.error);
     }
   }
 
   if (typeof body === 'string' && body.trim()) {
-    return truncateErrorMessage(body.trim());
+    return truncateErrorMessage(body);
   }
 
   if (status === 401) {
-    return 'AI сервисі авторизацияны қабылдамады. Аккаунт сессиясын жаңартыңыз.';
+    return 'Сессия қабылданбады. Қайта кіріңіз.';
   }
 
   if (status === 403) {
-    return 'Бұл AI әрекетіне рұқсат жоқ. Рөл немесе курсқа қолжетімділікті тексеріңіз.';
+    return 'Бұл әрекетке рұқсат жоқ.';
   }
 
   if (status === 404) {
-    return 'AI маршруты табылмады. Сервер URL және backend route баптауларын тексеріңіз.';
+    return 'AI маршруты табылмады.';
   }
 
   if (status === 422) {
-    return 'AI сұранысының форматы дұрыс емес. Жіберілген деректерді тексеріңіз.';
+    return 'AI сұранысының форматы дұрыс емес.';
   }
 
   if (status >= 500) {
-    return `AI серверінде ішкі қате пайда болды (${status}). Сервер логтарын тексеріңіз.`;
+    return `AI серверінде қате пайда болды (${status}).`;
   }
 
   return `AI сервисі қате қайтарды (${status}).`;
@@ -640,7 +692,11 @@ async function aiFetch<T>(
     const body = await parseResponseBody(response);
 
     if (!response.ok) {
-      throw new AiApiError(extractErrorMessage(body, response.status), response.status, body);
+      throw new AiApiError(
+        extractErrorMessage(body, response.status),
+        response.status,
+        body,
+      );
     }
 
     return body as T;
@@ -650,13 +706,13 @@ async function aiFetch<T>(
     }
 
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new AiApiError('AI сұранысы уақытынан асып кетті немесе тоқтатылды.');
+      throw new AiApiError('AI сұранысы тоқтатылды немесе уақытынан асты.');
     }
 
     const message =
       error instanceof Error
-        ? `AI серверіне қосылу сәтсіз аяқталды: ${error.message}`
-        : 'AI серверіне қосылу сәтсіз аяқталды.';
+        ? `AI серверіне қосылу мүмкін болмады: ${cleanText(error.message, 500)}`
+        : 'AI серверіне қосылу мүмкін болмады.';
 
     throw new AiApiError(message);
   } finally {
@@ -668,7 +724,7 @@ function normalizeContextPayload(
   value: string | Record<string, unknown> | unknown[] | undefined,
 ): string | Record<string, unknown> | unknown[] | undefined {
   if (typeof value === 'string') {
-    return cleanOptionalText(value);
+    return cleanOptionalMultilineText(value);
   }
 
   return value;
@@ -678,7 +734,8 @@ function normalizeTutorContextPayload(
   value: string | Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
   if (typeof value === 'string') {
-    const passage = cleanOptionalText(value);
+    const passage = cleanOptionalMultilineText(value);
+
     return passage ? { passage } : undefined;
   }
 
@@ -690,7 +747,7 @@ function normalizeAnswerPayload(value: string | string[]): string | string[] {
     return value.map((item) => cleanText(item, 1_000)).filter(Boolean);
   }
 
-  return cleanText(value, 2_000);
+  return cleanMultilineText(value, 2_000);
 }
 
 function normalizeLearningScopePayload(scope?: LearningAiScope | null): LearningAiScope | null {
@@ -725,7 +782,7 @@ function normalizeConversationHistoryPayload(
 
       return {
         role,
-        content: cleanText(message.content, 8_000),
+        content: cleanMultilineText(message.content, 8_000),
       };
     })
     .filter((message) => Boolean(message.content))
@@ -766,6 +823,19 @@ function normalizeGeneratedQuestionOption(
   };
 }
 
+function normalizeQuestionOptions(value: unknown): GeneratedQuestionOption[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const options = value
+    .slice(0, MAX_OPTIONS_PER_QUESTION)
+    .map((option, optionIndex) =>
+      normalizeGeneratedQuestionOption(option, optionIndex),
+    )
+    .filter((option) => Boolean(option.text));
+
+  return options.length > 0 ? options : undefined;
+}
+
 function normalizeCorrectAnswer(
   value: unknown,
   options?: GeneratedQuestionOption[],
@@ -803,17 +873,10 @@ function normalizeCorrectAnswer(
 
 function normalizeGeneratedQuestion(item: unknown, index: number): GeneratedQuestion {
   const row = isRecord(item) ? item : {};
-
-  const options = Array.isArray(row.options)
-    ? row.options
-        .map((option, optionIndex) =>
-          normalizeGeneratedQuestionOption(option, optionIndex),
-        )
-        .filter((option) => Boolean(option.text))
-    : undefined;
-
+  const options = normalizeQuestionOptions(row.options);
   const answerFormat = toNonEmptyString(row.answer_format ?? row.answerFormat);
-  const type =
+
+  const type: GeneratedQuestion['type'] =
     row.type === 'short_answer' || row.type === 'multiple_choice'
       ? row.type
       : answerFormat === 'mcq'
@@ -828,20 +891,26 @@ function normalizeGeneratedQuestion(item: unknown, index: number): GeneratedQues
   );
 
   return {
-    id: cleanText(row.id ?? row.question_id ?? row.questionId ?? `generated-${index + 1}`, 200),
+    id: cleanText(
+      row.id ?? row.question_id ?? row.questionId ?? `generated-${index + 1}`,
+      200,
+    ),
     type,
-    question: cleanText(row.question ?? row.text ?? row.questionText, 3_000),
-    options: options?.length ? options : undefined,
+    question: cleanMultilineText(row.question ?? row.text ?? row.questionText, 3_000),
+    options,
     correctAnswer,
     explanation:
       typeof row.explanation === 'string'
-        ? cleanText(row.explanation, 3_000)
+        ? cleanMultilineText(row.explanation, 3_000)
         : typeof row.reference_answer === 'string'
-          ? cleanText(row.reference_answer, 3_000)
+          ? cleanMultilineText(row.reference_answer, 3_000)
           : typeof row.referenceAnswer === 'string'
-            ? cleanText(row.referenceAnswer, 3_000)
+            ? cleanMultilineText(row.referenceAnswer, 3_000)
             : undefined,
-    difficulty: typeof row.difficulty === 'string' ? cleanText(row.difficulty, 120) : undefined,
+    difficulty:
+      typeof row.difficulty === 'string'
+        ? cleanText(row.difficulty, 120)
+        : undefined,
     topic: typeof row.topic === 'string' ? cleanText(row.topic, 240) : undefined,
   };
 }
@@ -857,7 +926,10 @@ function normalizeGenerationMeta(payload: unknown): GenerateQuestionsMeta | unde
     mode: toNonEmptyString(meta.mode),
     subject: toNonEmptyString(meta.subject),
     topic: toNullableString(meta.topic) ?? null,
-    passage: toNonEmptyString(meta.passage),
+    passage:
+      typeof meta.passage === 'string'
+        ? cleanOptionalMultilineText(meta.passage, 12_000)
+        : undefined,
     requestedCount: toNumber(meta.requestedCount ?? meta.requested_count),
     returnedCount: toNumber(meta.returnedCount ?? meta.returned_count),
     requestedKind: toOptionalQuestionKind(meta.requestedKind ?? meta.requested_kind),
@@ -892,7 +964,7 @@ function normalizeTutorMessage(message: unknown, fallbackId: string): TutorMessa
   return {
     id: cleanText(row.id ?? fallbackId, 200),
     role,
-    content: cleanText(row.content, 8_000),
+    content: cleanMultilineText(row.content, 8_000),
     createdAt:
       typeof row.created_at === 'string'
         ? row.created_at
@@ -959,17 +1031,10 @@ function normalizeAiExamSummary(
 
 function normalizeAiExamQuestion(item: unknown, index: number): AiExamQuestion {
   const row = isRecord(item) ? item : {};
-
-  const options = Array.isArray(row.options)
-    ? row.options
-        .map((option, optionIndex) =>
-          normalizeGeneratedQuestionOption(option, optionIndex),
-        )
-        .filter((option) => Boolean(option.text))
-    : undefined;
-
+  const options = normalizeQuestionOptions(row.options);
   const answerFormat = toNonEmptyString(row.answer_format ?? row.answerFormat);
-  const type =
+
+  const type: AiExamQuestion['type'] =
     row.type === 'short_answer' || row.type === 'multiple_choice'
       ? row.type
       : row.questionType === 'single_choice' || row.questionType === 'multiple_choice'
@@ -981,21 +1046,27 @@ function normalizeAiExamQuestion(item: unknown, index: number): AiExamQuestion {
             : 'short_answer';
 
   return {
-    id: cleanText(row.id ?? row.question_id ?? row.questionId ?? `exam-question-${index + 1}`, 200),
+    id: cleanText(
+      row.id ?? row.question_id ?? row.questionId ?? `exam-question-${index + 1}`,
+      200,
+    ),
     type,
-    question: cleanText(row.question ?? row.questionText ?? row.text, 3_000),
-    options: options?.length ? options : undefined,
+    question: cleanMultilineText(row.question ?? row.questionText ?? row.text, 3_000),
+    options,
     points: toNumber(row.points),
     correctAnswer: normalizeCorrectAnswer(row.correctAnswer ?? row.correct_answer, options),
     explanation:
       typeof row.explanation === 'string'
-        ? cleanText(row.explanation, 3_000)
+        ? cleanMultilineText(row.explanation, 3_000)
         : typeof row.reference_answer === 'string'
-          ? cleanText(row.reference_answer, 3_000)
+          ? cleanMultilineText(row.reference_answer, 3_000)
           : typeof row.referenceAnswer === 'string'
-            ? cleanText(row.referenceAnswer, 3_000)
+            ? cleanMultilineText(row.referenceAnswer, 3_000)
             : undefined,
-    difficulty: typeof row.difficulty === 'string' ? cleanText(row.difficulty, 120) : undefined,
+    difficulty:
+      typeof row.difficulty === 'string'
+        ? cleanText(row.difficulty, 120)
+        : undefined,
     topic: typeof row.topic === 'string' ? cleanText(row.topic, 240) : undefined,
   };
 }
@@ -1007,6 +1078,16 @@ function normalizeAiExamQuestions(items: unknown): AiExamQuestion[] {
         .map((item, index) => normalizeAiExamQuestion(item, index))
         .filter((item) => Boolean(item.question))
     : [];
+}
+
+function getResponseQuestions(row: JsonRecord): unknown {
+  if (Array.isArray(row.questions)) return row.questions;
+
+  if (isRecord(row.exam) && Array.isArray(row.exam.questions)) {
+    return row.exam.questions;
+  }
+
+  return [];
 }
 
 function normalizeSubmitAiExamResponse(payload: unknown): SubmitAiExamResponse {
@@ -1027,7 +1108,10 @@ function normalizeSubmitAiExamResponse(payload: unknown): SubmitAiExamResponse {
           ? toNumber(row.maxScore)
           : undefined,
     percentage: row.percentage !== undefined ? toNumber(row.percentage) : undefined,
-    feedback: typeof row.feedback === 'string' ? cleanText(row.feedback, 4_000) : undefined,
+    feedback:
+      typeof row.feedback === 'string'
+        ? cleanMultilineText(row.feedback, 4_000)
+        : undefined,
     breakdown: Array.isArray(row.breakdown)
       ? row.breakdown
           .map((item) => {
@@ -1050,7 +1134,7 @@ function normalizeSubmitAiExamResponse(payload: unknown): SubmitAiExamResponse {
                     : undefined,
               feedback:
                 typeof part.feedback === 'string'
-                  ? cleanText(part.feedback, 1_000)
+                  ? cleanMultilineText(part.feedback, 1_000)
                   : undefined,
             };
           })
@@ -1068,7 +1152,7 @@ function normalizeAnswerValue(value: unknown): string {
       .join(', ');
   }
 
-  return cleanText(value, 2_000);
+  return cleanMultilineText(value, 2_000);
 }
 
 function normalizeAiExamAttemptAnswer(item: unknown): AiExamAttemptAnswer {
@@ -1168,7 +1252,7 @@ function normalizeLearningAnalysisResponse(
   const row = isRecord(payload) ? payload : {};
 
   return {
-    answer: cleanText(row.answer, 12_000),
+    answer: cleanMultilineText(row.answer, 12_000),
     generatedAt:
       toNonEmptyString(row.generated_at ?? row.generatedAt) ?? new Date().toISOString(),
     mode: toLearningAiMode(row.mode) ?? fallbackMode,
@@ -1218,7 +1302,7 @@ export async function generateQuestions(
     {
       method: 'POST',
       body: buildJsonBody({
-        source_text: cleanOptionalText(input.sourceText),
+        source_text: cleanOptionalMultilineText(input.sourceText),
         topic: cleanOptionalText(input.topic, 240),
         subject: cleanOptionalText(input.subject, 240),
         difficulty: input.difficulty,
@@ -1244,11 +1328,19 @@ export async function evaluateAnswer(
       method: 'POST',
       body: buildJsonBody({
         question_id: cleanOptionalText(input.questionId, 200),
-        question: requireText(input.question, 'Сұрақ мәтіні бос болмауы керек.', 3_000),
-        expected_answer: cleanOptionalText(input.expectedAnswer, 3_000),
-        reference_answer: cleanOptionalText(input.referenceAnswer, 3_000),
-        student_answer: requireText(input.studentAnswer, 'Жауап мәтіні бос болмауы керек.', 3_000),
-        rubric: cleanOptionalText(input.rubric, 3_000),
+        question: requireMultilineText(
+          input.question,
+          'Сұрақ мәтіні бос болмауы керек.',
+          3_000,
+        ),
+        expected_answer: cleanOptionalMultilineText(input.expectedAnswer, 3_000),
+        reference_answer: cleanOptionalMultilineText(input.referenceAnswer, 3_000),
+        student_answer: requireMultilineText(
+          input.studentAnswer,
+          'Жауап мәтіні бос болмауы керек.',
+          3_000,
+        ),
+        rubric: cleanOptionalMultilineText(input.rubric, 3_000),
         context: normalizeContextPayload(input.context),
         options: Array.isArray(input.options)
           ? input.options.map((item) => cleanText(item, 1_000)).filter(Boolean)
@@ -1275,14 +1367,14 @@ export async function evaluateAnswer(
         : typeof row.isCorrect === 'boolean'
           ? row.isCorrect
           : undefined,
-    feedback: cleanText(row.feedback ?? row.comment, 4_000),
+    feedback: cleanMultilineText(row.feedback ?? row.comment, 4_000),
     explanation:
       typeof row.explanation === 'string'
-        ? cleanText(row.explanation, 4_000)
+        ? cleanMultilineText(row.explanation, 4_000)
         : undefined,
     suggestion:
       typeof row.suggestion === 'string'
-        ? cleanText(row.suggestion, 2_000)
+        ? cleanMultilineText(row.suggestion, 2_000)
         : undefined,
     strengths: normalizeStringArray(row.strengths),
     weaknesses: normalizeStringArray(row.weaknesses),
@@ -1302,7 +1394,7 @@ export async function createTutorSession(
         lesson_id: cleanOptionalText(input.lessonId, 200),
         topic: cleanOptionalText(input.topic, 240),
         subject: cleanOptionalText(input.subject, 240),
-        initial_context: cleanOptionalText(input.initialContext, 8_000),
+        initial_context: cleanOptionalMultilineText(input.initialContext, 8_000),
       }),
     },
     options,
@@ -1318,7 +1410,12 @@ export async function createTutorSession(
       lessonId:
         session.lesson_id === null
           ? null
-          : toNonEmptyString(session.lesson_id ?? session.lessonId ?? row.lesson_id ?? row.lessonId) ?? null,
+          : toNonEmptyString(
+              session.lesson_id ??
+                session.lessonId ??
+                row.lesson_id ??
+                row.lessonId,
+            ) ?? null,
       subject:
         session.subject === null
           ? null
@@ -1351,8 +1448,16 @@ export async function sendTutorMessage(
   input: SendTutorMessageRequest,
   options?: RequestOptions,
 ): Promise<SendTutorMessageResponse> {
-  const sessionId = requireText(input.sessionId, 'AI сессиясының id мәні бос болмауы керек.', 200);
-  const message = requireText(input.message, 'Хабарлама мәтіні бос болмауы керек.', 8_000);
+  const sessionId = requireText(
+    input.sessionId,
+    'AI сессиясының id мәні бос болмауы керек.',
+    200,
+  );
+  const message = requireMultilineText(
+    input.message,
+    'Хабарлама мәтіні бос болмауы керек.',
+    8_000,
+  );
 
   const payload = await aiFetch<unknown>(
     '/api/ai/tutor/chat',
@@ -1398,7 +1503,7 @@ export async function createAiExam(
       method: 'POST',
       body: buildJsonBody({
         title,
-        source_text: cleanOptionalText(input.sourceText),
+        source_text: cleanOptionalMultilineText(input.sourceText),
         topic: cleanOptionalText(input.topic, 240),
         subject: cleanOptionalText(input.subject, 240),
         difficulty: input.difficulty,
@@ -1420,7 +1525,7 @@ export async function createAiExam(
     exam: normalizeAiExamSummary(row.exam ?? row, {
       title,
     }),
-    questions: normalizeAiExamQuestions(row.questions),
+    questions: normalizeAiExamQuestions(getResponseQuestions(row)),
     meta: normalizeGenerationMeta(payload),
     testImportPayload: row.test_import_payload ?? row.testImportPayload,
     raw: payload,
@@ -1446,7 +1551,7 @@ export async function getAiExamSession(
       id: examId,
       title: 'AI емтихан',
     }),
-    questions: normalizeAiExamQuestions(row.questions),
+    questions: normalizeAiExamQuestions(getResponseQuestions(row)),
     startedAt:
       row.started_at === null
         ? null
@@ -1548,7 +1653,7 @@ export async function updateAiExamStatus(
       title: 'AI емтихан',
       status,
     }),
-    questions: normalizeAiExamQuestions(row.questions),
+    questions: normalizeAiExamQuestions(getResponseQuestions(row)),
     meta: normalizeGenerationMeta(payload),
     testImportPayload: row.test_import_payload ?? row.testImportPayload,
     raw: payload,
@@ -1583,7 +1688,11 @@ export async function createLearningAnalysis(
   input: LearningAiRequest,
   options?: RequestOptions,
 ): Promise<LearningAiResponse> {
-  const prompt = requireText(input.prompt, 'AI сұранысының мәтіні бос болмауы керек.', 12_000);
+  const prompt = requireMultilineText(
+    input.prompt,
+    'AI сұранысының мәтіні бос болмауы керек.',
+    12_000,
+  );
 
   const payload = await aiFetch<unknown>(
     '/api/learning-analysis',

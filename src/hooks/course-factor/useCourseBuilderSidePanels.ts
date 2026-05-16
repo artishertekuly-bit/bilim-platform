@@ -25,6 +25,7 @@ import {
   toDateTimeLocalValue,
 } from '@/lib/course-creator/course-builder-utils';
 import t from '@/lib/i18n';
+import { removeNullCharacters } from '@/lib/utils';
 
 type ToastFn = (input: {
   title: string;
@@ -37,8 +38,7 @@ type SidePanelUser = {
 } | null | undefined;
 
 type CourseBuilderCourse = TeacherCourseWorkspace['courses'][number];
-type CourseBuilderModule = CourseBuilderCourse['modules'][number];
-type CourseBuilderLesson = CourseBuilderModule['lessons'][number];
+type CourseBuilderLesson = CourseBuilderCourse['modules'][number]['lessons'][number];
 
 type InviteForm = {
   maxUses: string;
@@ -116,13 +116,17 @@ const emptyAnnouncementForm: AnnouncementForm = {
   expiresAt: '',
 };
 
-function getErrorMessage(error: unknown, fallback = 'Белгісіз қате пайда болды.') {
+function cleanText(value: string | null | undefined): string {
+  return removeNullCharacters(value ?? '').trim();
+}
+
+function getErrorMessage(error: unknown, fallback = 'Қате пайда болды.'): string {
   return error instanceof Error && error.message.trim()
-    ? error.message.trim()
+    ? cleanText(error.message)
     : fallback;
 }
 
-function requireUserId(user: SidePanelUser) {
+function requireUserId(user: SidePanelUser): string {
   if (!user?.id) {
     throw new Error('Пайдаланушы табылмады.');
   }
@@ -130,7 +134,7 @@ function requireUserId(user: SidePanelUser) {
   return user.id;
 }
 
-function requireCourse(course?: CourseBuilderCourse | null) {
+function requireCourse(course?: CourseBuilderCourse | null): CourseBuilderCourse {
   if (!course?.id) {
     throw new Error('Курс таңдалмаған.');
   }
@@ -138,7 +142,7 @@ function requireCourse(course?: CourseBuilderCourse | null) {
   return course;
 }
 
-function requireLesson(lesson?: CourseBuilderLesson | null) {
+function requireLesson(lesson?: CourseBuilderLesson | null): CourseBuilderLesson {
   if (!lesson?.id) {
     throw new Error('Сабақ таңдалмаған.');
   }
@@ -146,22 +150,22 @@ function requireLesson(lesson?: CourseBuilderLesson | null) {
   return lesson;
 }
 
-function parseInviteMaxUses(value: string) {
-  const trimmed = value.trim();
+function parseInviteMaxUses(value: string): number | null {
+  const trimmed = cleanText(value);
 
   if (!trimmed) return null;
 
   const maxUses = Number(trimmed);
 
   if (!Number.isInteger(maxUses) || maxUses <= 0) {
-    throw new Error('Қолдану лимиті бос немесе 1-ден жоғары бүтін сан болуы керек.');
+    throw new Error('Лимит 1-ден жоғары бүтін сан болуы керек.');
   }
 
   return maxUses;
 }
 
-function parseOptionalDateTime(value: string) {
-  const trimmed = value.trim();
+function parseOptionalDateTime(value: string): string | null {
+  const trimmed = cleanText(value);
 
   if (!trimmed) return null;
 
@@ -174,8 +178,8 @@ function parseOptionalDateTime(value: string) {
   return date.toISOString();
 }
 
-function normalizeRequiredExternalUrl(value: string) {
-  const normalized = normalizeExternalUrlInput(value);
+function normalizeRequiredExternalUrl(value: string): string {
+  const normalized = normalizeExternalUrlInput(cleanText(value));
 
   if (!normalized) {
     throw new Error('Сілтеме енгізіңіз.');
@@ -184,12 +188,12 @@ function normalizeRequiredExternalUrl(value: string) {
   return normalized;
 }
 
-function normalizeTitle(value: string, fallback: string) {
-  return value.replace(/\x00/g, ' ').trim() || fallback;
+function normalizeTitle(value: string, fallback: string): string {
+  return cleanText(value) || fallback;
 }
 
-function normalizeDescription(value: string) {
-  return value.replace(/\x00/g, ' ').trim() || null;
+function normalizeDescription(value: string): string | null {
+  return cleanText(value) || null;
 }
 
 export function useCourseBuilderSidePanels({
@@ -250,7 +254,6 @@ export function useCourseBuilderSidePanels({
 
       toast({
         title: 'Шақыру коды жасалды',
-        description: 'Оқушылар осы код арқылы курсқа кіре алады.',
       });
     } catch (error) {
       toast({
@@ -266,11 +269,13 @@ export function useCourseBuilderSidePanels({
 
   const handleDeactivateInvite = async (inviteId: string) => {
     try {
-      if (!inviteId) {
+      const cleanInviteId = cleanText(inviteId);
+
+      if (!cleanInviteId) {
         throw new Error('Шақыру коды табылмады.');
       }
 
-      await deactivateInviteMutation.mutateAsync(inviteId);
+      await deactivateInviteMutation.mutateAsync(cleanInviteId);
       await refetchWorkspace();
 
       toast({
@@ -289,7 +294,7 @@ export function useCourseBuilderSidePanels({
   };
 
   const copyInviteCode = async (code: string) => {
-    const cleanCode = code.trim();
+    const cleanCode = cleanText(code);
 
     if (!cleanCode) {
       toast({
@@ -303,8 +308,7 @@ export function useCourseBuilderSidePanels({
       await navigator.clipboard.writeText(cleanCode);
 
       toast({
-        title: 'Шақыру коды көшірілді',
-        description: cleanCode,
+        title: 'Код көшірілді',
       });
     } catch {
       toast({
@@ -321,17 +325,15 @@ export function useCourseBuilderSidePanels({
       const teacherId = requireUserId(user);
 
       const externalUrl = normalizeRequiredExternalUrl(courseAssetForm.externalUrl);
-      const filename = getFilenameFromUrl(
-        externalUrl,
-        normalizeTitle(courseAssetForm.title, 'Курс материалы'),
-      );
+      const fallbackTitle = normalizeTitle(courseAssetForm.title, 'Курс материалы');
+      const filename = getFilenameFromUrl(externalUrl, fallbackTitle);
 
       await createCourseAssetMutation.mutateAsync({
         ownerId: teacherId,
         courseId: course.id,
         filename,
         externalUrl,
-        title: formatAssetTitle(courseAssetForm.title, filename),
+        title: formatAssetTitle(cleanText(courseAssetForm.title), filename),
         description: normalizeDescription(courseAssetForm.description),
         sortOrder: (courseAssets?.length || 0) + 1,
         teacherId,
@@ -341,11 +343,11 @@ export function useCourseBuilderSidePanels({
       await refetchWorkspace();
 
       toast({
-        title: 'Курс материалы қосылды',
+        title: 'Материал қосылды',
       });
     } catch (error) {
       toast({
-        title: 'Курс материалын қосу мүмкін болмады',
+        title: 'Материал қосу мүмкін болмады',
         description: getErrorMessage(error),
         variant: 'destructive',
       });
@@ -356,13 +358,14 @@ export function useCourseBuilderSidePanels({
     try {
       const course = requireCourse(selectedCourse);
       const teacherId = requireUserId(user);
+      const cleanAssetId = cleanText(assetId);
 
-      if (!assetId) {
+      if (!cleanAssetId) {
         throw new Error('Материал ID табылмады.');
       }
 
       await deleteCourseAssetMutation.mutateAsync({
-        assetId,
+        assetId: cleanAssetId,
         courseId: course.id,
         teacherId,
       });
@@ -370,11 +373,11 @@ export function useCourseBuilderSidePanels({
       await refetchWorkspace();
 
       toast({
-        title: 'Курс материалы өшірілді',
+        title: 'Материал өшірілді',
       });
     } catch (error) {
       toast({
-        title: 'Курс материалын өшіру мүмкін болмады',
+        title: 'Материалды өшіру мүмкін болмады',
         description: getErrorMessage(error),
         variant: 'destructive',
       });
@@ -385,8 +388,8 @@ export function useCourseBuilderSidePanels({
     setEditingAnnouncementId(announcement.id);
 
     setAnnouncementForm({
-      title: announcement.title,
-      body: announcement.body,
+      title: cleanText(announcement.title),
+      body: cleanText(announcement.body),
       priority: announcement.priority,
       isPinned: announcement.isPinned,
       expiresAt: toDateTimeLocalValue(announcement.expiresAt),
@@ -400,8 +403,8 @@ export function useCourseBuilderSidePanels({
       const course = requireCourse(selectedCourse);
       const teacherId = requireUserId(user);
 
-      const title = announcementForm.title.trim();
-      const body = announcementForm.body.trim();
+      const title = cleanText(announcementForm.title);
+      const body = cleanText(announcementForm.body);
 
       if (!title || !body) {
         throw new Error('Тақырып пен мәтінді толтырыңыз.');
@@ -457,7 +460,7 @@ export function useCourseBuilderSidePanels({
       const course = requireCourse(selectedCourse);
       const teacherId = requireUserId(user);
 
-      if (!window.confirm('Бұл хабарландыруды өшіргіңіз келе ме?')) {
+      if (!window.confirm('Хабарландыру өшірілсін бе?')) {
         return;
       }
 
@@ -494,10 +497,11 @@ export function useCourseBuilderSidePanels({
       const externalUrl = normalizeRequiredExternalUrl(
         lessonAttachmentForm.externalUrl,
       );
-      const filename = getFilenameFromUrl(
-        externalUrl,
-        normalizeTitle(lessonAttachmentForm.title, 'Сабақ материалы'),
+      const fallbackTitle = normalizeTitle(
+        lessonAttachmentForm.title,
+        'Сабақ материалы',
       );
+      const filename = getFilenameFromUrl(externalUrl, fallbackTitle);
 
       await createLessonAttachmentMutation.mutateAsync({
         ownerId: teacherId,
@@ -505,7 +509,7 @@ export function useCourseBuilderSidePanels({
         courseId: course.id,
         filename,
         externalUrl,
-        title: formatAssetTitle(lessonAttachmentForm.title, filename),
+        title: formatAssetTitle(cleanText(lessonAttachmentForm.title), filename),
         description: normalizeDescription(lessonAttachmentForm.description),
         sortOrder: (lessonAttachments?.length || 0) + 1,
         teacherId,
@@ -515,11 +519,11 @@ export function useCourseBuilderSidePanels({
       await refetchWorkspace();
 
       toast({
-        title: 'Сабақ файлы қосылды',
+        title: 'Сабақ материалы қосылды',
       });
     } catch (error) {
       toast({
-        title: 'Сабақ файлын қосу мүмкін болмады',
+        title: 'Сабақ материалын қосу мүмкін болмады',
         description: getErrorMessage(error),
         variant: 'destructive',
       });
@@ -531,13 +535,14 @@ export function useCourseBuilderSidePanels({
       const course = requireCourse(selectedCourse);
       const lesson = requireLesson(selectedEditingLesson);
       const teacherId = requireUserId(user);
+      const cleanAttachmentId = cleanText(attachmentId);
 
-      if (!attachmentId) {
-        throw new Error('Файл ID табылмады.');
+      if (!cleanAttachmentId) {
+        throw new Error('Материал ID табылмады.');
       }
 
       await deleteLessonAttachmentMutation.mutateAsync({
-        attachmentId,
+        attachmentId: cleanAttachmentId,
         lessonId: lesson.id,
         courseId: course.id,
         teacherId,
@@ -546,11 +551,11 @@ export function useCourseBuilderSidePanels({
       await refetchWorkspace();
 
       toast({
-        title: 'Сабақ файлы өшірілді',
+        title: 'Сабақ материалы өшірілді',
       });
     } catch (error) {
       toast({
-        title: 'Сабақ файлын өшіру мүмкін болмады',
+        title: 'Сабақ материалын өшіру мүмкін болмады',
         description: getErrorMessage(error),
         variant: 'destructive',
       });
@@ -560,14 +565,14 @@ export function useCourseBuilderSidePanels({
   const canCreateCourseAsset =
     Boolean(selectedCourse?.id) &&
     Boolean(user?.id) &&
-    Boolean(courseAssetForm.externalUrl.trim()) &&
+    Boolean(cleanText(courseAssetForm.externalUrl)) &&
     !createCourseAssetMutation.isPending;
 
   const canSaveAnnouncement =
     Boolean(selectedCourse?.id) &&
     Boolean(user?.id) &&
-    Boolean(announcementForm.title.trim()) &&
-    Boolean(announcementForm.body.trim()) &&
+    Boolean(cleanText(announcementForm.title)) &&
+    Boolean(cleanText(announcementForm.body)) &&
     !createAnnouncementMutation.isPending &&
     !updateAnnouncementMutation.isPending;
 
@@ -575,7 +580,7 @@ export function useCourseBuilderSidePanels({
     Boolean(selectedCourse?.id) &&
     Boolean(selectedEditingLesson?.id) &&
     Boolean(user?.id) &&
-    Boolean(lessonAttachmentForm.externalUrl.trim()) &&
+    Boolean(cleanText(lessonAttachmentForm.externalUrl)) &&
     !createLessonAttachmentMutation.isPending;
 
   return {

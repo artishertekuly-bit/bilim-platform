@@ -32,6 +32,7 @@ import type {
   UpdateLessonMiniQuizQuestionPayload,
   UpsertLessonMiniQuizPayload,
 } from '@/lib/app-data-types';
+import { removeNullCharacters } from '@/lib/utils';
 import { execOrThrow, localizedText, queryOrThrow } from './common';
 
 /* ================= TYPES ================= */
@@ -80,19 +81,18 @@ type CurrentUserContext = {
 
 /* ================= NORMALIZE ================= */
 
-function normalizeText(value: unknown) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+function normalizeText(value: unknown): string {
+  return removeNullCharacters(String(value ?? '')).replace(/\s+/g, ' ').trim();
 }
 
-function normalizeNullableText(value: unknown) {
+function normalizeNullableText(value: unknown): string | null {
   const normalized = normalizeText(value);
 
   return normalized || null;
 }
 
-function normalizeMultilineText(value: unknown) {
-  return String(value ?? '')
-    .replace(/\x00/g, ' ')
+function normalizeMultilineText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''))
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/[ \t]+\n/g, '\n')
@@ -100,7 +100,7 @@ function normalizeMultilineText(value: unknown) {
     .trim();
 }
 
-function normalizeNullableMultilineText(value: unknown) {
+function normalizeNullableMultilineText(value: unknown): string | null {
   const normalized = normalizeMultilineText(value);
 
   return normalized || null;
@@ -152,7 +152,7 @@ function normalizeCourseVisibility(
   return getDefaultVisibilityForAccessType(accessType);
 }
 
-function normalizeOptionalIsoDate(value: unknown) {
+function normalizeOptionalIsoDate(value: unknown): string | null {
   const normalized = normalizeNullableText(value);
 
   if (!normalized) return null;
@@ -166,11 +166,11 @@ function normalizeOptionalIsoDate(value: unknown) {
   return date.toISOString();
 }
 
-function normalizeCurrency(currency?: string | null) {
+function normalizeCurrency(currency?: string | null): string {
   return normalizeText(currency || 'KZT').toUpperCase();
 }
 
-function normalizePositiveInteger(value: unknown, fallback = 1) {
+function normalizePositiveInteger(value: unknown, fallback = 1): number {
   const parsed = Number(value);
 
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -200,10 +200,12 @@ function normalizeMiniQuizAnswers(value: unknown): Record<string, number[]> {
   }
 
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([questionId, answer]) => [
-      questionId,
-      normalizeNumberArray(answer),
-    ]),
+    Object.entries(value as Record<string, unknown>)
+      .map(([questionId, answer]) => [
+        normalizeText(questionId),
+        normalizeNumberArray(answer),
+      ])
+      .filter(([questionId]) => Boolean(questionId)),
   );
 }
 
@@ -227,13 +229,13 @@ function toJson(value: unknown): Json {
 
 /* ================= ASSERTIONS ================= */
 
-function assertNonEmptyId(value: string, label: string) {
-  if (!value.trim()) {
+function assertNonEmptyId(value: string, label: string): void {
+  if (!normalizeText(value)) {
     throw new Error(`${label} бос болмауы керек.`);
   }
 }
 
-function assertCurrency(currency: string) {
+function assertCurrency(currency: string): void {
   if (!/^[A-Z]{3}$/.test(currency)) {
     throw new Error(
       localizedText(
@@ -245,7 +247,7 @@ function assertCurrency(currency: string) {
   }
 }
 
-function assertNonNegativePrice(price: number) {
+function assertNonNegativePrice(price: number): void {
   if (!Number.isFinite(price) || price < 0) {
     throw new Error(
       localizedText(
@@ -257,7 +259,7 @@ function assertNonNegativePrice(price: number) {
   }
 }
 
-function assertMaxStudents(maxStudents: number | null | undefined) {
+function assertMaxStudents(maxStudents: number | null | undefined): void {
   if (maxStudents !== null && maxStudents !== undefined) {
     if (!Number.isInteger(maxStudents) || maxStudents <= 0) {
       throw new Error(
@@ -271,19 +273,19 @@ function assertMaxStudents(maxStudents: number | null | undefined) {
   }
 }
 
-function assertCourseTitle(title: string) {
+function assertCourseTitle(title: string): void {
   if (!title) {
     throw new Error('Курс атауы міндетті.');
   }
 }
 
-function assertModuleTitle(title: string) {
+function assertModuleTitle(title: string): void {
   if (!title) {
     throw new Error('Модуль атауы міндетті.');
   }
 }
 
-function assertLessonTitle(title: string) {
+function assertLessonTitle(title: string): void {
   if (!title) {
     throw new Error('Сабақ атауы міндетті.');
   }
@@ -292,7 +294,7 @@ function assertLessonTitle(title: string) {
 function assertSubjectPayload(input: {
   slug: string;
   nameKk: string;
-}) {
+}): void {
   if (!input.slug) {
     throw new Error('Пән slug міндетті.');
   }
@@ -302,7 +304,7 @@ function assertSubjectPayload(input: {
   }
 }
 
-function assertAnnouncementText(title: string, body: string) {
+function assertAnnouncementText(title: string, body: string): void {
   if (!title) {
     throw new Error(
       localizedText(
@@ -327,7 +329,7 @@ function assertAnnouncementText(title: string, body: string) {
 function assertMiniQuizBase(input: {
   title: string;
   passingScore: number;
-}) {
+}): void {
   if (!input.title) {
     throw new Error('Шағын тест атауы міндетті.');
   }
@@ -346,7 +348,7 @@ function assertMiniQuizQuestion(input: {
   questionType: LessonMiniQuizQuestionType;
   options: string[];
   correctAnswer: number[];
-}) {
+}): void {
   if (!input.questionText) {
     throw new Error('Сұрақ мәтіні міндетті.');
   }
@@ -372,7 +374,7 @@ function assertMiniQuizQuestion(input: {
   }
 }
 
-function arraysEqualAsSet(a: number[], b: number[]) {
+function arraysEqualAsSet(a: number[], b: number[]): boolean {
   const left = [...a].sort((x, y) => x - y);
   const right = [...b].sort((x, y) => x - y);
 
@@ -423,13 +425,13 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
   };
 }
 
-async function getCurrentUserId() {
+async function getCurrentUserId(): Promise<string> {
   const context = await getCurrentUserContext();
 
   return context.userId;
 }
 
-async function assertCanCreateCourse() {
+async function assertCanCreateCourse(): Promise<CurrentUserContext> {
   const context = await getCurrentUserContext();
 
   if (!context.isTeacher && !context.isAdmin) {
@@ -440,7 +442,7 @@ async function assertCanCreateCourse() {
 }
 
 async function assertCourseOwner(courseId: string) {
-  const trimmedCourseId = courseId.trim();
+  const trimmedCourseId = normalizeText(courseId);
 
   assertNonEmptyId(trimmedCourseId, 'Course ID');
 
@@ -473,7 +475,7 @@ async function assertCourseOwner(courseId: string) {
 }
 
 async function assertModuleOwner(moduleId: string) {
-  const trimmedModuleId = moduleId.trim();
+  const trimmedModuleId = normalizeText(moduleId);
 
   assertNonEmptyId(trimmedModuleId, 'Module ID');
 
@@ -500,7 +502,7 @@ async function assertModuleOwner(moduleId: string) {
 }
 
 async function assertLessonOwner(lessonId: string) {
-  const trimmedLessonId = lessonId.trim();
+  const trimmedLessonId = normalizeText(lessonId);
 
   assertNonEmptyId(trimmedLessonId, 'Lesson ID');
 
@@ -528,7 +530,7 @@ async function assertLessonOwner(lessonId: string) {
 }
 
 async function assertCourseAnnouncementOwner(announcementId: string) {
-  const trimmedAnnouncementId = announcementId.trim();
+  const trimmedAnnouncementId = normalizeText(announcementId);
 
   assertNonEmptyId(trimmedAnnouncementId, 'Announcement ID');
 
@@ -552,7 +554,7 @@ async function assertCourseAnnouncementOwner(announcementId: string) {
 }
 
 async function assertCourseInviteOwner(inviteId: string) {
-  const trimmedInviteId = inviteId.trim();
+  const trimmedInviteId = normalizeText(inviteId);
 
   assertNonEmptyId(trimmedInviteId, 'Шақыру коды ID');
 
@@ -576,7 +578,7 @@ async function assertCourseInviteOwner(inviteId: string) {
 }
 
 async function assertLessonMiniQuizOwner(quizId: string) {
-  const trimmedQuizId = quizId.trim();
+  const trimmedQuizId = normalizeText(quizId);
 
   assertNonEmptyId(trimmedQuizId, 'Quiz ID');
 
@@ -600,7 +602,7 @@ async function assertLessonMiniQuizOwner(quizId: string) {
 }
 
 async function assertLessonMiniQuizQuestionOwner(questionId: string) {
-  const trimmedQuestionId = questionId.trim();
+  const trimmedQuestionId = normalizeText(questionId);
 
   assertNonEmptyId(trimmedQuestionId, 'Question ID');
 
@@ -657,7 +659,7 @@ function normalizeAccessSettings(input: CourseAccessSettingsPayload) {
   };
 }
 
-function normalizeInviteCode(code: string) {
+function normalizeInviteCode(code: string): string {
   const normalized = normalizeText(code).toUpperCase();
 
   if (normalized.length < 6) {
@@ -673,7 +675,7 @@ function normalizeInviteCode(code: string) {
   return normalized;
 }
 
-function isExpiredAnnouncement(expiresAt: string | null) {
+function isExpiredAnnouncement(expiresAt: string | null): boolean {
   if (!expiresAt) return false;
 
   const date = new Date(expiresAt);
@@ -789,14 +791,15 @@ function mapLessonMiniQuizView(
   };
 }
 
-function assertOrderedIds(ids: string[], label: string) {
-  const normalizedIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+function assertOrderedIds(ids: string[], label: string): string[] {
+  const normalizedIds = ids.map((id) => normalizeText(id)).filter(Boolean);
+  const uniqueIds = [...new Set(normalizedIds)];
 
-  if (normalizedIds.length !== ids.length) {
+  if (uniqueIds.length !== ids.length || uniqueIds.length !== normalizedIds.length) {
     throw new Error(`${label}: бос немесе қайталанған ID бар.`);
   }
 
-  return normalizedIds;
+  return uniqueIds;
 }
 
 /* ================= UPDATE ================= */
@@ -830,7 +833,7 @@ export async function updateCourse(input: {
   }
 
   if (input.subjectId !== undefined) {
-    patch.subject_id = input.subjectId || null;
+    patch.subject_id = normalizeNullableText(input.subjectId);
   }
 
   if (input.thumbnailUrl !== undefined) {
@@ -1037,7 +1040,7 @@ export async function createCourse(input: {
   const payload: CourseInsert = {
     title,
     description: normalizeNullableMultilineText(input.description),
-    subject_id: input.subjectId || null,
+    subject_id: normalizeNullableText(input.subjectId),
     teacher_id: context.isAdmin && input.teacherId ? input.teacherId : context.userId,
     status: input.status || 'draft',
     access_type: accessType,
@@ -1099,7 +1102,7 @@ export async function createLesson(input: {
 
   const payload: TablesInsert<'lessons'> = {
     module_id: input.moduleId,
-    subject_id: input.subjectId || null,
+    subject_id: normalizeNullableText(input.subjectId),
     title,
     content_body: normalizeNullableMultilineText(input.contentBody),
     practice_content: normalizeNullableMultilineText(input.practiceContent),
@@ -1170,12 +1173,14 @@ export async function updateCourseStatus(courseId: string, status: CourseStatus)
 /* ================= COURSE ACCESS ================= */
 
 export async function canAccessCourse(courseId: string, userId?: string) {
-  assertNonEmptyId(courseId, 'Course ID');
+  const normalizedCourseId = normalizeText(courseId);
+
+  assertNonEmptyId(normalizedCourseId, 'Course ID');
 
   return queryOrThrow(
     supabase.rpc('can_access_course', {
-      p_course_id: courseId,
-      ...(userId ? { p_user_id: userId } : {}),
+      p_course_id: normalizedCourseId,
+      ...(userId ? { p_user_id: normalizeText(userId) } : {}),
     }),
   ) as Promise<boolean>;
 }
@@ -1185,14 +1190,17 @@ export async function userHasActiveEntitlement(input: {
   resourceType: Tables<'entitlements'>['resource_type'];
   resourceId: string;
 }) {
-  assertNonEmptyId(input.userId, 'User ID');
-  assertNonEmptyId(input.resourceId, 'Resource ID');
+  const userId = normalizeText(input.userId);
+  const resourceId = normalizeText(input.resourceId);
+
+  assertNonEmptyId(userId, 'User ID');
+  assertNonEmptyId(resourceId, 'Resource ID');
 
   return queryOrThrow(
     supabase.rpc('user_has_active_entitlement', {
-      p_user_id: input.userId,
+      p_user_id: userId,
       p_resource_type: input.resourceType,
-      p_resource_id: input.resourceId,
+      p_resource_id: resourceId,
     }),
   ) as Promise<boolean>;
 }
@@ -1342,7 +1350,7 @@ export async function deleteCourseAnnouncement(
     supabase
       .from('course_announcements')
       .delete()
-      .eq('id', announcementId),
+      .eq('id', normalizeText(announcementId)),
   );
 }
 
@@ -1403,7 +1411,7 @@ export async function getLessonMiniQuiz(input: {
       .from('lesson_mini_quiz_attempts')
       .select('*')
       .eq('quiz_id', quizRow.id)
-      .eq('student_id', input.studentId)
+      .eq('student_id', normalizeText(input.studentId))
       .order('completed_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -1465,7 +1473,7 @@ export async function deleteLessonMiniQuiz(input: DeleteLessonMiniQuizPayload | 
     supabase
       .from('lesson_mini_quizzes')
       .delete()
-      .eq('id', quizId),
+      .eq('id', normalizeText(quizId)),
   );
 }
 
@@ -1552,7 +1560,7 @@ export async function deleteLessonMiniQuizQuestion(
     supabase
       .from('lesson_mini_quiz_questions')
       .delete()
-      .eq('id', questionId),
+      .eq('id', normalizeText(questionId)),
   );
 }
 
@@ -1705,7 +1713,7 @@ export async function createCourseInvite(input: CreateCourseInvitePayload) {
     p_max_uses?: number;
     p_expires_at?: string;
   } = {
-    p_course_id: input.courseId,
+    p_course_id: normalizeText(input.courseId),
   };
 
   if (input.maxUses !== undefined && input.maxUses !== null) {
@@ -1737,13 +1745,15 @@ export async function redeemCourseInvite(
 }
 
 export async function getCourseInvites(courseId: string) {
-  await assertCourseOwner(courseId);
+  const normalizedCourseId = normalizeText(courseId);
+
+  await assertCourseOwner(normalizedCourseId);
 
   return queryOrThrow(
     supabase
       .from('course_invites')
       .select('*')
-      .eq('course_id', courseId)
+      .eq('course_id', normalizedCourseId)
       .order('created_at', { ascending: false }),
   ) as Promise<CourseInviteRow[]>;
 }
@@ -1752,7 +1762,9 @@ export async function setCourseInviteActive(input: {
   inviteId: string;
   isActive: boolean;
 }) {
-  await assertCourseInviteOwner(input.inviteId);
+  const inviteId = normalizeText(input.inviteId);
+
+  await assertCourseInviteOwner(inviteId);
 
   const patch: CourseInvitePatch = {
     is_active: input.isActive,
@@ -1762,7 +1774,7 @@ export async function setCourseInviteActive(input: {
     supabase
       .from('course_invites')
       .update(patch)
-      .eq('id', input.inviteId)
+      .eq('id', inviteId)
       .select('*')
       .single(),
   ) as Promise<CourseInviteRow>;
@@ -1781,12 +1793,13 @@ export async function requestPaidCourseAccess(
   input: RequestPaidCourseAccessPayload | string,
 ) {
   const courseId = typeof input === 'string' ? input : input.courseId;
+  const normalizedCourseId = normalizeText(courseId);
 
-  assertNonEmptyId(courseId, 'Course ID');
+  assertNonEmptyId(normalizedCourseId, 'Course ID');
 
   return queryOrThrow(
     supabase.rpc('request_paid_course_access', {
-      p_course_id: courseId,
+      p_course_id: normalizedCourseId,
     }),
   ) as Promise<OrderRow>;
 }
@@ -1794,15 +1807,18 @@ export async function requestPaidCourseAccess(
 export async function manualGrantCourseAccess(
   input: ManualGrantCourseAccessPayload,
 ) {
-  await assertCourseOwner(input.courseId);
+  const courseId = normalizeText(input.courseId);
+  const userId = normalizeText(input.userId);
+
+  await assertCourseOwner(courseId);
 
   const args: {
     p_user_id: string;
     p_course_id: string;
     p_reason?: string;
   } = {
-    p_user_id: input.userId,
-    p_course_id: input.courseId,
+    p_user_id: userId,
+    p_course_id: courseId,
   };
 
   const reason = normalizeNullableText(input.reason);
@@ -1817,11 +1833,13 @@ export async function manualGrantCourseAccess(
 }
 
 export async function manualApproveOrder(orderId: string) {
-  assertNonEmptyId(orderId, 'Order ID');
+  const normalizedOrderId = normalizeText(orderId);
+
+  assertNonEmptyId(normalizedOrderId, 'Order ID');
 
   return queryOrThrow(
     supabase.rpc('manual_approve_order', {
-      p_order_id: orderId,
+      p_order_id: normalizedOrderId,
     }),
   ) as unknown as Promise<ManualApproveOrderResponse>;
 }
@@ -1848,31 +1866,37 @@ export async function getPendingOrdersForAdmin() {
 /* ================= DELETE ================= */
 
 export async function deleteLesson(lessonId: string) {
-  await assertLessonOwner(lessonId);
+  const normalizedLessonId = normalizeText(lessonId);
+
+  await assertLessonOwner(normalizedLessonId);
 
   await execOrThrow(
     supabase.rpc('delete_lesson_deep', {
-      p_lesson_id: lessonId,
+      p_lesson_id: normalizedLessonId,
     }),
   );
 }
 
 export async function deleteModule(moduleId: string) {
-  await assertModuleOwner(moduleId);
+  const normalizedModuleId = normalizeText(moduleId);
+
+  await assertModuleOwner(normalizedModuleId);
 
   await execOrThrow(
     supabase.rpc('delete_module_deep', {
-      p_module_id: moduleId,
+      p_module_id: normalizedModuleId,
     }),
   );
 }
 
 export async function deleteCourse(courseId: string) {
-  await assertCourseOwner(courseId);
+  const normalizedCourseId = normalizeText(courseId);
+
+  await assertCourseOwner(normalizedCourseId);
 
   await execOrThrow(
     supabase.rpc('delete_course_deep', {
-      p_course_id: courseId,
+      p_course_id: normalizedCourseId,
     }),
   );
 }
@@ -1880,7 +1904,9 @@ export async function deleteCourse(courseId: string) {
 /* ================= REORDER ================= */
 
 export async function reorderModules(courseId: string, orderedModuleIds: string[]) {
-  await assertCourseOwner(courseId);
+  const normalizedCourseId = normalizeText(courseId);
+
+  await assertCourseOwner(normalizedCourseId);
 
   const normalizedIds = assertOrderedIds(orderedModuleIds, 'Модульдер');
 
@@ -1890,14 +1916,16 @@ export async function reorderModules(courseId: string, orderedModuleIds: string[
 
   await execOrThrow(
     supabase.rpc('reorder_modules', {
-      p_course_id: courseId,
+      p_course_id: normalizedCourseId,
       p_module_ids: normalizedIds,
     }),
   );
 }
 
 export async function reorderLessons(moduleId: string, orderedLessonIds: string[]) {
-  await assertModuleOwner(moduleId);
+  const normalizedModuleId = normalizeText(moduleId);
+
+  await assertModuleOwner(normalizedModuleId);
 
   const normalizedIds = assertOrderedIds(orderedLessonIds, 'Сабақтар');
 
@@ -1907,7 +1935,7 @@ export async function reorderLessons(moduleId: string, orderedLessonIds: string[
 
   await execOrThrow(
     supabase.rpc('reorder_lessons', {
-      p_module_id: moduleId,
+      p_module_id: normalizedModuleId,
       p_lesson_ids: normalizedIds,
     }),
   );

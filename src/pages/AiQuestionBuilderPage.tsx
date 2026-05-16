@@ -1,4 +1,11 @@
-import { useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import DashboardLayout from '@/components/DashboardLayout';
@@ -22,11 +29,13 @@ import {
   type AiQuestionKind,
   type GeneratedQuestion,
 } from '@/lib/ai-api';
+import { cn, removeNullCharacters } from '@/lib/utils';
 
 import {
   AlertTriangle,
   Check,
   ClipboardList,
+  Loader2,
   RefreshCcw,
   Sparkles,
 } from 'lucide-react';
@@ -72,12 +81,62 @@ const questionKindOptions: Array<{
 
 const questionCountOptions = [5, 10, 15, 20, 30, 40, 50];
 
+const MAX_SOURCE_TEXT_CHARS = 16_000;
+const MAX_TOPIC_CHARS = 220;
+const MAX_SUBJECT_CHARS = 120;
+const MAX_QUESTION_TEXT_CHARS = 2_000;
+const MAX_OPTION_CHARS = 500;
+const MAX_EXPLANATION_CHARS = 2_500;
+const MAX_GENERATED_QUESTIONS = 60;
+const GENERATE_TIMEOUT_MS = 180_000;
+
+function sanitizeInputValue(value: unknown, limit: number): string {
+  return removeNullCharacters(String(value ?? '')).slice(0, limit);
+}
+
+function cleanText(value: unknown, limit: number): string {
+  return sanitizeInputValue(value, limit).replace(/\s+/g, ' ').trim();
+}
+
+function cleanMultilineText(value: unknown, limit: number): string {
+  return sanitizeInputValue(value, limit)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+}
+
+function isAbortLikeError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  if (!(error instanceof Error)) return false;
+
+  const message = error.message.toLowerCase();
+
+  return (
+    error.name === 'AbortError' ||
+    message.includes('тоқтатылды') ||
+    message.includes('aborted') ||
+    message.includes('abort')
+  );
+}
+
+function getErrorMessage(error: unknown): string {
+  if (isAbortLikeError(error)) {
+    return '';
+  }
+
+  return error instanceof Error && error.message.trim()
+    ? cleanText(error.message, 700)
+    : 'Сұрақ құру мүмкін болмады.';
+}
+
 function isImportCompatibleQuestion(question: GeneratedQuestion) {
   return (
     question.type === 'multiple_choice' &&
     Array.isArray(question.options) &&
     question.options.length >= 2 &&
-    Boolean(question.correctAnswer?.trim())
+    Boolean(cleanText(question.correctAnswer, MAX_OPTION_CHARS))
   );
 }
 
@@ -115,6 +174,72 @@ function getQuestionTypeLabel(type: GeneratedQuestion['type']) {
   return 'Қысқа жауап';
 }
 
+function normalizeGeneratedQuestionId(
+  question: GeneratedQuestion,
+  index: number,
+  seen: Set<string>,
+): string {
+  const rawId = cleanText(question.id, 140) || `question-${index + 1}`;
+  let id = rawId;
+  let suffix = 2;
+
+  while (seen.has(id)) {
+    id = `${rawId}-${suffix}`;
+    suffix += 1;
+  }
+
+  seen.add(id);
+
+  return id;
+}
+
+function normalizeGeneratedQuestions(
+  response: GenerateQuestionsResponse,
+): GenerateQuestionsResponse {
+  const seen = new Set<string>();
+
+  const questions = (response.questions || [])
+    .slice(0, MAX_GENERATED_QUESTIONS)
+    .map((question, index): GeneratedQuestion => {
+      const id = normalizeGeneratedQuestionId(question, index, seen);
+
+      const options = question.options
+        ?.map((option, optionIndex) => ({
+          ...option,
+          id: cleanText(option.id, 140) || `${id}-option-${optionIndex + 1}`,
+          text: cleanText(option.text, MAX_OPTION_CHARS),
+          isCorrect: Boolean(option.isCorrect),
+        }))
+        .filter((option) => option.text.length > 0)
+        .slice(0, 8);
+
+      const normalizedType: GeneratedQuestion['type'] =
+        question.type === 'multiple_choice' && options && options.length >= 2
+          ? 'multiple_choice'
+          : 'short_answer';
+
+      return {
+        ...question,
+        id,
+        type: normalizedType,
+        question: cleanMultilineText(question.question, MAX_QUESTION_TEXT_CHARS),
+        options: normalizedType === 'multiple_choice' ? options : undefined,
+        correctAnswer: cleanText(question.correctAnswer, MAX_OPTION_CHARS) || undefined,
+        explanation:
+          cleanMultilineText(question.explanation, MAX_EXPLANATION_CHARS) ||
+          undefined,
+        topic: cleanText(question.topic, MAX_TOPIC_CHARS) || undefined,
+        difficulty: cleanText(question.difficulty, 80) || undefined,
+      };
+    })
+    .filter((question) => question.question.length > 0);
+
+  return {
+    ...response,
+    questions,
+  };
+}
+
 function OptionButton({
   active,
   label,
@@ -130,11 +255,12 @@ function OptionButton({
     <button
       type="button"
       onClick={() => onSelect(value)}
-      className={`rounded-2xl border px-3 py-2 text-sm font-medium transition-colors ${
+      className={cn(
+        'rounded-2xl border px-3 py-2 text-sm font-medium transition-colors',
         active
           ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border bg-card hover:bg-accent'
-      }`}
+          : 'border-border bg-card hover:bg-accent',
+      )}
     >
       {label}
     </button>
@@ -191,7 +317,7 @@ function QuestionPreviewCard({
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <StatusBadge tone="info">{getQuestionTypeLabel(question.type)}</StatusBadge>
           <StatusBadge tone={isCompatible ? 'success' : 'muted'}>
-            {isCompatible ? 'Тестке жарамды' : 'Тек қарау'}
+            {isCompatible ? 'Жарамды' : 'Қарау'}
           </StatusBadge>
         </div>
       </div>
@@ -201,11 +327,12 @@ function QuestionPreviewCard({
           {question.options.map((option, optionIndex) => (
             <div
               key={option.id || `${question.id}-${optionIndex}`}
-              className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm ${
+              className={cn(
+                'flex items-start gap-2 rounded-xl border px-3 py-2 text-sm',
                 option.isCorrect
                   ? 'border-primary/40 bg-primary/5'
-                  : 'bg-card'
-              }`}
+                  : 'bg-card',
+              )}
             >
               {option.isCorrect ? (
                 <Check size={14} className="mt-0.5 shrink-0 text-primary" />
@@ -231,19 +358,21 @@ function QuestionPreviewCard({
         </div>
       ) : null}
 
-      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-        {question.topic ? (
-          <span className="rounded-full border px-2 py-1">
-            Тақырып: {question.topic}
-          </span>
-        ) : null}
+      {question.topic || question.difficulty ? (
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+          {question.topic ? (
+            <span className="rounded-full border px-2 py-1">
+              {question.topic}
+            </span>
+          ) : null}
 
-        {question.difficulty ? (
-          <span className="rounded-full border px-2 py-1">
-            Деңгей: {question.difficulty}
-          </span>
-        ) : null}
-      </div>
+          {question.difficulty ? (
+            <span className="rounded-full border px-2 py-1">
+              {question.difficulty}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -266,6 +395,10 @@ export default function AiQuestionBuilderPage() {
   const [result, setResult] = useState<GenerateQuestionsResponse | null>(null);
   const [errorText, setErrorText] = useState('');
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(true);
+
   const generatedCount = result?.questions.length || 0;
 
   const importableCount = useMemo(() => {
@@ -283,10 +416,10 @@ export default function AiQuestionBuilderPage() {
   const hasGeneratedQuestions = !!result && generatedCount > 0;
 
   const canGenerate = useMemo(() => {
-    const hasSource = sourceText.trim().length > 0;
-    const hasTopic = topic.trim().length > 0;
+    const hasSource = cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS).length > 0;
+    const hasTopic = cleanText(topic, MAX_TOPIC_CHARS).length > 0;
 
-    return !isGenerating && !!accessToken && (hasSource || hasTopic);
+    return !isGenerating && Boolean(accessToken) && (hasSource || hasTopic);
   }, [sourceText, topic, isGenerating, accessToken]);
 
   const canSendToTestBuilder = hasGeneratedQuestions && importableCount > 0;
@@ -297,20 +430,32 @@ export default function AiQuestionBuilderPage() {
     }
   };
 
+  const abortGeneration = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      abortGeneration();
+    };
+  }, [abortGeneration]);
+
   const handleGenerate = async () => {
-    const trimmedSource = sourceText.trim();
-    const trimmedTopic = topic.trim();
-    const trimmedSubject = subject.trim();
+    abortGeneration();
+
+    const trimmedSource = cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS);
+    const trimmedTopic = cleanText(topic, MAX_TOPIC_CHARS);
+    const trimmedSubject = cleanText(subject, MAX_SUBJECT_CHARS);
 
     if (!trimmedSource && !trimmedTopic) {
-      setErrorText('Мәтін немесе тақырып енгізу қажет.');
+      setErrorText('Мәтін немесе тақырып енгізіңіз.');
       return;
     }
 
     if (!accessToken) {
-      const message = user
-        ? 'AI генерация үшін белсенді сессия қажет.'
-        : 'AI генерацияны пайдалану үшін жүйеге кіру қажет.';
+      const message = user ? 'Белсенді сессия қажет.' : 'Жүйеге кіріңіз.';
 
       setErrorText(message);
 
@@ -321,6 +466,12 @@ export default function AiQuestionBuilderPage() {
       });
       return;
     }
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setIsGenerating(true);
     setErrorText('');
@@ -338,20 +489,27 @@ export default function AiQuestionBuilderPage() {
         },
         {
           accessToken,
+          signal: controller.signal,
+          timeoutMs: GENERATE_TIMEOUT_MS,
         },
       );
 
-      setResult(response);
+      if (!mountedRef.current || requestIdRef.current !== requestId) return;
+
+      const normalizedResponse = normalizeGeneratedQuestions(response);
+
+      setResult(normalizedResponse);
 
       toast({
         title: 'Сұрақтар дайын',
-        description: `${response.questions.length} сұрақ генерацияланды.`,
+        description: `${normalizedResponse.questions.length} сұрақ құрылды.`,
       });
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Сұрақ генерациялау сәтсіз аяқталды.';
+      if (!mountedRef.current || requestIdRef.current !== requestId) return;
+
+      const message = getErrorMessage(error);
+
+      if (!message) return;
 
       setErrorText(message);
 
@@ -361,11 +519,20 @@ export default function AiQuestionBuilderPage() {
         variant: 'destructive',
       });
     } finally {
-      setIsGenerating(false);
+      if (mountedRef.current && requestIdRef.current === requestId) {
+        setIsGenerating(false);
+      }
+
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
   };
 
   const handleReset = () => {
+    abortGeneration();
+    requestIdRef.current += 1;
+
     setSourceText('');
     setTopic('');
     setSubject('');
@@ -374,23 +541,26 @@ export default function AiQuestionBuilderPage() {
     setKind('mixed');
     setResult(null);
     setErrorText('');
+    setIsGenerating(false);
   };
 
   const handleSendToTestBuilder = () => {
     if (!result || generatedCount === 0) return;
 
     const payload = savePendingAiQuestionImport({
-      titleSuggestion: topic.trim() || subject.trim() || 'AI тест',
-      topic: topic.trim() || undefined,
-      subject: subject.trim() || undefined,
+      titleSuggestion:
+        cleanText(topic, MAX_TOPIC_CHARS) ||
+        cleanText(subject, MAX_SUBJECT_CHARS) ||
+        'AI тест',
+      topic: cleanText(topic, MAX_TOPIC_CHARS) || undefined,
+      subject: cleanText(subject, MAX_SUBJECT_CHARS) || undefined,
       questions: result.questions,
     });
 
     if (payload.questions.length === 0) {
       toast({
-        title: 'Тестке жарамды сұрақ жоқ',
-        description:
-          'Тест редакторы тек жауап нұсқалары бар сұрақтарды қабылдайды.',
+        title: 'Жарамды сұрақ жоқ',
+        description: 'Тест редакторы жауап нұсқалары бар сұрақтарды қабылдайды.',
         variant: 'destructive',
       });
       return;
@@ -401,7 +571,7 @@ export default function AiQuestionBuilderPage() {
       description:
         payload.skippedCount > 0
           ? `${payload.questions.length} сұрақ дайын, ${payload.skippedCount} сұрақ өтпеді.`
-          : `${payload.questions.length} сұрақ дайындалды.`,
+          : `${payload.questions.length} сұрақ дайын.`,
     });
 
     navigate('/create-test');
@@ -414,7 +584,7 @@ export default function AiQuestionBuilderPage() {
           eyebrow={
             <>
               <Sparkles size={13} />
-              AI сұрақ құрастыру
+              ЖИ сұрақ құрастыру
             </>
           }
           icon={<Sparkles size={20} />}
@@ -428,7 +598,12 @@ export default function AiQuestionBuilderPage() {
                 </Link>
               </Button>
 
-              <Button type="button" variant="outline" onClick={handleReset}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleReset}
+                disabled={isGenerating}
+              >
                 <RefreshCcw size={14} className="mr-2" />
                 Тазалау
               </Button>
@@ -442,7 +617,7 @@ export default function AiQuestionBuilderPage() {
               <CardHeader className="border-b border-border/70 bg-card pb-4">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
                   <Sparkles size={16} />
-                  Генерация
+                  Параметрлер
                 </CardTitle>
               </CardHeader>
 
@@ -452,13 +627,21 @@ export default function AiQuestionBuilderPage() {
                   <Textarea
                     id="sourceText"
                     value={sourceText}
+                    maxLength={MAX_SOURCE_TEXT_CHARS}
                     onChange={(event) => {
-                      setSourceText(event.target.value);
+                      setSourceText(
+                        sanitizeInputValue(event.target.value, MAX_SOURCE_TEXT_CHARS),
+                      );
                       clearError();
                     }}
-                    placeholder="Теория, конспект немесе сабақ мәтінін енгізіңіз."
+                    placeholder="Теория, конспект немесе сабақ мәтіні"
                     rows={11}
+                    disabled={isGenerating}
                   />
+
+                  <p className="text-[11px] text-muted-foreground">
+                    {sourceText.length}/{MAX_SOURCE_TEXT_CHARS}
+                  </p>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -467,11 +650,13 @@ export default function AiQuestionBuilderPage() {
                     <Input
                       id="topic"
                       value={topic}
+                      maxLength={MAX_TOPIC_CHARS}
                       onChange={(event) => {
-                        setTopic(event.target.value);
+                        setTopic(sanitizeInputValue(event.target.value, MAX_TOPIC_CHARS));
                         clearError();
                       }}
                       placeholder="Мысалы: Квадрат теңдеулер"
+                      disabled={isGenerating}
                     />
                   </div>
 
@@ -480,11 +665,15 @@ export default function AiQuestionBuilderPage() {
                     <Input
                       id="subject"
                       value={subject}
+                      maxLength={MAX_SUBJECT_CHARS}
                       onChange={(event) => {
-                        setSubject(event.target.value);
+                        setSubject(
+                          sanitizeInputValue(event.target.value, MAX_SUBJECT_CHARS),
+                        );
                         clearError();
                       }}
                       placeholder="Мысалы: Математика"
+                      disabled={isGenerating}
                     />
                   </div>
                 </div>
@@ -527,11 +716,13 @@ export default function AiQuestionBuilderPage() {
                         key={value}
                         type="button"
                         onClick={() => setCount(value)}
-                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        disabled={isGenerating}
+                        className={cn(
+                          'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                           count === value
                             ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border hover:bg-accent'
-                        }`}
+                            : 'border-border hover:bg-accent',
+                        )}
                       >
                         {value}
                       </button>
@@ -542,14 +733,18 @@ export default function AiQuestionBuilderPage() {
                 {!accessToken ? (
                   <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
                     <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                    <span>AI генерация үшін жүйеге кіру қажет.</span>
+                    <span>Жүйеге кіріңіз.</span>
                   </div>
                 ) : null}
 
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button type="button" onClick={handleGenerate} disabled={!canGenerate}>
-                    <Sparkles size={16} className="mr-2" />
-                    {isGenerating ? 'Генерация жүріп жатыр...' : 'Сұрақ генерациялау'}
+                    {isGenerating ? (
+                      <Loader2 size={16} className="mr-2 animate-spin" />
+                    ) : (
+                      <Sparkles size={16} className="mr-2" />
+                    )}
+                    {isGenerating ? 'Құрылуда...' : 'Сұрақ құру'}
                   </Button>
 
                   {hasGeneratedQuestions ? (
@@ -557,44 +752,12 @@ export default function AiQuestionBuilderPage() {
                       type="button"
                       variant="outline"
                       onClick={handleSendToTestBuilder}
-                      disabled={!canSendToTestBuilder}
+                      disabled={!canSendToTestBuilder || isGenerating}
                     >
                       <ClipboardList size={16} className="mr-2" />
-                      Тест редакторына жіберу
+                      Тестке жіберу
                     </Button>
                   ) : null}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="border-b border-border/70 bg-card pb-4">
-                <CardTitle className="text-base font-semibold">
-                  Таңдалған параметрлер
-                </CardTitle>
-              </CardHeader>
-
-              <CardContent className="grid gap-2 p-4 text-sm sm:grid-cols-2 sm:p-5">
-                <div className="rounded-2xl border px-3 py-2">
-                  <p className="text-xs text-muted-foreground">Қиындық</p>
-                  <p className="mt-1 font-medium">{getDifficultyLabel(difficulty)}</p>
-                </div>
-
-                <div className="rounded-2xl border px-3 py-2">
-                  <p className="text-xs text-muted-foreground">Түрі</p>
-                  <p className="mt-1 font-medium">{getKindLabel(kind)}</p>
-                </div>
-
-                <div className="rounded-2xl border px-3 py-2">
-                  <p className="text-xs text-muted-foreground">Сұрақ саны</p>
-                  <p className="mt-1 font-medium">{count}</p>
-                </div>
-
-                <div className="rounded-2xl border px-3 py-2">
-                  <p className="text-xs text-muted-foreground">Мәтін ұзындығы</p>
-                  <p className="mt-1 font-medium">
-                    {sourceText.trim().length || '—'}
-                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -606,7 +769,7 @@ export default function AiQuestionBuilderPage() {
             {!isGenerating && !errorText && !result ? (
               <EmptyState
                 title="Нәтиже жоқ"
-                text="Мәтін немесе тақырып енгізіп, сұрақ генерациялаңыз."
+                text="Мәтін немесе тақырып енгізіңіз."
               />
             ) : null}
 
@@ -615,56 +778,52 @@ export default function AiQuestionBuilderPage() {
             {!isGenerating && !errorText && result && generatedCount === 0 ? (
               <EmptyState
                 title="Сұрақ табылмады"
-                text="Мәтінді нақтылап немесе сұрақ санын өзгертіп көріңіз."
+                text="Мәтінді нақтылап көріңіз."
               />
             ) : null}
 
             {!isGenerating && hasGeneratedQuestions ? (
-              <>
-                <Card>
-                  <CardHeader className="border-b border-border/70 bg-card pb-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <CardTitle className="text-base font-semibold">
-                        Нәтиже
-                      </CardTitle>
+              <Card>
+                <CardHeader className="border-b border-border/70 bg-card pb-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle className="text-base font-semibold">
+                      Нәтиже
+                    </CardTitle>
 
-                      <div className="flex flex-wrap gap-2">
-                        <StatusBadge tone="info">{generatedCount} сұрақ</StatusBadge>
-                        <StatusBadge tone="success">
-                          {importableCount} жарамды
+                    <div className="flex flex-wrap gap-2">
+                      <StatusBadge tone="info">{generatedCount} сұрақ</StatusBadge>
+                      <StatusBadge tone="success">
+                        {importableCount} жарамды
+                      </StatusBadge>
+
+                      {skippedCount > 0 ? (
+                        <StatusBadge tone="warning">
+                          {skippedCount} өтпейді
                         </StatusBadge>
-
-                        {skippedCount > 0 ? (
-                          <StatusBadge tone="warning">
-                            {skippedCount} өтпейді
-                          </StatusBadge>
-                        ) : null}
-                      </div>
+                      ) : null}
                     </div>
-                  </CardHeader>
+                  </div>
+                </CardHeader>
 
-                  {kind !== 'multiple_choice' && skippedCount > 0 ? (
-                    <CardContent className="border-b border-border/70 p-4 sm:p-5">
-                      <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
-                        <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                        <span>
-                          Тест редакторы тек жауап нұсқалары бар сұрақтарды қабылдайды.
-                        </span>
-                      </div>
-                    </CardContent>
-                  ) : null}
-
-                  <CardContent className="space-y-4 p-4 sm:p-5">
-                    {result?.questions.map((question, index) => (
-                      <QuestionPreviewCard
-                        key={question.id || `${index}-${question.question}`}
-                        question={question}
-                        index={index}
-                      />
-                    ))}
+                {kind !== 'multiple_choice' && skippedCount > 0 ? (
+                  <CardContent className="border-b border-border/70 p-4 sm:p-5">
+                    <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
+                      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                      <span>Тестке тек жауап нұсқалары бар сұрақ өтеді.</span>
+                    </div>
                   </CardContent>
-                </Card>
-              </>
+                ) : null}
+
+                <CardContent className="space-y-4 p-4 sm:p-5">
+                  {result?.questions.map((question, index) => (
+                    <QuestionPreviewCard
+                      key={question.id || `${index}-${question.question}`}
+                      question={question}
+                      index={index}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
             ) : null}
           </div>
         </div>

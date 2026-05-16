@@ -37,6 +37,7 @@ import {
 } from '@/lib/course-creator/course-builder-utils';
 import t from '@/lib/i18n';
 import { normalizeMediaUrl } from '@/lib/media-url';
+import { cn, removeNullCharacters } from '@/lib/utils';
 
 type CourseEditForm = {
   title: string;
@@ -62,7 +63,7 @@ type CourseSettingsCardProps = {
 };
 
 const MAX_TITLE_CHARS = 180;
-const MAX_DESCRIPTION_CHARS = 1200;
+const MAX_DESCRIPTION_CHARS = 1_200;
 const MAX_THUMBNAIL_URL_CHARS = 700;
 const MAX_CURRENCY_CHARS = 3;
 const MAX_MAX_STUDENTS_CHARS = 6;
@@ -83,23 +84,25 @@ function getStatusLabel(status: CourseStatus) {
   return t('course.status.draft');
 }
 
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+function sanitizeInputValue(value: string, limit: number): string {
+  return removeNullCharacters(value).slice(0, limit);
 }
 
-function normalizeCurrencyInput(value: string) {
-  return value
+function normalizeCurrencyInput(value: string): string {
+  return removeNullCharacters(value)
     .replace(/[^a-zA-Z]/g, '')
     .toUpperCase()
     .slice(0, MAX_CURRENCY_CHARS);
 }
 
-function normalizePositiveIntegerInput(value: string) {
-  return value.replace(/[^\d]/g, '').slice(0, MAX_MAX_STUDENTS_CHARS);
+function normalizePositiveIntegerInput(value: string): string {
+  return removeNullCharacters(value)
+    .replace(/[^\d]/g, '')
+    .slice(0, MAX_MAX_STUDENTS_CHARS);
 }
 
-function normalizePriceInput(value: string) {
-  return value.replace(/[^\d.]/g, '').slice(0, 12);
+function normalizePriceInput(value: string): string {
+  return removeNullCharacters(value).replace(/[^\d.]/g, '').slice(0, 12);
 }
 
 function getAccessTone(accessType: CourseAccessType) {
@@ -222,7 +225,7 @@ export function CourseSettingsCard({
   const handleThumbnailBlur = (value: string) => {
     updateCourseField(
       'thumbnailUrl',
-      cleanText(normalizeMediaUrl(value) || '', MAX_THUMBNAIL_URL_CHARS),
+      sanitizeInputValue(normalizeMediaUrl(value) || '', MAX_THUMBNAIL_URL_CHARS),
     );
   };
 
@@ -230,9 +233,7 @@ export function CourseSettingsCard({
     <Card id="course-settings" className="scroll-mt-24 overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle className="text-base font-semibold">
-            Курс баптаулары
-          </CardTitle>
+          <CardTitle className="text-base font-semibold">Курс баптаулары</CardTitle>
 
           <div className="flex flex-wrap gap-2">
             <StatusBadge tone={getStatusTone(courseEdit.status)}>
@@ -245,7 +246,7 @@ export function CourseSettingsCard({
               ) : (
                 <AlertCircle size={12} />
               )}
-              {basicsComplete ? 'Дайын' : 'Толық емес'}
+              {basicsComplete ? 'Дайын' : 'Толтырыңыз'}
             </StatusBadge>
           </div>
         </div>
@@ -257,7 +258,7 @@ export function CourseSettingsCard({
           icon={<Settings size={16} />}
           aside={
             <StatusBadge tone={basicsComplete ? 'success' : 'muted'}>
-              {basicsComplete ? 'Толды' : 'Міндетті'}
+              {basicsComplete ? 'Дайын' : 'Толтырыңыз'}
             </StatusBadge>
           }
         >
@@ -272,7 +273,7 @@ export function CourseSettingsCard({
                 onChange={(event) =>
                   updateCourseField(
                     'title',
-                    cleanText(event.target.value, MAX_TITLE_CHARS),
+                    sanitizeInputValue(event.target.value, MAX_TITLE_CHARS),
                   )
                 }
                 placeholder={t(
@@ -292,7 +293,10 @@ export function CourseSettingsCard({
                 onChange={(event) =>
                   updateCourseField(
                     'description',
-                    cleanText(event.target.value, MAX_DESCRIPTION_CHARS),
+                    sanitizeInputValue(
+                      event.target.value,
+                      MAX_DESCRIPTION_CHARS,
+                    ),
                   )
                 }
                 placeholder={t(
@@ -311,7 +315,9 @@ export function CourseSettingsCard({
             >
               <select
                 value={courseEdit.subjectId}
-                onChange={(event) => updateCourseField('subjectId', event.target.value)}
+                onChange={(event) =>
+                  updateCourseField('subjectId', event.target.value)
+                }
                 className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
               >
                 <option value="">
@@ -333,7 +339,10 @@ export function CourseSettingsCard({
                 onChange={(event) =>
                   updateCourseField(
                     'thumbnailUrl',
-                    cleanText(event.target.value, MAX_THUMBNAIL_URL_CHARS),
+                    sanitizeInputValue(
+                      event.target.value,
+                      MAX_THUMBNAIL_URL_CHARS,
+                    ),
                   )
                 }
                 onBlur={(event) => handleThumbnailBlur(event.target.value)}
@@ -357,7 +366,7 @@ export function CourseSettingsCard({
                   ) : (
                     <StatusBadge tone="success">
                       <CheckCircle2 size={12} />
-                      Көрініс
+                      Дайын
                     </StatusBadge>
                   )}
                 </div>
@@ -468,28 +477,33 @@ export function CourseSettingsCard({
                     updateCourseField('enrollmentOpen', !courseEdit.enrollmentOpen)
                   }
                   aria-pressed={courseEdit.enrollmentOpen}
-                  className={`flex h-11 w-full items-center justify-between rounded-2xl border px-4 text-left text-sm transition-all duration-200 ease-soft active:scale-[0.99] ${
+                  className={cn(
+                    'flex h-11 w-full items-center justify-between rounded-2xl border px-4 text-left text-sm transition-all duration-200 ease-soft active:scale-[0.99]',
                     courseEdit.enrollmentOpen
                       ? 'border-success-muted bg-success-soft text-success-foreground'
-                      : 'border-border bg-muted text-muted-foreground'
-                  }`}
+                      : 'border-border bg-muted text-muted-foreground',
+                  )}
                 >
                   <span className="inline-flex items-center gap-2">
                     <Users size={15} />
-                    {courseEdit.enrollmentOpen ? 'Қабылдау ашық' : 'Қабылдау жабық'}
+                    {courseEdit.enrollmentOpen ? 'Ашық' : 'Жабық'}
                   </span>
 
                   <span
-                    className={`h-5 w-9 rounded-full p-0.5 transition-colors ${
+                    className={cn(
+                      'h-5 w-9 rounded-full p-0.5 transition-colors',
                       courseEdit.enrollmentOpen
                         ? 'bg-success'
-                        : 'bg-muted-foreground/30'
-                    }`}
+                        : 'bg-muted-foreground/30',
+                    )}
                   >
                     <span
-                      className={`block h-4 w-4 rounded-full bg-card transition-transform ${
-                        courseEdit.enrollmentOpen ? 'translate-x-4' : 'translate-x-0'
-                      }`}
+                      className={cn(
+                        'block h-4 w-4 rounded-full bg-card transition-transform',
+                        courseEdit.enrollmentOpen
+                          ? 'translate-x-4'
+                          : 'translate-x-0',
+                      )}
                     />
                   </span>
                 </button>
@@ -498,11 +512,7 @@ export function CourseSettingsCard({
           </div>
         </CompactSection>
 
-        <div className="flex flex-col gap-3 rounded-3xl border border-primary-muted bg-primary-soft/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs leading-5 text-muted-foreground">
-            Өзгерістер сақталғаннан кейін курс карточкасы мен оқушы каталогы жаңарады.
-          </p>
-
+        <div className="flex justify-end">
           <Button
             type="button"
             onClick={onSaveCourse}

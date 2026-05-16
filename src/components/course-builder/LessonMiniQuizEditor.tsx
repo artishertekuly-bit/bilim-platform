@@ -30,6 +30,7 @@ import {
   getMiniQuizQuestionTypeLabel,
   miniQuizQuestionTypes,
 } from '@/lib/course-creator/mini-quiz-utils';
+import { cn, removeNullCharacters } from '@/lib/utils';
 
 export type MiniQuizFormState = {
   title: string;
@@ -51,34 +52,34 @@ const MAX_QUIZ_TITLE_CHARS = 180;
 const MAX_QUIZ_DESCRIPTION_CHARS = 700;
 const MAX_QUESTION_TEXT_CHARS = 700;
 const MAX_OPTION_CHARS = 300;
-const MAX_EXPLANATION_CHARS = 1000;
+const MAX_EXPLANATION_CHARS = 1_000;
 const MAX_OPTIONS = 8;
 const MIN_OPTIONS = 2;
 
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+function sanitizeInputValue(value: string, limit: number): string {
+  return removeNullCharacters(value).slice(0, limit);
 }
 
-function normalizePercentInput(value: string) {
-  const normalized = value.replace(/[^\d]/g, '').slice(0, 3);
+function normalizePercentInput(value: string): string {
+  const normalized = removeNullCharacters(value).replace(/[^\d]/g, '').slice(0, 3);
 
   if (!normalized) return '';
 
   return String(Math.min(100, Math.max(0, Number(normalized))));
 }
 
-function normalizeSortOrderInput(value: string) {
-  return value.replace(/[^\d]/g, '').slice(0, 4);
+function normalizeSortOrderInput(value: string): string {
+  return removeNullCharacters(value).replace(/[^\d]/g, '').slice(0, 4);
 }
 
-function getVisibleQuizStatus(quiz: LessonMiniQuizView | null) {
+function getVisibleQuizStatus(quiz: LessonMiniQuizView | null): string {
   if (!quiz) return 'Қосылмаған';
   if (quiz.isPublished) return 'Жарияланған';
 
   return 'Жоба';
 }
 
-function getQuestionCount(quiz: LessonMiniQuizView | null) {
+function getQuestionCount(quiz: LessonMiniQuizView | null): number {
   return quiz?.questionsCount ?? quiz?.questions?.length ?? 0;
 }
 
@@ -90,7 +91,7 @@ function normalizeCorrectAnswerAfterOptionChange({
   correctAnswer: number[];
   options: string[];
   questionType: LessonMiniQuizQuestionType;
-}) {
+}): number[] {
   const validIndexes = new Set(
     options
       .map((option, index) => (option.trim() ? index : -1))
@@ -148,9 +149,7 @@ function EditorSection({
             {icon}
           </div>
 
-          <p className="min-w-0 text-sm font-semibold text-foreground">
-            {title}
-          </p>
+          <p className="min-w-0 text-sm font-semibold text-foreground">{title}</p>
         </div>
 
         {aside ? <div className="shrink-0">{aside}</div> : null}
@@ -250,11 +249,12 @@ function MiniQuizQuestionCard({
               return (
                 <div
                   key={`${question.id}-${optionIndex}`}
-                  className={`rounded-2xl border px-3 py-2 text-xs ${
+                  className={cn(
+                    'rounded-2xl border px-3 py-2 text-xs',
                     isCorrect
                       ? 'border-success-muted bg-success-soft text-success-foreground'
-                      : 'border-border bg-muted/35 text-muted-foreground'
-                  }`}
+                      : 'border-border bg-muted/35 text-muted-foreground',
+                  )}
                 >
                   <span className="font-semibold">
                     {String.fromCharCode(65 + optionIndex)}.
@@ -407,10 +407,10 @@ export function LessonMiniQuizEditor({
   const questionActionLabel = isEditingQuestion
     ? updateMiniQuizQuestionPending
       ? 'Жаңартылуда...'
-      : 'Сұрақты жаңарту'
+      : 'Жаңарту'
     : createMiniQuizQuestionPending
       ? 'Қосылуда...'
-      : 'Сұрақ қосу';
+      : 'Қосу';
 
   const updateQuizForm = <K extends keyof MiniQuizFormState>(
     key: K,
@@ -456,7 +456,7 @@ export function LessonMiniQuizEditor({
   const handleOptionChange = (optionIndex: number, value: string) => {
     setMiniQuizQuestionForm((previous) => {
       const nextOptions = [...previous.options];
-      nextOptions[optionIndex] = cleanText(value, MAX_OPTION_CHARS);
+      nextOptions[optionIndex] = sanitizeInputValue(value, MAX_OPTION_CHARS);
 
       return {
         ...previous,
@@ -532,7 +532,7 @@ export function LessonMiniQuizEditor({
         {!hasSelectedLesson ? (
           <EmptyState
             title="Сабақ таңдалмаған"
-            text="Алдымен сабақты сақтаңыз."
+            text="Сабақты сақтаңыз."
             compact
             tone="ai"
           />
@@ -547,7 +547,7 @@ export function LessonMiniQuizEditor({
               icon={<ListChecks size={17} />}
               aside={
                 <StatusBadge tone={miniQuizComplete ? 'success' : 'muted'}>
-                  {miniQuizComplete ? 'Толды' : 'Міндетті'}
+                  {miniQuizComplete ? 'Дайын' : 'Толтырыңыз'}
                 </StatusBadge>
               }
             >
@@ -559,10 +559,10 @@ export function LessonMiniQuizEditor({
                     onChange={(event) =>
                       updateQuizForm(
                         'title',
-                        cleanText(event.target.value, MAX_QUIZ_TITLE_CHARS),
+                        sanitizeInputValue(event.target.value, MAX_QUIZ_TITLE_CHARS),
                       )
                     }
-                    placeholder="Сабақ соңындағы қысқа тест"
+                    placeholder="Қысқа тест"
                   />
                 </FieldBlock>
 
@@ -590,7 +590,10 @@ export function LessonMiniQuizEditor({
                   onChange={(event) =>
                     updateQuizForm(
                       'description',
-                      cleanText(event.target.value, MAX_QUIZ_DESCRIPTION_CHARS),
+                      sanitizeInputValue(
+                        event.target.value,
+                        MAX_QUIZ_DESCRIPTION_CHARS,
+                      ),
                     )
                   }
                   placeholder="Сипаттама"
@@ -598,11 +601,12 @@ export function LessonMiniQuizEditor({
               </FieldBlock>
 
               <div
-                className={`rounded-3xl border p-4 transition-colors ${
+                className={cn(
+                  'rounded-3xl border p-4 transition-colors',
                   miniQuizForm.isPublished
                     ? 'border-success-muted bg-success-soft/70'
-                    : 'border-border bg-muted/30'
-                }`}
+                    : 'border-border bg-muted/30',
+                )}
               >
                 <div className="flex items-center justify-between gap-4">
                   <Label
@@ -625,7 +629,7 @@ export function LessonMiniQuizEditor({
               {quizDeleteConfirmOpen ? (
                 <InlineDeleteConfirm
                   title="Шағын тест өшірілсін бе?"
-                  text="Тест ішіндегі барлық сұрақ та өшіріледі."
+                  text="Сұрақтары бірге өшеді."
                   disabled={deleteMiniQuizPending}
                   onConfirm={handleConfirmedDeleteMiniQuiz}
                   onCancel={() => setQuizDeleteConfirmOpen(false)}
@@ -647,7 +651,7 @@ export function LessonMiniQuizEditor({
                     ) : (
                       <Trash2 size={14} className="mr-1.5" />
                     )}
-                    {quizDeleteConfirmOpen ? 'Жабу' : 'Шағын тестті өшіру'}
+                    {quizDeleteConfirmOpen ? 'Жабу' : 'Өшіру'}
                   </Button>
                 ) : null}
 
@@ -677,7 +681,10 @@ export function LessonMiniQuizEditor({
                         onChange={(event) =>
                           updateQuestionForm(
                             'questionText',
-                            cleanText(event.target.value, MAX_QUESTION_TEXT_CHARS),
+                            sanitizeInputValue(
+                              event.target.value,
+                              MAX_QUESTION_TEXT_CHARS,
+                            ),
                           )
                         }
                         placeholder="Сұрақ"
@@ -736,11 +743,12 @@ export function LessonMiniQuizEditor({
                         return (
                           <div
                             key={optionIndex}
-                            className={`flex items-center gap-3 rounded-2xl border p-2 transition-colors ${
+                            className={cn(
+                              'flex items-center gap-3 rounded-2xl border p-2 transition-colors',
                               checked
                                 ? 'border-success-muted bg-success-soft/70'
-                                : 'border-border bg-card'
-                            }`}
+                                : 'border-border bg-card',
+                            )}
                           >
                             <input
                               type={inputType}
@@ -809,7 +817,10 @@ export function LessonMiniQuizEditor({
                       onChange={(event) =>
                         updateQuestionForm(
                           'explanation',
-                          cleanText(event.target.value, MAX_EXPLANATION_CHARS),
+                          sanitizeInputValue(
+                            event.target.value,
+                            MAX_EXPLANATION_CHARS,
+                          ),
                         )
                       }
                       placeholder="Түсіндірме"
@@ -841,9 +852,7 @@ export function LessonMiniQuizEditor({
 
                 <section className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-border bg-muted/25 p-3">
-                    <p className="text-sm font-semibold text-foreground">
-                      Сұрақтар
-                    </p>
+                    <p className="text-sm font-semibold text-foreground">Сұрақтар</p>
 
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge
@@ -863,7 +872,7 @@ export function LessonMiniQuizEditor({
                   {selectedMiniQuiz.questions.length === 0 ? (
                     <EmptyState
                       title="Сұрақ жоқ"
-                      text="Сұрақ қосыңыз."
+                      text="Әзірге дерек жоқ."
                       compact
                       tone="ai"
                     />

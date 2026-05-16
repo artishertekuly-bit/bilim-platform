@@ -1,4 +1,5 @@
 import type { GeneratedQuestion } from '@/lib/ai-api';
+import { removeNullCharacters } from '@/lib/utils';
 
 const PENDING_AI_QUESTION_IMPORT_KEY = 'pending-ai-question-import';
 
@@ -46,9 +47,8 @@ function getStorage(): Storage | null {
   }
 }
 
-function cleanText(value: unknown, limit?: number) {
-  const normalized = String(value ?? '')
-    .replace(/\x00/g, ' ')
+function cleanText(value: unknown, limit?: number): string {
+  const normalized = removeNullCharacters(String(value ?? ''))
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -73,10 +73,11 @@ function normalizeOptions(question: GeneratedQuestion): NormalizedOption[] {
       originalIndex: index,
       text: cleanText(option?.text, MAX_OPTION_TEXT_CHARS),
     }))
-    .filter((option) => option.text.length > 0);
+    .filter((option) => option.text.length > 0)
+    .slice(0, 8);
 }
 
-function getCorrectIndexesByFlags(question: GeneratedQuestion) {
+function getCorrectIndexesByFlags(question: GeneratedQuestion): number[] {
   if (!Array.isArray(question.options)) return [];
 
   return question.options
@@ -87,7 +88,7 @@ function getCorrectIndexesByFlags(question: GeneratedQuestion) {
 function getCorrectIndexesByText(
   question: GeneratedQuestion,
   normalizedOptions: NormalizedOption[],
-) {
+): number[] {
   const correctAnswer = cleanText(question.correctAnswer);
 
   if (!correctAnswer) return [];
@@ -104,7 +105,7 @@ function getCorrectIndexesByText(
 function getCorrectIndexesByNumericAnswer(
   question: GeneratedQuestion,
   optionCount: number,
-) {
+): number[] {
   const correctAnswer = cleanText(question.correctAnswer);
 
   if (!correctAnswer) return [];
@@ -120,10 +121,35 @@ function getCorrectIndexesByNumericAnswer(
     );
 }
 
+function getCorrectIndexesByLetterAnswer(
+  question: GeneratedQuestion,
+  optionCount: number,
+): number[] {
+  const correctAnswer = cleanText(question.correctAnswer);
+
+  if (!correctAnswer) return [];
+
+  return correctAnswer
+    .split(/[,\s;]+/)
+    .map((item) => item.trim().toUpperCase())
+    .filter(Boolean)
+    .map((item) => {
+      if (!/^[A-Z]$/.test(item)) return -1;
+
+      return item.charCodeAt(0) - 65;
+    })
+    .filter(
+      (index) =>
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < optionCount,
+    );
+}
+
 function remapCorrectIndexesToNormalizedOptions(
   originalCorrectIndexes: number[],
   normalizedOptions: NormalizedOption[],
-) {
+): number[] {
   const indexMap = new Map(
     normalizedOptions.map((option, normalizedIndex) => [
       option.originalIndex,
@@ -162,6 +188,17 @@ function parseCorrectAnswerIndexes(
   const byText = getCorrectIndexesByText(question, normalizedOptions);
   if (byText.length > 0) {
     return remapCorrectIndexesToNormalizedOptions(byText, normalizedOptions);
+  }
+
+  const byLetterAnswer = getCorrectIndexesByLetterAnswer(
+    question,
+    originalOptionCount,
+  );
+  if (byLetterAnswer.length > 0) {
+    return remapCorrectIndexesToNormalizedOptions(
+      byLetterAnswer,
+      normalizedOptions,
+    );
   }
 
   const byNumericAnswer = getCorrectIndexesByNumericAnswer(
@@ -232,7 +269,7 @@ function normalizeImportableQuestions(
   };
 }
 
-function isValidCorrectAnswerIndexes(value: unknown, optionsLength: number) {
+function isValidCorrectAnswerIndexes(value: unknown, optionsLength: number): boolean {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
@@ -253,14 +290,14 @@ function isPendingAiImportQuestion(
 
   const row = value as Record<string, unknown>;
 
-  if (typeof row.questionText !== 'string' || !row.questionText.trim()) {
+  if (typeof row.questionText !== 'string' || !cleanText(row.questionText)) {
     return false;
   }
 
   if (
     !Array.isArray(row.options) ||
     row.options.length < 2 ||
-    !row.options.every((item) => typeof item === 'string' && item.trim().length > 0)
+    !row.options.every((item) => typeof item === 'string' && cleanText(item).length > 0)
   ) {
     return false;
   }
@@ -284,12 +321,78 @@ function isPendingAiImportQuestion(
   return true;
 }
 
-function isValidIsoDate(value: unknown) {
-  if (typeof value !== 'string' || !value.trim()) return false;
+function isValidIsoDate(value: unknown): boolean {
+  if (typeof value !== 'string' || !cleanText(value)) return false;
 
   const timestamp = Date.parse(value);
 
   return Number.isFinite(timestamp);
+}
+
+function normalizeStoredImportQuestion(
+  question: PendingAiImportQuestion,
+): PendingAiImportQuestion | null {
+  const questionText = cleanText(question.questionText, MAX_QUESTION_TEXT_CHARS);
+  const options = question.options
+    .map((option) => cleanText(option, MAX_OPTION_TEXT_CHARS))
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const correctAnswer = Array.from(new Set(question.correctAnswer))
+    .filter(
+      (index) =>
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < options.length,
+    )
+    .sort((a, b) => a - b);
+
+  if (!questionText || options.length < 2 || correctAnswer.length === 0) {
+    return null;
+  }
+
+  const questionType =
+    correctAnswer.length > 1 ? 'multiple_choice' : question.questionType;
+
+  if (questionType === 'single_choice' && correctAnswer.length !== 1) {
+    return null;
+  }
+
+  return {
+    questionText,
+    options,
+    correctAnswer,
+    explanation: toOptionalString(question.explanation, MAX_EXPLANATION_CHARS) || null,
+    questionType,
+    difficulty: toOptionalString(question.difficulty, MAX_DIFFICULTY_CHARS),
+    topic: toOptionalString(question.topic, MAX_TOPIC_CHARS),
+  };
+}
+
+function normalizeStoredImport(
+  value: PendingAiQuestionImport,
+): PendingAiQuestionImport | null {
+  const questions = value.questions
+    .map(normalizeStoredImportQuestion)
+    .filter((question): question is PendingAiImportQuestion => question !== null)
+    .slice(0, MAX_IMPORTED_QUESTIONS);
+
+  if (questions.length === 0) {
+    return null;
+  }
+
+  const titleSuggestion =
+    cleanText(value.titleSuggestion, MAX_TITLE_CHARS) || 'AI тест';
+
+  return {
+    source: 'ai-question-builder',
+    titleSuggestion,
+    topic: toOptionalString(value.topic, MAX_TOPIC_CHARS),
+    subject: toOptionalString(value.subject, MAX_SUBJECT_CHARS),
+    createdAt: value.createdAt,
+    questions,
+    skippedCount: Math.max(0, Math.trunc(value.skippedCount || 0)),
+  };
 }
 
 function isPendingAiQuestionImport(value: unknown): value is PendingAiQuestionImport {
@@ -300,7 +403,7 @@ function isPendingAiQuestionImport(value: unknown): value is PendingAiQuestionIm
   return (
     row.source === 'ai-question-builder' &&
     typeof row.titleSuggestion === 'string' &&
-    row.titleSuggestion.trim().length > 0 &&
+    cleanText(row.titleSuggestion).length > 0 &&
     isValidIsoDate(row.createdAt) &&
     typeof row.skippedCount === 'number' &&
     Number.isInteger(row.skippedCount) &&
@@ -311,7 +414,7 @@ function isPendingAiQuestionImport(value: unknown): value is PendingAiQuestionIm
   );
 }
 
-function safeWriteToStorage(payload: PendingAiQuestionImport) {
+function safeWriteToStorage(payload: PendingAiQuestionImport): void {
   const storage = getStorage();
 
   if (!storage) return;
@@ -323,7 +426,7 @@ function safeWriteToStorage(payload: PendingAiQuestionImport) {
   }
 }
 
-function safeRemoveFromStorage() {
+function safeRemoveFromStorage(): void {
   const storage = getStorage();
 
   try {
@@ -373,13 +476,20 @@ export function getPendingAiQuestionImport(): PendingAiQuestionImport | null {
       return null;
     }
 
-    return parsed;
+    const normalized = normalizeStoredImport(parsed);
+
+    if (!normalized) {
+      safeRemoveFromStorage();
+      return null;
+    }
+
+    return normalized;
   } catch {
     safeRemoveFromStorage();
     return null;
   }
 }
 
-export function clearPendingAiQuestionImport() {
+export function clearPendingAiQuestionImport(): void {
   safeRemoveFromStorage();
 }

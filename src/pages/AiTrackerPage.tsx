@@ -11,6 +11,7 @@ import PageHeader from '@/components/common/PageHeader';
 import { Button } from '@/components/ui/button';
 import { useLearningAiAnalysis } from '@/hooks/use-learning-ai-analysis';
 import { useAuth } from '@/lib/auth-context';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
 type TrackerMode = 'student_tracker' | 'student_course_advisor';
 
@@ -132,19 +133,45 @@ const LEARNING_ANALYSIS_KEYWORDS = [
   'жоспар құр',
 ] as const;
 
-function normalizePrompt(value: string) {
-  return value
+const MAX_PROMPT_CHARS = 4_000;
+const MAX_HISTORY_MESSAGES = 8;
+const MAX_HISTORY_MESSAGE_CHARS = 6_000;
+const MAX_SUGGESTION_ID_CHARS = 120;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit?: number): string {
+  const normalized = cleanRawText(value).replace(/\s+/g, ' ').trim();
+
+  return typeof limit === 'number' ? limitText(normalized, limit) : normalized;
+}
+
+function cleanMultilineText(value: unknown, limit?: number): string {
+  const normalized = cleanRawText(value)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+
+  return typeof limit === 'number' ? limitText(normalized, limit) : normalized;
+}
+
+function normalizePrompt(value: unknown): string {
+  return cleanText(value, MAX_PROMPT_CHARS)
     .toLowerCase()
     .replace(/[?.,!;:()[\]{}"'`«»]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function includesAny(value: string, keywords: readonly string[]) {
+function includesAny(value: string, keywords: readonly string[]): boolean {
   return keywords.some((keyword) => value.includes(keyword));
 }
 
-function shouldUseStudentCourseAdvisor(prompt: string) {
+function shouldUseStudentCourseAdvisor(prompt: string): boolean {
   const normalized = normalizePrompt(prompt);
 
   if (!normalized) {
@@ -172,36 +199,49 @@ function shouldUseStudentCourseAdvisor(prompt: string) {
   return hasCourseOrFutureIntent && hasAdvisorActionIntent;
 }
 
-function getAnswerTitle(mode: TrackerMode) {
-  if (mode === 'student_course_advisor') {
-    return 'Курс бойынша кеңес';
-  }
-
-  return 'Оқу бойынша жауап';
+function normalizeSubmitPayload(payload: AiPromptSubmitPayload): AiPromptSubmitPayload {
+  return {
+    prompt: cleanMultilineText(payload.prompt, MAX_PROMPT_CHARS),
+    selectedSuggestionId: payload.selectedSuggestionId
+      ? cleanText(payload.selectedSuggestionId, MAX_SUGGESTION_ID_CHARS)
+      : null,
+    conversationHistory: Array.isArray(payload.conversationHistory)
+      ? payload.conversationHistory
+          .slice(-MAX_HISTORY_MESSAGES)
+          .map((message) => ({
+            role: message.role === 'assistant' ? 'assistant' : 'user',
+            content: cleanMultilineText(
+              message.content,
+              MAX_HISTORY_MESSAGE_CHARS,
+            ),
+          }))
+          .filter((message) => message.content.length > 0)
+      : [],
+  };
 }
 
-function getEmptyAnswerText(mode: TrackerMode) {
+function getAnswerTitle(mode: TrackerMode): string {
   if (mode === 'student_course_advisor') {
-    return 'Қандай курс немесе бағыт таңдауға болатынын сұраңыз.';
+    return 'Курс кеңесі';
   }
 
-  return 'Оқу нәтижесі, қайталау жоспары немесе қиын тақырып туралы сұраңыз.';
+  return 'Оқу жауабы';
 }
 
-function getPlaceholder(mode: TrackerMode) {
+function getEmptyAnswerText(mode: TrackerMode): string {
   if (mode === 'student_course_advisor') {
-    return 'Мысалы: Маған қандай курс оқуға болады?';
+    return 'Курс немесе бағыт туралы сұраңыз.';
+  }
+
+  return 'Оқу, қайталау немесе қиын тақырып туралы сұраңыз.';
+}
+
+function getPlaceholder(mode: TrackerMode): string {
+  if (mode === 'student_course_advisor') {
+    return 'Мысалы: Қандай курс оқуға болады?';
   }
 
   return 'Мысалы: Қай тақырыпты қайталауым керек?';
-}
-
-function getContextDescription(mode: TrackerMode) {
-  if (mode === 'student_course_advisor') {
-    return 'Курс және бағыт таңдауға арналған кеңес.';
-  }
-
-  return 'Оқу нәтижелері мен тапсырмаларға сүйенген талдау.';
 }
 
 export default function AiTrackerPage() {
@@ -237,13 +277,21 @@ export default function AiTrackerPage() {
         return;
       }
 
-      const nextMode: TrackerMode = shouldUseStudentCourseAdvisor(payload.prompt)
+      const normalizedPayload = normalizeSubmitPayload(payload);
+
+      if (!normalizedPayload.prompt) {
+        return;
+      }
+
+      const nextMode: TrackerMode = shouldUseStudentCourseAdvisor(
+        normalizedPayload.prompt,
+      )
         ? 'student_course_advisor'
         : 'student_tracker';
 
       setActiveMode(nextMode);
 
-      await trackerAi.submit(payload, {
+      await trackerAi.submit(normalizedPayload, {
         mode: nextMode,
         role: 'student',
         scope: {
@@ -260,9 +308,9 @@ export default function AiTrackerPage() {
   }, [trackerAi]);
 
   const disabledReason = !trackerAi.isConfigured
-    ? 'AI сервері қосылмаған.'
+    ? 'ЖИ сервисі қосылмаған.'
     : !canUseAiTracker
-      ? 'Бұл бөлім тек оқушы аккаунтына арналған.'
+      ? 'Бұл бөлім оқушыға арналған.'
       : undefined;
 
   return (
@@ -272,11 +320,11 @@ export default function AiTrackerPage() {
           eyebrow={
             <>
               <Sparkles size={13} />
-              AI құралдар
+              ЖИ құралдары
             </>
           }
           icon={<BrainCircuit size={20} />}
-          title="AI оқу көмекшісі"
+          title="ЖИ оқу көмекшісі"
           actions={
             <Button
               type="button"
@@ -293,23 +341,23 @@ export default function AiTrackerPage() {
         {!user ? (
           <EmptyState
             title="Аккаунт анықталмады"
-            text="AI оқу көмекшісін қолдану үшін жүйеге кіріңіз."
+            text="Жүйеге кіріңіз."
             tone="ai"
           />
         ) : null}
 
         {user && !isStudent ? (
           <EmptyState
-            title="Бұл бөлім оқушыға арналған"
-            text="Мұғалім үшін AI көмекші бөлімін қолданыңыз."
+            title="Оқушы аккаунты қажет"
+            text="Бұл бөлім оқушыға арналған."
             tone="ai"
           />
         ) : null}
 
         {canUseAiTracker ? (
           <AiPromptShell
-            title="AI оқу көмекшісі"
-            description="Оқу, қайталау немесе курс бағыты бойынша сұрақ қойыңыз."
+            title="ЖИ оқу көмекшісі"
+            description=""
             placeholder={getPlaceholder(activeMode)}
             suggestions={suggestions}
             contextLabel={
@@ -317,7 +365,6 @@ export default function AiTrackerPage() {
                 ? 'Курс таңдауы'
                 : 'Оқу талдауы'
             }
-            contextDescription={getContextDescription(activeMode)}
             disabled={Boolean(disabledReason)}
             disabledReason={disabledReason}
             isSubmitting={trackerAi.isSubmitting}

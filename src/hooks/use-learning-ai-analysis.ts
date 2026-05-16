@@ -13,7 +13,7 @@ import type {
   LearningAiScope,
 } from '@/lib/ai/learning-ai-types';
 import { useAuth } from '@/lib/auth-context';
-import { limitText, normalizeTextInput } from '@/lib/utils';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
 type LearningAiAnalysisInput = Omit<
   LearningAiRequest,
@@ -42,18 +42,33 @@ const MAX_CONVERSATION_MESSAGE_CHARS = 6_000;
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_SCOPE_TEXT_CHARS = 240;
 const MAX_SCOPE_ID_CHARS = 160;
+const MAX_ERROR_MESSAGE_CHARS = 1_000;
 
-function cleanText(value: unknown, limit?: number): string {
-  const normalized = normalizeTextInput(value);
-
-  if (typeof limit !== 'number') {
-    return normalized;
-  }
-
-  return limitText(normalized, limit);
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
 }
 
-function toOptionalString(value: unknown, limit = MAX_SCOPE_ID_CHARS): string | undefined {
+function cleanText(value: unknown, limit?: number): string {
+  const normalized = cleanRawText(value).replace(/\s+/g, ' ').trim();
+
+  return typeof limit === 'number' ? limitText(normalized, limit) : normalized;
+}
+
+function cleanMultilineText(value: unknown, limit?: number): string {
+  const normalized = cleanRawText(value)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+
+  return typeof limit === 'number' ? limitText(normalized, limit) : normalized;
+}
+
+function toOptionalString(
+  value: unknown,
+  limit = MAX_SCOPE_ID_CHARS,
+): string | undefined {
   if (typeof value !== 'string') return undefined;
 
   const normalized = cleanText(value, limit);
@@ -62,7 +77,7 @@ function toOptionalString(value: unknown, limit = MAX_SCOPE_ID_CHARS): string | 
 }
 
 function cleanConversationMessageContent(value: unknown): string {
-  return cleanText(value, MAX_CONVERSATION_MESSAGE_CHARS);
+  return cleanMultilineText(value, MAX_CONVERSATION_MESSAGE_CHARS);
 }
 
 function normalizeConversationRole(role: unknown): LearningAiConversationRole {
@@ -84,7 +99,7 @@ function normalizeConversationHistory(
 }
 
 function normalizeScope(
-  scope: LearningAiScope | undefined,
+  scope: LearningAiScope | null | undefined,
 ): LearningAiScope | undefined {
   if (!scope) return undefined;
 
@@ -107,12 +122,18 @@ function normalizeScope(
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
+function normalizeAccessToken(value: string | null | undefined): string | null {
+  const normalized = cleanText(value, 4_000);
+
+  return normalized || null;
+}
+
 function buildLearningAiRequest(
   defaultInput: LearningAiAnalysisInput,
   payload: AiPromptSubmitPayload,
   override?: LearningAiSubmitOverride,
 ): LearningAiRequest {
-  const prompt = cleanText(payload.prompt, MAX_PROMPT_CHARS);
+  const prompt = cleanMultilineText(payload.prompt, MAX_PROMPT_CHARS);
   const selectedSuggestionId = toOptionalString(
     payload.selectedSuggestionId,
     MAX_SCOPE_ID_CHARS,
@@ -139,7 +160,7 @@ function getErrorMessage(error: unknown): string {
   }
 
   if (error instanceof Error && error.message.trim()) {
-    const message = cleanText(error.message);
+    const message = cleanText(error.message, MAX_ERROR_MESSAGE_CHARS);
 
     if (/failed to fetch|networkerror|network request failed/i.test(message)) {
       return 'AI серверіне қосылу мүмкін болмады.';
@@ -183,7 +204,9 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
   const [error, setError] = useState<string | null>(null);
 
   const defaultInputRef = useRef(defaultInput);
-  const accessTokenRef = useRef<string | null>(session?.access_token || null);
+  const accessTokenRef = useRef<string | null>(
+    normalizeAccessToken(session?.access_token),
+  );
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const requestCounterRef = useRef(0);
@@ -209,7 +232,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
   }, [defaultInput]);
 
   useEffect(() => {
-    accessTokenRef.current = session?.access_token || null;
+    accessTokenRef.current = normalizeAccessToken(session?.access_token);
   }, [session?.access_token]);
 
   const mutation = useMutation<MutationSuccess, Error, MutationVariables>({
@@ -224,7 +247,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
         throw new Error('Сұрақ бос болмауы керек.');
       }
 
-      const accessToken = accessTokenRef.current?.trim() || undefined;
+      const accessToken = accessTokenRef.current || undefined;
 
       if (!accessToken) {
         throw new Error('Сессия аяқталған. Қайта кіріңіз.');
@@ -287,7 +310,7 @@ export function useLearningAiAnalysis(defaultInput: LearningAiAnalysisInput) {
         return;
       }
 
-      const prompt = cleanText(payload.prompt, MAX_PROMPT_CHARS);
+      const prompt = cleanMultilineText(payload.prompt, MAX_PROMPT_CHARS);
 
       if (!prompt) {
         clearState('Сұрақ бос болмауы керек.');

@@ -40,6 +40,7 @@ import {
 } from '@/lib/ai-api';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, removeNullCharacters } from '@/lib/utils';
 
 const MAX_TITLE_CHARS = 200;
 const MAX_SUBJECT_CHARS = 120;
@@ -63,15 +64,24 @@ type SelectFieldProps = {
   disabled?: boolean;
 };
 
-function cleanText(value: string, limit: number) {
-  return value
-    .replace(/\x00/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, limit);
+function sanitizeInputValue(value: string, limit: number): string {
+  return removeNullCharacters(value).slice(0, limit);
 }
 
-function isAbortLikeError(error: unknown) {
+function cleanText(value: string, limit: number): string {
+  return sanitizeInputValue(value, limit).replace(/\s+/g, ' ').trim();
+}
+
+function cleanMultilineText(value: string, limit: number): string {
+  return sanitizeInputValue(value, limit)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+}
+
+function isAbortLikeError(error: unknown): boolean {
   if (error instanceof DOMException && error.name === 'AbortError') return true;
   if (!(error instanceof Error)) return false;
 
@@ -97,7 +107,7 @@ function upsertExam(list: AiExamSummary[], incoming: AiExamSummary): AiExamSumma
   return list.map((item) => (item.id === incoming.id ? { ...item, ...incoming } : item));
 }
 
-function normalizeExamList(items: AiExamSummary[]) {
+function normalizeExamList(items: AiExamSummary[]): AiExamSummary[] {
   const seen = new Set<string>();
   const normalized: AiExamSummary[] = [];
 
@@ -111,7 +121,7 @@ function normalizeExamList(items: AiExamSummary[]) {
   return normalized;
 }
 
-function getStatusLabel(status: string | null | undefined) {
+function getStatusLabel(status: string | null | undefined): string {
   switch (status) {
     case 'published':
       return 'Жарияланған';
@@ -133,7 +143,7 @@ function getStatusTone(status: string | null | undefined) {
   }
 }
 
-function getDifficultyLabel(difficulty: Difficulty) {
+function getDifficultyLabel(difficulty: Difficulty): string {
   const labels: Record<Difficulty, string> = {
     easy: 'Оңай',
     medium: 'Орташа',
@@ -143,7 +153,7 @@ function getDifficultyLabel(difficulty: Difficulty) {
   return labels[difficulty];
 }
 
-function getQuestionKindLabel(kind: AiQuestionKind) {
+function getQuestionKindLabel(kind: AiQuestionKind): string {
   const labels: Record<AiQuestionKind, string> = {
     mixed: 'Аралас',
     multiple_choice: 'Жауап нұсқалары',
@@ -153,10 +163,10 @@ function getQuestionKindLabel(kind: AiQuestionKind) {
   return labels[kind];
 }
 
-function getExamMeta(item: AiExamSummary) {
-  return `${item.subject || 'Пән көрсетілмеген'} · ${
-    item.questionCount || 0
-  } сұрақ · ${item.durationMinutes || '—'} мин`;
+function getExamMeta(item: AiExamSummary): string {
+  return `${item.subject || 'Пән жоқ'} · ${item.questionCount || 0} сұрақ · ${
+    item.durationMinutes || '—'
+  } мин`;
 }
 
 function getCreateValidationMessage({
@@ -169,7 +179,7 @@ function getCreateValidationMessage({
   subject: string;
   topic: string;
   sourceText: string;
-}) {
+}): string {
   if (!cleanText(title, MAX_TITLE_CHARS)) {
     return 'Емтихан атауын енгізіңіз.';
   }
@@ -177,9 +187,9 @@ function getCreateValidationMessage({
   if (
     !cleanText(subject, MAX_SUBJECT_CHARS) &&
     !cleanText(topic, MAX_TOPIC_CHARS) &&
-    !cleanText(sourceText, MAX_SOURCE_TEXT_CHARS)
+    !cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS)
   ) {
-    return 'Емтихан мазмұнын нақтылау үшін пән, тақырып немесе қосымша мәтін енгізіңіз.';
+    return 'Пән, тақырып немесе мәтін енгізіңіз.';
   }
 
   return '';
@@ -284,7 +294,7 @@ function ExamListItem({
               disabled={disabled}
             >
               <Archive size={14} className="mr-2" />
-              Архивке жіберу
+              Архивке
             </Button>
           </>
         ) : null}
@@ -301,7 +311,7 @@ function ExamListItem({
             ) : (
               <Archive size={14} className="mr-2" />
             )}
-            Архивке жіберу
+            Архивке
           </Button>
         ) : null}
 
@@ -322,7 +332,7 @@ function ExamListItem({
               disabled={disabled}
             >
               {updating ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
-              Қайта жариялау
+              Жариялау
             </Button>
           </>
         ) : null}
@@ -355,11 +365,12 @@ function QuestionPreview({
           {question.options.map((option) => (
             <div
               key={option.id}
-              className={`rounded-2xl border px-3 py-2 text-sm ${
+              className={cn(
+                'rounded-2xl border px-3 py-2 text-sm',
                 option.isCorrect
                   ? 'border-success-muted bg-success-soft text-success-foreground'
-                  : 'border-border bg-card text-muted-foreground'
-              }`}
+                  : 'border-border bg-card text-muted-foreground',
+              )}
             >
               {option.text}
             </div>
@@ -481,7 +492,7 @@ export default function AiExamsPage() {
     if (!accessToken) {
       setExams([]);
       setLatestDraft(null);
-      setErrorText('AI емтихан тізімін жүктеу үшін белсенді сессия қажет.');
+      setErrorText('Белсенді сессия қажет.');
       return;
     }
 
@@ -510,7 +521,7 @@ export default function AiExamsPage() {
       const message =
         error instanceof Error
           ? error.message
-          : 'AI емтихан тізімін жүктеу мүмкін болмады.';
+          : 'Емтихан тізімін жүктеу мүмкін болмады.';
 
       if (mountedRef.current && listRequestIdRef.current === requestId) {
         setErrorText(message);
@@ -543,7 +554,7 @@ export default function AiExamsPage() {
     const trimmedTitle = cleanText(title, MAX_TITLE_CHARS);
     const trimmedSubject = cleanText(subject, MAX_SUBJECT_CHARS);
     const trimmedTopic = cleanText(topic, MAX_TOPIC_CHARS);
-    const trimmedSource = cleanText(sourceText, MAX_SOURCE_TEXT_CHARS);
+    const trimmedSource = cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS);
 
     const message = getCreateValidationMessage({
       title: trimmedTitle,
@@ -558,17 +569,17 @@ export default function AiExamsPage() {
     }
 
     if (!user) {
-      setErrorText('AI емтихан жобасын құру үшін жүйеге кіру қажет.');
+      setErrorText('Жүйеге кіріңіз.');
       return;
     }
 
     if (!isTeacher) {
-      setErrorText('AI емтихан жобасын тек мұғалім аккаунтымен құруға болады.');
+      setErrorText('Бұл бөлім мұғалімге арналған.');
       return;
     }
 
     if (!accessToken) {
-      const authMessage = 'AI емтихан жобасын құру үшін белсенді сессия қажет.';
+      const authMessage = 'Белсенді сессия қажет.';
 
       setErrorText(authMessage);
       toast({
@@ -615,9 +626,7 @@ export default function AiExamsPage() {
 
       toast({
         title: 'Емтихан жобасы дайын',
-        description: `${
-          response.exam.questionCount || response.questions?.length || 0
-        } сұрақ құрылды.`,
+        description: `${response.exam.questionCount || response.questions?.length || 0} сұрақ құрылды.`,
       });
     } catch (error) {
       if (controller.signal.aborted || isAbortLikeError(error)) return;
@@ -625,7 +634,7 @@ export default function AiExamsPage() {
       const errorMessage =
         error instanceof Error
           ? error.message
-          : 'AI емтихан жобасын құру мүмкін болмады.';
+          : 'Емтихан жобасын құру мүмкін болмады.';
 
       if (mountedRef.current && createRequestIdRef.current === requestId) {
         setErrorText(errorMessage);
@@ -658,17 +667,17 @@ export default function AiExamsPage() {
     }
 
     if (!user) {
-      setErrorText('Емтихан статусын жаңарту үшін жүйеге кіру қажет.');
+      setErrorText('Жүйеге кіріңіз.');
       return;
     }
 
     if (!isTeacher) {
-      setErrorText('Емтихан статусын тек мұғалім аккаунтымен жаңартуға болады.');
+      setErrorText('Бұл бөлім мұғалімге арналған.');
       return;
     }
 
     if (!accessToken) {
-      const message = 'Емтихан статусын жаңарту үшін белсенді сессия қажет.';
+      const message = 'Белсенді сессия қажет.';
 
       setErrorText(message);
       toast({
@@ -719,7 +728,7 @@ export default function AiExamsPage() {
 
       toast({
         title: 'Статус жаңартылды',
-        description: `Емтихан статусы: ${getStatusLabel(response.exam.status || status)}`,
+        description: getStatusLabel(response.exam.status || status),
       });
     } catch (error) {
       if (controller.signal.aborted || isAbortLikeError(error)) return;
@@ -779,7 +788,7 @@ export default function AiExamsPage() {
             eyebrow={
               <>
                 <WandSparkles size={13} />
-                AI құралдар
+                ЖИ құралдары
               </>
             }
             icon={<ClipboardList size={20} />}
@@ -788,7 +797,7 @@ export default function AiExamsPage() {
 
           <EmptyState
             title="Аккаунт анықталмады"
-            text="AI емтихан бөлімін қолдану үшін жүйеге кіру қажет."
+            text="Жүйеге кіріңіз."
             tone="ai"
           />
         </div>
@@ -804,7 +813,7 @@ export default function AiExamsPage() {
             eyebrow={
               <>
                 <WandSparkles size={13} />
-                AI құралдар
+                ЖИ құралдары
               </>
             }
             icon={<ClipboardList size={20} />}
@@ -813,7 +822,7 @@ export default function AiExamsPage() {
 
           <EmptyState
             title="Мұғалім рөлі қажет"
-            text="AI емтихан жобаларын тек мұғалім аккаунтымен құруға және басқаруға болады."
+            text="Бұл бөлім мұғалімге арналған."
             tone="ai"
           />
         </div>
@@ -828,7 +837,7 @@ export default function AiExamsPage() {
           eyebrow={
             <>
               <WandSparkles size={13} />
-              AI құралдар
+              ЖИ құралдары
             </>
           }
           icon={<ClipboardList size={20} />}
@@ -838,7 +847,7 @@ export default function AiExamsPage() {
               <Button variant="outline" size="sm" asChild>
                 <Link to="/create-test">
                   <ClipboardList size={14} className="mr-2" />
-                  Қолмен тест жасау
+                  Тест құру
                 </Link>
               </Button>
 
@@ -853,7 +862,7 @@ export default function AiExamsPage() {
                 ) : (
                   <RefreshCcw size={14} className="mr-2" />
                 )}
-                Тізімді жаңарту
+                Жаңарту
               </Button>
 
               <Button
@@ -863,7 +872,7 @@ export default function AiExamsPage() {
                 disabled={isBusy}
               >
                 <RefreshCcw size={14} className="mr-2" />
-                Форманы тазалау
+                Тазалау
               </Button>
             </div>
           }
@@ -891,11 +900,11 @@ export default function AiExamsPage() {
                   value={title}
                   maxLength={MAX_TITLE_CHARS}
                   onChange={(event) => {
-                    setTitle(event.target.value.slice(0, MAX_TITLE_CHARS));
+                    setTitle(sanitizeInputValue(event.target.value, MAX_TITLE_CHARS));
                     clearError();
                   }}
                   disabled={isCreating}
-                  placeholder="Мысалы: Алгебра бойынша аралық емтихан"
+                  placeholder="Мысалы: Алгебра емтиханы"
                 />
               </div>
 
@@ -910,7 +919,7 @@ export default function AiExamsPage() {
                     value={subject}
                     maxLength={MAX_SUBJECT_CHARS}
                     onChange={(event) => {
-                      setSubject(event.target.value.slice(0, MAX_SUBJECT_CHARS));
+                      setSubject(sanitizeInputValue(event.target.value, MAX_SUBJECT_CHARS));
                       clearError();
                     }}
                     disabled={isCreating}
@@ -928,7 +937,7 @@ export default function AiExamsPage() {
                     value={topic}
                     maxLength={MAX_TOPIC_CHARS}
                     onChange={(event) => {
-                      setTopic(event.target.value.slice(0, MAX_TOPIC_CHARS));
+                      setTopic(sanitizeInputValue(event.target.value, MAX_TOPIC_CHARS));
                       clearError();
                     }}
                     disabled={isCreating}
@@ -938,7 +947,7 @@ export default function AiExamsPage() {
 
                 <SelectField
                   id="difficulty"
-                  label="Қиындық деңгейі"
+                  label="Қиындық"
                   value={difficulty}
                   onChange={(value) => setDifficulty(value as Difficulty)}
                   disabled={isCreating}
@@ -976,7 +985,7 @@ export default function AiExamsPage() {
 
                 <SelectField
                   id="examMode"
-                  label="Емтихан режимі"
+                  label="Режим"
                   value={examMode}
                   onChange={(value) => setExamMode(value as ExamMode)}
                   disabled={isCreating}
@@ -1029,16 +1038,18 @@ export default function AiExamsPage() {
                   value={sourceText}
                   maxLength={MAX_SOURCE_TEXT_CHARS}
                   onChange={(event) => {
-                    setSourceText(event.target.value.slice(0, MAX_SOURCE_TEXT_CHARS));
+                    setSourceText(
+                      sanitizeInputValue(event.target.value, MAX_SOURCE_TEXT_CHARS),
+                    );
                     clearError();
                   }}
                   disabled={isCreating}
-                  placeholder="Емтихан сұрақтары сүйенетін теориялық мәтін немесе қысқа мазмұн енгізіңіз."
+                  placeholder="Теориялық мәтін немесе қысқа мазмұн"
                   rows={7}
                 />
 
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  {sourceText.length}/{MAX_SOURCE_TEXT_CHARS} таңба
+                  {sourceText.length}/{MAX_SOURCE_TEXT_CHARS}
                 </p>
               </div>
 
@@ -1048,12 +1059,12 @@ export default function AiExamsPage() {
                 ) : (
                   <CheckCircle2 size={16} className="mr-2" />
                 )}
-                {isCreating ? 'Жоба құрылып жатыр...' : 'AI емтихан жобасын құру'}
+                {isCreating ? 'Құрылуда...' : 'Жоба құру'}
               </Button>
 
               {!accessToken ? (
                 <p className="rounded-2xl border border-warning-muted bg-warning-soft px-3 py-2 text-xs leading-5 text-warning-foreground">
-                  AI емтихан жобасын құру үшін белсенді авторизация сессиясы қажет.
+                  Белсенді сессия қажет.
                 </p>
               ) : null}
 
@@ -1096,11 +1107,7 @@ export default function AiExamsPage() {
                   />
                 </div>
               ) : (
-                <EmptyState
-                  title="Жоба әлі жоқ"
-                  text="AI емтихан жобасы құрылғаннан кейін қысқаша ақпарат осы жерде көрінеді."
-                  compact
-                />
+                <EmptyState title="Жоба жоқ" text="Әзірге дерек жоқ." compact />
               )}
             </CardContent>
           </Card>
@@ -1108,11 +1115,7 @@ export default function AiExamsPage() {
 
         {isCreating || isLoadingList ? (
           <LoadingState
-            text={
-              isCreating
-                ? 'AI емтихан жобасы дайындалып жатыр...'
-                : 'AI емтихан тізімі жүктеліп жатыр...'
-            }
+            text={isCreating ? 'Жоба құрылуда...' : 'Тізім жүктелуде...'}
           />
         ) : null}
 
@@ -1139,11 +1142,7 @@ export default function AiExamsPage() {
                   />
                 ))
               ) : (
-                <EmptyState
-                  title="Сұрақтар көрсетілмеді"
-                  text="Сервер бұл жоба үшін сұрақ тізімін қайтармады."
-                  compact
-                />
+                <EmptyState title="Сұрақ жоқ" text="Сервер сұрақ тізімін қайтармады." compact />
               )}
             </CardContent>
           </Card>
@@ -1160,11 +1159,7 @@ export default function AiExamsPage() {
 
             <CardContent className="space-y-3 p-5 text-sm">
               {draftExams.length === 0 ? (
-                <EmptyState
-                  title="Жоба жоқ"
-                  text="Жаңа AI емтихан жобасы құрылғаннан кейін осы жерде көрінеді."
-                  compact
-                />
+                <EmptyState title="Жоба жоқ" text="Әзірге дерек жоқ." compact />
               ) : (
                 draftExams.map((item) => (
                   <ExamListItem
@@ -1183,20 +1178,14 @@ export default function AiExamsPage() {
           <Card className="overflow-hidden">
             <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
               <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-base font-semibold">
-                  Жарияланған
-                </CardTitle>
+                <CardTitle className="text-base font-semibold">Жарияланған</CardTitle>
                 <StatusBadge tone="success">{publishedExams.length}</StatusBadge>
               </div>
             </CardHeader>
 
             <CardContent className="space-y-3 p-5 text-sm">
               {publishedExams.length === 0 ? (
-                <EmptyState
-                  title="Жарияланған емтихан жоқ"
-                  text="Жоба жарияланғаннан кейін осы жерде көрінеді."
-                  compact
-                />
+                <EmptyState title="Емтихан жоқ" text="Әзірге дерек жоқ." compact />
               ) : (
                 publishedExams.map((item) => (
                   <ExamListItem
@@ -1222,11 +1211,7 @@ export default function AiExamsPage() {
 
             <CardContent className="space-y-3 p-5 text-sm">
               {archivedExams.length === 0 ? (
-                <EmptyState
-                  title="Архивтегі емтихан жоқ"
-                  text="Архивке жіберілген емтихандар осы жерде көрінеді."
-                  compact
-                />
+                <EmptyState title="Архив бос" text="Әзірге дерек жоқ." compact />
               ) : (
                 archivedExams.map((item) => (
                   <ExamListItem
