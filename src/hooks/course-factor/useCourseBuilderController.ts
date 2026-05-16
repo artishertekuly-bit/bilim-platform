@@ -161,7 +161,10 @@ function normalizeCourseAccessType(value: unknown): CourseAccessType {
 
 function normalizeCourseVisibility(value: unknown): CourseVisibility {
   if (value === 'private') return 'private';
-  if (value === 'school') return 'school';
+  if (value === 'unlisted') return 'unlisted';
+
+  // Legacy DB value. CourseVisibility type does not support "school".
+  if (value === 'school') return 'private';
 
   return 'public';
 }
