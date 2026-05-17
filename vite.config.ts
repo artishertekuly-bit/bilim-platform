@@ -59,7 +59,7 @@ function manualChunks(id: string) {
     return 'vendor-icons';
   }
 
-  return 'vendor';
+  return undefined;
 }
 
 export default defineConfig({
