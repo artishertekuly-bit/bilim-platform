@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ChangeEvent } from 'react';
 import { BookOpen, Hash, ListChecks, Plus, RotateCcw, Search } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -18,7 +18,7 @@ import { platformKeys, useSubjects } from '@/hooks/use-platform-data';
 import { useToast } from '@/hooks/use-toast';
 import { createSubject } from '@/lib/app-data';
 import t from '@/lib/i18n';
-import { cn, limitText, removeNullCharacters } from '@/lib/utils';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
 const cyrillicMap: Record<string, string> = {
   а: 'a',
@@ -314,7 +314,7 @@ export default function AdminSubjectsPage() {
 
       toast({ title: t('page.admin_subjects.toast.create_title') });
     },
-    onError: (mutationError) =>
+    onError: (mutationError: unknown) =>
       toast({
         title: t('page.admin_subjects.toast.error_title'),
         description: getErrorMessage(mutationError),
@@ -375,7 +375,7 @@ export default function AdminSubjectsPage() {
                   id="name-kk"
                   value={nameKk}
                   maxLength={MAX_NAME_CHARS}
-                  onChange={(event) =>
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     setNameKk(cleanText(event.target.value, MAX_NAME_CHARS))
                   }
                   placeholder={t('page.admin_subjects.placeholder.name_kk')}
@@ -390,7 +390,7 @@ export default function AdminSubjectsPage() {
                   id="name-ru"
                   value={nameRu}
                   maxLength={MAX_NAME_CHARS}
-                  onChange={(event) =>
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     setNameRu(cleanText(event.target.value, MAX_NAME_CHARS))
                   }
                   placeholder={t('page.admin_subjects.placeholder.name_ru')}
@@ -403,7 +403,7 @@ export default function AdminSubjectsPage() {
                   id="slug"
                   value={slug}
                   maxLength={MAX_SLUG_CHARS}
-                  onChange={(event) =>
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     setSlug(normalizeSlug(event.target.value))
                   }
                   onBlur={() => setSlug(normalizeSlug(slug || nameKk || nameRu))}
@@ -428,7 +428,7 @@ export default function AdminSubjectsPage() {
                 <Input
                   id="sort-order"
                   value={sortOrder}
-                  onChange={(event) =>
+                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
                     setSortOrder(normalizeSortOrderInput(event.target.value))
                   }
                   inputMode="numeric"
@@ -464,7 +464,7 @@ export default function AdminSubjectsPage() {
                   <Input
                     value={search}
                     maxLength={MAX_SEARCH_CHARS}
-                    onChange={(event) =>
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
                       setSearch(normalizeSearchInput(event.target.value))
                     }
                     placeholder="Пән атауы немесе slug"

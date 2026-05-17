@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -247,7 +247,7 @@ function FilterButton({
   onClick,
 }: {
   active: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
 }) {
   return (
@@ -464,7 +464,7 @@ export default function AdminModerationPage() {
 
       toast({ title: t('page.admin_moderation.toast.status_updated') });
     },
-    onError: (mutationError) =>
+    onError: (mutationError: unknown) =>
       toast({
         title: t('page.admin_moderation.toast.error_title'),
         description: getErrorMessage(mutationError),
@@ -535,7 +535,7 @@ export default function AdminModerationPage() {
                   <Input
                     value={search}
                     maxLength={MAX_SEARCH_CHARS}
-                    onChange={(event) =>
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
                       setSearch(normalizeSearchInput(event.target.value))
                     }
                     placeholder="Атауы, авторы, пәні немесе мәртебе"

@@ -1,6 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
-  CalendarClock,
   GraduationCap,
   RotateCcw,
   Search,
@@ -405,7 +404,7 @@ export default function AdminUsersPage() {
                   <Input
                     value={search}
                     maxLength={MAX_SEARCH_CHARS}
-                    onChange={(event) => setSearch(normalizeSearchInput(event.target.value))}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(normalizeSearchInput(event.target.value))}
                     placeholder="Аты, email, рөлі немесе ID"
                     className="pl-10"
                   />

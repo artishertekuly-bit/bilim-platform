@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
@@ -1009,7 +1009,7 @@ export default function AdminDashboard() {
                         id="manual-student-id"
                         value={manualGrantForm.userId}
                         maxLength={MAX_ID_CHARS}
-                        onChange={(event) =>
+                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
                           updateManualGrantForm('userId', event.target.value)
                         }
                         placeholder="Оқушы ID"
@@ -1022,7 +1022,7 @@ export default function AdminDashboard() {
                         id="manual-course-id"
                         value={manualGrantForm.courseId}
                         maxLength={MAX_ID_CHARS}
-                        onChange={(event) =>
+                        onChange={(event: ChangeEvent<HTMLInputElement>) =>
                           updateManualGrantForm('courseId', event.target.value)
                         }
                         placeholder="Курс ID"
@@ -1036,7 +1036,7 @@ export default function AdminDashboard() {
                       id="manual-grant-reason"
                       value={manualGrantForm.reason}
                       maxLength={MAX_REASON_CHARS}
-                      onChange={(event) =>
+                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
                         updateManualGrantForm('reason', event.target.value)
                       }
                       placeholder="Мысалы: қолма-қол төледі"
