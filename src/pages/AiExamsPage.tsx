@@ -40,20 +40,32 @@ import {
 } from '@/lib/ai-api';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
-import { cn, removeNullCharacters } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
+const MAX_ID_CHARS = 180;
 const MAX_TITLE_CHARS = 200;
 const MAX_SUBJECT_CHARS = 120;
 const MAX_TOPIC_CHARS = 200;
 const MAX_SOURCE_TEXT_CHARS = 16_000;
+const MAX_QUESTION_TEXT_CHARS = 2_000;
+const MAX_OPTION_CHARS = 700;
+const MAX_EXPLANATION_CHARS = 2_500;
+const MAX_ERROR_CHARS = 700;
+const MAX_META_CHARS = 240;
 
 const LIST_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = 360_000;
 const STATUS_TIMEOUT_MS = 60_000;
 
-type Difficulty = 'easy' | 'medium' | 'hard';
-type ExamStatus = 'draft' | 'published' | 'archived';
-type ExamMode = '' | 'unt';
+const DIFFICULTY_VALUES = ['easy', 'medium', 'hard'] as const;
+const EXAM_STATUS_VALUES = ['draft', 'published', 'archived'] as const;
+const EXAM_MODE_VALUES = ['', 'unt'] as const;
+const QUESTION_KIND_VALUES = ['mixed', 'multiple_choice', 'short_answer'] as const;
+const QUESTION_COUNT_OPTIONS = [5, 10, 15, 20, 30] as const;
+
+type Difficulty = (typeof DIFFICULTY_VALUES)[number];
+type ExamStatus = (typeof EXAM_STATUS_VALUES)[number];
+type ExamMode = (typeof EXAM_MODE_VALUES)[number];
 
 type SelectFieldProps = {
   id: string;
@@ -64,21 +76,75 @@ type SelectFieldProps = {
   disabled?: boolean;
 };
 
-function sanitizeInputValue(value: string, limit: number): string {
-  return removeNullCharacters(value).slice(0, limit);
+function sanitizeInputValue(value: unknown, limit: number): string {
+  return limitText(removeNullCharacters(String(value ?? '')), limit);
 }
 
-function cleanText(value: string, limit: number): string {
+function cleanText(value: unknown, limit = MAX_META_CHARS): string {
   return sanitizeInputValue(value, limit).replace(/\s+/g, ' ').trim();
 }
 
-function cleanMultilineText(value: string, limit: number): string {
-  return sanitizeInputValue(value, limit)
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{4,}/g, '\n\n\n')
+function cleanMultilineText(value: unknown, limit: number): string {
+  return limitText(
+    removeNullCharacters(String(value ?? ''))
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim(),
+    limit,
+  );
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeUiText(value: unknown): string {
+  return cleanText(value, MAX_META_CHARS)
+    .replace(/\bAI\b/g, 'ЖИ')
+    .replace(/\bAi\b/g, 'ЖИ')
     .trim();
+}
+
+function normalizeNumber(value: unknown, fallback: number, min: number, max: number): number {
+  const next = Number(value);
+
+  if (!Number.isFinite(next)) return fallback;
+
+  return Math.max(min, Math.min(max, Math.round(next)));
+}
+
+function normalizeDifficulty(value: unknown): Difficulty {
+  const normalized = cleanText(value, 40);
+
+  return DIFFICULTY_VALUES.includes(normalized as Difficulty)
+    ? (normalized as Difficulty)
+    : 'medium';
+}
+
+function normalizeQuestionKind(value: unknown): AiQuestionKind {
+  const normalized = cleanText(value, 60);
+
+  return QUESTION_KIND_VALUES.includes(normalized as AiQuestionKind)
+    ? (normalized as AiQuestionKind)
+    : 'mixed';
+}
+
+function normalizeExamMode(value: unknown): ExamMode {
+  const normalized = cleanText(value, 40);
+
+  return EXAM_MODE_VALUES.includes(normalized as ExamMode)
+    ? (normalized as ExamMode)
+    : '';
+}
+
+function normalizeExamStatus(value: unknown): ExamStatus {
+  const normalized = cleanText(value, 40);
+
+  return EXAM_STATUS_VALUES.includes(normalized as ExamStatus)
+    ? (normalized as ExamStatus)
+    : 'draft';
 }
 
 function isAbortLikeError(error: unknown): boolean {
@@ -95,49 +161,42 @@ function isAbortLikeError(error: unknown): boolean {
   );
 }
 
-function upsertExam(list: AiExamSummary[], incoming: AiExamSummary): AiExamSummary[] {
-  if (!incoming.id) return list;
+function getErrorMessage(
+  error: unknown,
+  fallback = 'Белгісіз қате пайда болды.',
+): string {
+  if (isAbortLikeError(error)) return '';
 
-  const exists = list.some((item) => item.id === incoming.id);
-
-  if (!exists) {
-    return [incoming, ...list];
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
   }
 
-  return list.map((item) => (item.id === incoming.id ? { ...item, ...incoming } : item));
-}
-
-function normalizeExamList(items: AiExamSummary[]): AiExamSummary[] {
-  const seen = new Set<string>();
-  const normalized: AiExamSummary[] = [];
-
-  for (const item of items) {
-    if (!item.id || seen.has(item.id)) continue;
-
-    seen.add(item.id);
-    normalized.push(item);
-  }
-
-  return normalized;
+  return fallback;
 }
 
 function getStatusLabel(status: string | null | undefined): string {
-  switch (status) {
+  const normalizedStatus = normalizeExamStatus(status);
+
+  switch (normalizedStatus) {
     case 'published':
       return 'Жарияланған';
     case 'archived':
       return 'Архивте';
+    case 'draft':
     default:
       return 'Жоба';
   }
 }
 
 function getStatusTone(status: string | null | undefined) {
-  switch (status) {
+  const normalizedStatus = normalizeExamStatus(status);
+
+  switch (normalizedStatus) {
     case 'published':
       return 'success' as const;
     case 'archived':
       return 'muted' as const;
+    case 'draft':
     default:
       return 'warning' as const;
   }
@@ -154,19 +213,138 @@ function getDifficultyLabel(difficulty: Difficulty): string {
 }
 
 function getQuestionKindLabel(kind: AiQuestionKind): string {
+  const normalizedKind = normalizeQuestionKind(kind);
+
   const labels: Record<AiQuestionKind, string> = {
     mixed: 'Аралас',
     multiple_choice: 'Жауап нұсқалары',
     short_answer: 'Қысқа жауап',
   };
 
-  return labels[kind];
+  return labels[normalizedKind];
+}
+
+function normalizeQuestionType(value: unknown): AiExamQuestion['type'] {
+  return value === 'multiple_choice' ? 'multiple_choice' : 'short_answer';
+}
+
+function normalizeQuestionOption(
+  option: NonNullable<AiExamQuestion['options']>[number],
+  questionId: string,
+  index: number,
+): NonNullable<AiExamQuestion['options']>[number] | null {
+  const text = cleanText(option?.text, MAX_OPTION_CHARS);
+
+  if (!text) return null;
+
+  return {
+    ...option,
+    id: cleanId(option?.id) || `${questionId}-option-${index + 1}`,
+    text,
+    isCorrect: Boolean(option?.isCorrect),
+  };
+}
+
+function normalizeExamQuestion(question: AiExamQuestion, index: number): AiExamQuestion | null {
+  const id = cleanId(question?.id) || `question-${index + 1}`;
+  const rawOptions = Array.isArray(question?.options) ? question.options : [];
+  const options = rawOptions
+    .map((option, optionIndex) => normalizeQuestionOption(option, id, optionIndex))
+    .filter((option): option is NonNullable<AiExamQuestion['options']>[number] =>
+      Boolean(option),
+    )
+    .slice(0, 8);
+
+  const type =
+    normalizeQuestionType(question?.type) === 'multiple_choice' && options.length >= 2
+      ? 'multiple_choice'
+      : 'short_answer';
+
+  const text = cleanMultilineText(question?.question, MAX_QUESTION_TEXT_CHARS);
+
+  if (!text) return null;
+
+  return {
+    ...question,
+    id,
+    type,
+    question: text,
+    options: type === 'multiple_choice' ? options : undefined,
+    correctAnswer: cleanText(question?.correctAnswer, MAX_OPTION_CHARS) || undefined,
+    explanation:
+      cleanMultilineText(question?.explanation, MAX_EXPLANATION_CHARS) || undefined,
+  };
+}
+
+function normalizeExamSummary(item: AiExamSummary): AiExamSummary | null {
+  const id = cleanId(item?.id);
+
+  if (!id) return null;
+
+  return {
+    ...item,
+    id,
+    title: cleanText(item?.title, MAX_TITLE_CHARS) || 'Емтихан',
+    subject: cleanText(item?.subject, MAX_SUBJECT_CHARS) || undefined,
+    topic: cleanText(item?.topic, MAX_TOPIC_CHARS) || undefined,
+    status: normalizeExamStatus(item?.status),
+    questionCount: normalizeNumber(item?.questionCount, 0, 0, 1_000),
+    durationMinutes: normalizeNumber(item?.durationMinutes, 0, 0, 10_000),
+  };
+}
+
+function normalizeCreateResponse(response: CreateAiExamResponse): CreateAiExamResponse {
+  const normalizedExam = normalizeExamSummary(response.exam) || response.exam;
+
+  return {
+    ...response,
+    exam: normalizedExam,
+    questions: (response.questions || [])
+      .map((question, index) => normalizeExamQuestion(question, index))
+      .filter((question): question is AiExamQuestion => Boolean(question)),
+  };
+}
+
+function upsertExam(list: AiExamSummary[], incoming: AiExamSummary): AiExamSummary[] {
+  const normalizedIncoming = normalizeExamSummary(incoming);
+
+  if (!normalizedIncoming) return list;
+
+  const exists = list.some((item) => cleanId(item.id) === normalizedIncoming.id);
+
+  if (!exists) {
+    return [normalizedIncoming, ...list];
+  }
+
+  return list.map((item) =>
+    cleanId(item.id) === normalizedIncoming.id
+      ? { ...item, ...normalizedIncoming }
+      : item,
+  );
+}
+
+function normalizeExamList(items: AiExamSummary[] = []): AiExamSummary[] {
+  const seen = new Set<string>();
+  const normalized: AiExamSummary[] = [];
+
+  for (const item of items) {
+    const nextItem = normalizeExamSummary(item);
+
+    if (!nextItem || seen.has(nextItem.id)) continue;
+
+    seen.add(nextItem.id);
+    normalized.push(nextItem);
+  }
+
+  return normalized;
 }
 
 function getExamMeta(item: AiExamSummary): string {
-  return `${item.subject || 'Пән жоқ'} · ${item.questionCount || 0} сұрақ · ${
-    item.durationMinutes || '—'
-  } мин`;
+  const subject = cleanText(item.subject, MAX_SUBJECT_CHARS) || 'Пән жоқ';
+  const questionCount = normalizeNumber(item.questionCount, 0, 0, 1_000);
+  const duration = normalizeNumber(item.durationMinutes, 0, 0, 10_000);
+
+  return `${subject} · ${questionCount} сұрақ · ${duration || '—'} мин`;
 }
 
 function getCreateValidationMessage({
@@ -206,7 +384,7 @@ function SelectField({
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-xs font-semibold text-foreground">
-        {label}
+        {cleanText(label, MAX_META_CHARS)}
       </Label>
 
       <select
@@ -231,7 +409,7 @@ function InfoCell({
 }) {
   return (
     <div className="rounded-2xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-xs text-muted-foreground">{cleanText(label, MAX_META_CHARS)}</p>
       <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
     </div>
   );
@@ -248,17 +426,20 @@ function ExamListItem({
   accessToken?: string;
   statusUpdatingId: string | null;
   onUpdateStatus: (examId: string, status: ExamStatus) => void;
-  mode: 'draft' | 'published' | 'archived';
+  mode: ExamStatus;
 }) {
-  const updating = statusUpdatingId === item.id;
-  const disabled = updating || !accessToken || !item.id;
+  const examId = cleanId(item.id);
+  const title = cleanText(item.title, MAX_TITLE_CHARS) || 'Емтихан';
+  const status = normalizeExamStatus(item.status);
+  const updating = cleanId(statusUpdatingId) === examId;
+  const disabled = updating || !accessToken || !examId;
 
   return (
     <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="line-clamp-2 text-sm font-semibold text-foreground">
-            {item.title}
+            {title}
           </p>
 
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -266,8 +447,8 @@ function ExamListItem({
           </p>
         </div>
 
-        <StatusBadge tone={getStatusTone(item.status)}>
-          {getStatusLabel(item.status)}
+        <StatusBadge tone={getStatusTone(status)}>
+          {getStatusLabel(status)}
         </StatusBadge>
       </div>
 
@@ -276,7 +457,7 @@ function ExamListItem({
           <>
             <Button
               size="sm"
-              onClick={() => onUpdateStatus(item.id, 'published')}
+              onClick={() => onUpdateStatus(examId, 'published')}
               disabled={disabled}
             >
               {updating ? (
@@ -290,7 +471,7 @@ function ExamListItem({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onUpdateStatus(item.id, 'archived')}
+              onClick={() => onUpdateStatus(examId, 'archived')}
               disabled={disabled}
             >
               <Archive size={14} className="mr-2" />
@@ -303,7 +484,7 @@ function ExamListItem({
           <Button
             size="sm"
             variant="outline"
-            onClick={() => onUpdateStatus(item.id, 'archived')}
+            onClick={() => onUpdateStatus(examId, 'archived')}
             disabled={disabled}
           >
             {updating ? (
@@ -320,7 +501,7 @@ function ExamListItem({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onUpdateStatus(item.id, 'draft')}
+              onClick={() => onUpdateStatus(examId, 'draft')}
               disabled={disabled}
             >
               Жобаға қайтару
@@ -328,7 +509,7 @@ function ExamListItem({
 
             <Button
               size="sm"
-              onClick={() => onUpdateStatus(item.id, 'published')}
+              onClick={() => onUpdateStatus(examId, 'published')}
               disabled={disabled}
             >
               {updating ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
@@ -348,23 +529,33 @@ function QuestionPreview({
   question: AiExamQuestion;
   index: number;
 }) {
+  const normalizedQuestion = normalizeExamQuestion(question, index);
+
+  if (!normalizedQuestion) return null;
+
+  const options = normalizedQuestion.options || [];
+
   return (
     <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft">
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-foreground">Сұрақ {index + 1}</p>
 
         <StatusBadge tone="muted">
-          {question.type === 'multiple_choice' ? 'Жауап нұсқалары' : 'Қысқа жауап'}
+          {normalizedQuestion.type === 'multiple_choice'
+            ? 'Жауап нұсқалары'
+            : 'Қысқа жауап'}
         </StatusBadge>
       </div>
 
-      <p className="text-sm leading-7 text-foreground">{question.question}</p>
+      <p className="whitespace-pre-line text-sm leading-7 text-foreground">
+        {normalizedQuestion.question}
+      </p>
 
-      {question.options?.length ? (
+      {options.length ? (
         <div className="mt-3 space-y-2">
-          {question.options.map((option) => (
+          {options.map((option, optionIndex) => (
             <div
-              key={option.id}
+              key={cleanId(option.id) || `${normalizedQuestion.id}-${optionIndex}`}
               className={cn(
                 'rounded-2xl border px-3 py-2 text-sm',
                 option.isCorrect
@@ -378,17 +569,17 @@ function QuestionPreview({
         </div>
       ) : null}
 
-      {question.correctAnswer ? (
+      {normalizedQuestion.correctAnswer ? (
         <div className="mt-3 rounded-2xl border border-success-muted bg-success-soft/70 px-3 py-2 text-xs leading-5 text-success-foreground">
           <span className="font-semibold">Дұрыс жауап: </span>
-          {question.correctAnswer}
+          {normalizedQuestion.correctAnswer}
         </div>
       ) : null}
 
-      {question.explanation ? (
+      {normalizedQuestion.explanation ? (
         <div className="mt-2 rounded-2xl border border-border bg-card px-3 py-2 text-xs leading-5 text-muted-foreground">
           <span className="font-semibold text-foreground">Түсіндірме: </span>
-          {question.explanation}
+          {normalizedQuestion.explanation}
         </div>
       ) : null}
     </div>
@@ -431,17 +622,17 @@ export default function AiExamsPage() {
   const canUseAiExams = Boolean(user && isTeacher && accessToken);
 
   const draftExams = useMemo(
-    () => exams.filter((item) => item.status === 'draft' || !item.status),
+    () => exams.filter((item) => normalizeExamStatus(item.status) === 'draft'),
     [exams],
   );
 
   const publishedExams = useMemo(
-    () => exams.filter((item) => item.status === 'published'),
+    () => exams.filter((item) => normalizeExamStatus(item.status) === 'published'),
     [exams],
   );
 
   const archivedExams = useMemo(
-    () => exams.filter((item) => item.status === 'archived'),
+    () => exams.filter((item) => normalizeExamStatus(item.status) === 'archived'),
     [exams],
   );
 
@@ -514,14 +705,14 @@ export default function AiExamsPage() {
 
       if (!mountedRef.current || listRequestIdRef.current !== requestId) return;
 
-      setExams(normalizeExamList(response.exams));
-    } catch (error) {
-      if (controller.signal.aborted || isAbortLikeError(error)) return;
+      setExams(normalizeExamList(response.exams || []));
+    } catch (loadError) {
+      if (controller.signal.aborted || isAbortLikeError(loadError)) return;
 
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Емтихан тізімін жүктеу мүмкін болмады.';
+      const message = getErrorMessage(
+        loadError,
+        'Емтихан тізімін жүктеу мүмкін болмады.',
+      );
 
       if (mountedRef.current && listRequestIdRef.current === requestId) {
         setErrorText(message);
@@ -606,11 +797,11 @@ export default function AiExamsPage() {
           sourceText: trimmedSource || undefined,
           subject: trimmedSubject || undefined,
           topic: trimmedTopic || undefined,
-          difficulty,
-          kind: questionKind,
-          examMode: examMode || undefined,
-          questionCount,
-          durationMinutes,
+          difficulty: normalizeDifficulty(difficulty),
+          kind: normalizeQuestionKind(questionKind),
+          examMode: normalizeExamMode(examMode) || undefined,
+          questionCount: normalizeNumber(questionCount, 10, 5, 30),
+          durationMinutes: normalizeNumber(durationMinutes, 30, 5, 180),
         },
         {
           accessToken,
@@ -621,28 +812,35 @@ export default function AiExamsPage() {
 
       if (!mountedRef.current || createRequestIdRef.current !== requestId) return;
 
-      setLatestDraft(response);
-      setExams((prev) => normalizeExamList(upsertExam(prev, response.exam)));
+      const normalizedResponse = normalizeCreateResponse(response);
+
+      setLatestDraft(normalizedResponse);
+      setExams((prev) => normalizeExamList(upsertExam(prev, normalizedResponse.exam)));
 
       toast({
         title: 'Емтихан жобасы дайын',
-        description: `${response.exam.questionCount || response.questions?.length || 0} сұрақ құрылды.`,
+        description: `${normalizeNumber(
+          normalizedResponse.exam.questionCount || normalizedResponse.questions?.length,
+          0,
+          0,
+          1_000,
+        )} сұрақ құрылды.`,
       });
-    } catch (error) {
-      if (controller.signal.aborted || isAbortLikeError(error)) return;
+    } catch (createError) {
+      if (controller.signal.aborted || isAbortLikeError(createError)) return;
 
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : 'Емтихан жобасын құру мүмкін болмады.';
+      const message = getErrorMessage(
+        createError,
+        'Емтихан жобасын құру мүмкін болмады.',
+      );
 
       if (mountedRef.current && createRequestIdRef.current === requestId) {
-        setErrorText(errorMessage);
+        setErrorText(message);
       }
 
       toast({
         title: 'Қате',
-        description: errorMessage,
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -659,9 +857,10 @@ export default function AiExamsPage() {
   const handleUpdateStatus = async (examId: string, status: ExamStatus) => {
     statusAbortRef.current?.abort();
 
-    const cleanExamId = cleanText(examId, 120);
+    const safeExamId = cleanId(examId);
+    const safeStatus = normalizeExamStatus(status);
 
-    if (!cleanExamId) {
+    if (!safeExamId) {
       setErrorText('Емтихан ID анықталмады.');
       return;
     }
@@ -688,9 +887,9 @@ export default function AiExamsPage() {
       return;
     }
 
-    const current = exams.find((item) => item.id === cleanExamId);
+    const current = exams.find((item) => cleanId(item.id) === safeExamId);
 
-    if (current?.status === status) {
+    if (normalizeExamStatus(current?.status) === safeStatus) {
       return;
     }
 
@@ -700,11 +899,11 @@ export default function AiExamsPage() {
     const controller = new AbortController();
     statusAbortRef.current = controller;
 
-    setStatusUpdatingId(cleanExamId);
+    setStatusUpdatingId(safeExamId);
     setErrorText('');
 
     try {
-      const response = await updateAiExamStatus(cleanExamId, status, {
+      const response = await updateAiExamStatus(safeExamId, safeStatus, {
         accessToken,
         signal: controller.signal,
         timeoutMs: STATUS_TIMEOUT_MS,
@@ -712,39 +911,43 @@ export default function AiExamsPage() {
 
       if (!mountedRef.current || statusRequestIdRef.current !== requestId) return;
 
+      const normalizedExam = normalizeExamSummary(response.exam);
+
       setExams((prev) =>
         normalizeExamList(
           prev.map((item) =>
-            item.id === cleanExamId ? { ...item, ...response.exam } : item,
+            cleanId(item.id) === safeExamId && normalizedExam
+              ? { ...item, ...normalizedExam }
+              : item,
           ),
         ),
       );
 
-      if (latestDraft?.exam.id === cleanExamId) {
+      if (cleanId(latestDraft?.exam.id) === safeExamId && normalizedExam) {
         setLatestDraft((prev) =>
-          prev ? { ...prev, exam: { ...prev.exam, ...response.exam } } : prev,
+          prev ? { ...prev, exam: { ...prev.exam, ...normalizedExam } } : prev,
         );
       }
 
       toast({
         title: 'Статус жаңартылды',
-        description: getStatusLabel(response.exam.status || status),
+        description: getStatusLabel(normalizedExam?.status || safeStatus),
       });
-    } catch (error) {
-      if (controller.signal.aborted || isAbortLikeError(error)) return;
+    } catch (statusError) {
+      if (controller.signal.aborted || isAbortLikeError(statusError)) return;
 
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : 'Емтихан статусын жаңарту мүмкін болмады.';
+      const message = getErrorMessage(
+        statusError,
+        'Емтихан статусын жаңарту мүмкін болмады.',
+      );
 
       if (mountedRef.current && statusRequestIdRef.current === requestId) {
-        setErrorText(errorMessage);
+        setErrorText(message);
       }
 
       toast({
         title: 'Қате',
-        description: errorMessage,
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -764,6 +967,8 @@ export default function AiExamsPage() {
 
     createAbortRef.current = null;
     statusAbortRef.current = null;
+    createRequestIdRef.current += 1;
+    statusRequestIdRef.current += 1;
 
     setTitle('');
     setSubject('');
@@ -780,6 +985,8 @@ export default function AiExamsPage() {
     setStatusUpdatingId(null);
   };
 
+  const pageTitle = normalizeUiText(t('nav.ai_exams'));
+
   if (!user) {
     return (
       <DashboardLayout>
@@ -792,7 +999,7 @@ export default function AiExamsPage() {
               </>
             }
             icon={<ClipboardList size={20} />}
-            title={t('nav.ai_exams')}
+            title={pageTitle}
           />
 
           <EmptyState
@@ -817,7 +1024,7 @@ export default function AiExamsPage() {
               </>
             }
             icon={<ClipboardList size={20} />}
-            title={t('nav.ai_exams')}
+            title={pageTitle}
           />
 
           <EmptyState
@@ -841,7 +1048,7 @@ export default function AiExamsPage() {
             </>
           }
           icon={<ClipboardList size={20} />}
-          title={t('nav.ai_exams')}
+          title={pageTitle}
           actions={
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" asChild>
@@ -949,7 +1156,7 @@ export default function AiExamsPage() {
                   id="difficulty"
                   label="Қиындық"
                   value={difficulty}
-                  onChange={(value) => setDifficulty(value as Difficulty)}
+                  onChange={(value) => setDifficulty(normalizeDifficulty(value))}
                   disabled={isCreating}
                 >
                   <option value="easy">Оңай</option>
@@ -961,10 +1168,12 @@ export default function AiExamsPage() {
                   id="questionCount"
                   label="Сұрақ саны"
                   value={questionCount}
-                  onChange={(value) => setQuestionCount(Number(value) || 10)}
+                  onChange={(value) =>
+                    setQuestionCount(normalizeNumber(value, 10, 5, 30))
+                  }
                   disabled={isCreating}
                 >
-                  {[5, 10, 15, 20, 30].map((value) => (
+                  {QUESTION_COUNT_OPTIONS.map((value) => (
                     <option key={value} value={value}>
                       {value}
                     </option>
@@ -975,7 +1184,7 @@ export default function AiExamsPage() {
                   id="questionKind"
                   label="Сұрақ түрі"
                   value={questionKind}
-                  onChange={(value) => setQuestionKind(value as AiQuestionKind)}
+                  onChange={(value) => setQuestionKind(normalizeQuestionKind(value))}
                   disabled={isCreating}
                 >
                   <option value="mixed">Аралас</option>
@@ -987,7 +1196,7 @@ export default function AiExamsPage() {
                   id="examMode"
                   label="Режим"
                   value={examMode}
-                  onChange={(value) => setExamMode(value as ExamMode)}
+                  onChange={(value) => setExamMode(normalizeExamMode(value))}
                   disabled={isCreating}
                 >
                   <option value="">Жалпы</option>
@@ -1009,8 +1218,9 @@ export default function AiExamsPage() {
                     max={180}
                     value={durationMinutes}
                     onChange={(event) => {
-                      const next = Number(event.target.value) || 30;
-                      setDurationMinutes(Math.max(5, Math.min(180, next)));
+                      setDurationMinutes(
+                        normalizeNumber(event.target.value, 30, 5, 180),
+                      );
                     }}
                     disabled={isCreating}
                   />
@@ -1089,9 +1299,18 @@ export default function AiExamsPage() {
             <CardContent className="p-5">
               {latestDraft ? (
                 <div className="grid gap-3 md:grid-cols-2">
-                  <InfoCell label="Атауы" value={latestDraft.exam.title} />
-                  <InfoCell label="Пән" value={latestDraft.exam.subject || '—'} />
-                  <InfoCell label="Тақырып" value={latestDraft.exam.topic || '—'} />
+                  <InfoCell
+                    label="Атауы"
+                    value={cleanText(latestDraft.exam.title, MAX_TITLE_CHARS)}
+                  />
+                  <InfoCell
+                    label="Пән"
+                    value={cleanText(latestDraft.exam.subject, MAX_SUBJECT_CHARS) || '—'}
+                  />
+                  <InfoCell
+                    label="Тақырып"
+                    value={cleanText(latestDraft.exam.topic, MAX_TOPIC_CHARS) || '—'}
+                  />
                   <InfoCell label="Сұрақ түрі" value={getQuestionKindLabel(questionKind)} />
                   <InfoCell
                     label="Статус"
@@ -1103,7 +1322,12 @@ export default function AiExamsPage() {
                   />
                   <InfoCell
                     label="Сұрақ саны"
-                    value={latestDraft.exam.questionCount || latestDraft.questions?.length || 0}
+                    value={normalizeNumber(
+                      latestDraft.exam.questionCount || latestDraft.questions?.length,
+                      0,
+                      0,
+                      1_000,
+                    )}
                   />
                 </div>
               ) : (
@@ -1136,7 +1360,7 @@ export default function AiExamsPage() {
               {latestDraft.questions?.length ? (
                 latestDraft.questions.map((question, index) => (
                   <QuestionPreview
-                    key={`${question.id}-${index}`}
+                    key={`${cleanId(question.id) || 'question'}-${index}`}
                     question={question}
                     index={index}
                   />
@@ -1163,7 +1387,7 @@ export default function AiExamsPage() {
               ) : (
                 draftExams.map((item) => (
                   <ExamListItem
-                    key={item.id}
+                    key={cleanId(item.id)}
                     item={item}
                     accessToken={accessToken}
                     statusUpdatingId={statusUpdatingId}
@@ -1189,7 +1413,7 @@ export default function AiExamsPage() {
               ) : (
                 publishedExams.map((item) => (
                   <ExamListItem
-                    key={item.id}
+                    key={cleanId(item.id)}
                     item={item}
                     accessToken={accessToken}
                     statusUpdatingId={statusUpdatingId}
@@ -1215,7 +1439,7 @@ export default function AiExamsPage() {
               ) : (
                 archivedExams.map((item) => (
                   <ExamListItem
-                    key={item.id}
+                    key={cleanId(item.id)}
                     item={item}
                     accessToken={accessToken}
                     statusUpdatingId={statusUpdatingId}

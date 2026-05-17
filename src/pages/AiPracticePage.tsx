@@ -40,19 +40,30 @@ import {
 } from '@/lib/ai-api';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
-import { cn, removeNullCharacters } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
+const MAX_ID_CHARS = 160;
 const MAX_SUBJECT_CHARS = 120;
 const MAX_TOPIC_CHARS = 200;
 const MAX_SOURCE_TEXT_CHARS = 12_000;
 const MAX_ANSWER_CHARS = 4_000;
+const MAX_QUESTION_TEXT_CHARS = 2_000;
+const MAX_OPTION_TEXT_CHARS = 500;
+const MAX_EXPECTED_ANSWER_CHARS = 1_000;
+const MAX_FEEDBACK_CHARS = 2_000;
+const MAX_EXPLANATION_CHARS = 2_500;
+const MAX_SUGGESTION_CHARS = 1_500;
+const MAX_ERROR_CHARS = 700;
+const MAX_PASSAGE_CHARS = 5_000;
 
 const GENERATE_TIMEOUT_MS = 180_000;
 const EVALUATE_TIMEOUT_MS = 120_000;
 
 const QUESTION_COUNT_OPTIONS = [3, 5, 7, 10] as const;
+const QUESTION_KIND_OPTIONS = ['mixed', 'multiple_choice', 'short_answer'] as const;
+const DIFFICULTY_OPTIONS = ['easy', 'medium', 'hard'] as const;
 
-type Difficulty = 'easy' | 'medium' | 'hard';
+type Difficulty = (typeof DIFFICULTY_OPTIONS)[number];
 
 type AnswerMap = Record<string, string>;
 type FeedbackMap = Record<string, EvaluateAnswerResponse>;
@@ -66,27 +77,67 @@ type SelectFieldProps = {
   disabled?: boolean;
 };
 
-function sanitizeInputValue(value: unknown, limit?: number): string {
-  const text = removeNullCharacters(String(value ?? ''));
-
-  return typeof limit === 'number' ? text.slice(0, limit) : text;
+function sanitizeInputValue(value: unknown, limit: number): string {
+  return limitText(removeNullCharacters(String(value ?? '')), limit);
 }
 
-function cleanText(value: unknown, limit?: number): string {
-  const text = sanitizeInputValue(value, limit).replace(/\s+/g, ' ').trim();
-
-  return typeof limit === 'number' ? text.slice(0, limit).trim() : text;
+function cleanText(value: unknown, limit = MAX_QUESTION_TEXT_CHARS): string {
+  return limitText(removeNullCharacters(String(value ?? '')).replace(/\s+/g, ' ').trim(), limit);
 }
 
-function cleanMultilineText(value: unknown, limit?: number): string {
-  const text = sanitizeInputValue(value, limit)
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{4,}/g, '\n\n\n')
+function cleanMultilineText(value: unknown, limit = MAX_SOURCE_TEXT_CHARS): string {
+  return limitText(
+    removeNullCharacters(String(value ?? ''))
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim(),
+    limit,
+  );
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeUiText(value: unknown, limit = MAX_QUESTION_TEXT_CHARS): string {
+  return cleanText(value, limit)
+    .replace(/\bAI\b/g, 'ЖИ')
+    .replace(/\bAi\b/g, 'ЖИ')
     .trim();
+}
 
-  return typeof limit === 'number' ? text.slice(0, limit).trim() : text;
+function normalizeDifficulty(value: unknown): Difficulty {
+  const normalized = cleanText(value, 40);
+
+  return DIFFICULTY_OPTIONS.includes(normalized as Difficulty)
+    ? (normalized as Difficulty)
+    : 'medium';
+}
+
+function normalizeQuestionKind(value: unknown): AiQuestionKind {
+  const normalized = cleanText(value, 60);
+
+  return QUESTION_KIND_OPTIONS.includes(normalized as AiQuestionKind)
+    ? (normalized as AiQuestionKind)
+    : 'mixed';
+}
+
+function normalizeQuestionCount(value: unknown): (typeof QUESTION_COUNT_OPTIONS)[number] {
+  const numericValue = Number(value);
+
+  return QUESTION_COUNT_OPTIONS.includes(numericValue as (typeof QUESTION_COUNT_OPTIONS)[number])
+    ? (numericValue as (typeof QUESTION_COUNT_OPTIONS)[number])
+    : 5;
+}
+
+function normalizeScore(value: unknown): number | null {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) return null;
+
+  return Math.max(0, Math.round(numericValue * 10) / 10);
 }
 
 function isAbortLikeError(error: unknown): boolean {
@@ -104,12 +155,10 @@ function isAbortLikeError(error: unknown): boolean {
 }
 
 function normalizeErrorMessage(error: unknown, fallback: string): string {
-  if (isAbortLikeError(error)) {
-    return '';
-  }
+  if (isAbortLikeError(error)) return '';
 
   if (error instanceof Error && error.message.trim()) {
-    return cleanText(error.message, 700);
+    return cleanText(error.message, MAX_ERROR_CHARS);
   }
 
   return fallback;
@@ -120,12 +169,12 @@ function normalizeQuestionId(
   index: number,
   seen: Set<string>,
 ): string {
-  const rawId = cleanText(question.id, 120) || `practice-question-${index + 1}`;
-  let id = rawId;
+  const baseId = cleanId(question.id) || `practice-question-${index + 1}`;
+  let id = baseId;
   let suffix = 2;
 
   while (seen.has(id)) {
-    id = `${rawId}-${suffix}`;
+    id = `${baseId}-${suffix}`;
     suffix += 1;
   }
 
@@ -142,17 +191,16 @@ function normalizePracticeQuestions(
   const questions = (response.questions || [])
     .map((question, index) => {
       const id = normalizeQuestionId(question, index, seen);
-
-      const options = question.options
-        ?.map((option, optionIndex) => ({
+      const options = (question.options || [])
+        .map((option, optionIndex) => ({
           ...option,
-          id: cleanText(option.id, 120) || `${id}-option-${optionIndex + 1}`,
-          text: cleanText(option.text, 500),
+          id: cleanId(option.id) || `${id}-option-${optionIndex + 1}`,
+          text: cleanText(option.text, MAX_OPTION_TEXT_CHARS),
         }))
         .filter((option) => option.text.length > 0);
 
-      const normalizedType =
-        question.type === 'multiple_choice' && options && options.length >= 2
+      const normalizedType: GeneratedQuestion['type'] =
+        question.type === 'multiple_choice' && options.length >= 2
           ? 'multiple_choice'
           : 'short_answer';
 
@@ -160,12 +208,14 @@ function normalizePracticeQuestions(
         ...question,
         id,
         type: normalizedType,
-        question: cleanText(question.question, 2_000),
+        question: cleanText(question.question, MAX_QUESTION_TEXT_CHARS),
         options: normalizedType === 'multiple_choice' ? options : undefined,
-        correctAnswer: cleanText(question.correctAnswer, 1_000) || undefined,
-        explanation: cleanText(question.explanation, 2_500) || undefined,
+        correctAnswer:
+          cleanMultilineText(question.correctAnswer, MAX_EXPECTED_ANSWER_CHARS) || undefined,
+        explanation:
+          cleanMultilineText(question.explanation, MAX_EXPLANATION_CHARS) || undefined,
         difficulty: cleanText(question.difficulty, 60) || undefined,
-        topic: cleanText(question.topic, 200) || undefined,
+        topic: cleanText(question.topic, MAX_TOPIC_CHARS) || undefined,
       } satisfies GeneratedQuestion;
     })
     .filter((question) => question.question.length > 0);
@@ -173,6 +223,12 @@ function normalizePracticeQuestions(
   return {
     ...response,
     questions,
+    meta: response.meta
+      ? {
+          ...response.meta,
+          passage: cleanMultilineText(response.meta.passage, MAX_PASSAGE_CHARS),
+        }
+      : response.meta,
   };
 }
 
@@ -191,8 +247,8 @@ function getQuestionContext({
 }): string | undefined {
   const contextParts = [
     cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS),
-    cleanMultilineText(passage, 5_000),
-    cleanText(question.topic, 200),
+    cleanMultilineText(passage, MAX_PASSAGE_CHARS),
+    cleanText(question.topic, MAX_TOPIC_CHARS),
     cleanText(topic, MAX_TOPIC_CHARS),
     cleanText(subject, MAX_SUBJECT_CHARS),
   ].filter(Boolean);
@@ -205,7 +261,9 @@ function getFeedbackTone(feedback: EvaluateAnswerResponse): string {
     return 'border-success-muted bg-success-soft/70 text-success-foreground';
   }
 
-  if (typeof feedback.score === 'number' && feedback.score >= 6.5) {
+  const score = normalizeScore(feedback.score);
+
+  if (typeof score === 'number' && score >= 6.5) {
     return 'border-primary-muted bg-primary-soft/60 text-foreground';
   }
 
@@ -229,7 +287,7 @@ function getQuestionKindLabel(kind: AiQuestionKind): string {
     short_answer: 'Қысқа жауап',
   };
 
-  return labels[kind];
+  return labels[kind] || labels.mixed;
 }
 
 function getQuestionTypeLabel(type: GeneratedQuestion['type']): string {
@@ -247,7 +305,7 @@ function SelectField({
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-xs font-semibold text-foreground">
-        {label}
+        {cleanText(label, 120)}
       </Label>
 
       <select
@@ -272,10 +330,20 @@ function ProgressCell({
 }) {
   return (
     <div className="rounded-2xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-xs text-muted-foreground">{cleanText(label, 120)}</p>
       <div className="mt-1 text-lg font-semibold text-foreground">{value}</div>
     </div>
   );
+}
+
+function getCleanFeedback(feedback: EvaluateAnswerResponse) {
+  return {
+    score: normalizeScore(feedback.score),
+    maxScore: normalizeScore(feedback.maxScore),
+    feedback: cleanMultilineText(feedback.feedback, MAX_FEEDBACK_CHARS),
+    explanation: cleanMultilineText(feedback.explanation, MAX_EXPLANATION_CHARS),
+    suggestion: cleanMultilineText(feedback.suggestion, MAX_SUGGESTION_CHARS),
+  };
 }
 
 export default function AiPracticePage() {
@@ -289,7 +357,7 @@ export default function AiPracticePage() {
   const [topic, setTopic] = useState('');
   const [sourceText, setSourceText] = useState('');
   const [difficulty, setDifficulty] = useState<Difficulty>('medium');
-  const [count, setCount] = useState<number>(5);
+  const [count, setCount] = useState<(typeof QUESTION_COUNT_OPTIONS)[number]>(5);
   const [kind, setKind] = useState<AiQuestionKind>('mixed');
 
   const [result, setResult] = useState<GenerateQuestionsResponse | null>(null);
@@ -311,7 +379,7 @@ export default function AiPracticePage() {
 
   const generatedCount = result?.questions.length || 0;
   const isAuthMissing = !accessToken;
-  const generatedPassage = cleanMultilineText(result?.meta?.passage, 5_000);
+  const generatedPassage = cleanMultilineText(result?.meta?.passage, MAX_PASSAGE_CHARS);
 
   const canGenerate = useMemo(() => {
     const hasTopic = cleanText(topic, MAX_TOPIC_CHARS).length > 0;
@@ -324,9 +392,10 @@ export default function AiPracticePage() {
     if (!result) return 0;
 
     return result.questions.filter((question) => {
-      const value = answers[question.id];
+      const questionId = cleanId(question.id);
+      const value = answers[questionId];
 
-      return typeof value === 'string' && cleanMultilineText(value).length > 0;
+      return typeof value === 'string' && cleanMultilineText(value, MAX_ANSWER_CHARS).length > 0;
     }).length;
   }, [answers, result]);
 
@@ -361,11 +430,9 @@ export default function AiPracticePage() {
     };
   }, []);
 
-  const clearError = () => {
-    if (errorText) {
-      setErrorText('');
-    }
-  };
+  const clearError = useCallback(() => {
+    setErrorText((current) => (current ? '' : current));
+  }, []);
 
   const handleGenerate = async () => {
     const subjectText = cleanText(subject, MAX_SUBJECT_CHARS);
@@ -477,7 +544,7 @@ export default function AiPracticePage() {
   };
 
   const handleAnswerChange = (questionId: string, value: string) => {
-    const cleanQuestionId = cleanText(questionId, 160);
+    const cleanQuestionId = cleanId(questionId);
     const nextValue = cleanMultilineText(value, MAX_ANSWER_CHARS);
 
     if (!cleanQuestionId) return;
@@ -500,7 +567,14 @@ export default function AiPracticePage() {
   };
 
   const handleEvaluateQuestion = async (question: GeneratedQuestion) => {
-    const studentAnswer = cleanMultilineText(answers[question.id], MAX_ANSWER_CHARS);
+    const questionId = cleanId(question.id);
+    const questionText = cleanText(question.question, MAX_QUESTION_TEXT_CHARS);
+    const studentAnswer = cleanMultilineText(answers[questionId], MAX_ANSWER_CHARS);
+
+    if (!questionId || !questionText) {
+      setErrorText('Сұрақ дерегі толық емес.');
+      return;
+    }
 
     if (!studentAnswer) {
       toast({
@@ -537,16 +611,16 @@ export default function AiPracticePage() {
     const abortController = new AbortController();
     evaluateAbortRef.current = abortController;
 
-    setEvaluatingQuestionId(question.id);
+    setEvaluatingQuestionId(questionId);
     setErrorText('');
 
     try {
       const response = await evaluateAnswer(
         {
-          questionId: question.id,
-          question: question.question,
-          expectedAnswer: question.correctAnswer,
-          referenceAnswer: question.explanation,
+          questionId,
+          question: questionText,
+          expectedAnswer: cleanMultilineText(question.correctAnswer, MAX_EXPECTED_ANSWER_CHARS),
+          referenceAnswer: cleanMultilineText(question.explanation, MAX_EXPLANATION_CHARS),
           studentAnswer,
           context: getQuestionContext({
             question,
@@ -555,7 +629,9 @@ export default function AiPracticePage() {
             subject,
             passage: generatedPassage,
           }),
-          options: question.options?.map((option) => option.text) ?? [],
+          options: (question.options || [])
+            .map((option) => cleanText(option.text, MAX_OPTION_TEXT_CHARS))
+            .filter(Boolean),
           answerFormat: question.type === 'multiple_choice' ? 'mcq' : 'text',
         },
         {
@@ -569,7 +645,7 @@ export default function AiPracticePage() {
 
       setFeedback((prev) => ({
         ...prev,
-        [question.id]: response,
+        [questionId]: response,
       }));
     } catch (error) {
       if (!mountedRef.current || evaluationRequestIdRef.current !== requestId) return;
@@ -607,7 +683,7 @@ export default function AiPracticePage() {
             </>
           }
           icon={<BrainCircuit size={20} />}
-          title={t('nav.ai_practice')}
+          title={normalizeUiText(t('nav.ai_practice'), 120)}
           actions={
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" asChild>
@@ -669,9 +745,7 @@ export default function AiPracticePage() {
                         value={subject}
                         maxLength={MAX_SUBJECT_CHARS}
                         onChange={(event) => {
-                          setSubject(
-                            sanitizeInputValue(event.target.value, MAX_SUBJECT_CHARS),
-                          );
+                          setSubject(sanitizeInputValue(event.target.value, MAX_SUBJECT_CHARS));
                           clearError();
                         }}
                         disabled={isGenerating}
@@ -692,9 +766,7 @@ export default function AiPracticePage() {
                         value={topic}
                         maxLength={MAX_TOPIC_CHARS}
                         onChange={(event) => {
-                          setTopic(
-                            sanitizeInputValue(event.target.value, MAX_TOPIC_CHARS),
-                          );
+                          setTopic(sanitizeInputValue(event.target.value, MAX_TOPIC_CHARS));
                           clearError();
                         }}
                         disabled={isGenerating}
@@ -706,7 +778,7 @@ export default function AiPracticePage() {
                       id="difficulty"
                       label="Қиындық"
                       value={difficulty}
-                      onChange={(value) => setDifficulty(value as Difficulty)}
+                      onChange={(value) => setDifficulty(normalizeDifficulty(value))}
                       disabled={isGenerating}
                     >
                       <option value="easy">Оңай</option>
@@ -718,7 +790,7 @@ export default function AiPracticePage() {
                       id="count"
                       label="Сұрақ саны"
                       value={count}
-                      onChange={(value) => setCount(Number(value))}
+                      onChange={(value) => setCount(normalizeQuestionCount(value))}
                       disabled={isGenerating}
                     >
                       {QUESTION_COUNT_OPTIONS.map((value) => (
@@ -733,7 +805,7 @@ export default function AiPracticePage() {
                         id="kind"
                         label="Сұрақ түрі"
                         value={kind}
-                        onChange={(value) => setKind(value as AiQuestionKind)}
+                        onChange={(value) => setKind(normalizeQuestionKind(value))}
                         disabled={isGenerating}
                       >
                         <option value="mixed">Аралас</option>
@@ -756,9 +828,7 @@ export default function AiPracticePage() {
                       value={sourceText}
                       maxLength={MAX_SOURCE_TEXT_CHARS}
                       onChange={(event) => {
-                        setSourceText(
-                          sanitizeInputValue(event.target.value, MAX_SOURCE_TEXT_CHARS),
-                        );
+                        setSourceText(sanitizeInputValue(event.target.value, MAX_SOURCE_TEXT_CHARS));
                         clearError();
                       }}
                       disabled={isGenerating}
@@ -796,7 +866,7 @@ export default function AiPracticePage() {
 
               <Card className="overflow-hidden">
                 <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-                  <CardTitle className="text-base font-semibold">Прогресс</CardTitle>
+                  <CardTitle className="text-base font-semibold">Оқу барысы</CardTitle>
                 </CardHeader>
 
                 <CardContent className="space-y-4 p-4 sm:p-5">
@@ -823,13 +893,16 @@ export default function AiPracticePage() {
             {!isGenerating && result && result.questions.length > 0 ? (
               <div className="space-y-4">
                 {result.questions.map((question, index) => {
-                  const currentAnswer = answers[question.id] || '';
-                  const currentFeedback = feedback[question.id];
-                  const isEvaluating = evaluatingQuestionId === question.id;
+                  const questionId = cleanId(question.id);
+                  const questionText = cleanText(question.question, MAX_QUESTION_TEXT_CHARS);
+                  const currentAnswer = answers[questionId] || '';
+                  const currentFeedback = feedback[questionId];
+                  const cleanFeedback = currentFeedback ? getCleanFeedback(currentFeedback) : null;
+                  const isEvaluating = evaluatingQuestionId === questionId;
                   const isAnyEvaluationPending = Boolean(evaluatingQuestionId);
 
                   return (
-                    <Card key={question.id} className="overflow-hidden">
+                    <Card key={questionId || index} className="overflow-hidden">
                       <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <CardTitle className="text-base font-semibold">
@@ -844,19 +917,21 @@ export default function AiPracticePage() {
 
                       <CardContent className="space-y-4 p-4 sm:p-5">
                         <p className="text-sm leading-7 text-foreground">
-                          {question.question}
+                          {questionText}
                         </p>
 
                         {question.type === 'multiple_choice' && question.options?.length ? (
                           <div className="space-y-2">
-                            {question.options.map((option) => {
-                              const checked = currentAnswer === option.text;
+                            {question.options.map((option, optionIndex) => {
+                              const optionId = cleanId(option.id) || `${questionId}-option-${optionIndex + 1}`;
+                              const optionText = cleanText(option.text, MAX_OPTION_TEXT_CHARS);
+                              const checked = currentAnswer === optionText;
 
                               return (
                                 <button
-                                  key={option.id}
+                                  key={optionId}
                                   type="button"
-                                  onClick={() => handleAnswerChange(question.id, option.text)}
+                                  onClick={() => handleAnswerChange(questionId, optionText)}
                                   disabled={isEvaluating}
                                   className={cn(
                                     'flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70',
@@ -871,7 +946,7 @@ export default function AiPracticePage() {
                                       checked ? 'border-primary bg-primary' : 'border-border',
                                     )}
                                   />
-                                  <span>{option.text}</span>
+                                  <span>{optionText}</span>
                                 </button>
                               );
                             })}
@@ -881,7 +956,7 @@ export default function AiPracticePage() {
                             <Textarea
                               value={currentAnswer}
                               onChange={(event) =>
-                                handleAnswerChange(question.id, event.target.value)
+                                handleAnswerChange(questionId, event.target.value)
                               }
                               disabled={isEvaluating}
                               maxLength={MAX_ANSWER_CHARS}
@@ -913,7 +988,7 @@ export default function AiPracticePage() {
                           {isEvaluating ? 'Тексерілуде...' : 'Тексеру'}
                         </Button>
 
-                        {currentFeedback ? (
+                        {currentFeedback && cleanFeedback ? (
                           <div
                             className={cn(
                               'rounded-3xl border p-4 shadow-inner-soft',
@@ -924,32 +999,34 @@ export default function AiPracticePage() {
                               <CheckCircle2 size={15} className="text-primary" />
 
                               <span className="text-sm font-semibold">
-                                Нәтиже: {currentFeedback.score}
-                                {currentFeedback.maxScore !== undefined
-                                  ? ` / ${currentFeedback.maxScore}`
+                                Нәтиже: {cleanFeedback.score ?? '—'}
+                                {cleanFeedback.maxScore !== null
+                                  ? ` / ${cleanFeedback.maxScore}`
                                   : ''}
                               </span>
                             </div>
 
-                            <p className="text-sm leading-7">
-                              {currentFeedback.feedback}
-                            </p>
+                            {cleanFeedback.feedback ? (
+                              <p className="whitespace-pre-line text-sm leading-7">
+                                {cleanFeedback.feedback}
+                              </p>
+                            ) : null}
 
-                            {currentFeedback.explanation ? (
+                            {cleanFeedback.explanation ? (
                               <div className="mt-3 rounded-2xl border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
                                 <span className="font-medium text-foreground">
                                   Түсіндірме:{' '}
                                 </span>
-                                {currentFeedback.explanation}
+                                {cleanFeedback.explanation}
                               </div>
                             ) : null}
 
-                            {currentFeedback.suggestion ? (
+                            {cleanFeedback.suggestion ? (
                               <div className="mt-3 rounded-2xl border bg-card/70 px-3 py-2 text-sm text-muted-foreground">
                                 <span className="font-medium text-foreground">
                                   Ұсыныс:{' '}
                                 </span>
-                                {currentFeedback.suggestion}
+                                {cleanFeedback.suggestion}
                               </div>
                             ) : null}
                           </div>

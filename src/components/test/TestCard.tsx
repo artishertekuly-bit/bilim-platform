@@ -10,6 +10,7 @@ import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import t from '@/lib/i18n';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
 export type TestCardData = {
   id: string;
@@ -29,22 +30,56 @@ type TestCardProps = {
   onStart?: (test: TestCardData) => void;
 };
 
-function clampScore(value: number) {
-  return Math.min(100, Math.max(0, Math.round(value || 0)));
+const MAX_ID_CHARS = 180;
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeNumber(value: unknown): number {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return 0;
+
+  return Math.max(0, Math.round(numberValue));
+}
+
+function clampScore(value: unknown) {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return 0;
+
+  return Math.min(100, Math.max(0, Math.round(numberValue)));
 }
 
 function getScoreTone(score: number | null | undefined) {
   if (score === null || score === undefined) return 'muted' as const;
-  if (score >= 80) return 'success' as const;
-  if (score >= 50) return 'warning' as const;
+
+  const normalizedScore = clampScore(score);
+
+  if (normalizedScore >= 80) return 'success' as const;
+  if (normalizedScore >= 50) return 'warning' as const;
 
   return 'danger' as const;
 }
 
 function getScoreLabel(score: number | null | undefined) {
   if (score === null || score === undefined) return 'Тапсырылмаған';
-  if (score >= 80) return 'Жақсы нәтиже';
-  if (score >= 50) return 'Орташа нәтиже';
+
+  const normalizedScore = clampScore(score);
+
+  if (normalizedScore >= 80) return 'Жақсы нәтиже';
+  if (normalizedScore >= 50) return 'Орташа нәтиже';
 
   return 'Қайталау қажет';
 }
@@ -68,11 +103,28 @@ export default function TestCard({
   isStarting = false,
   onStart,
 }: TestCardProps) {
+  const testId = cleanId(test.id);
+  const subjectName = cleanText(test.subjectName, MAX_META_CHARS) || 'Пән';
+  const title = cleanText(test.title) || 'Тест';
+  const topic = cleanText(test.topic, MAX_META_CHARS);
+
   const hasAttempt = test.bestScore !== null && test.bestScore !== undefined;
-  const bestScore = clampScore(Number(test.bestScore ?? 0));
-  const attempts = Math.max(0, Number(test.attempts ?? 0));
-  const questionCount = Math.max(0, Number(test.questionCount || 0));
-  const durationMinutes = Math.max(0, Number(test.durationMinutes || 0));
+  const bestScore = clampScore(test.bestScore);
+  const attempts = normalizeNumber(test.attempts);
+  const questionCount = normalizeNumber(test.questionCount);
+  const durationMinutes = normalizeNumber(test.durationMinutes);
+
+  const safeTest: TestCardData = {
+    ...test,
+    id: testId,
+    subjectName,
+    topic,
+    title,
+    questionCount,
+    durationMinutes,
+    bestScore: hasAttempt ? bestScore : null,
+    attempts,
+  };
 
   return (
     <Card className="group overflow-hidden transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-md">
@@ -80,14 +132,14 @@ export default function TestCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge tone="info">{test.subjectName || 'Пән'}</StatusBadge>
+              <StatusBadge tone="info">{subjectName}</StatusBadge>
 
               {hasAttempt ? (
                 <StatusBadge
-                  tone={getScoreTone(test.bestScore)}
+                  tone={getScoreTone(bestScore)}
                   icon={<CheckCircle2 size={12} />}
                 >
-                  {getScoreLabel(test.bestScore)}
+                  {getScoreLabel(bestScore)}
                 </StatusBadge>
               ) : (
                 <StatusBadge tone="muted">Жаңа</StatusBadge>
@@ -95,12 +147,12 @@ export default function TestCard({
             </div>
 
             <h3 className="mt-3 line-clamp-2 text-sm font-semibold leading-6 text-foreground">
-              {test.title}
+              {title}
             </h3>
 
-            {test.topic ? (
+            {topic ? (
               <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                {test.topic}
+                {topic}
               </p>
             ) : null}
           </div>
@@ -147,8 +199,8 @@ export default function TestCard({
             type="button"
             size="sm"
             className="w-full"
-            onClick={() => onStart?.(test)}
-            disabled={isStarting}
+            onClick={() => onStart?.(safeTest)}
+            disabled={isStarting || !testId}
           >
             {hasAttempt ? (
               <>

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -28,10 +35,12 @@ import {
   listAiExamAttempts,
   submitAiExam,
   type AiExamAttempt,
+  type AiExamQuestion,
   type AiExamSession,
   type SubmitAiExamResponse,
 } from '@/lib/ai-api';
 import { useAuth } from '@/lib/auth-context';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type AnswerMap = Record<string, string>;
 
@@ -78,6 +87,45 @@ const SESSION_TIMEOUT_MS = 90_000;
 const ATTEMPTS_TIMEOUT_MS = 60_000;
 const SUBMIT_TIMEOUT_MS = 180_000;
 
+const MAX_ID_CHARS = 180;
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+const MAX_ANSWER_CHARS = 4_000;
+const MAX_FEEDBACK_CHARS = 2_500;
+const MAX_QUESTION_CHARS = 2_000;
+const MAX_OPTION_CHARS = 700;
+const MAX_DATE_CHARS = 100;
+const MAX_QUESTIONS = 120;
+const MAX_ATTEMPTS = 100;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_META_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanMultilineText(value: unknown, limit = MAX_FEEDBACK_CHARS): string {
+  return limitText(
+    cleanRawText(value)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim(),
+    limit,
+  );
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function cleanAnswer(value: unknown): string {
+  return cleanMultilineText(value, MAX_ANSWER_CHARS);
+}
+
 function isAbortLikeError(error: unknown) {
   if (error instanceof DOMException && error.name === 'AbortError') return true;
   if (!(error instanceof Error)) return false;
@@ -92,10 +140,115 @@ function isAbortLikeError(error: unknown) {
   );
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (isAbortLikeError(error)) return '';
+
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, 700);
+  }
+
+  return fallback;
+}
+
 function toNumber(value: unknown, fallback = 0) {
   const numeric = Number(value);
 
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeScore(value: unknown, fallback = 0) {
+  const numeric = toNumber(value, fallback);
+
+  return Math.max(0, Math.round(numeric * 100) / 100);
+}
+
+function normalizePercentage(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+
+  const numeric = toNumber(value, 0);
+
+  return Math.max(0, Math.min(100, Math.round(numeric * 100) / 100));
+}
+
+function normalizeQuestionType(value: unknown): AiExamQuestion['type'] {
+  return value === 'multiple_choice' ? 'multiple_choice' : 'short_answer';
+}
+
+function normalizeOptionId(questionId: string, value: unknown, index: number) {
+  return cleanId(value) || `${questionId}-option-${index + 1}`;
+}
+
+function normalizeQuestionId(value: unknown, index: number, seen: Set<string>) {
+  const base = cleanId(value) || `exam-question-${index + 1}`;
+  let id = base;
+  let suffix = 2;
+
+  while (seen.has(id)) {
+    id = `${base}-${suffix}`;
+    suffix += 1;
+  }
+
+  seen.add(id);
+
+  return id;
+}
+
+function normalizeExamQuestion(
+  question: AiExamQuestion,
+  index: number,
+  seen: Set<string>,
+): AiExamQuestion {
+  const id = normalizeQuestionId(question.id, index, seen);
+
+  const options = (question.options || [])
+    .map((option, optionIndex) => ({
+      ...option,
+      id: normalizeOptionId(id, option.id, optionIndex),
+      text: cleanText(option.text, MAX_OPTION_CHARS),
+      isCorrect: Boolean(option.isCorrect),
+    }))
+    .filter((option) => option.text.length > 0)
+    .slice(0, 12);
+
+  const type = normalizeQuestionType(question.type);
+
+  return {
+    ...question,
+    id,
+    type: type === 'multiple_choice' && options.length >= 2 ? 'multiple_choice' : 'short_answer',
+    question: cleanMultilineText(question.question, MAX_QUESTION_CHARS) || 'Сұрақ',
+    options: type === 'multiple_choice' && options.length >= 2 ? options : undefined,
+    correctAnswer: cleanMultilineText(question.correctAnswer, MAX_ANSWER_CHARS) || undefined,
+    explanation: cleanMultilineText(question.explanation, MAX_FEEDBACK_CHARS) || undefined,
+    points:
+      question.points === undefined || question.points === null
+        ? undefined
+        : Math.max(0, Math.round(toNumber(question.points, 0) * 100) / 100),
+  };
+}
+
+function normalizeExamSession(raw: SessionWithLatestAttempt): AiExamSession {
+  const seen = new Set<string>();
+
+  return {
+    ...raw,
+    attemptId: cleanId(raw.attemptId ?? raw.attempt_id) || undefined,
+    exam: {
+      ...raw.exam,
+      id: cleanId(raw.exam?.id),
+      title: cleanText(raw.exam?.title, MAX_TITLE_CHARS) || 'Емтихан',
+      subject: cleanText(raw.exam?.subject, MAX_META_CHARS) || undefined,
+      topic: cleanText(raw.exam?.topic, MAX_META_CHARS) || undefined,
+      durationMinutes:
+        raw.exam?.durationMinutes === undefined || raw.exam?.durationMinutes === null
+          ? undefined
+          : Math.max(0, Math.round(toNumber(raw.exam.durationMinutes, 0))),
+    },
+    questions: (raw.questions || [])
+      .slice(0, MAX_QUESTIONS)
+      .map((question, index) => normalizeExamQuestion(question, index, seen))
+      .filter((question) => cleanId(question.id) && cleanText(question.question, MAX_QUESTION_CHARS)),
+  };
 }
 
 function normalizeSubmitResponse(raw: unknown): SubmitAiExamResponse | null {
@@ -104,25 +257,25 @@ function normalizeSubmitResponse(raw: unknown): SubmitAiExamResponse | null {
   const data = raw as RawSubmitResponse;
 
   return {
-    attemptId: data.attemptId ?? data.attempt_id ?? undefined,
-    score: toNumber(data.score, 0),
+    attemptId: cleanId(data.attemptId ?? data.attempt_id) || undefined,
+    score: normalizeScore(data.score, 0),
     maxScore:
       data.maxScore !== undefined || data.max_score !== undefined
-        ? toNumber(data.maxScore ?? data.max_score)
+        ? normalizeScore(data.maxScore ?? data.max_score, 0)
         : undefined,
-    percentage:
-      data.percentage !== undefined ? toNumber(data.percentage) : undefined,
-    feedback: typeof data.feedback === 'string' ? data.feedback.trim() : '',
+    percentage: normalizePercentage(data.percentage),
+    feedback: cleanMultilineText(data.feedback, MAX_FEEDBACK_CHARS),
     breakdown: Array.isArray(data.breakdown)
       ? data.breakdown
+          .slice(0, MAX_QUESTIONS)
           .map((item) => ({
-            questionId: String(item.questionId ?? item.question_id ?? '').trim(),
-            score: toNumber(item.score, 0),
+            questionId: cleanId(item.questionId ?? item.question_id),
+            score: normalizeScore(item.score, 0),
             maxScore:
               item.maxScore !== undefined || item.max_score !== undefined
-                ? toNumber(item.maxScore ?? item.max_score)
+                ? normalizeScore(item.maxScore ?? item.max_score, 0)
                 : undefined,
-            feedback: typeof item.feedback === 'string' ? item.feedback.trim() : '',
+            feedback: cleanMultilineText(item.feedback, MAX_FEEDBACK_CHARS),
             isCorrect:
               typeof (item.isCorrect ?? item.is_correct) === 'boolean'
                 ? Boolean(item.isCorrect ?? item.is_correct)
@@ -142,30 +295,69 @@ function normalizeLatestAnswers(raw: unknown): AnswerMap {
     if (!row || typeof row !== 'object') continue;
 
     const item = row as RawAnswerItem;
-    const questionId = String(item.questionId ?? item.question_id ?? '').trim();
+    const questionId = cleanId(item.questionId ?? item.question_id);
 
     if (!questionId) continue;
 
     if (Array.isArray(item.answer)) {
       answerMap[questionId] = item.answer
-        .map((value) => String(value ?? '').trim())
+        .map((value) => cleanAnswer(value))
         .filter(Boolean)
         .join(', ');
       continue;
     }
 
-    answerMap[questionId] = String(item.answer ?? '').trim();
+    answerMap[questionId] = cleanAnswer(item.answer);
   }
 
   return answerMap;
 }
 
+function normalizeAttempt(attempt: AiExamAttempt, fallbackExamId: string): AiExamAttempt | null {
+  const id = cleanId(attempt.id);
+  const examId = cleanId(attempt.examId) || fallbackExamId;
+
+  if (!id || !examId) return null;
+
+  return {
+    ...attempt,
+    id,
+    examId,
+    userId: cleanId(attempt.userId) || undefined,
+    submittedAt: cleanText(attempt.submittedAt, MAX_DATE_CHARS) || undefined,
+    answers: (attempt.answers || [])
+      .map((item) => ({
+        questionId: cleanId(item.questionId),
+        answer: cleanAnswer(item.answer),
+      }))
+      .filter((item) => item.questionId && item.answer),
+    result: normalizeSubmitResponse(attempt.result) || attempt.result || null,
+  };
+}
+
+function normalizeAttempts(items: AiExamAttempt[], fallbackExamId: string): AiExamAttempt[] {
+  const seen = new Set<string>();
+
+  return (items || [])
+    .slice(0, MAX_ATTEMPTS)
+    .map((attempt) => normalizeAttempt(attempt, fallbackExamId))
+    .filter((attempt): attempt is AiExamAttempt => Boolean(attempt))
+    .filter((attempt) => {
+      if (seen.has(attempt.id)) return false;
+
+      seen.add(attempt.id);
+      return true;
+    });
+}
+
 function formatDateTime(value?: string | null) {
-  if (!value) return '—';
+  const rawValue = cleanText(value, MAX_DATE_CHARS);
 
-  const date = new Date(value);
+  if (!rawValue) return '—';
 
-  if (Number.isNaN(date.getTime())) return value;
+  const date = new Date(rawValue);
+
+  if (Number.isNaN(date.getTime())) return rawValue;
 
   return date.toLocaleString('kk-KZ');
 }
@@ -178,9 +370,11 @@ function mapAttemptAnswersToAnswerMap(
   const result: AnswerMap = {};
 
   for (const item of attempt.answers) {
-    if (!item?.questionId) continue;
+    const questionId = cleanId(item?.questionId);
 
-    result[item.questionId] = String(item.answer ?? '').trim();
+    if (!questionId) continue;
+
+    result[questionId] = cleanAnswer(item.answer);
   }
 
   return result;
@@ -189,11 +383,19 @@ function mapAttemptAnswersToAnswerMap(
 function getScoreText(result?: SubmitAiExamResponse | null) {
   if (!result) return 'Нәтиже жоқ';
 
-  const maxScore = result.maxScore !== undefined ? ` / ${result.maxScore}` : '';
+  const score = normalizeScore(result.score, 0);
+  const maxScore =
+    result.maxScore !== undefined ? ` / ${normalizeScore(result.maxScore, 0)}` : '';
   const percentage =
-    result.percentage !== undefined ? ` · ${result.percentage}%` : '';
+    result.percentage !== undefined
+      ? ` · ${normalizePercentage(result.percentage) ?? 0}%`
+      : '';
 
-  return `${result.score}${maxScore}${percentage}`;
+  return `${score}${maxScore}${percentage}`;
+}
+
+function getQuestionTypeLabel(type: AiExamQuestion['type']) {
+  return type === 'multiple_choice' ? 'Жауап нұсқалары' : 'Қысқа жауап';
 }
 
 function ExamInfoCell({
@@ -201,11 +403,11 @@ function ExamInfoCell({
   value,
 }: {
   label: string;
-  value: React.ReactNode;
+  value: ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-xs text-muted-foreground">{cleanText(label, MAX_META_CHARS)}</p>
       <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
     </div>
   );
@@ -218,6 +420,8 @@ export default function AiExamSessionPage() {
   const { toast } = useToast();
 
   const accessToken = session?.access_token;
+  const safeExamId = cleanId(examId);
+  const safeUserId = cleanId(user?.id);
 
   const [examSession, setExamSession] = useState<AiExamSession | null>(null);
   const [answers, setAnswers] = useState<AnswerMap>({});
@@ -249,9 +453,10 @@ export default function AiExamSessionPage() {
     if (!examSession) return 0;
 
     return examSession.questions.filter((question) => {
-      const value = answers[question.id];
+      const questionId = cleanId(question.id);
+      const value = answers[questionId];
 
-      return typeof value === 'string' && value.trim().length > 0;
+      return typeof value === 'string' && cleanAnswer(value).length > 0;
     }).length;
   }, [answers, examSession]);
 
@@ -260,19 +465,23 @@ export default function AiExamSessionPage() {
     answeredCount === totalQuestions &&
     !isSubmitting &&
     !isLoading &&
-    Boolean(accessToken);
+    Boolean(accessToken && safeExamId);
 
   const questionNumberMap = useMemo(() => {
     const map = new Map<string, number>();
 
     examSession?.questions.forEach((question, index) => {
-      map.set(question.id, index + 1);
+      const questionId = cleanId(question.id);
+
+      if (questionId) {
+        map.set(questionId, index + 1);
+      }
     });
 
     return map;
   }, [examSession]);
 
-  const activeAttemptId = result?.attemptId || examSession?.attemptId;
+  const activeAttemptId = cleanId(result?.attemptId || examSession?.attemptId);
 
   const abortAll = useCallback(() => {
     sessionAbortRef.current?.abort();
@@ -287,7 +496,7 @@ export default function AiExamSessionPage() {
   const loadAttempts = useCallback(async () => {
     attemptsAbortRef.current?.abort();
 
-    if (!examId || !accessToken) {
+    if (!safeExamId || !accessToken) {
       setAttempts([]);
       setAttemptsErrorText('');
       return;
@@ -303,7 +512,7 @@ export default function AiExamSessionPage() {
     setAttemptsErrorText('');
 
     try {
-      const response = await listAiExamAttempts(examId, {
+      const response = await listAiExamAttempts(safeExamId, {
         accessToken,
         signal: controller.signal,
         timeoutMs: ATTEMPTS_TIMEOUT_MS,
@@ -311,14 +520,14 @@ export default function AiExamSessionPage() {
 
       if (!mountedRef.current || attemptsRequestIdRef.current !== requestId) return;
 
-      setAttempts(response.attempts);
+      setAttempts(normalizeAttempts(response.attempts || [], safeExamId));
     } catch (error) {
       if (controller.signal.aborted || isAbortLikeError(error)) return;
 
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Бұрынғы тапсыруларды жүктеу мүмкін болмады.';
+      const message = getErrorMessage(
+        error,
+        'Бұрынғы тапсыруларды жүктеу мүмкін болмады.',
+      );
 
       if (mountedRef.current && attemptsRequestIdRef.current === requestId) {
         setAttemptsErrorText(message);
@@ -332,12 +541,12 @@ export default function AiExamSessionPage() {
         attemptsAbortRef.current = null;
       }
     }
-  }, [accessToken, examId]);
+  }, [accessToken, safeExamId]);
 
   const loadExam = useCallback(async () => {
     sessionAbortRef.current?.abort();
 
-    if (!examId) {
+    if (!safeExamId) {
       setExamSession(null);
       setAnswers({});
       setResult(null);
@@ -370,7 +579,7 @@ export default function AiExamSessionPage() {
     setAttempts([]);
 
     try {
-      const response = (await getAiExamSession(examId, {
+      const response = (await getAiExamSession(safeExamId, {
         accessToken,
         signal: controller.signal,
         timeoutMs: SESSION_TIMEOUT_MS,
@@ -378,19 +587,13 @@ export default function AiExamSessionPage() {
 
       if (!mountedRef.current || sessionRequestIdRef.current !== requestId) return;
 
-      const normalizedSession: AiExamSession = {
-        ...response,
-        attemptId: response.attemptId ?? response.attempt_id ?? undefined,
-      };
-
-      setExamSession(normalizedSession);
-
+      const normalizedSession = normalizeExamSession(response);
       const latestResult = normalizeSubmitResponse(
         response.latestResult ?? response.latest_result,
       );
 
+      setExamSession(normalizedSession);
       setResult(latestResult);
-
       setAnswers(
         normalizeLatestAnswers(response.latestAnswers ?? response.latest_answers),
       );
@@ -399,10 +602,10 @@ export default function AiExamSessionPage() {
     } catch (error) {
       if (controller.signal.aborted || isAbortLikeError(error)) return;
 
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Емтихан сессиясын жүктеу мүмкін болмады.';
+      const message = getErrorMessage(
+        error,
+        'Емтихан сессиясын жүктеу мүмкін болмады.',
+      );
 
       if (mountedRef.current && sessionRequestIdRef.current === requestId) {
         setErrorText(message);
@@ -416,7 +619,7 @@ export default function AiExamSessionPage() {
         sessionAbortRef.current = null;
       }
     }
-  }, [accessToken, examId, loadAttempts]);
+  }, [accessToken, loadAttempts, safeExamId]);
 
   useEffect(() => {
     void loadExam();
@@ -430,11 +633,16 @@ export default function AiExamSessionPage() {
   }, [abortAll]);
 
   const handleAnswerChange = (questionId: string, value: string) => {
+    const safeQuestionId = cleanId(questionId);
+    const safeAnswer = cleanAnswer(value);
+
+    if (!safeQuestionId) return;
+
     if (errorText) setErrorText('');
 
     setAnswers((prev) => ({
       ...prev,
-      [questionId]: value,
+      [safeQuestionId]: safeAnswer,
     }));
 
     if (result) {
@@ -443,8 +651,12 @@ export default function AiExamSessionPage() {
   };
 
   const handleLoadAttempt = (attempt: AiExamAttempt) => {
-    setAnswers(mapAttemptAnswersToAnswerMap(attempt));
-    setResult(attempt.result ?? null);
+    const normalizedAttempt = normalizeAttempt(attempt, safeExamId);
+
+    if (!normalizedAttempt) return;
+
+    setAnswers(mapAttemptAnswersToAnswerMap(normalizedAttempt));
+    setResult(normalizeSubmitResponse(normalizedAttempt.result) || normalizedAttempt.result || null);
     setErrorText('');
 
     toast({
@@ -456,12 +668,26 @@ export default function AiExamSessionPage() {
   const handleSubmit = async () => {
     submitAbortRef.current?.abort();
 
-    if (!examSession || !examId || !accessToken) return;
+    if (!examSession || !safeExamId || !accessToken) return;
 
     if (answeredCount !== totalQuestions) {
       toast({
         title: 'Толық емес',
         description: 'Барлық сұрақтарға жауап беріңіз.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const safeAnswers = examSession.questions.map((question) => ({
+      questionId: cleanId(question.id),
+      answer: cleanAnswer(answers[cleanId(question.id)] ?? ''),
+    }));
+
+    if (safeAnswers.some((item) => !item.questionId || !item.answer)) {
+      toast({
+        title: 'Толық емес',
+        description: 'Жауап дерегін тексеріңіз.',
         variant: 'destructive',
       });
       return;
@@ -478,12 +704,9 @@ export default function AiExamSessionPage() {
 
     try {
       const response = await submitAiExam(
-        examId,
+        safeExamId,
         {
-          answers: examSession.questions.map((question) => ({
-            questionId: question.id,
-            answer: answers[question.id] ?? '',
-          })),
+          answers: safeAnswers,
         },
         {
           accessToken,
@@ -495,34 +718,31 @@ export default function AiExamSessionPage() {
       if (!mountedRef.current || submitRequestIdRef.current !== requestId) return;
 
       const normalizedResult = normalizeSubmitResponse(response) ?? response;
+      const localAttemptId =
+        cleanId(normalizedResult.attemptId) || `attempt-local-${Date.now()}`;
+
       setResult(normalizedResult);
 
       const newAttempt: AiExamAttempt = {
-        id: normalizedResult.attemptId || `attempt-local-${Date.now()}`,
-        examId,
-        userId: user?.id,
-        answers: examSession.questions.map((question) => ({
-          questionId: question.id,
-          answer: answers[question.id] ?? '',
-        })),
+        id: localAttemptId,
+        examId: safeExamId,
+        userId: safeUserId || undefined,
+        answers: safeAnswers,
         result: normalizedResult,
         submittedAt: new Date().toISOString(),
       };
 
       setAttempts((prev) => {
-        const filtered = prev.filter((item) => item.id !== newAttempt.id);
+        const filtered = prev.filter((item) => cleanId(item.id) !== localAttemptId);
 
-        return [newAttempt, ...filtered];
+        return normalizeAttempts([newAttempt, ...filtered], safeExamId);
       });
 
       setExamSession((prev) =>
         prev
           ? {
               ...prev,
-              attemptId: normalizedResult.attemptId ?? prev.attemptId,
-              latestResult: normalizedResult,
-              latestAnswers: newAttempt.answers,
-              latestSubmittedAt: newAttempt.submittedAt,
+              attemptId: cleanId(normalizedResult.attemptId) || prev.attemptId,
             }
           : prev,
       );
@@ -534,8 +754,7 @@ export default function AiExamSessionPage() {
     } catch (error) {
       if (controller.signal.aborted || isAbortLikeError(error)) return;
 
-      const message =
-        error instanceof Error ? error.message : 'Емтиханды жіберу мүмкін болмады.';
+      const message = getErrorMessage(error, 'Емтиханды жіберу мүмкін болмады.');
 
       if (mountedRef.current && submitRequestIdRef.current === requestId) {
         setErrorText(message);
@@ -582,13 +801,13 @@ export default function AiExamSessionPage() {
             </button>
           }
           icon={<ClipboardList size={20} />}
-          title="AI емтихан сессиясы"
+          title="ЖИ емтихан сессиясы"
           actions={
             <div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" asChild>
                 <Link to="/ai-practice">
                   <ClipboardList size={14} className="mr-2" />
-                  AI практика
+                  ЖИ практика
                 </Link>
               </Button>
 
@@ -678,76 +897,89 @@ export default function AiExamSessionPage() {
               </CardHeader>
 
               <CardContent className="space-y-4 p-4 sm:p-5">
-                {examSession.questions.map((question, index) => (
-                  <div
-                    key={question.id}
-                    className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
-                  >
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">
-                          Сұрақ {index + 1}
-                        </p>
+                {examSession.questions.map((question, index) => {
+                  const questionId = cleanId(question.id);
+                  const questionAnswer = answers[questionId] || '';
 
-                        {question.points !== undefined ? (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Ұпай: {question.points}
+                  return (
+                    <div
+                      key={questionId || index}
+                      className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
+                    >
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">
+                            Сұрақ {index + 1}
                           </p>
-                        ) : null}
+
+                          {question.points !== undefined ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Ұпай: {question.points}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <StatusBadge tone="muted">
+                          {getQuestionTypeLabel(question.type)}
+                        </StatusBadge>
                       </div>
 
-                      <StatusBadge tone="muted">
-                        {question.type === 'multiple_choice'
-                          ? 'Жауап нұсқалары'
-                          : 'Қысқа жауап'}
-                      </StatusBadge>
+                      <p className="text-sm leading-7 text-foreground">
+                        {question.question}
+                      </p>
+
+                      {question.type === 'multiple_choice' && question.options?.length ? (
+                        <div className="mt-4 space-y-2">
+                          {question.options.map((option) => {
+                            const checked = questionAnswer === option.text;
+
+                            return (
+                              <button
+                                key={option.id}
+                                type="button"
+                                onClick={() =>
+                                  handleAnswerChange(questionId, option.text)
+                                }
+                                disabled={isSubmitting || !questionId}
+                                className={cn(
+                                  'flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70',
+                                  checked
+                                    ? 'border-primary bg-primary/5'
+                                    : 'border-border bg-card hover:bg-accent',
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    'mt-0.5 inline-block h-4 w-4 rounded-full border',
+                                    checked ? 'border-primary bg-primary' : 'border-border',
+                                  )}
+                                />
+                                <span>{option.text}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="mt-4 space-y-1.5">
+                          <Textarea
+                            value={questionAnswer}
+                            onChange={(event) =>
+                              handleAnswerChange(questionId, event.target.value)
+                            }
+                            placeholder="Жауабыңызды жазыңыз"
+                            rows={4}
+                            disabled={isSubmitting || !questionId}
+                            maxLength={MAX_ANSWER_CHARS}
+                          />
+
+                          <p className="text-[11px] text-muted-foreground">
+                            {questionAnswer.length}/{MAX_ANSWER_CHARS}
+                          </p>
+                        </div>
+                      )}
                     </div>
-
-                    <p className="text-sm leading-7 text-foreground">
-                      {question.question}
-                    </p>
-
-                    {question.type === 'multiple_choice' && question.options?.length ? (
-                      <div className="mt-4 space-y-2">
-                        {question.options.map((option) => {
-                          const checked = answers[question.id] === option.text;
-
-                          return (
-                            <button
-                              key={option.id}
-                              type="button"
-                              onClick={() => handleAnswerChange(question.id, option.text)}
-                              disabled={isSubmitting}
-                              className={`flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors ${
-                                checked
-                                  ? 'border-primary bg-primary/5'
-                                  : 'border-border bg-card hover:bg-accent'
-                              } ${isSubmitting ? 'opacity-70' : ''}`}
-                            >
-                              <span
-                                className={`mt-0.5 inline-block h-4 w-4 rounded-full border ${
-                                  checked ? 'border-primary bg-primary' : ''
-                                }`}
-                              />
-                              <span>{option.text}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <Textarea
-                        value={answers[question.id] || ''}
-                        onChange={(event) =>
-                          handleAnswerChange(question.id, event.target.value)
-                        }
-                        placeholder="Жауабыңызды жазыңыз..."
-                        rows={4}
-                        disabled={isSubmitting}
-                        className="mt-4"
-                      />
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
 
@@ -758,11 +990,11 @@ export default function AiExamSessionPage() {
                 </CardTitle>
               </CardHeader>
 
-              <CardContent className="flex flex-col gap-3 p-4 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                 <div className="text-sm text-muted-foreground">
                   {answeredCount === totalQuestions
                     ? 'Барлық сұраққа жауап берілді.'
-                    : `Әлі ${totalQuestions - answeredCount} сұрақ қалды.`}
+                    : `Әлі ${Math.max(totalQuestions - answeredCount, 0)} сұрақ қалды.`}
                 </div>
 
                 <Button onClick={handleSubmit} disabled={!canSubmit}>
@@ -787,12 +1019,21 @@ export default function AiExamSessionPage() {
 
                 <CardContent className="space-y-4 p-4 sm:p-5">
                   <div className="grid gap-3 md:grid-cols-3">
-                    <ExamInfoCell label="Ұпай" value={result.score} />
-                    <ExamInfoCell label="Макс. ұпай" value={result.maxScore ?? '—'} />
+                    <ExamInfoCell label="Ұпай" value={normalizeScore(result.score, 0)} />
+                    <ExamInfoCell
+                      label="Макс. ұпай"
+                      value={
+                        result.maxScore !== undefined
+                          ? normalizeScore(result.maxScore, 0)
+                          : '—'
+                      }
+                    />
                     <ExamInfoCell
                       label="Пайыз"
                       value={
-                        result.percentage !== undefined ? `${result.percentage}%` : '—'
+                        result.percentage !== undefined
+                          ? `${normalizePercentage(result.percentage) ?? 0}%`
+                          : '—'
                       }
                     />
                   </div>
@@ -803,7 +1044,7 @@ export default function AiExamSessionPage() {
                         <CheckCircle2 size={15} className="text-primary" />
                         Жалпы пікір
                       </div>
-                      {result.feedback}
+                      {cleanMultilineText(result.feedback, MAX_FEEDBACK_CHARS)}
                     </div>
                   ) : null}
 
@@ -814,11 +1055,12 @@ export default function AiExamSessionPage() {
                       </p>
 
                       {result.breakdown.map((item) => {
-                        const questionNumber = questionNumberMap.get(item.questionId);
+                        const questionId = cleanId(item.questionId);
+                        const questionNumber = questionNumberMap.get(questionId);
 
                         return (
                           <div
-                            key={item.questionId}
+                            key={questionId}
                             className="rounded-3xl border border-border bg-card p-4 text-sm shadow-soft"
                           >
                             <div className="flex items-center justify-between gap-3">
@@ -829,8 +1071,10 @@ export default function AiExamSessionPage() {
                               </span>
 
                               <span className="font-medium">
-                                {item.score}
-                                {item.maxScore !== undefined ? ` / ${item.maxScore}` : ''}
+                                {normalizeScore(item.score, 0)}
+                                {item.maxScore !== undefined
+                                  ? ` / ${normalizeScore(item.maxScore, 0)}`
+                                  : ''}
                               </span>
                             </div>
 
@@ -841,8 +1085,8 @@ export default function AiExamSessionPage() {
                             ) : null}
 
                             {item.feedback ? (
-                              <p className="mt-2 leading-7 text-muted-foreground">
-                                {item.feedback}
+                              <p className="mt-2 whitespace-pre-line leading-7 text-muted-foreground">
+                                {cleanMultilineText(item.feedback, MAX_FEEDBACK_CHARS)}
                               </p>
                             ) : null}
                           </div>
@@ -878,16 +1122,18 @@ export default function AiExamSessionPage() {
                   />
                 ) : (
                   attempts.map((attempt, index) => {
-                    const isActive = activeAttemptId === attempt.id;
+                    const attemptId = cleanId(attempt.id);
+                    const isActive = activeAttemptId === attemptId;
 
                     return (
                       <div
-                        key={attempt.id}
-                        className={`rounded-3xl border p-4 shadow-soft ${
+                        key={attemptId || index}
+                        className={cn(
+                          'rounded-3xl border p-4 shadow-soft',
                           isActive
                             ? 'border-primary-muted bg-primary-soft/70'
-                            : 'border-border bg-surface-soft/60'
-                        }`}
+                            : 'border-border bg-surface-soft/60',
+                        )}
                       >
                         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div className="space-y-1">

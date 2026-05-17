@@ -35,27 +35,93 @@ import t from '@/lib/i18n';
 import { useToast } from '@/hooks/use-toast';
 import type { Tables } from '@/integrations/supabase/types';
 import type { TestAttemptBreakdownItem } from '@/lib/app-data';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type ViewState = 'list' | 'taking' | 'result';
 type TestStatusFilter = 'all' | 'not_started' | 'completed';
 
-function normalizeText(value: string | null | undefined) {
-  return (value || '').toLowerCase().trim();
+const MAX_ID_CHARS = 180;
+const MAX_SEARCH_CHARS = 160;
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+const MAX_OPTION_CHARS = 700;
+const MAX_EXPLANATION_CHARS = 1_200;
+const MAX_ERROR_CHARS = 700;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
 }
 
-function normalizeAnswerIndexes(value: unknown): number[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => Number(item))
-      .filter((item) => Number.isInteger(item) && item >= 0)
-      .sort((a, b) => a - b);
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanMultilineText(value: unknown, limit = MAX_EXPLANATION_CHARS): string {
+  return limitText(
+    cleanRawText(value)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim(),
+    limit,
+  );
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeText(value: unknown) {
+  return cleanText(value, MAX_TITLE_CHARS).toLowerCase();
+}
+
+function normalizeSearchInput(value: unknown) {
+  return cleanText(value, MAX_SEARCH_CHARS);
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
   }
 
-  if (value === null || value === undefined) return [];
+  return fallback;
+}
 
-  const asNumber = Number(value);
+function formatNumber(value: unknown): number {
+  const numericValue = Number(value);
 
-  return Number.isInteger(asNumber) && asNumber >= 0 ? [asNumber] : [];
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.max(0, Math.round(numericValue));
+}
+
+function formatPercent(value: unknown): string {
+  return `${Math.max(0, Math.min(100, formatNumber(value)))}%`;
+}
+
+function normalizeAnswerIndexes(value: unknown, optionCount?: number): number[] {
+  const maxOptionIndex =
+    typeof optionCount === 'number' && Number.isFinite(optionCount)
+      ? Math.max(0, optionCount)
+      : null;
+
+  const rawIndexes = Array.isArray(value)
+    ? value.map((item) => Number(item))
+    : value === null || value === undefined
+      ? []
+      : [Number(value)];
+
+  return Array.from(
+    new Set(
+      rawIndexes.filter((item) => {
+        if (!Number.isInteger(item) || item < 0) return false;
+        if (maxOptionIndex !== null && item >= maxOptionIndex) return false;
+
+        return true;
+      }),
+    ),
+  ).sort((a, b) => a - b);
 }
 
 function areAnswerSetsEqual(left: number[], right: number[]) {
@@ -68,13 +134,14 @@ function areAnswerSetsEqual(left: number[], right: number[]) {
 }
 
 function formatAnswer(options: string[], selected: number[]) {
-  if (selected.length === 0) return t('page.tests.answer.not_answered');
+  const safeSelected = normalizeAnswerIndexes(selected, options.length);
 
-  return [...selected]
-    .sort((a, b) => a - b)
+  if (safeSelected.length === 0) return t('page.tests.answer.not_answered');
+
+  return safeSelected
     .map((index) => {
       const label = String.fromCharCode(65 + index);
-      const value = options[index] ?? '—';
+      const value = options[index] || '—';
 
       return `${label}. ${value}`;
     })
@@ -105,15 +172,34 @@ function getResultTone(score: number) {
 }
 
 function isTestVisibleToCurrentStudent(tests: TestCardData[], testId: string | null) {
-  if (!testId) return false;
+  const safeTestId = cleanId(testId);
 
-  return tests.some((test) => test.id === testId);
+  if (!safeTestId) return false;
+
+  return tests.some((test) => cleanId(test.id) === safeTestId);
+}
+
+function getQuestionId(question: Tables<'test_questions'> | null | undefined) {
+  return cleanId(question?.id);
 }
 
 function getQuestionOptions(question: Tables<'test_questions'> | null | undefined) {
   if (!Array.isArray(question?.options)) return [];
 
-  return question.options.map((item) => String(item));
+  return question.options.map((item) => cleanText(item, MAX_OPTION_CHARS));
+}
+
+function getQuestionText(question: Tables<'test_questions'> | null | undefined) {
+  return cleanText(question?.question_text) || 'Сұрақ';
+}
+
+function buildTestSearchHaystack(test: TestCardData) {
+  return normalizeText(
+    [test.title, test.topic, test.subjectName]
+      .map((item) => cleanText(item))
+      .filter(Boolean)
+      .join(' '),
+  );
 }
 
 function TestListSkeleton() {
@@ -198,21 +284,23 @@ function QuestionNavigation({
     <div className="flex flex-wrap gap-1.5">
       {Array.from({ length: total }).map((_, index) => {
         const question = questions[index];
-        const answered = question ? (answers[question.id] || []).length > 0 : false;
+        const questionId = getQuestionId(question);
+        const answered = questionId ? (answers[questionId] || []).length > 0 : false;
         const active = current === index;
 
         return (
           <button
-            key={index}
+            key={questionId || index}
             type="button"
             onClick={() => onSelect(index)}
-            className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs transition-all duration-200 ease-soft ${
+            className={cn(
+              'flex h-8 w-8 items-center justify-center rounded-full border text-xs transition-all duration-200 ease-soft',
               active
                 ? 'border-primary bg-primary text-primary-foreground shadow-soft'
                 : answered
                   ? 'border-success-muted bg-success-soft text-success-foreground'
-                  : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
-            }`}
+                  : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+            )}
           >
             {index + 1}
           </button>
@@ -229,6 +317,7 @@ export default function TestsPage() {
   const queryClient = useQueryClient();
 
   const isStudent = user?.role === 'student';
+  const safeUserId = cleanId(user?.id);
 
   const [view, setView] = useState<ViewState>('list');
   const [currentQ, setCurrentQ] = useState(0);
@@ -252,41 +341,53 @@ export default function TestsPage() {
   });
 
   const { data, isLoading, error } = useTests(
-    isStudent ? user?.id : undefined,
-    !!user,
+    isStudent ? safeUserId : undefined,
+    Boolean(user),
   );
 
   const tests = data || [];
 
-  const subjects = useMemo(
-    () => [
-      'all',
-      ...Array.from(new Set(tests.map((test) => test.subjectName).filter(Boolean))),
-    ],
-    [tests],
-  );
+  const subjects = useMemo(() => {
+    const output = ['all'];
+    const seen = new Set(output);
+
+    tests.forEach((test) => {
+      const subjectName = cleanText(test.subjectName, MAX_META_CHARS);
+
+      if (!subjectName) return;
+
+      const key = subjectName.toLowerCase();
+
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      output.push(subjectName);
+    });
+
+    return output;
+  }, [tests]);
 
   const filtered = useMemo(() => {
     const query = normalizeText(search);
 
     return tests.filter((test) => {
+      const subjectName = cleanText(test.subjectName, MAX_META_CHARS);
+
       const matchesSubject =
-        activeSubject === 'all' || test.subjectName === activeSubject;
+        activeSubject === 'all' || subjectName === activeSubject;
 
       const matchesStatus =
         activeStatus === 'all' || getTestStatus(test) === activeStatus;
 
       const matchesSearch =
-        !query ||
-        normalizeText(test.title).includes(query) ||
-        normalizeText(test.topic).includes(query) ||
-        normalizeText(test.subjectName).includes(query);
+        !query || buildTestSearchHaystack(test).includes(query);
 
       return matchesSubject && matchesStatus && matchesSearch;
     });
   }, [activeStatus, activeSubject, search, tests]);
 
-  const activeTest = tests.find((item) => item.id === activeTestId) || null;
+  const activeTest =
+    tests.find((item) => cleanId(item.id) === cleanId(activeTestId)) || null;
 
   const hasActiveFilters =
     Boolean(search.trim()) || activeSubject !== 'all' || activeStatus !== 'all';
@@ -296,13 +397,13 @@ export default function TestsPage() {
     const completed = tests.filter(
       (test) => test.bestScore !== null && test.bestScore !== undefined,
     ).length;
-    const notStarted = total - completed;
+    const notStarted = Math.max(0, total - completed);
     const average =
       completed > 0
         ? Math.round(
             tests
               .filter((test) => test.bestScore !== null && test.bestScore !== undefined)
-              .reduce((sum, test) => sum + Number(test.bestScore || 0), 0) /
+              .reduce((sum, test) => sum + formatNumber(test.bestScore), 0) /
               completed,
           )
         : 0;
@@ -311,7 +412,7 @@ export default function TestsPage() {
       total,
       completed,
       notStarted,
-      average,
+      average: Math.max(0, Math.min(100, average)),
     };
   }, [tests]);
 
@@ -338,24 +439,31 @@ export default function TestsPage() {
 
   const startMutation = useMutation({
     mutationFn: async (testId: string) => {
-      if (!user?.id || user.role !== 'student') {
+      const safeTestId = cleanId(testId);
+
+      if (!safeUserId || user?.role !== 'student') {
         throw new Error('Бұл тестті тек оқушы аккаунтымен тапсыруға болады.');
       }
 
-      if (!isTestVisibleToCurrentStudent(tests, testId)) {
+      if (!safeTestId) {
+        throw new Error('Тест анықталмады.');
+      }
+
+      if (!isTestVisibleToCurrentStudent(tests, safeTestId)) {
         throw new Error('Бұл тест сізге қолжетімді емес немесе сіз бұл курсқа тіркелмегенсіз.');
       }
 
-      setStartingTestId(testId);
+      setStartingTestId(safeTestId);
 
-      return getTestQuestions(testId);
+      return getTestQuestions(safeTestId);
     },
     onSuccess: (loadedQuestions, testId) => {
       if (!isStudent) return;
 
+      const safeTestId = cleanId(testId);
       const safeQuestions = Array.isArray(loadedQuestions) ? loadedQuestions : [];
 
-      setActiveTestId(testId);
+      setActiveTestId(safeTestId);
       setQuestions(safeQuestions);
       setAnswers({});
       setCurrentQ(0);
@@ -370,10 +478,7 @@ export default function TestsPage() {
     onError: (startError) =>
       toast({
         title: t('page.tests.toast.start_error_title'),
-        description:
-          startError instanceof Error
-            ? startError.message
-            : t('page.tests.toast.start_error_text'),
+        description: getErrorMessage(startError, t('page.tests.toast.start_error_text')),
         variant: 'destructive',
       }),
     onSettled: () => {
@@ -383,27 +488,41 @@ export default function TestsPage() {
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      if (!user?.id || user.role !== 'student') {
+      const safeActiveTestId = cleanId(activeTestId);
+
+      if (!safeUserId || user?.role !== 'student') {
         throw new Error('Бұл тестті тапсыру үшін оқушы аккаунты қажет.');
       }
 
-      if (!activeTestId) {
+      if (!safeActiveTestId) {
         throw new Error('Тест таңдалмаған.');
       }
 
-      if (!isTestVisibleToCurrentStudent(tests, activeTestId)) {
+      if (!isTestVisibleToCurrentStudent(tests, safeActiveTestId)) {
         throw new Error('Бұл тест сізге қолжетімді емес немесе сіз бұл курсқа тіркелмегенсіз.');
       }
 
-      return submitTestAttempt(user.id, activeTestId, answers);
+      const sanitizedAnswers = questions.reduce<Record<string, number[]>>(
+        (acc, question) => {
+          const questionId = getQuestionId(question);
+          const options = getQuestionOptions(question);
+
+          if (!questionId) return acc;
+
+          acc[questionId] = normalizeAnswerIndexes(answers[questionId], options.length);
+
+          return acc;
+        },
+        {},
+      );
+
+      return submitTestAttempt(safeUserId, safeActiveTestId, sanitizedAnswers);
     },
     onSuccess: async (payload) => {
-      if (!user?.id) {
-        throw new Error('Пайдаланушы табылмады.');
-      }
+      if (!safeUserId) return;
 
       let breakdown: TestAttemptBreakdownItem[] = [];
-      const attemptId = payload.attempt?.id || null;
+      const attemptId = cleanId(payload.attempt?.id) || null;
 
       if (attemptId) {
         try {
@@ -414,8 +533,8 @@ export default function TestsPage() {
       }
 
       setResult({
-        score: payload.score,
-        correctCount: payload.correctCount,
+        score: formatNumber(payload.score),
+        correctCount: formatNumber(payload.correctCount),
         attemptId,
         breakdown,
       });
@@ -423,13 +542,13 @@ export default function TestsPage() {
       setView('result');
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: platformKeys.tests(user.id) }),
-        queryClient.invalidateQueries({ queryKey: platformKeys.analytics(user.id) }),
+        queryClient.invalidateQueries({ queryKey: platformKeys.tests(safeUserId) }),
+        queryClient.invalidateQueries({ queryKey: platformKeys.analytics(safeUserId) }),
         queryClient.invalidateQueries({
-          queryKey: platformKeys.studentDashboard(user.id),
+          queryKey: platformKeys.studentDashboard(safeUserId),
         }),
         queryClient.invalidateQueries({
-          queryKey: platformKeys.achievements(user.id),
+          queryKey: platformKeys.achievements(safeUserId),
         }),
         queryClient.invalidateQueries({
           queryKey: platformKeys.leaderboard,
@@ -442,10 +561,7 @@ export default function TestsPage() {
     onError: (submitError) =>
       toast({
         title: t('page.tests.toast.submit_error_title'),
-        description:
-          submitError instanceof Error
-            ? submitError.message
-            : t('page.tests.toast.submit_error_text'),
+        description: getErrorMessage(submitError, t('page.tests.toast.submit_error_text')),
         variant: 'destructive',
       }),
   });
@@ -455,23 +571,37 @@ export default function TestsPage() {
     optionIndex: number,
     multiple: boolean,
   ) => {
+    const safeQuestionId = cleanId(questionId);
+    const safeOptionIndex = Number(optionIndex);
+    const question = questions.find((item) => getQuestionId(item) === safeQuestionId);
+    const options = getQuestionOptions(question);
+
+    if (
+      !safeQuestionId ||
+      !Number.isInteger(safeOptionIndex) ||
+      safeOptionIndex < 0 ||
+      safeOptionIndex >= options.length
+    ) {
+      return;
+    }
+
     setAnswers((prev) => {
-      const current = prev[questionId] || [];
+      const current = normalizeAnswerIndexes(prev[safeQuestionId], options.length);
 
       if (!multiple) {
         return {
           ...prev,
-          [questionId]: [optionIndex],
+          [safeQuestionId]: [safeOptionIndex],
         };
       }
 
-      const next = current.includes(optionIndex)
-        ? current.filter((item) => item !== optionIndex)
-        : [...current, optionIndex];
+      const next = current.includes(safeOptionIndex)
+        ? current.filter((item) => item !== safeOptionIndex)
+        : [...current, safeOptionIndex];
 
       return {
         ...prev,
-        [questionId]: [...next].sort((a, b) => a - b),
+        [safeQuestionId]: normalizeAnswerIndexes(next, options.length),
       };
     });
   };
@@ -479,13 +609,22 @@ export default function TestsPage() {
   if (view === 'taking' && isStudent) {
     const canSubmit =
       questions.length > 0 &&
-      questions.every((question) => (answers[question.id] || []).length > 0);
+      questions.every((question) => {
+        const questionId = getQuestionId(question);
+
+        return questionId && (answers[questionId] || []).length > 0;
+      });
 
     const q = questions[currentQ];
+    const questionId = getQuestionId(q);
     const options = getQuestionOptions(q);
-    const answeredCount = questions.filter(
-      (question) => (answers[question.id] || []).length > 0,
-    ).length;
+    const questionText = getQuestionText(q);
+    const answeredCount = questions.filter((question) => {
+      const id = getQuestionId(question);
+
+      return id && (answers[id] || []).length > 0;
+    }).length;
+    const progressValue = questions.length > 0 ? ((currentQ + 1) / questions.length) * 100 : 0;
 
     return (
       <DashboardLayout>
@@ -502,10 +641,10 @@ export default function TestsPage() {
               </>
             }
             icon={<ClipboardList size={20} />}
-            title={activeTest?.title || t('nav.tests')}
+            title={cleanText(activeTest?.title) || t('nav.tests')}
             actions={
               <StatusBadge tone="info" icon={<Clock size={12} />}>
-                {activeTest?.durationMinutes || 0} {t('common.minutes')}
+                {formatNumber(activeTest?.durationMinutes)} {t('common.minutes')}
               </StatusBadge>
             }
           />
@@ -552,7 +691,7 @@ export default function TestsPage() {
                     <div
                       className="h-full rounded-full bg-primary transition-all duration-500 ease-soft"
                       style={{
-                        width: `${((currentQ + 1) / questions.length) * 100}%`,
+                        width: `${Math.max(0, Math.min(100, progressValue))}%`,
                       }}
                     />
                   </div>
@@ -569,31 +708,34 @@ export default function TestsPage() {
                     </div>
 
                     <h3 className="text-base font-semibold leading-relaxed">
-                      {q.question_text}
+                      {questionText}
                     </h3>
                   </div>
 
                   {options.length > 0 ? (
                     <div className="space-y-2">
                       {options.map((option, index) => {
-                        const selected = (answers[q.id] || []).includes(index);
+                        const selected = questionId
+                          ? (answers[questionId] || []).includes(index)
+                          : false;
 
                         return (
                           <button
-                            key={`${q.id}-${index}`}
+                            key={`${questionId}-${index}`}
                             type="button"
                             onClick={() =>
                               handleAnswer(
-                                q.id,
+                                questionId,
                                 index,
                                 q.question_type === 'multiple_choice',
                               )
                             }
-                            className={`w-full rounded-2xl border p-3.5 text-left text-sm transition-all duration-200 ease-soft ${
+                            className={cn(
+                              'w-full rounded-2xl border p-3.5 text-left text-sm transition-all duration-200 ease-soft',
                               selected
                                 ? 'border-primary bg-primary text-primary-foreground shadow-soft'
-                                : 'border-border bg-card text-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
-                            }`}
+                                : 'border-border bg-card text-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+                            )}
                           >
                             <span className="mr-2 font-semibold">
                               {String.fromCharCode(65 + index)}.
@@ -665,7 +807,7 @@ export default function TestsPage() {
             title={t('test.result')}
             actions={
               <StatusBadge tone={resultTone} icon={<CheckCircle2 size={12} />}>
-                {result.score}%
+                {formatPercent(result.score)}
               </StatusBadge>
             }
           />
@@ -676,12 +818,12 @@ export default function TestsPage() {
                 <div>
                   <p className="text-sm font-medium">Жалпы нәтиже</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {result.correctCount}/{totalQuestions} дұрыс жауап
+                    {formatNumber(result.correctCount)}/{formatNumber(totalQuestions)} дұрыс жауап
                   </p>
                 </div>
 
                 <div className="flex h-24 w-24 items-center justify-center rounded-full border border-border bg-card text-2xl font-bold shadow-inner-soft">
-                  {result.score}%
+                  {formatPercent(result.score)}
                 </div>
               </div>
 
@@ -690,81 +832,107 @@ export default function TestsPage() {
           </Card>
 
           <div className="space-y-3">
-            {result.breakdown.map((item, index) => (
-              <Card
-                key={item.questionId}
-                className={
-                  item.isCorrect
-                    ? 'border-success-muted'
-                    : 'border-destructive-muted'
-                }
-              >
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex items-start gap-3">
-                    {item.isCorrect ? (
-                      <CheckCircle
-                        size={18}
-                        className="mt-0.5 shrink-0 text-success-foreground"
-                      />
-                    ) : (
-                      <XCircle
-                        size={18}
-                        className="mt-0.5 shrink-0 text-destructive"
-                      />
-                    )}
+            {result.breakdown.map((item, index) => {
+              const questionId = cleanId(item.questionId) || `${index}`;
+              const options = (item.options || []).map((option) =>
+                cleanText(option, MAX_OPTION_CHARS),
+              );
+              const selectedAnswer = normalizeAnswerIndexes(
+                item.selectedAnswer,
+                options.length,
+              );
+              const correctAnswer = normalizeAnswerIndexes(
+                item.correctAnswer,
+                options.length,
+              );
+              const questionText = cleanText(item.questionText) || 'Сұрақ';
+              const explanation = cleanMultilineText(
+                item.explanation,
+                MAX_EXPLANATION_CHARS,
+              );
 
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div>
-                        <div className="mb-1 text-xs text-muted-foreground">
-                          {t('page.tests.question_number', { number: index + 1 })}
+              return (
+                <Card
+                  key={questionId}
+                  className={
+                    item.isCorrect
+                      ? 'border-success-muted'
+                      : 'border-destructive-muted'
+                  }
+                >
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex items-start gap-3">
+                      {item.isCorrect ? (
+                        <CheckCircle
+                          size={18}
+                          className="mt-0.5 shrink-0 text-success-foreground"
+                        />
+                      ) : (
+                        <XCircle
+                          size={18}
+                          className="mt-0.5 shrink-0 text-destructive"
+                        />
+                      )}
+
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div>
+                          <div className="mb-1 text-xs text-muted-foreground">
+                            {t('page.tests.question_number', { number: index + 1 })}
+                          </div>
+
+                          <div className="text-sm font-medium leading-relaxed">
+                            {questionText}
+                          </div>
                         </div>
 
-                        <div className="text-sm font-medium leading-relaxed">
-                          {item.questionText}
+                        <div className="grid gap-2 text-xs md:grid-cols-2">
+                          <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
+                            <span className="font-medium">
+                              {t('page.tests.your_answer')}:
+                            </span>{' '}
+                            {formatAnswer(options, selectedAnswer)}
+                          </div>
+
+                          <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
+                            <span className="font-medium">
+                              {t('page.tests.correct_answer')}:
+                            </span>{' '}
+                            {formatAnswer(options, correctAnswer)}
+                          </div>
                         </div>
+
+                        {explanation ? (
+                          <div className="rounded-2xl border border-ai-border bg-ai-soft p-3 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">
+                              {t('page.tests.explanation')}:
+                            </span>{' '}
+                            {explanation}
+                          </div>
+                        ) : null}
                       </div>
-
-                      <div className="grid gap-2 text-xs md:grid-cols-2">
-                        <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
-                          <span className="font-medium">
-                            {t('page.tests.your_answer')}:
-                          </span>{' '}
-                          {formatAnswer(item.options, item.selectedAnswer)}
-                        </div>
-
-                        <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
-                          <span className="font-medium">
-                            {t('page.tests.correct_answer')}:
-                          </span>{' '}
-                          {formatAnswer(item.options, item.correctAnswer)}
-                        </div>
-                      </div>
-
-                      {item.explanation ? (
-                        <div className="rounded-2xl border border-ai-border bg-ai-soft p-3 text-xs text-muted-foreground">
-                          <span className="font-medium text-foreground">
-                            {t('page.tests.explanation')}:
-                          </span>{' '}
-                          {item.explanation}
-                        </div>
-                      ) : null}
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
 
             {result.breakdown.length === 0 ? (
               <div className="space-y-2">
                 {questions.map((question, index) => {
-                  const selected = answers[question.id] || [];
-                  const correct = normalizeAnswerIndexes(question.correct_answer);
-                  const isCorrect = areAnswerSetsEqual(selected, correct);
+                  const questionId = getQuestionId(question);
                   const options = getQuestionOptions(question);
+                  const selected = normalizeAnswerIndexes(answers[questionId], options.length);
+                  const correct = normalizeAnswerIndexes(question.correct_answer, options.length);
+                  const isCorrect = areAnswerSetsEqual(selected, correct);
+                  const questionText = getQuestionText(question);
+                  const explanation = cleanMultilineText(
+                    question.explanation,
+                    MAX_EXPLANATION_CHARS,
+                  );
 
                   return (
                     <Card
-                      key={question.id}
+                      key={questionId || index}
                       className={
                         isCorrect
                           ? 'border-success-muted'
@@ -790,7 +958,7 @@ export default function TestsPage() {
                               {t('page.tests.question_number', { number: index + 1 })}
                             </div>
 
-                            <div className="font-medium">{question.question_text}</div>
+                            <div className="font-medium">{questionText}</div>
 
                             <div className="text-xs">
                               <span className="font-medium">
@@ -806,12 +974,12 @@ export default function TestsPage() {
                               {formatAnswer(options, correct)}
                             </div>
 
-                            {question.explanation ? (
+                            {explanation ? (
                               <div className="rounded-2xl border border-ai-border bg-ai-soft p-3 text-xs text-muted-foreground">
                                 <span className="font-medium text-foreground">
                                   {t('page.tests.explanation')}:
                                 </span>{' '}
-                                {question.explanation}
+                                {explanation}
                               </div>
                             ) : null}
                           </div>
@@ -829,10 +997,13 @@ export default function TestsPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                if (!activeTestId) return;
-                startMutation.mutate(activeTestId);
+                const safeActiveTestId = cleanId(activeTestId);
+
+                if (!safeActiveTestId) return;
+
+                startMutation.mutate(safeActiveTestId);
               }}
-              disabled={!activeTestId || startMutation.isPending}
+              disabled={!cleanId(activeTestId) || startMutation.isPending}
             >
               <RotateCcw size={13} className="mr-1.5" />
               {startMutation.isPending ? t('common.loading') : t('test.retake')}
@@ -862,7 +1033,7 @@ export default function TestsPage() {
           actions={
             isStudent ? (
               <Button type="button" onClick={() => navigate('/ai-exams-open')}>
-                AI емтихандар
+                ЖИ емтихандар
                 <ArrowUpRight size={14} className="ml-2" />
               </Button>
             ) : null
@@ -899,8 +1070,11 @@ export default function TestsPage() {
 
                     <Input
                       value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Тест, тақырып немесе пән бойынша іздеу..."
+                      maxLength={MAX_SEARCH_CHARS}
+                      onChange={(event) =>
+                        setSearch(normalizeSearchInput(event.target.value))
+                      }
+                      placeholder="Тест, тақырып немесе пән"
                       className="pl-9"
                     />
                   </div>
@@ -947,11 +1121,12 @@ export default function TestsPage() {
                       key={subject}
                       type="button"
                       onClick={() => setActiveSubject(subject)}
-                      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-all duration-200 ease-soft ${
+                      className={cn(
+                        'shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-all duration-200 ease-soft',
                         activeSubject === subject
                           ? 'border-primary bg-primary text-primary-foreground shadow-soft'
-                          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
-                      }`}
+                          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+                      )}
                     >
                       {subject === 'all' ? t('common.all') : subject}
                     </button>
@@ -988,15 +1163,23 @@ export default function TestsPage() {
 
             {filtered.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((test) => (
-                  <TestCard
-                    key={test.id}
-                    test={test}
-                    isStudent={isStudent}
-                    isStarting={startMutation.isPending && startingTestId === test.id}
-                    onStart={(selectedTest) => startMutation.mutate(selectedTest.id)}
-                  />
-                ))}
+                {filtered.map((test, index) => {
+                  const testId = cleanId(test.id);
+
+                  return (
+                    <TestCard
+                      key={testId || `${cleanText(test.title)}-${index}`}
+                      test={test}
+                      isStudent={isStudent}
+                      isStarting={
+                        startMutation.isPending && cleanId(startingTestId) === testId
+                      }
+                      onStart={(selectedTest) =>
+                        startMutation.mutate(cleanId(selectedTest.id))
+                      }
+                    />
+                  );
+                })}
               </div>
             ) : null}
           </>

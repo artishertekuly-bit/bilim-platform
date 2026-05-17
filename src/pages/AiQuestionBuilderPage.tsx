@@ -29,7 +29,7 @@ import {
   type AiQuestionKind,
   type GeneratedQuestion,
 } from '@/lib/ai-api';
-import { cn, removeNullCharacters } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 import {
   AlertTriangle,
@@ -79,19 +79,24 @@ const questionKindOptions: Array<{
   },
 ];
 
-const questionCountOptions = [5, 10, 15, 20, 30, 40, 50];
+const questionCountOptions = [5, 10, 15, 20, 30, 40, 50] as const;
 
 const MAX_SOURCE_TEXT_CHARS = 16_000;
 const MAX_TOPIC_CHARS = 220;
 const MAX_SUBJECT_CHARS = 120;
+const MAX_ID_CHARS = 160;
 const MAX_QUESTION_TEXT_CHARS = 2_000;
 const MAX_OPTION_CHARS = 500;
 const MAX_EXPLANATION_CHARS = 2_500;
+const MAX_RESULT_META_CHARS = 5_000;
 const MAX_GENERATED_QUESTIONS = 60;
+const MAX_ERROR_CHARS = 700;
+const MAX_TITLE_SUGGESTION_CHARS = 180;
+const MAX_COUNT = Math.max(...questionCountOptions);
 const GENERATE_TIMEOUT_MS = 180_000;
 
 function sanitizeInputValue(value: unknown, limit: number): string {
-  return removeNullCharacters(String(value ?? '')).slice(0, limit);
+  return limitText(removeNullCharacters(String(value ?? '')), limit);
 }
 
 function cleanText(value: unknown, limit: number): string {
@@ -99,12 +104,71 @@ function cleanText(value: unknown, limit: number): string {
 }
 
 function cleanMultilineText(value: unknown, limit: number): string {
-  return sanitizeInputValue(value, limit)
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{4,}/g, '\n\n\n')
+  return limitText(
+    removeNullCharacters(String(value ?? ''))
+      .slice(0, limit)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim(),
+    limit,
+  );
+}
+
+function normalizeUiText(value: unknown, limit = MAX_TITLE_SUGGESTION_CHARS): string {
+  return cleanText(value, limit)
+    .replace(/\bAI\b/g, 'ЖИ')
+    .replace(/\bAi\b/g, 'ЖИ')
     .trim();
+}
+
+function normalizeId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeDifficulty(value: unknown): Difficulty {
+  const cleanValue = cleanText(value, 32);
+
+  if (cleanValue === 'easy' || cleanValue === 'medium' || cleanValue === 'hard') {
+    return cleanValue;
+  }
+
+  return 'medium';
+}
+
+function normalizeQuestionKind(value: unknown): QuestionKindOption {
+  const cleanValue = cleanText(value, 64);
+
+  if (
+    cleanValue === 'mixed' ||
+    cleanValue === 'multiple_choice' ||
+    cleanValue === 'short_answer'
+  ) {
+    return cleanValue;
+  }
+
+  return 'mixed';
+}
+
+function normalizeQuestionCount(value: unknown): number {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) return 10;
+
+  const normalized = Math.max(1, Math.min(MAX_COUNT, Math.round(numericValue)));
+
+  return questionCountOptions.includes(normalized as (typeof questionCountOptions)[number])
+    ? normalized
+    : 10;
+}
+
+function normalizeScore(value: unknown): number | null {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) return null;
+
+  return Math.max(0, Math.round(numericValue * 10) / 10);
 }
 
 function isAbortLikeError(error: unknown): boolean {
@@ -127,45 +191,26 @@ function getErrorMessage(error: unknown): string {
   }
 
   return error instanceof Error && error.message.trim()
-    ? cleanText(error.message, 700)
+    ? cleanText(error.message, MAX_ERROR_CHARS)
     : 'Сұрақ құру мүмкін болмады.';
 }
 
 function isImportCompatibleQuestion(question: GeneratedQuestion) {
+  const options = question.options || [];
+
   return (
     question.type === 'multiple_choice' &&
-    Array.isArray(question.options) &&
-    question.options.length >= 2 &&
+    options.length >= 2 &&
     Boolean(cleanText(question.correctAnswer, MAX_OPTION_CHARS))
   );
 }
 
 function getDifficultyLabel(value: Difficulty) {
-  return difficultyOptions.find((item) => item.value === value)?.label || value;
+  return difficultyOptions.find((item) => item.value === value)?.label || 'Орташа';
 }
 
 function getKindLabel(value: QuestionKindOption) {
-  return questionKindOptions.find((item) => item.value === value)?.label || value;
-}
-
-function normalizeDifficulty(value: string): Difficulty {
-  if (value === 'easy' || value === 'medium' || value === 'hard') {
-    return value;
-  }
-
-  return 'medium';
-}
-
-function normalizeQuestionKind(value: string): QuestionKindOption {
-  if (
-    value === 'mixed' ||
-    value === 'multiple_choice' ||
-    value === 'short_answer'
-  ) {
-    return value;
-  }
-
-  return 'mixed';
+  return questionKindOptions.find((item) => item.value === value)?.label || 'Аралас';
 }
 
 function getQuestionTypeLabel(type: GeneratedQuestion['type']) {
@@ -179,7 +224,7 @@ function normalizeGeneratedQuestionId(
   index: number,
   seen: Set<string>,
 ): string {
-  const rawId = cleanText(question.id, 140) || `question-${index + 1}`;
+  const rawId = normalizeId(question.id) || `question-${index + 1}`;
   let id = rawId;
   let suffix = 2;
 
@@ -193,6 +238,38 @@ function normalizeGeneratedQuestionId(
   return id;
 }
 
+function normalizeQuestionOptions(
+  question: GeneratedQuestion,
+  questionId: string,
+): GeneratedQuestion['options'] {
+  if (!Array.isArray(question.options)) return undefined;
+
+  const seen = new Set<string>();
+
+  return question.options
+    .map((option, optionIndex) => {
+      const rawId = normalizeId(option.id) || `${questionId}-option-${optionIndex + 1}`;
+      let id = rawId;
+      let suffix = 2;
+
+      while (seen.has(id)) {
+        id = `${rawId}-${suffix}`;
+        suffix += 1;
+      }
+
+      seen.add(id);
+
+      return {
+        ...option,
+        id,
+        text: cleanText(option.text, MAX_OPTION_CHARS),
+        isCorrect: Boolean(option.isCorrect),
+      };
+    })
+    .filter((option) => option.text.length > 0)
+    .slice(0, 8);
+}
+
 function normalizeGeneratedQuestions(
   response: GenerateQuestionsResponse,
 ): GenerateQuestionsResponse {
@@ -202,16 +279,7 @@ function normalizeGeneratedQuestions(
     .slice(0, MAX_GENERATED_QUESTIONS)
     .map((question, index): GeneratedQuestion => {
       const id = normalizeGeneratedQuestionId(question, index, seen);
-
-      const options = question.options
-        ?.map((option, optionIndex) => ({
-          ...option,
-          id: cleanText(option.id, 140) || `${id}-option-${optionIndex + 1}`,
-          text: cleanText(option.text, MAX_OPTION_CHARS),
-          isCorrect: Boolean(option.isCorrect),
-        }))
-        .filter((option) => option.text.length > 0)
-        .slice(0, 8);
+      const options = normalizeQuestionOptions(question, id);
 
       const normalizedType: GeneratedQuestion['type'] =
         question.type === 'multiple_choice' && options && options.length >= 2
@@ -236,6 +304,12 @@ function normalizeGeneratedQuestions(
 
   return {
     ...response,
+    meta: response.meta
+      ? {
+          ...response.meta,
+          passage: cleanMultilineText(response.meta.passage, MAX_RESULT_META_CHARS),
+        }
+      : response.meta,
     questions,
   };
 }
@@ -245,24 +319,27 @@ function OptionButton({
   label,
   value,
   onSelect,
+  disabled = false,
 }: {
   active: boolean;
   label: string;
   value: string;
   onSelect: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={() => onSelect(value)}
+      disabled={disabled}
       className={cn(
-        'rounded-2xl border px-3 py-2 text-sm font-medium transition-colors',
+        'rounded-2xl border px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
         active
           ? 'border-primary bg-primary text-primary-foreground'
           : 'border-border bg-card hover:bg-accent',
       )}
     >
-      {label}
+      {cleanText(label, 80)}
     </button>
   );
 }
@@ -303,14 +380,20 @@ function QuestionPreviewCard({
   index: number;
 }) {
   const isCompatible = isImportCompatibleQuestion(question);
+  const questionText = cleanMultilineText(question.question, MAX_QUESTION_TEXT_CHARS);
+  const correctAnswer = cleanText(question.correctAnswer, MAX_OPTION_CHARS);
+  const explanation = cleanMultilineText(question.explanation, MAX_EXPLANATION_CHARS);
+  const topic = cleanText(question.topic, MAX_TOPIC_CHARS);
+  const difficulty = cleanText(question.difficulty, 80);
+  const options = question.options || [];
 
   return (
     <div className="rounded-2xl border p-4 transition-colors hover:bg-accent/30">
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">Сұрақ {index + 1}</p>
-          <p className="mt-1 text-sm font-medium leading-6">
-            {question.question}
+          <p className="mt-1 whitespace-pre-line text-sm font-medium leading-6">
+            {questionText || 'Сұрақ'}
           </p>
         </div>
 
@@ -322,53 +405,58 @@ function QuestionPreviewCard({
         </div>
       </div>
 
-      {question.options && question.options.length > 0 ? (
+      {options.length > 0 ? (
         <div className="space-y-2">
-          {question.options.map((option, optionIndex) => (
-            <div
-              key={option.id || `${question.id}-${optionIndex}`}
-              className={cn(
-                'flex items-start gap-2 rounded-xl border px-3 py-2 text-sm',
-                option.isCorrect
-                  ? 'border-primary/40 bg-primary/5'
-                  : 'bg-card',
-              )}
-            >
-              {option.isCorrect ? (
-                <Check size={14} className="mt-0.5 shrink-0 text-primary" />
-              ) : (
-                <span className="mt-[2px] inline-block h-3.5 w-3.5 shrink-0 rounded-full border" />
-              )}
+          {options.map((option, optionIndex) => {
+            const optionId = normalizeId(option.id) || `${question.id}-${optionIndex}`;
+            const optionText = cleanText(option.text, MAX_OPTION_CHARS);
 
-              <span>{option.text}</span>
-            </div>
-          ))}
+            if (!optionText) return null;
+
+            return (
+              <div
+                key={optionId}
+                className={cn(
+                  'flex items-start gap-2 rounded-xl border px-3 py-2 text-sm',
+                  option.isCorrect ? 'border-primary/40 bg-primary/5' : 'bg-card',
+                )}
+              >
+                {option.isCorrect ? (
+                  <Check size={14} className="mt-0.5 shrink-0 text-primary" />
+                ) : (
+                  <span className="mt-[2px] inline-block h-3.5 w-3.5 shrink-0 rounded-full border" />
+                )}
+
+                <span>{optionText}</span>
+              </div>
+            );
+          })}
         </div>
-      ) : question.correctAnswer ? (
+      ) : correctAnswer ? (
         <div className="rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
           <span className="text-muted-foreground">Дұрыс жауап: </span>
-          <span className="font-medium">{question.correctAnswer}</span>
+          <span className="font-medium">{correctAnswer}</span>
         </div>
       ) : null}
 
-      {question.explanation ? (
-        <div className="mt-3 rounded-xl border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+      {explanation ? (
+        <div className="mt-3 whitespace-pre-line rounded-xl border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">Түсіндірме: </span>
-          {question.explanation}
+          {explanation}
         </div>
       ) : null}
 
-      {question.topic || question.difficulty ? (
+      {topic || difficulty ? (
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-          {question.topic ? (
+          {topic ? (
             <span className="rounded-full border px-2 py-1">
-              {question.topic}
+              {topic}
             </span>
           ) : null}
 
-          {question.difficulty ? (
+          {difficulty ? (
             <span className="rounded-full border px-2 py-1">
-              {question.difficulty}
+              {difficulty}
             </span>
           ) : null}
         </div>
@@ -400,6 +488,9 @@ export default function AiQuestionBuilderPage() {
   const mountedRef = useRef(true);
 
   const generatedCount = result?.questions.length || 0;
+  const safeDifficulty = normalizeDifficulty(difficulty);
+  const safeKind = normalizeQuestionKind(kind);
+  const safeCount = normalizeQuestionCount(count);
 
   const importableCount = useMemo(() => {
     if (!result) return 0;
@@ -413,7 +504,7 @@ export default function AiQuestionBuilderPage() {
     return Math.max(result.questions.length - importableCount, 0);
   }, [result, importableCount]);
 
-  const hasGeneratedQuestions = !!result && generatedCount > 0;
+  const hasGeneratedQuestions = Boolean(result && generatedCount > 0);
 
   const canGenerate = useMemo(() => {
     const hasSource = cleanMultilineText(sourceText, MAX_SOURCE_TEXT_CHARS).length > 0;
@@ -480,12 +571,12 @@ export default function AiQuestionBuilderPage() {
     try {
       const response = await generateQuestions(
         {
-          sourceText: trimmedSource || undefined,
+          sourceText: trimmedSource || trimmedTopic,
           topic: trimmedTopic || undefined,
           subject: trimmedSubject || undefined,
-          difficulty,
-          count,
-          kind,
+          difficulty: safeDifficulty,
+          count: safeCount,
+          kind: safeKind,
         },
         {
           accessToken,
@@ -551,7 +642,7 @@ export default function AiQuestionBuilderPage() {
       titleSuggestion:
         cleanText(topic, MAX_TOPIC_CHARS) ||
         cleanText(subject, MAX_SUBJECT_CHARS) ||
-        'AI тест',
+        'ЖИ тест',
       topic: cleanText(topic, MAX_TOPIC_CHARS) || undefined,
       subject: cleanText(subject, MAX_SUBJECT_CHARS) || undefined,
       questions: result.questions,
@@ -588,7 +679,7 @@ export default function AiQuestionBuilderPage() {
             </>
           }
           icon={<Sparkles size={20} />}
-          title={t('nav.ai_question_builder')}
+          title={normalizeUiText(t('nav.ai_question_builder')) || 'ЖИ сұрақ құрастыру'}
           actions={
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" asChild>
@@ -684,10 +775,11 @@ export default function AiQuestionBuilderPage() {
                     {difficultyOptions.map((item) => (
                       <OptionButton
                         key={item.value}
-                        active={difficulty === item.value}
+                        active={safeDifficulty === item.value}
                         label={item.label}
                         value={item.value}
                         onSelect={(value) => setDifficulty(normalizeDifficulty(value))}
+                        disabled={isGenerating}
                       />
                     ))}
                   </div>
@@ -699,10 +791,11 @@ export default function AiQuestionBuilderPage() {
                     {questionKindOptions.map((item) => (
                       <OptionButton
                         key={item.value}
-                        active={kind === item.value}
+                        active={safeKind === item.value}
                         label={item.label}
                         value={item.value}
                         onSelect={(value) => setKind(normalizeQuestionKind(value))}
+                        disabled={isGenerating}
                       />
                     ))}
                   </div>
@@ -719,7 +812,7 @@ export default function AiQuestionBuilderPage() {
                         disabled={isGenerating}
                         className={cn(
                           'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-                          count === value
+                          safeCount === value
                             ? 'border-primary bg-primary text-primary-foreground'
                             : 'border-border hover:bg-accent',
                         )}
@@ -730,10 +823,16 @@ export default function AiQuestionBuilderPage() {
                   </div>
                 </div>
 
+                <div className="flex flex-wrap gap-2">
+                  <StatusBadge tone="muted">{getDifficultyLabel(safeDifficulty)}</StatusBadge>
+                  <StatusBadge tone="ai">{getKindLabel(safeKind)}</StatusBadge>
+                  <StatusBadge tone="info">{safeCount} сұрақ</StatusBadge>
+                </div>
+
                 {!accessToken ? (
-                  <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
+                  <div className="flex items-start gap-2 rounded-2xl border border-warning-muted bg-warning-soft p-3 text-sm text-warning-foreground">
                     <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                    <span>Жүйеге кіріңіз.</span>
+                    <span>{user ? 'Белсенді сессия қажет.' : 'Жүйеге кіріңіз.'}</span>
                   </div>
                 ) : null}
 
@@ -805,9 +904,9 @@ export default function AiQuestionBuilderPage() {
                   </div>
                 </CardHeader>
 
-                {kind !== 'multiple_choice' && skippedCount > 0 ? (
+                {safeKind !== 'multiple_choice' && skippedCount > 0 ? (
                   <CardContent className="border-b border-border/70 p-4 sm:p-5">
-                    <div className="flex items-start gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300">
+                    <div className="flex items-start gap-2 rounded-2xl border border-warning-muted bg-warning-soft p-3 text-sm text-warning-foreground">
                       <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                       <span>Тестке тек жауап нұсқалары бар сұрақ өтеді.</span>
                     </div>
@@ -817,7 +916,7 @@ export default function AiQuestionBuilderPage() {
                 <CardContent className="space-y-4 p-4 sm:p-5">
                   {result?.questions.map((question, index) => (
                     <QuestionPreviewCard
-                      key={question.id || `${index}-${question.question}`}
+                      key={normalizeId(question.id) || `${index}-${cleanText(question.question, 80)}`}
                       question={question}
                       index={index}
                     />
