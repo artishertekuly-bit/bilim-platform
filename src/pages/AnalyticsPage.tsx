@@ -214,63 +214,65 @@ function normalizeSubjectPerformanceItems(
 ): SubjectPerformanceItem[] {
   if (!Array.isArray(items)) return [];
 
-  return items
-    .map((item) => {
-      const row = item as Partial<SubjectPerformanceItem>;
-      const name = cleanText(row.name, MAX_TITLE_CHARS);
+  return items.reduce<SubjectPerformanceItem[]>((acc, item) => {
+    const row = item as Partial<SubjectPerformanceItem>;
+    const name = cleanText(row.name, MAX_TITLE_CHARS);
 
-      if (!name) return null;
+    if (!name) return acc;
 
-      return {
-        name,
-        score: clampPercent(row.score),
-        tests: toCount(row.tests),
-        trend: normalizeTrend(row.trend),
-      } satisfies SubjectPerformanceItem;
-    })
-    .filter((item): item is SubjectPerformanceItem => Boolean(item));
+    const trend = normalizeTrend(row.trend);
+
+    acc.push({
+      name,
+      score: clampPercent(row.score),
+      tests: toCount(row.tests),
+      ...(trend ? { trend } : {}),
+    });
+
+    return acc;
+  }, []);
 }
 
 function normalizeWeakTopicItems(items: unknown): WeakTopicItem[] {
   if (!Array.isArray(items)) return [];
 
-  return items
-    .map((item) => {
-      const row = item as Partial<WeakTopicItem>;
-      const subject = cleanText(row.subject, MAX_TITLE_CHARS);
-      const topic = cleanText(row.topic, MAX_DETAIL_CHARS);
+  return items.reduce<WeakTopicItem[]>((acc, item) => {
+    const row = item as Partial<WeakTopicItem>;
+    const subject = cleanText(row.subject, MAX_TITLE_CHARS);
+    const topic = cleanText(row.topic, MAX_DETAIL_CHARS);
 
-      if (!subject && !topic) return null;
+    if (!subject && !topic) return acc;
 
-      return {
-        subject: subject || t('page.analytics.not_available'),
-        topic: topic || t('page.analytics.not_available'),
-        score: clampPercent(row.score),
-      } satisfies WeakTopicItem;
-    })
-    .filter((item): item is WeakTopicItem => Boolean(item));
+    acc.push({
+      subject: subject || t('page.analytics.not_available'),
+      topic: topic || t('page.analytics.not_available'),
+      score: clampPercent(row.score),
+    });
+
+    return acc;
+  }, []);
 }
 
 function normalizeRecentActivityItems(items: unknown): RecentActivityItem[] {
   if (!Array.isArray(items)) return [];
 
-  return items
-    .map((item) => {
-      const row = item as Partial<RecentActivityItem>;
-      const action = cleanText(row.action, MAX_TITLE_CHARS);
-      const detail = cleanText(row.detail, MAX_DETAIL_CHARS);
-      const score = cleanText(row.score, 40);
+  return items.reduce<RecentActivityItem[]>((acc, item) => {
+    const row = item as Partial<RecentActivityItem>;
+    const action = cleanText(row.action, MAX_TITLE_CHARS);
+    const detail = cleanText(row.detail, MAX_DETAIL_CHARS);
+    const score = cleanText(row.score, 40);
 
-      if (!action && !detail) return null;
+    if (!action && !detail) return acc;
 
-      return {
-        action: action || t('page.analytics.not_available'),
-        detail: detail || t('page.analytics.not_available'),
-        date: cleanText(row.date, MAX_DATE_CHARS) || t('page.analytics.not_available'),
-        score: score || null,
-      } satisfies RecentActivityItem;
-    })
-    .filter((item): item is RecentActivityItem => Boolean(item));
+    acc.push({
+      action: action || t('page.analytics.not_available'),
+      detail: detail || t('page.analytics.not_available'),
+      date: cleanText(row.date, MAX_DATE_CHARS) || t('page.analytics.not_available'),
+      score: score || null,
+    });
+
+    return acc;
+  }, []);
 }
 
 function normalizeDisplayAnalyticsData(
