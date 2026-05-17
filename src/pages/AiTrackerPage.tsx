@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { BrainCircuit, RotateCcw, Sparkles } from 'lucide-react';
 
 import AiPromptShell, {
-   type AiConversationMessage,
+  type AiConversationMessage,
   type AiPromptSubmitPayload,
   type AiPromptSuggestion,
 } from '@/components/ai-tools/AiPromptShell';
@@ -134,10 +134,18 @@ const LEARNING_ANALYSIS_KEYWORDS = [
   'жоспар құр',
 ] as const;
 
+const MAX_ID_CHARS = 180;
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_HISTORY_MESSAGES = 8;
 const MAX_HISTORY_MESSAGE_CHARS = 6_000;
 const MAX_SUGGESTION_ID_CHARS = 120;
+const MAX_SUGGESTION_LABEL_CHARS = 80;
+const MAX_SUGGESTION_PROMPT_CHARS = 600;
+const MAX_ANSWER_CHARS = 20_000;
+const MAX_ERROR_CHARS = 1_000;
+const MAX_CONTEXT_CHARS = 2_000;
+const MAX_WARNING_CHARS = 500;
+const MAX_FOLLOW_UP_CHARS = 500;
 
 function cleanRawText(value: unknown): string {
   return removeNullCharacters(String(value ?? ''));
@@ -158,6 +166,14 @@ function cleanMultilineText(value: unknown, limit?: number): string {
     .trim();
 
   return typeof limit === 'number' ? limitText(normalized, limit) : normalized;
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeUiText(value: unknown, limit: number): string {
+  return cleanMultilineText(value, limit).replace(/\bAI\b/g, 'ЖИ');
 }
 
 function normalizePrompt(value: unknown): string {
@@ -200,7 +216,34 @@ function shouldUseStudentCourseAdvisor(prompt: string): boolean {
   return hasCourseOrFutureIntent && hasAdvisorActionIntent;
 }
 
-function normalizeSubmitPayload(payload: AiPromptSubmitPayload): AiPromptSubmitPayload {
+function normalizeSuggestion(
+  suggestion: AiPromptSuggestion,
+): AiPromptSuggestion | null {
+  const id = cleanText(suggestion.id, MAX_SUGGESTION_ID_CHARS);
+  const label = cleanText(suggestion.label, MAX_SUGGESTION_LABEL_CHARS);
+  const prompt = cleanMultilineText(suggestion.prompt, MAX_SUGGESTION_PROMPT_CHARS);
+
+  if (!id || !label || !prompt) {
+    return null;
+  }
+
+  return {
+    ...suggestion,
+    id,
+    label,
+    prompt,
+  };
+}
+
+function normalizeSuggestions(suggestions: AiPromptSuggestion[]) {
+  return suggestions
+    .map(normalizeSuggestion)
+    .filter((suggestion): suggestion is AiPromptSuggestion => Boolean(suggestion));
+}
+
+function normalizeSubmitPayload(
+  payload: AiPromptSubmitPayload,
+): AiPromptSubmitPayload {
   const conversationHistory: AiConversationMessage[] = Array.isArray(
     payload.conversationHistory,
   )
@@ -251,19 +294,31 @@ function getPlaceholder(mode: TrackerMode): string {
   return 'Мысалы: Қай тақырыпты қайталауым керек?';
 }
 
+function normalizeMetaList(value: unknown, limit: number): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => normalizeUiText(item, limit))
+    .filter(Boolean)
+    .slice(0, 6);
+}
+
 export default function AiTrackerPage() {
   const { user } = useAuth();
   const [activeMode, setActiveMode] = useState<TrackerMode>('student_tracker');
 
+  const safeUserId = cleanId(user?.id);
   const isStudent = user?.role === 'student';
-  const canUseAiTracker = Boolean(user?.id && isStudent);
+  const canUseAiTracker = Boolean(safeUserId && isStudent);
 
   const trackerAi = useLearningAiAnalysis({
     mode: 'student_tracker',
     role: 'student',
-    scope: user?.id
+    scope: safeUserId
       ? {
-          studentId: user.id,
+          studentId: safeUserId,
         }
       : undefined,
   });
@@ -272,15 +327,43 @@ export default function AiTrackerPage() {
 
   const suggestions = useMemo(
     () =>
-      activeMode === 'student_course_advisor'
-        ? COURSE_ADVISOR_SUGGESTIONS
-        : TRACKER_SUGGESTIONS,
+      normalizeSuggestions(
+        activeMode === 'student_course_advisor'
+          ? COURSE_ADVISOR_SUGGESTIONS
+          : TRACKER_SUGGESTIONS,
+      ),
     [activeMode],
+  );
+
+  const safeAnswer = useMemo(
+    () => normalizeUiText(trackerAi.answer, MAX_ANSWER_CHARS),
+    [trackerAi.answer],
+  );
+
+  const safeError = useMemo(
+    () => normalizeUiText(trackerAi.error, MAX_ERROR_CHARS),
+    [trackerAi.error],
+  );
+
+  const safeContextSummary = useMemo(() => {
+    const value = normalizeUiText(trackerAiMeta.contextSummary, MAX_CONTEXT_CHARS);
+
+    return value || null;
+  }, [trackerAiMeta.contextSummary]);
+
+  const safeWarnings = useMemo(
+    () => normalizeMetaList(trackerAiMeta.warnings, MAX_WARNING_CHARS),
+    [trackerAiMeta.warnings],
+  );
+
+  const safeFollowUpPrompts = useMemo(
+    () => normalizeMetaList(trackerAiMeta.followUpPrompts, MAX_FOLLOW_UP_CHARS),
+    [trackerAiMeta.followUpPrompts],
   );
 
   const handleSubmit = useCallback(
     async (payload: AiPromptSubmitPayload) => {
-      if (!user?.id || !isStudent) {
+      if (!safeUserId || !isStudent) {
         return;
       }
 
@@ -302,11 +385,11 @@ export default function AiTrackerPage() {
         mode: nextMode,
         role: 'student',
         scope: {
-          studentId: user.id,
+          studentId: safeUserId,
         },
       });
     },
-    [isStudent, trackerAi, user?.id],
+    [isStudent, safeUserId, trackerAi],
   );
 
   const handleReset = useCallback(() => {
@@ -375,14 +458,14 @@ export default function AiTrackerPage() {
             disabled={Boolean(disabledReason)}
             disabledReason={disabledReason}
             isSubmitting={trackerAi.isSubmitting}
-            answer={trackerAi.answer}
-            error={trackerAi.error}
+            answer={safeAnswer}
+            error={safeError}
             onSubmit={handleSubmit}
             answerTitle={getAnswerTitle(activeMode)}
             emptyAnswerText={getEmptyAnswerText(activeMode)}
-            contextSummary={trackerAiMeta.contextSummary ?? null}
-            warnings={trackerAiMeta.warnings ?? []}
-            followUpPrompts={trackerAiMeta.followUpPrompts ?? []}
+            contextSummary={safeContextSummary}
+            warnings={safeWarnings}
+            followUpPrompts={safeFollowUpPrompts}
           />
         ) : null}
       </div>

@@ -34,6 +34,7 @@ import {
 } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import t, { getLocale } from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type AnalyticsMode = 'student' | 'parent' | 'teacher' | 'admin';
 type ScoreTone = 'success' | 'warning' | 'danger';
@@ -130,86 +131,245 @@ const EMPTY_DISPLAY_ANALYTICS: DisplayAnalyticsData = {
   },
 };
 
+const MAX_ID_CHARS = 180;
+const MAX_LABEL_CHARS = 180;
+const MAX_TITLE_CHARS = 240;
+const MAX_DETAIL_CHARS = 420;
+const MAX_DATE_CHARS = 80;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_LABEL_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
 function getMode(role?: string): AnalyticsMode {
   if (role === 'teacher') return 'teacher';
   if (role === 'parent') return 'parent';
   if (role === 'admin') return 'admin';
+
   return 'student';
 }
 
-function toNumber(value: unknown, fallback = 0) {
+function toNumber(value: unknown, fallback = 0): number {
   const numberValue = Number(value);
+
   return Number.isFinite(numberValue) ? numberValue : fallback;
 }
 
-function clampPercent(value: unknown) {
+function toCount(value: unknown): number {
+  return Math.max(0, Math.round(toNumber(value)));
+}
+
+function clampPercent(value: unknown): number {
   return Math.max(0, Math.min(100, Math.round(toNumber(value))));
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return t('page.analytics.not_available');
+function normalizeTrend(value: unknown): SubjectPerformanceItem['trend'] | undefined {
+  if (value === 'up' || value === 'down') return value;
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return t('page.analytics.not_available');
+  return undefined;
+}
+
+function formatDate(value?: string | null): string {
+  const rawValue = cleanText(value, MAX_DATE_CHARS);
+
+  if (!rawValue) return t('page.analytics.not_available');
+
+  const parsed = new Date(rawValue);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return t('page.analytics.not_available');
+  }
 
   const locale = getLocale() === 'ru' ? 'ru-RU' : 'kk-KZ';
+
   return parsed.toLocaleDateString(locale);
 }
 
 function getScoreTone(score: number): ScoreTone {
   if (score >= 80) return 'success';
   if (score >= 50) return 'warning';
+
   return 'danger';
 }
 
-function getScoreBadgeLabel(score: number) {
-  if (score >= 80) return 'Жақсы';
-  if (score >= 50) return 'Орташа';
+function getScoreBadgeLabel(score: number): string {
+  const normalizedScore = clampPercent(score);
+
+  if (normalizedScore >= 80) return 'Жақсы';
+  if (normalizedScore >= 50) return 'Орташа';
+
   return 'Назар қажет';
 }
 
+function normalizeSubjectPerformanceItems(
+  items: unknown,
+): SubjectPerformanceItem[] {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item) => {
+      const row = item as Partial<SubjectPerformanceItem>;
+      const name = cleanText(row.name, MAX_TITLE_CHARS);
+
+      if (!name) return null;
+
+      return {
+        name,
+        score: clampPercent(row.score),
+        tests: toCount(row.tests),
+        trend: normalizeTrend(row.trend),
+      } satisfies SubjectPerformanceItem;
+    })
+    .filter((item): item is SubjectPerformanceItem => Boolean(item));
+}
+
+function normalizeWeakTopicItems(items: unknown): WeakTopicItem[] {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item) => {
+      const row = item as Partial<WeakTopicItem>;
+      const subject = cleanText(row.subject, MAX_TITLE_CHARS);
+      const topic = cleanText(row.topic, MAX_DETAIL_CHARS);
+
+      if (!subject && !topic) return null;
+
+      return {
+        subject: subject || t('page.analytics.not_available'),
+        topic: topic || t('page.analytics.not_available'),
+        score: clampPercent(row.score),
+      } satisfies WeakTopicItem;
+    })
+    .filter((item): item is WeakTopicItem => Boolean(item));
+}
+
+function normalizeRecentActivityItems(items: unknown): RecentActivityItem[] {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item) => {
+      const row = item as Partial<RecentActivityItem>;
+      const action = cleanText(row.action, MAX_TITLE_CHARS);
+      const detail = cleanText(row.detail, MAX_DETAIL_CHARS);
+      const score = cleanText(row.score, 40);
+
+      if (!action && !detail) return null;
+
+      return {
+        action: action || t('page.analytics.not_available'),
+        detail: detail || t('page.analytics.not_available'),
+        date: cleanText(row.date, MAX_DATE_CHARS) || t('page.analytics.not_available'),
+        score: score || null,
+      } satisfies RecentActivityItem;
+    })
+    .filter((item): item is RecentActivityItem => Boolean(item));
+}
+
 function normalizeDisplayAnalyticsData(
-  input?: Partial<DisplayAnalyticsData> | null
+  input?: Partial<DisplayAnalyticsData> | null,
 ): DisplayAnalyticsData | null {
   if (!input) return null;
 
   return {
-    subjectPerformance: input.subjectPerformance || [],
-    weakTopics: input.weakTopics || [],
-    recentActivity: input.recentActivity || [],
+    subjectPerformance: normalizeSubjectPerformanceItems(input.subjectPerformance),
+    weakTopics: normalizeWeakTopicItems(input.weakTopics),
+    recentActivity: normalizeRecentActivityItems(input.recentActivity),
     stats: {
       ...EMPTY_DISPLAY_ANALYTICS.stats,
       ...(input.stats || {}),
       avgScore: clampPercent(input.stats?.avgScore),
-      testsTaken: toNumber(input.stats?.testsTaken),
-      lessonsCompleted: toNumber(input.stats?.lessonsCompleted),
-      courses: toNumber(input.stats?.courses),
-      streak: toNumber(input.stats?.streak),
+      testsTaken: toCount(input.stats?.testsTaken),
+      lessonsCompleted: toCount(input.stats?.lessonsCompleted),
+      courses: toCount(input.stats?.courses),
+      streak: toCount(input.stats?.streak),
+    },
+  };
+}
+
+function normalizeParentAttempt(value: unknown): ParentAttempt | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const row = value as Partial<ParentAttempt>;
+  const id = cleanId(row.id);
+  const title = cleanText(row.title, MAX_TITLE_CHARS);
+  const subjectName = cleanText(row.subjectName, MAX_TITLE_CHARS);
+  const score = row.score === null || row.score === undefined ? null : clampPercent(row.score);
+  const completedAt = cleanText(row.completedAt, MAX_DATE_CHARS) || null;
+
+  if (!title && !subjectName && score === null) return null;
+
+  return {
+    id,
+    title: title || t('page.analytics.not_available'),
+    subjectName: subjectName || t('page.analytics.not_available'),
+    score,
+    completedAt,
+  };
+}
+
+function normalizeParentChild(value: unknown): ParentChildItem | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const row = value as ParentChildItem;
+  const stats = row.summary?.stats;
+
+  if (!stats) return null;
+
+  const recentAttempts = Array.isArray(row.summary?.recentAttempts)
+    ? row.summary.recentAttempts
+        .map(normalizeParentAttempt)
+        .filter((attempt): attempt is ParentAttempt => Boolean(attempt))
+    : [];
+
+  return {
+    studentId: cleanId(row.studentId),
+    name: cleanText(row.name, MAX_TITLE_CHARS) || t('page.analytics.not_available'),
+    avatarUrl: cleanText(row.avatarUrl, 2_000) || null,
+    summary: {
+      stats: {
+        avgScore: clampPercent(stats.avgScore),
+        totalTests: toCount(stats.totalTests),
+        completedLessons: toCount(stats.completedLessons),
+        enrolledCourses: toCount(stats.enrolledCourses),
+        streakDays: toCount(stats.streakDays),
+        weakSubject: cleanText(stats.weakSubject, MAX_TITLE_CHARS) || null,
+      },
+      recentAttempts,
     },
   };
 }
 
 function buildParentAnalytics(
-  children: ParentChildItem[] | undefined
+  children: ParentChildItem[] | undefined,
 ): DisplayAnalyticsData | null {
   if (!children || children.length === 0) return null;
 
-  const validChildren = children.filter((child) => child?.summary?.stats);
+  const validChildren = children
+    .map(normalizeParentChild)
+    .filter((child): child is ParentChildItem => Boolean(child));
+
   if (validChildren.length === 0) return null;
 
   const scoredAttempts = validChildren
-    .flatMap((child) => child.summary?.recentAttempts || [])
-    .filter((attempt) => attempt && attempt.score !== null);
+    .flatMap((child) => child.summary.recentAttempts)
+    .filter((attempt) => attempt.score !== null);
 
-  const allAttempts = validChildren
-    .flatMap((child) => child.summary?.recentAttempts || [])
-    .filter(Boolean);
+  const allAttempts = validChildren.flatMap((child) => child.summary.recentAttempts);
 
   const subjectMap = new Map<string, { totalScore: number; tests: number }>();
 
   scoredAttempts.forEach((attempt) => {
-    const subjectName = attempt.subjectName || t('page.analytics.not_available');
-    const score = Number(attempt.score);
+    const subjectName = cleanText(attempt.subjectName, MAX_TITLE_CHARS) ||
+      t('page.analytics.not_available');
+    const score = clampPercent(attempt.score);
 
     const current = subjectMap.get(subjectName) || {
       totalScore: 0,
@@ -223,17 +383,17 @@ function buildParentAnalytics(
   });
 
   const subjectPerformance: SubjectPerformanceItem[] = Array.from(
-    subjectMap.entries()
+    subjectMap.entries(),
   ).map(([name, value]) => ({
     name,
-    score: value.tests > 0 ? Math.round(value.totalScore / value.tests) : 0,
+    score: value.tests > 0 ? clampPercent(value.totalScore / value.tests) : 0,
     tests: value.tests,
   }));
 
   const weakCounts = new Map<string, number>();
 
   validChildren.forEach((child) => {
-    const weakSubject = child.summary?.stats?.weakSubject;
+    const weakSubject = cleanText(child.summary.stats.weakSubject, MAX_TITLE_CHARS);
 
     if (weakSubject) {
       weakCounts.set(weakSubject, (weakCounts.get(weakSubject) || 0) + 1);
@@ -247,18 +407,18 @@ function buildParentAnalytics(
       return {
         subject,
         topic: t('page.analytics.parent_attention_count', { count }),
-        score: performance?.score || 0,
+        score: clampPercent(performance?.score),
       };
-    }
+    },
   );
 
   const recentActivityDraft: ParentActivityDraft[] = allAttempts.map((attempt) => ({
     action: t('page.analytics.parent_recent_test_action'),
-    detail: attempt.title,
-    rawDate: attempt.completedAt,
+    detail: cleanText(attempt.title, MAX_DETAIL_CHARS),
+    rawDate: cleanText(attempt.completedAt, MAX_DATE_CHARS) || null,
     score:
       attempt.score !== null && attempt.score !== undefined
-        ? `${attempt.score}%`
+        ? `${clampPercent(attempt.score)}%`
         : null,
   }));
 
@@ -266,11 +426,12 @@ function buildParentAnalytics(
     .sort((a, b) => {
       const da = a.rawDate ? new Date(a.rawDate).getTime() : 0;
       const db = b.rawDate ? new Date(b.rawDate).getTime() : 0;
+
       return db - da;
     })
     .map((item) => ({
       action: item.action,
-      detail: item.detail,
+      detail: item.detail || t('page.analytics.not_available'),
       date: formatDate(item.rawDate),
       score: item.score,
     }))
@@ -278,28 +439,28 @@ function buildParentAnalytics(
 
   const totalChildren = validChildren.length;
   const totalAvgScore = validChildren.reduce(
-    (acc, child) => acc + Number(child.summary.stats.avgScore || 0),
-    0
+    (acc, child) => acc + clampPercent(child.summary.stats.avgScore),
+    0,
   );
 
   const testsTaken = validChildren.reduce(
-    (acc, child) => acc + Number(child.summary.stats.totalTests || 0),
-    0
+    (acc, child) => acc + toCount(child.summary.stats.totalTests),
+    0,
   );
 
   const lessonsCompleted = validChildren.reduce(
-    (acc, child) => acc + Number(child.summary.stats.completedLessons || 0),
-    0
+    (acc, child) => acc + toCount(child.summary.stats.completedLessons),
+    0,
   );
 
   const courses = validChildren.reduce(
-    (acc, child) => acc + Number(child.summary.stats.enrolledCourses || 0),
-    0
+    (acc, child) => acc + toCount(child.summary.stats.enrolledCourses),
+    0,
   );
 
   const streak = validChildren.reduce(
-    (acc, child) => Math.max(acc, Number(child.summary.stats.streakDays || 0)),
-    0
+    (acc, child) => Math.max(acc, toCount(child.summary.stats.streakDays)),
+    0,
   );
 
   return {
@@ -307,7 +468,7 @@ function buildParentAnalytics(
     weakTopics,
     recentActivity,
     stats: {
-      avgScore: totalChildren > 0 ? Math.round(totalAvgScore / totalChildren) : 0,
+      avgScore: totalChildren > 0 ? clampPercent(totalAvgScore / totalChildren) : 0,
       testsTaken,
       lessonsCompleted,
       courses,
@@ -406,6 +567,9 @@ function AnalyticsPanel({
   icon?: ReactNode;
   children: ReactNode;
 }) {
+  const safeTitle = cleanText(title, MAX_TITLE_CHARS);
+  const safeDescription = cleanText(description, MAX_DETAIL_CHARS);
+
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
@@ -415,11 +579,13 @@ function AnalyticsPanel({
               {icon}
             </span>
           ) : null}
-          {title}
+          {safeTitle}
         </CardTitle>
 
-        {description ? (
-          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+        {safeDescription ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            {safeDescription}
+          </p>
         ) : null}
       </CardHeader>
 
@@ -429,7 +595,9 @@ function AnalyticsPanel({
 }
 
 function SubjectPerformanceList({ items }: { items: SubjectPerformanceItem[] }) {
-  if (items.length === 0) {
+  const safeItems = normalizeSubjectPerformanceItems(items);
+
+  if (safeItems.length === 0) {
     return (
       <EmptyState
         title={t('page.analytics.subject_performance_empty.title')}
@@ -441,9 +609,9 @@ function SubjectPerformanceList({ items }: { items: SubjectPerformanceItem[] }) 
 
   return (
     <div className="space-y-4">
-      {items.map((subject) => (
+      {safeItems.map((subject, index) => (
         <div
-          key={subject.name}
+          key={`${subject.name}-${index}`}
           className="space-y-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
         >
           <div className="flex items-center justify-between gap-3">
@@ -485,7 +653,9 @@ function SubjectPerformanceList({ items }: { items: SubjectPerformanceItem[] }) 
 }
 
 function WeakTopicsList({ items }: { items: WeakTopicItem[] }) {
-  if (items.length === 0) {
+  const safeItems = normalizeWeakTopicItems(items);
+
+  if (safeItems.length === 0) {
     return (
       <EmptyState
         title={t('page.analytics.weak_topics_empty.title')}
@@ -497,7 +667,7 @@ function WeakTopicsList({ items }: { items: WeakTopicItem[] }) {
 
   return (
     <div className="space-y-3">
-      {items.map((topic, index) => (
+      {safeItems.map((topic, index) => (
         <div
           key={`${topic.subject}-${index}`}
           className="space-y-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
@@ -524,7 +694,9 @@ function WeakTopicsList({ items }: { items: WeakTopicItem[] }) {
 }
 
 function RecentActivityList({ items }: { items: RecentActivityItem[] }) {
-  if (items.length === 0) {
+  const safeItems = normalizeRecentActivityItems(items);
+
+  if (safeItems.length === 0) {
     return (
       <EmptyState
         title={t('page.analytics.recent_activity_empty.title')}
@@ -536,7 +708,7 @@ function RecentActivityList({ items }: { items: RecentActivityItem[] }) {
 
   return (
     <div className="space-y-2">
-      {items.map((item, index) => (
+      {safeItems.map((item, index) => (
         <div
           key={`${item.detail}-${index}`}
           className="flex items-start justify-between gap-3 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
@@ -584,28 +756,33 @@ function TeacherCourseProgressList({
 
   return (
     <div className="space-y-4">
-      {courses.map((course) => {
+      {courses.map((course, index) => {
         const value =
           metric === 'avgProgress'
             ? clampPercent(course.avgProgress)
             : clampPercent(course.completionPct);
 
+        const courseTitle = cleanText(course.courseTitle, MAX_TITLE_CHARS) || 'Курс';
+        const subjectName = cleanText(course.subjectName, MAX_TITLE_CHARS) ||
+          t('page.analytics.not_available');
+        const courseId = cleanId(course.courseId) || `${courseTitle}-${index}`;
+
         return (
           <div
-            key={course.courseId}
+            key={courseId}
             className="space-y-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <span className="line-clamp-1 text-sm font-semibold text-foreground">
-                  {course.courseTitle}
+                  {courseTitle}
                 </span>
 
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {[
-                    course.subjectName,
-                    `${toNumber(course.students)} ${t('page.analytics.students_short')}`,
-                    `${toNumber(course.lessons)} ${t('course.lessons_count')}`,
+                    subjectName,
+                    `${toCount(course.students)} ${t('page.analytics.students_short')}`,
+                    `${toCount(course.lessons)} ${t('course.lessons_count')}`,
                   ]
                     .filter(Boolean)
                     .join(' · ')}
@@ -645,24 +822,26 @@ function AdminSubjectStatsList({
 
   return (
     <div className="space-y-4">
-      {subjects.map((subject) => {
+      {subjects.map((subject, index) => {
         const avgScore = clampPercent(subject.avgScore);
+        const subjectName = cleanText(subject.name, MAX_TITLE_CHARS) ||
+          t('page.analytics.not_available');
 
         return (
           <div
-            key={subject.name}
+            key={`${subjectName}-${index}`}
             className="space-y-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-soft"
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <span className="line-clamp-1 text-sm font-semibold text-foreground">
-                  {subject.name}
+                  {subjectName}
                 </span>
 
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {[
-                    `${toNumber(subject.courses)} ${t('dashboard.total_courses')}`,
-                    `${toNumber(subject.lessons)} ${t('course.lessons_count')}`,
+                    `${toCount(subject.courses)} ${t('dashboard.total_courses')}`,
+                    `${toCount(subject.lessons)} ${t('course.lessons_count')}`,
                   ]
                     .filter(Boolean)
                     .join(' · ')}
@@ -689,7 +868,9 @@ function SummaryRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 px-3 py-2.5 shadow-inner-soft">
-      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="text-sm text-muted-foreground">
+        {cleanText(label, MAX_TITLE_CHARS)}
+      </span>
       <span className="text-sm font-semibold text-foreground">{value}</span>
     </div>
   );
@@ -722,7 +903,7 @@ function PageEmptyState() {
       action={
         <Button type="button" variant="outline" asChild>
           <Link to="/dashboard">
-            Dashboard-қа қайту
+            Кабинетке қайту
             <ArrowRight size={15} className="ml-2" />
           </Link>
         </Button>
@@ -734,72 +915,78 @@ function PageEmptyState() {
 export default function AnalyticsPage() {
   const { user } = useAuth();
   const mode = getMode(user?.role);
+  const safeUserId = cleanId(user?.id);
 
-  const analytics = useAnalytics(user?.id || '', !!user?.id && mode === 'student');
-  const parent = useParentDashboard(user?.id || '', !!user?.id && mode === 'parent');
-  const teacher = useTeacherDashboard(user?.id || '', !!user?.id && mode === 'teacher');
-  const admin = useAdminDashboard(!!user?.id && mode === 'admin');
+  const analytics = useAnalytics(safeUserId, Boolean(safeUserId && mode === 'student'));
+  const parent = useParentDashboard(safeUserId, Boolean(safeUserId && mode === 'parent'));
+  const teacher = useTeacherDashboard(safeUserId, Boolean(safeUserId && mode === 'teacher'));
+  const admin = useAdminDashboard(Boolean(safeUserId && mode === 'admin'));
 
   const parentAnalytics = useMemo(
     () => buildParentAnalytics(parent.data as ParentChildItem[] | undefined),
-    [parent.data]
+    [parent.data],
   );
 
   const studentAnalytics = useMemo(
     () =>
       normalizeDisplayAnalyticsData(
-        analytics.data as Partial<DisplayAnalyticsData> | null | undefined
+        analytics.data as Partial<DisplayAnalyticsData> | null | undefined,
       ),
-    [analytics.data]
+    [analytics.data],
   );
 
   const teacherStats = useMemo(
     () => ({
-      totalCourses: toNumber(teacher.data?.stats?.totalCourses),
-      totalStudents: toNumber(teacher.data?.stats?.totalStudents),
-      totalTests: toNumber(teacher.data?.stats?.totalTests),
+      totalCourses: toCount(teacher.data?.stats?.totalCourses),
+      totalStudents: toCount(teacher.data?.stats?.totalStudents),
+      totalTests: toCount(teacher.data?.stats?.totalTests),
       avgCourseProgress: clampPercent(teacher.data?.stats?.avgCourseProgress),
-      completedLessons: toNumber(teacher.data?.stats?.completedLessons),
+      completedLessons: toCount(teacher.data?.stats?.completedLessons),
     }),
-    [teacher.data]
+    [teacher.data],
   );
 
   const teacherCourseProgress = useMemo<TeacherCourseProgressItem[]>(
     () =>
-      ((teacher.data?.courseProgress || []) as TeacherCourseProgressItem[]).map(
-        (course) => ({
-          courseId: course.courseId,
-          courseTitle: course.courseTitle || 'Курс',
-          subjectName: course.subjectName || t('page.analytics.not_available'),
-          students: toNumber(course.students),
-          lessons: toNumber(course.lessons),
+      ((teacher.data?.courseProgress || []) as TeacherCourseProgressItem[])
+        .map((course) => ({
+          courseId: cleanId(course.courseId),
+          courseTitle: cleanText(course.courseTitle, MAX_TITLE_CHARS) || 'Курс',
+          subjectName:
+            cleanText(course.subjectName, MAX_TITLE_CHARS) ||
+            t('page.analytics.not_available'),
+          students: toCount(course.students),
+          lessons: toCount(course.lessons),
           avgProgress: clampPercent(course.avgProgress),
           completionPct: clampPercent(course.completionPct),
-        })
-      ),
-    [teacher.data]
+        }))
+        .filter((course) => course.courseId || course.courseTitle),
+    [teacher.data],
   );
 
   const adminStats = useMemo(
     () => ({
-      totalStudents: toNumber(admin.data?.stats?.totalStudents),
-      totalCourses: toNumber(admin.data?.stats?.totalCourses),
-      totalLessons: toNumber(admin.data?.stats?.totalLessons),
-      totalTests: toNumber(admin.data?.stats?.totalTests),
-      published: toNumber(admin.data?.contentStatus?.published),
+      totalStudents: toCount(admin.data?.stats?.totalStudents),
+      totalCourses: toCount(admin.data?.stats?.totalCourses),
+      totalLessons: toCount(admin.data?.stats?.totalLessons),
+      totalTests: toCount(admin.data?.stats?.totalTests),
+      published: toCount(admin.data?.contentStatus?.published),
     }),
-    [admin.data]
+    [admin.data],
   );
 
   const adminSubjectStats = useMemo(
     () =>
-      (admin.data?.subjectStats || []).map((subject) => ({
-        name: subject.name || t('page.analytics.not_available'),
-        courses: toNumber(subject.courses),
-        lessons: toNumber(subject.lessons),
-        avgScore: clampPercent(subject.avgScore),
-      })),
-    [admin.data]
+      (admin.data?.subjectStats || [])
+        .map((subject) => ({
+          name: cleanText(subject.name, MAX_TITLE_CHARS) ||
+            t('page.analytics.not_available'),
+          courses: toCount(subject.courses),
+          lessons: toCount(subject.lessons),
+          avgScore: clampPercent(subject.avgScore),
+        }))
+        .filter((subject) => subject.name),
+    [admin.data],
   );
 
   if (mode === 'teacher') {
@@ -815,7 +1002,6 @@ export default function AnalyticsPage() {
             }
             icon={<BarChart3 size={20} />}
             title={t('page.analytics.title.teacher')}
-            description={t('page.analytics.description.teacher')}
             actions={
               <Button type="button" asChild>
                 <Link to="/my-courses">
@@ -863,7 +1049,6 @@ export default function AnalyticsPage() {
                 <div className="space-y-4 lg:col-span-2">
                   <AnalyticsPanel
                     title={t('page.analytics.teacher.course_progress_title')}
-                    description="Курстар бойынша оқушылардың орташа прогресі."
                     icon={<TrendingUp size={15} />}
                   >
                     <TeacherCourseProgressList
@@ -876,7 +1061,6 @@ export default function AnalyticsPage() {
                 <div className="space-y-4">
                   <AnalyticsPanel
                     title={t('page.analytics.teacher.completion_title')}
-                    description="Курстар бойынша аяқталу пайызы."
                     icon={<CheckCircle2 size={15} />}
                   >
                     <TeacherCourseProgressList
@@ -901,12 +1085,11 @@ export default function AnalyticsPage() {
             eyebrow={
               <>
                 <LineChart size={13} />
-                Admin analytics
+                Әкімші аналитикасы
               </>
             }
             icon={<BarChart3 size={20} />}
             title={t('page.analytics.title.admin')}
-            description={t('page.analytics.description.admin')}
             actions={
               <Button type="button" asChild>
                 <Link to="/manage-users">
@@ -954,7 +1137,6 @@ export default function AnalyticsPage() {
                 <div className="space-y-4 lg:col-span-2">
                   <AnalyticsPanel
                     title={t('page.analytics.subject_performance_title')}
-                    description="Пәндер бойынша курс, сабақ және орташа нәтиже."
                     icon={<GraduationCap size={15} />}
                   >
                     <AdminSubjectStatsList subjects={adminSubjectStats} />
@@ -964,7 +1146,6 @@ export default function AnalyticsPage() {
                 <div className="space-y-4">
                   <AnalyticsPanel
                     title={t('page.analytics.weak_topics_title')}
-                    description="Орташа көрсеткіші төмен пәндер."
                     icon={<AlertTriangle size={15} />}
                   >
                     {adminSubjectStats.length === 0 ? (
@@ -1002,11 +1183,6 @@ export default function AnalyticsPage() {
   const pageTitle =
     mode === 'parent' ? t('page.analytics.title.parent') : t('nav.analytics');
 
-  const pageDescription =
-    mode === 'parent'
-      ? t('page.analytics.description.parent')
-      : t('page.analytics.description.student');
-
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -1019,7 +1195,6 @@ export default function AnalyticsPage() {
           }
           icon={<BarChart3 size={20} />}
           title={pageTitle}
-          description={pageDescription}
           actions={
             mode === 'parent' ? (
               <Button type="button" asChild>
@@ -1077,7 +1252,6 @@ export default function AnalyticsPage() {
               <div className="space-y-4 lg:col-span-2">
                 <AnalyticsPanel
                   title={t('page.analytics.subject_performance_title')}
-                  description="Пәндер бойынша тест нәтижелері мен жалпы динамика."
                   icon={<TrendingUp size={15} />}
                 >
                   <SubjectPerformanceList items={data.subjectPerformance} />
@@ -1085,7 +1259,6 @@ export default function AnalyticsPage() {
 
                 <AnalyticsPanel
                   title={t('dashboard.recent_activity')}
-                  description="Соңғы тесттер, әрекеттер және нәтижелер."
                   icon={<ClipboardList size={15} />}
                 >
                   <RecentActivityList items={data.recentActivity} />
@@ -1095,17 +1268,12 @@ export default function AnalyticsPage() {
               <div className="space-y-4">
                 <AnalyticsPanel
                   title={t('page.analytics.weak_topics_title')}
-                  description="Қосымша қайталауды қажет ететін бағыттар."
                   icon={<AlertTriangle size={15} />}
                 >
                   <WeakTopicsList items={data.weakTopics} />
                 </AnalyticsPanel>
 
-                <AnalyticsPanel
-                  title="Қысқа қорытынды"
-                  description="Оқу көрсеткіштері бойынша автоматты UI summary."
-                  icon={<Target size={15} />}
-                >
+                <AnalyticsPanel title="Қысқа қорытынды" icon={<Target size={15} />}>
                   <div className="space-y-3 text-sm">
                     <SummaryRow
                       label="Орташа нәтиже"
@@ -1122,7 +1290,7 @@ export default function AnalyticsPage() {
                     />
 
                     <SummaryRow
-                      label="Оқу streak"
+                      label="Оқу сериясы"
                       value={`${data.stats.streak} ${t('common.days')}`}
                     />
                   </div>

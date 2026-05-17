@@ -61,24 +61,46 @@ function cleanId(value: unknown): string {
   return cleanText(value, MAX_ID_CHARS);
 }
 
-function formatPercent(value: unknown): string {
+function formatCount(value: unknown): number {
   const numberValue = Number(value);
 
-  if (!Number.isFinite(numberValue)) {
-    return '0%';
-  }
+  if (!Number.isFinite(numberValue)) return 0;
 
-  return `${Math.max(0, Math.min(100, Math.round(numberValue)))}%`;
+  return Math.max(0, Math.round(numberValue));
+}
+
+function clampPercentNumber(value: unknown): number {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return 0;
+
+  return Math.max(0, Math.min(100, Math.round(numberValue)));
+}
+
+function formatPercent(value: unknown): string {
+  return `${clampPercentNumber(value)}%`;
 }
 
 function formatScore(value: number | null | undefined): string {
   if (value === null || value === undefined) return '—';
 
-  const numberValue = Number(value);
+  return `${clampPercentNumber(value)}%`;
+}
 
-  if (!Number.isFinite(numberValue)) return '—';
+function buildEntityPath(basePath: '/lessons' | '/courses', value: unknown): string | null {
+  const id = cleanId(value);
 
-  return `${Math.round(numberValue)}%`;
+  if (!id) return null;
+
+  return `${basePath}/${encodeURIComponent(id)}`;
+}
+
+function buildLessonPath(value: unknown): string | null {
+  return buildEntityPath('/lessons', value);
+}
+
+function buildCoursePath(value: unknown): string | null {
+  return buildEntityPath('/courses', value);
 }
 
 function getStudyStatus(avgScore: number, completedLessons: number) {
@@ -94,7 +116,7 @@ function getStudyStatus(avgScore: number, completedLessons: number) {
 }
 
 function getScoreTone(score: number | null | undefined) {
-  const normalized = Number(score || 0);
+  const normalized = clampPercentNumber(score);
 
   if (normalized >= 80) return 'success' as const;
   if (normalized >= 50) return 'warning' as const;
@@ -318,19 +340,18 @@ function getRiskLevelTone(riskLevel: LearningRiskLevel) {
 }
 
 function resolveOverallRisk(snapshot: StudentLearningSnapshot): LearningRiskLevel {
-  if (snapshot.courses.some((course) => course.riskLevel === 'high')) return 'high';
-  if (snapshot.courses.some((course) => course.riskLevel === 'medium')) return 'medium';
+  const courses = snapshot.courses || [];
+
+  if (courses.some((course) => course.riskLevel === 'high')) return 'high';
+  if (courses.some((course) => course.riskLevel === 'medium')) return 'medium';
+
   return 'low';
 }
 
 function formatNullablePercent(value: number | null | undefined) {
   if (value === null || value === undefined) return '—';
 
-  const numberValue = Number(value);
-
-  if (!Number.isFinite(numberValue)) return '—';
-
-  return `${Math.round(numberValue)}%`;
+  return `${clampPercentNumber(value)}%`;
 }
 
 function MiniMetric({
@@ -415,8 +436,17 @@ function LearningAnalyticsPanel({
   }
 
   const overallRisk = resolveOverallRisk(snapshot);
-  const primaryRecommendation = snapshot.recommendations[0] || null;
-  const weakLessons = snapshot.weakLessons.slice(0, 3);
+  const primaryRecommendation = (snapshot.recommendations || [])[0] || null;
+  const weakLessons = (snapshot.weakLessons || [])
+    .map((lesson) => ({
+      ...lesson,
+      lessonId: cleanId(lesson.lessonId),
+      lessonTitle: cleanText(lesson.lessonTitle),
+      courseTitle: cleanText(lesson.courseTitle),
+      failedAttempts: formatCount(lesson.failedAttempts),
+    }))
+    .filter((lesson) => lesson.lessonId)
+    .slice(0, 3);
 
   return (
     <PanelCard
@@ -447,28 +477,28 @@ function LearningAnalyticsPanel({
       <div className="grid grid-cols-2 gap-2">
         <MiniMetric
           label="Жалпы нәтиже"
-          value={formatPercent(snapshot.totals.progressPct)}
+          value={formatPercent(snapshot.totals?.progressPct)}
           icon={<Target size={14} />}
           tone="success"
         />
 
         <MiniMetric
           label="Шағын тест"
-          value={formatNullablePercent(snapshot.totals.miniQuizAvgScore)}
+          value={formatNullablePercent(snapshot.totals?.miniQuizAvgScore)}
           icon={<Brain size={14} />}
           tone="ai"
         />
 
         <MiniMetric
           label="Қайталау"
-          value={snapshot.totals.reviewLaterItems}
+          value={formatCount(snapshot.totals?.reviewLaterItems)}
           icon={<RotateCcw size={14} />}
           tone="warning"
         />
 
         <MiniMetric
           label="Сақталған"
-          value={snapshot.totals.savedLessons}
+          value={formatCount(snapshot.totals?.savedLessons)}
           icon={<Star size={14} />}
           tone="primary"
         />
@@ -490,16 +520,16 @@ function LearningAnalyticsPanel({
             {cleanText(primaryRecommendation.description, 500)}
           </p>
 
-          {primaryRecommendation.lessonId ? (
+          {buildLessonPath(primaryRecommendation.lessonId) ? (
             <Button type="button" variant="outline" size="sm" className="mt-3" asChild>
-              <Link to={`/lessons/${cleanId(primaryRecommendation.lessonId)}`}>
+              <Link to={buildLessonPath(primaryRecommendation.lessonId) || '/lessons'}>
                 Сабақты ашу
                 <ArrowRight size={13} className="ml-1.5" />
               </Link>
             </Button>
-          ) : primaryRecommendation.courseId ? (
+          ) : buildCoursePath(primaryRecommendation.courseId) ? (
             <Button type="button" variant="outline" size="sm" className="mt-3" asChild>
-              <Link to={`/courses/${cleanId(primaryRecommendation.courseId)}`}>
+              <Link to={buildCoursePath(primaryRecommendation.courseId) || '/courses'}>
                 Курсты ашу
                 <ArrowRight size={13} className="ml-1.5" />
               </Link>
@@ -517,23 +547,23 @@ function LearningAnalyticsPanel({
 
           {weakLessons.map((lesson) => (
             <Link
-              key={cleanId(lesson.lessonId)}
-              to={`/lessons/${cleanId(lesson.lessonId)}`}
+              key={lesson.lessonId}
+              to={buildLessonPath(lesson.lessonId) || '/lessons'}
               className="block rounded-3xl border border-border bg-card p-3 text-xs shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-warning-muted hover:bg-warning-soft/50 hover:shadow-soft-md"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="line-clamp-1 font-semibold text-foreground">
-                    {cleanText(lesson.lessonTitle)}
+                    {lesson.lessonTitle || "Сабақ"}
                   </p>
                   <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
-                    {cleanText(lesson.courseTitle)}
+                    {lesson.courseTitle || "Курс"}
                   </p>
                 </div>
 
                 <StatusBadge tone={lesson.failedAttempts > 0 ? 'warning' : 'primary'}>
                   {lesson.failedAttempts > 0
-                    ? `${lesson.failedAttempts} қате`
+                    ? `${formatCount(lesson.failedAttempts)} қате`
                     : 'Қайталау'}
                 </StatusBadge>
               </div>
@@ -570,7 +600,7 @@ function NextLessonCard({
     );
   }
 
-  const nextLessonId = cleanId(nextLesson.id);
+  const nextLessonPath = buildLessonPath(nextLesson.id);
 
   return (
     <>
@@ -619,7 +649,7 @@ function NextLessonCard({
             </Button>
           ) : (
             <Button type="button" asChild>
-              <Link to={`/lessons/${nextLessonId}`}>
+              <Link to={nextLessonPath || '/lessons'}>
                 {t('course.continue')}
                 <ArrowRight size={14} className="ml-2" />
               </Link>
@@ -634,12 +664,13 @@ function NextLessonCard({
             {t('page.student_dashboard.next_lessons')}
           </p>
 
-          {upcomingLessons.map((lesson) => {
+          {upcomingLessons.map((lesson, index) => {
             const lessonId = cleanId(lesson.id);
+            const lessonPath = buildLessonPath(lessonId);
 
-            return lesson.isLocked ? (
+            return lesson.isLocked || !lessonPath ? (
               <div
-                key={lessonId}
+                key={lessonId || `${cleanText(lesson.title)}-${index}`}
                 className="flex items-center gap-3 rounded-3xl border border-border bg-muted/45 p-3 opacity-80"
               >
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-border bg-card">
@@ -660,8 +691,8 @@ function NextLessonCard({
               </div>
             ) : (
               <Link
-                key={lessonId}
-                to={`/lessons/${lessonId}`}
+                key={lessonId || `${cleanText(lesson.title)}-${index}`}
+                to={lessonPath}
                 className="flex items-center gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/55 hover:shadow-soft-md"
               >
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
@@ -688,28 +719,38 @@ function NextLessonCard({
 
 export default function StudentDashboard() {
   const { user } = useAuth();
+  const safeUserId = cleanId(user?.id);
 
-  const { data, isLoading, error } = useStudentDashboard(user?.id || '', !!user?.id);
+  const { data, isLoading, error } = useStudentDashboard(safeUserId, Boolean(safeUserId));
 
   const {
     data: learningSnapshot,
     isLoading: learningSnapshotLoading,
     error: learningSnapshotError,
-  } = useStudentLearningSnapshot(user?.id || '', !!user?.id);
+  } = useStudentLearningSnapshot(safeUserId, Boolean(safeUserId));
 
   const {
     data: incomingParentRequestsData,
     isLoading: isIncomingParentRequestsLoading,
     error: incomingParentRequestsError,
-  } = useIncomingParentLinkRequests(user?.id || '', !!user?.id);
+  } = useIncomingParentLinkRequests(safeUserId, Boolean(safeUserId));
 
-  const acceptParentLinkRequestMutation = useAcceptParentLinkRequestMutation(user?.id || '');
-  const declineParentLinkRequestMutation = useDeclineParentLinkRequestMutation(user?.id || '');
+  const acceptParentLinkRequestMutation = useAcceptParentLinkRequestMutation(safeUserId);
+  const declineParentLinkRequestMutation = useDeclineParentLinkRequestMutation(safeUserId);
 
   const pendingParentRequests = useMemo(
     () =>
       ((incomingParentRequestsData as IncomingParentLinkRequestItem[] | undefined) || [])
-        .filter((request) => request.status === 'pending')
+        .map((request) => ({
+          id: cleanId(request.id),
+          parentId: cleanId(request.parentId),
+          parentName: cleanText(request.parentName, MAX_NAME_CHARS) || null,
+          status: request.status,
+          requestedAt: cleanText(request.requestedAt, 80) || null,
+          respondedAt: cleanText(request.respondedAt, 80) || null,
+          expiresAt: cleanText(request.expiresAt, 80) || null,
+        }))
+        .filter((request) => request.id && request.status === 'pending')
         .sort(
           (a, b) =>
             new Date(b.requestedAt || 0).getTime() -
@@ -723,16 +764,39 @@ export default function StudentDashboard() {
     cleanText(user?.email?.split('@')[0], MAX_NAME_CHARS) ||
     'оқушы';
 
+  const safeStats = useMemo(
+    () => ({
+      enrolledCourses: formatCount(data?.stats?.enrolledCourses),
+      avgScore: clampPercentNumber(data?.stats?.avgScore),
+      streakDays: formatCount(data?.stats?.streakDays),
+      points: formatCount(data?.stats?.points),
+      rank: formatCount(data?.stats?.rank),
+      totalTests: formatCount(data?.stats?.totalTests),
+      completedLessons: formatCount(data?.stats?.completedLessons),
+      bestSubject: cleanText(data?.stats?.bestSubject, MAX_META_CHARS),
+      weakSubject: cleanText(data?.stats?.weakSubject, MAX_META_CHARS),
+    }),
+    [data],
+  );
+
+  const enrolledCourses = data?.enrolledCourses || [];
+  const recentAttempts = data?.recentAttempts || [];
+  const nextLessons = data?.nextLessons || [];
+
   const nextLesson =
-    data?.nextLessons?.find((lesson) => !lesson.isLocked) ||
-    data?.nextLessons?.[0] ||
+    nextLessons.find((lesson) => !lesson.isLocked) ||
+    nextLessons[0] ||
     null;
 
+  const nextLessonPath = nextLesson && !nextLesson.isLocked ? buildLessonPath(nextLesson.id) : null;
+
   const upcomingLessons =
-    data?.nextLessons?.filter((lesson) => lesson.id !== nextLesson?.id).slice(0, 3) || [];
+    nextLessons
+      .filter((lesson) => cleanId(lesson.id) !== cleanId(nextLesson?.id))
+      .slice(0, 3);
 
   const studyStatus = data
-    ? getStudyStatus(Number(data.stats.avgScore || 0), Number(data.stats.completedLessons || 0))
+    ? getStudyStatus(safeStats.avgScore, safeStats.completedLessons)
     : '';
 
   const parentRequestPending =
@@ -754,11 +818,7 @@ export default function StudentDashboard() {
           actions={
             <Button type="button" asChild>
               <Link
-                to={
-                  nextLesson && !nextLesson.isLocked
-                    ? `/lessons/${cleanId(nextLesson.id)}`
-                    : '/courses'
-                }
+                to={nextLessonPath || '/courses'}
               >
                 Оқуды жалғастыру
                 <ArrowRight size={15} className="ml-2" />
@@ -806,28 +866,28 @@ export default function StudentDashboard() {
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <StatCard
                 label={t('page.student_dashboard.my_courses')}
-                value={data.stats.enrolledCourses}
+                value={safeStats.enrolledCourses}
                 icon={<BookOpen size={16} />}
                 tone="primary"
               />
               <StatCard
                 label={t('dashboard.avg_score')}
-                value={formatPercent(data.stats.avgScore)}
+                value={formatPercent(safeStats.avgScore)}
                 icon={<Target size={16} />}
                 tone="success"
               />
               <StatCard
                 label={t('dashboard.streak')}
-                value={`${Number(data.stats.streakDays || 0)} ${t('common.days')}`}
+                value={`${safeStats.streakDays} ${t('common.days')}`}
                 icon={<Flame size={16} />}
                 tone="warning"
               />
               <StatCard
                 label={t('dashboard.points')}
-                value={data.stats.points}
+                value={safeStats.points}
                 icon={<Star size={16} />}
                 subtitle={`${t('dashboard.rank')} ${
-                  data.stats.rank ? `#${data.stats.rank}` : '—'
+                  safeStats.rank ? `#${safeStats.rank}` : '—'
                 }`}
                 tone="accent"
               />
@@ -877,7 +937,7 @@ export default function StudentDashboard() {
                     </Button>
                   }
                 >
-                  {data.enrolledCourses.length === 0 ? (
+                  {enrolledCourses.length === 0 ? (
                     <EmptyState
                       title={t('page.student_dashboard.empty.courses_title')}
                       text={t('page.student_dashboard.empty.courses_text')}
@@ -893,13 +953,14 @@ export default function StudentDashboard() {
                     />
                   ) : (
                     <div className="space-y-3">
-                      {data.enrolledCourses.map((course) => {
+                      {enrolledCourses.map((course, index) => {
                         const courseId = cleanId(course.id);
+                        const coursePath = buildCoursePath(courseId);
 
                         return (
                           <Link
-                            key={courseId}
-                            to={`/courses/${courseId}`}
+                            key={courseId || `${cleanText(course.title)}-${index}`}
+                            to={coursePath || '/courses'}
                             className="block rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/55 hover:shadow-soft-md"
                           >
                             <div className="mb-3 flex items-start justify-between gap-3">
@@ -910,7 +971,7 @@ export default function StudentDashboard() {
                                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                                   {[
                                     cleanText(course.subjectName, MAX_META_CHARS),
-                                    `${Number(course.lessons || 0)} ${t(
+                                    `${formatCount(course.lessons)} ${t(
                                       'course.lessons_count',
                                     )}`,
                                     cleanText(course.teacherName, MAX_META_CHARS),
@@ -925,7 +986,7 @@ export default function StudentDashboard() {
                               </StatusBadge>
                             </div>
 
-                            <ProgressBar value={Number(course.progress || 0)} size="sm" />
+                            <ProgressBar value={clampPercentNumber(course.progress)} size="sm" />
                           </Link>
                         );
                       })}
@@ -1036,7 +1097,7 @@ export default function StudentDashboard() {
                     </Button>
                   }
                 >
-                  {data.recentAttempts.length === 0 ? (
+                  {recentAttempts.length === 0 ? (
                     <EmptyState
                       title={t('page.student_dashboard.empty.tests_title')}
                       text={t('page.student_dashboard.empty.tests_text')}
@@ -1052,9 +1113,9 @@ export default function StudentDashboard() {
                     />
                   ) : (
                     <div className="space-y-2">
-                      {data.recentAttempts.slice(0, 4).map((test) => (
+                      {recentAttempts.slice(0, 4).map((test, index) => (
                         <Link
-                          key={cleanId(test.id)}
+                          key={cleanId(test.id) || `${cleanText(test.title)}-${index}`}
                           to="/tests"
                           className="flex items-center justify-between gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/50 hover:shadow-soft-md"
                         >
@@ -1093,7 +1154,7 @@ export default function StudentDashboard() {
                       </span>
                       <span className="flex items-center gap-1 text-xs font-semibold text-foreground">
                         <CheckCircle size={12} className="text-success-foreground" />
-                        {cleanText(data.stats.bestSubject, MAX_META_CHARS) ||
+                        {safeStats.bestSubject ||
                           t('common.not_defined_yet')}
                       </span>
                     </div>
@@ -1103,7 +1164,7 @@ export default function StudentDashboard() {
                         {t('page.student_dashboard.attention_subject')}
                       </span>
                       <span className="text-xs font-semibold text-foreground">
-                        {cleanText(data.stats.weakSubject, MAX_META_CHARS) ||
+                        {safeStats.weakSubject ||
                           t('common.not_defined_yet')}
                       </span>
                     </div>
@@ -1113,7 +1174,7 @@ export default function StudentDashboard() {
                         {t('dashboard.total_tests')}
                       </span>
                       <span className="text-xs font-semibold text-foreground">
-                        {data.stats.totalTests}
+                        {safeStats.totalTests}
                       </span>
                     </div>
 
@@ -1122,7 +1183,7 @@ export default function StudentDashboard() {
                         {t('page.student_dashboard.completed_lessons')}
                       </span>
                       <span className="text-xs font-semibold text-foreground">
-                        {data.stats.completedLessons} {t('course.lessons_count')}
+                        {safeStats.completedLessons} {t('course.lessons_count')}
                       </span>
                     </div>
                   </div>
@@ -1148,7 +1209,7 @@ export default function StudentDashboard() {
 
                     <div>
                       <p className="text-sm font-semibold text-foreground">
-                        {data.stats.rank ? `#${data.stats.rank}` : '—'}
+                        {safeStats.rank ? `#${safeStats.rank}` : '—'}
                       </p>
                       <p className="text-[11px] text-muted-foreground">
                         {t('page.student_dashboard.rank_label')}
