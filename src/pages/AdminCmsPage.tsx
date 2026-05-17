@@ -30,6 +30,7 @@ type CmsItem = {
 
 const MAX_TITLE_CHARS = 120;
 const MAX_DESCRIPTION_CHARS = 260;
+
 const ALLOWED_CMS_PATHS = new Set([
   '/subjects',
   '/manage-courses',
@@ -85,7 +86,7 @@ function getToneClassName(tone: CmsItemTone) {
 }
 
 function getCmsItems(): CmsItem[] {
-  return [
+  const items: CmsItem[] = [
     {
       title: t('nav.subjects'),
       description: t('page.admin_cms.item.subjects'),
@@ -128,12 +129,17 @@ function getCmsItems(): CmsItem[] {
       icon: Users,
       tone: 'muted',
     },
-  ].map((item) => ({
-    ...item,
-    title: normalizeUiText(item.title, MAX_TITLE_CHARS) || 'Бөлім',
-    description: normalizeUiText(item.description, MAX_DESCRIPTION_CHARS),
-    path: cleanInternalPath(item.path),
-  }));
+  ];
+
+  return items.map(
+    (item): CmsItem => ({
+      title: normalizeUiText(item.title, MAX_TITLE_CHARS) || 'Бөлім',
+      description: normalizeUiText(item.description, MAX_DESCRIPTION_CHARS),
+      path: cleanInternalPath(item.path),
+      icon: item.icon,
+      tone: item.tone,
+    }),
+  );
 }
 
 function CmsNavigationCard({ item }: { item: CmsItem }) {
