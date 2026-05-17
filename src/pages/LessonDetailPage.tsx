@@ -107,9 +107,6 @@ function getErrorMessage(error: unknown, fallback = 'Белгісіз қате �
   return fallback;
 }
 
-function buildLessonPath(lessonId: unknown): string {
-  return `/lessons/${encodeURIComponent(cleanId(lessonId))}`;
-}
 
 function buildCoursePath(courseId: unknown): string {
   return `/courses/${encodeURIComponent(cleanId(courseId))}`;

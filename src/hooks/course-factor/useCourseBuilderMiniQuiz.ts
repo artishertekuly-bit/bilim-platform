@@ -280,6 +280,9 @@ export function useCourseBuilderMiniQuiz({
       ...previous,
       sortOrder: getNextMiniQuizQuestionSortOrder(getQuestions(selectedMiniQuiz)),
     }));
+    // selectedEditingLesson/selectedMiniQuiz object references can change between renders.
+    // The form should only be reseeded when the selected lesson or quiz content changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     selectedEditingLesson?.id,
     selectedMiniQuiz?.id,

@@ -35,11 +35,14 @@ const MAX_SEARCH_CHARS = 160;
 const MAX_EXAMS_TO_RENDER = 100;
 const AI_EXAMS_TIMEOUT_MS = 90_000;
 
+const NULL_CHAR = String.fromCharCode(0);
+
+function removeNullChars(value: unknown): string {
+  return String(value ?? '').split(NULL_CHAR).join(' ');
+}
+
 function cleanText(value: unknown, limit?: number) {
-  const text = String(value ?? '')
-    .replace(/\x00/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const text = removeNullChars(value).replace(/\s+/g, ' ').trim();
 
   return typeof limit === 'number' ? text.slice(0, limit).trim() : text;
 }
@@ -347,14 +350,14 @@ export default function AiStudentExamsPage() {
   const hasFilteredExams = filteredExams.length > 0;
 
   const handleManualInputChange = (value: string) => {
-    setManualExamInput(
-      value.replace(/\x00/g, ' ').slice(0, MAX_MANUAL_EXAM_INPUT_CHARS),
-    );
+  setManualExamInput(
+    removeNullChars(value).slice(0, MAX_MANUAL_EXAM_INPUT_CHARS),
+  );
 
-    if (errorText) {
-      setErrorText('');
-    }
-  };
+  if (errorText) {
+    setErrorText('');
+  }
+};
 
   const handleSearchChange = (value: string) => {
     setSearch(value.slice(0, MAX_SEARCH_CHARS));

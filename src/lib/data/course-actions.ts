@@ -61,7 +61,6 @@ type CourseInvitePatch = TablesUpdate<'course_invites'>;
 
 type LessonMiniQuizRow = Tables<'lesson_mini_quizzes'>;
 type LessonMiniQuizInsert = TablesInsert<'lesson_mini_quizzes'>;
-type LessonMiniQuizPatch = TablesUpdate<'lesson_mini_quizzes'>;
 
 type LessonMiniQuizQuestionRow = Tables<'lesson_mini_quiz_questions'>;
 type LessonMiniQuizQuestionInsert = TablesInsert<'lesson_mini_quiz_questions'>;

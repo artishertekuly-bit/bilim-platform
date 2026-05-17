@@ -34,7 +34,7 @@ import {
 } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import t, { getLocale } from '@/lib/i18n';
-import { cn, limitText, removeNullCharacters } from '@/lib/utils';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
 type AnalyticsMode = 'student' | 'parent' | 'teacher' | 'admin';
 type ScoreTone = 'success' | 'warning' | 'danger';

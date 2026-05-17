@@ -48,6 +48,12 @@ const MAX_MESSAGE_CHARS = 4_000;
 const MAX_VISIBLE_MESSAGES = 80;
 const REQUEST_TIMEOUT_MS = 120_000;
 
+const NULL_CHAR = String.fromCharCode(0);
+
+function removeNullChars(value: unknown): string {
+  return String(value ?? '').split(NULL_CHAR).join(' ');
+}
+
 type TutorContextPayload = {
   subject?: string;
   topic?: string;
@@ -55,11 +61,7 @@ type TutorContextPayload = {
 };
 
 function cleanText(value: unknown, limit: number) {
-  return String(value ?? '')
-    .replace(/\x00/g, ' ')
-    .trim()
-    .slice(0, limit)
-    .trim();
+  return removeNullChars(value).trim().slice(0, limit).trim();
 }
 
 function createLocalMessage(

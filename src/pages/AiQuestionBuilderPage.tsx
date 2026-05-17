@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -161,14 +160,6 @@ function normalizeQuestionCount(value: unknown): number {
   return questionCountOptions.includes(normalized as (typeof questionCountOptions)[number])
     ? normalized
     : 10;
-}
-
-function normalizeScore(value: unknown): number | null {
-  const numericValue = Number(value);
-
-  if (!Number.isFinite(numericValue)) return null;
-
-  return Math.max(0, Math.round(numericValue * 10) / 10);
 }
 
 function isAbortLikeError(error: unknown): boolean {

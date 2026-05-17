@@ -376,15 +376,6 @@ function cleanOptionalMultilineText(
   return normalized || undefined;
 }
 
-function cleanNullableText(
-  value: unknown,
-  limit = MAX_TEXT_FIELD_CHARS,
-): string | null | undefined {
-  if (value === null) return null;
-
-  return cleanOptionalText(value, limit);
-}
-
 function requireText(
   value: unknown,
   message: string,

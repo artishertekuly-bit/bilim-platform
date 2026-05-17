@@ -23,7 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTeacherDashboard } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import t, { getLocale } from '@/lib/i18n';
-import { cn, limitText, removeNullCharacters } from '@/lib/utils';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
 const MAX_ID_CHARS = 180;
 const MAX_NAME_CHARS = 160;

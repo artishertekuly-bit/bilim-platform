@@ -41,6 +41,49 @@ type CourseRowWithAccess = Tables<'courses'> & {
   max_students?: number | null;
 };
 
+type DynamicSupabaseError = {
+  message: string;
+};
+
+type DynamicSupabaseResult<TData = unknown> = {
+  data: TData | null;
+  error: DynamicSupabaseError | null;
+  count?: number | null;
+};
+
+type DynamicSupabaseQuery<TData = unknown> =
+  PromiseLike<DynamicSupabaseResult<TData>> & {
+    select: (columns?: string) => DynamicSupabaseQuery<TData>;
+    eq: (column: string, value: unknown) => DynamicSupabaseQuery<TData>;
+    is: (column: string, value: unknown) => DynamicSupabaseQuery<TData>;
+    gt: (column: string, value: unknown) => DynamicSupabaseQuery<TData>;
+    order: (
+      column: string,
+      options?: {
+        ascending?: boolean;
+      },
+    ) => DynamicSupabaseQuery<TData>;
+    insert: (values: unknown) => DynamicSupabaseQuery<TData>;
+    update: (values: unknown) => DynamicSupabaseQuery<TData>;
+    upsert: (
+      values: unknown,
+      options?: {
+        onConflict?: string;
+        ignoreDuplicates?: boolean;
+      },
+    ) => DynamicSupabaseQuery<TData>;
+    single: () => PromiseLike<DynamicSupabaseResult<TData>>;
+    maybeSingle: () => PromiseLike<DynamicSupabaseResult<TData>>;
+  };
+
+type DynamicSupabaseClient = {
+  from: (table: string) => DynamicSupabaseQuery;
+  rpc: (
+    functionName: string,
+    args?: Record<string, unknown>,
+  ) => DynamicSupabaseQuery;
+};
+
 function localizedText(locale: Locale, kk: string, ru: string) {
   return locale === 'ru' ? ru : kk;
 }
@@ -169,7 +212,7 @@ function isEntitlementCurrentlyActive(row: Pick<EntitlementRow, 'status' | 'vali
 async function getActiveCourseEntitlementsSafe(userId?: string) {
   if (!userId) return [] as EntitlementRow[];
 
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
 
   const { data, error } = await db
     .from('entitlements')
@@ -192,7 +235,7 @@ async function getActiveCourseEntitlementsSafe(userId?: string) {
 async function getPendingCourseOrdersSafe(userId?: string) {
   if (!userId) return [] as OrderRow[];
 
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
 
   const { data, error } = await db
     .from('orders')
@@ -379,7 +422,7 @@ function shouldShowCourseInStudentCatalog(input: {
 } 
 
 async function canAccessCourseByRpc(courseId: string, userId?: string) {
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
 
   const args = userId
     ? {
@@ -1763,7 +1806,7 @@ async function getCurrentSessionUserOrThrow(locale: Locale) {
 }
 
 async function getParentLinkRequestRowsSafe(parentId: string) {
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
   const { data, error } = await db
     .from(PARENT_LINK_REQUESTS_TABLE)
     .select('*')
@@ -1818,7 +1861,7 @@ export async function getParentDashboard(parentId: string, locale: Locale = 'kk'
 
 export async function getParentLinkRequests(
   parentId: string,
-  locale: Locale = 'kk'
+  _locale: Locale = 'kk'
 ): Promise<ParentLinkRequestView[]> {
   const rows = await getParentLinkRequestRowsSafe(parentId);
   const studentIds = [...new Set(
@@ -1884,7 +1927,7 @@ export async function requestParentLink(childEmail: string, locale: Locale = 'kk
     );
   }
 
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
 
   const { data: rpcData, error: rpcError } = await db.rpc('request_parent_link', {
     p_child_email: normalizedEmail,
@@ -1959,7 +2002,7 @@ export async function cancelParentLinkRequest(requestId: string, locale: Locale 
   }
 
   const user = await getCurrentSessionUserOrThrow(locale);
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
 
   const { data: rpcData, error: rpcError } = await db.rpc('cancel_parent_link_request', {
     p_request_id: requestId,
@@ -2028,7 +2071,7 @@ export async function getIncomingParentLinkRequests(
 ): Promise<IncomingParentLinkRequestView[]> {
   const user = await getCurrentSessionUserOrThrow(locale);
   const studentEmail = normalizeEmail(user.email || '');
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
 
   const [byStudentId, byEmailFallback] = await Promise.all([
     db
@@ -2107,7 +2150,7 @@ export async function acceptParentLinkRequest(requestId: string, locale: Locale 
 
   const user = await getCurrentSessionUserOrThrow(locale);
   const studentEmail = normalizeEmail(user.email || '');
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
 
   const { data: rpcData, error: rpcError } = await db.rpc('accept_parent_link_request', {
     p_request_id: requestId,
@@ -2206,7 +2249,7 @@ export async function declineParentLinkRequest(requestId: string, locale: Locale
 
   const user = await getCurrentSessionUserOrThrow(locale);
   const studentEmail = normalizeEmail(user.email || '');
-  const db = supabase as any;
+  const db = supabase as unknown as DynamicSupabaseClient;
 
   const { data: rpcData, error: rpcError } = await db.rpc('decline_parent_link_request', {
     p_request_id: requestId,

@@ -140,6 +140,14 @@ type IncomingParentLinkRequestItem = {
   expiresAt: string | null;
 };
 
+type DashboardLessonPreview = {
+  id?: string | null;
+  title?: string | null;
+  subjectName?: string | null;
+  courseTitle?: string | null;
+  isLocked?: boolean | null;
+};
+
 function formatDateTime(value: string | null | undefined) {
   const rawValue = cleanText(value, 80);
 
@@ -579,8 +587,8 @@ function NextLessonCard({
   nextLesson,
   upcomingLessons,
 }: {
-  nextLesson: any;
-  upcomingLessons: any[];
+  nextLesson: DashboardLessonPreview | null;
+  upcomingLessons: DashboardLessonPreview[];
 }) {
   if (!nextLesson) {
     return (

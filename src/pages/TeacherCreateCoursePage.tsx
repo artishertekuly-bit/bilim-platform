@@ -236,7 +236,6 @@ export default function TeacherCreateCoursePage() {
     createAnnouncementMutation,
     updateAnnouncementMutation,
     deleteAnnouncementMutation,
-    createCourseAssetMutation,
     deleteCourseAssetMutation,
     createLessonAttachmentMutation,
     deleteLessonAttachmentMutation,

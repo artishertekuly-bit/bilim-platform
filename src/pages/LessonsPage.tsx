@@ -185,7 +185,7 @@ export default function LessonsPage() {
     Boolean(user),
   );
 
-  const lessons = data || [];
+  const lessons = useMemo(() => data || [], [data]);
 
   const subjects = useMemo(() => {
     const output = ['all'];

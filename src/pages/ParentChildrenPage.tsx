@@ -1,15 +1,10 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
-  BookOpen,
-  CheckCircle2,
-  ClipboardList,
   Clock,
   GraduationCap,
   Mail,
   RotateCcw,
-  Target,
-  Trophy,
   UserPlus,
   Users,
   XCircle,
@@ -202,10 +197,6 @@ function nullablePercent(value: unknown): number | null {
   if (!Number.isFinite(numberValue)) return null;
 
   return clampPercent(numberValue);
-}
-
-function formatPercent(value: unknown): string {
-  return `${clampPercent(value)}%`;
 }
 
 function formatAttemptScore(score: number | null | undefined): string {

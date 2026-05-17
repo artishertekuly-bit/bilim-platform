@@ -345,7 +345,7 @@ export default function TestsPage() {
     Boolean(user),
   );
 
-  const tests = data || [];
+  const tests = useMemo(() => data || [], [data]);
 
   const subjects = useMemo(() => {
     const output = ['all'];
