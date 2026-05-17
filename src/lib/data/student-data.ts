@@ -1771,6 +1771,17 @@ export type ParentLinkRequestView = {
 
 const PARENT_LINK_REQUESTS_TABLE = 'parent_child_link_requests';
 
+type ParentLinkRequestRow = Record<string, unknown> & {
+  id?: string | null;
+  parent_id?: string | null;
+  student_id?: string | null;
+  child_email?: string | null;
+  status?: string | null;
+  requested_at?: string | null;
+  responded_at?: string | null;
+  expires_at?: string | null;
+};
+
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
@@ -1805,7 +1816,9 @@ async function getCurrentSessionUserOrThrow(locale: Locale) {
   return user;
 }
 
-async function getParentLinkRequestRowsSafe(parentId: string) {
+async function getParentLinkRequestRowsSafe(
+  parentId: string,
+): Promise<ParentLinkRequestRow[]> {
   const db = supabase as unknown as DynamicSupabaseClient;
   const { data, error } = await db
     .from(PARENT_LINK_REQUESTS_TABLE)
@@ -1815,13 +1828,13 @@ async function getParentLinkRequestRowsSafe(parentId: string) {
 
   if (error) {
     if (isSoftSchemaError(error.message || '')) {
-      return [] as Record<string, unknown>[];
+      return [] as ParentLinkRequestRow[];
     }
 
     throw new Error(error.message);
   }
 
-  return Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+  return Array.isArray(data) ? (data as ParentLinkRequestRow[]) : [];
 }
 
 export async function getParentDashboard(parentId: string, locale: Locale = 'kk') {
@@ -2097,13 +2110,15 @@ export async function getIncomingParentLinkRequests(
     throw new Error(byEmailFallback.error.message);
   }
 
-  const mergedRows = [
-    ...((byStudentId.data as Record<string, unknown>[] | null) || []),
-    ...((byEmailFallback.data as Record<string, unknown>[] | null) || []),
+  const mergedRows: ParentLinkRequestRow[] = [
+    ...((byStudentId.data as ParentLinkRequestRow[] | null) || []),
+    ...((byEmailFallback.data as ParentLinkRequestRow[] | null) || []),
   ];
 
   const uniqueRows = Array.from(
-    new Map(mergedRows.map((row) => [String(row.id || ''), row])).values()
+    new Map<string, ParentLinkRequestRow>(
+      mergedRows.map((row) => [String(row.id || ''), row]),
+    ).values(),
   );
 
   const parentIds = [...new Set(
@@ -2164,13 +2179,15 @@ export async function acceptParentLinkRequest(requestId: string, locale: Locale 
     throw new Error(rpcError.message);
   }
 
-  const { data: requestRow, error: requestError } = await db
+  const { data: requestRowRaw, error: requestError } = await db
     .from(PARENT_LINK_REQUESTS_TABLE)
     .select('*')
     .eq('id', requestId)
     .eq('status', 'pending')
     .gt('expires_at', new Date().toISOString())
     .maybeSingle();
+
+  const requestRow = requestRowRaw as ParentLinkRequestRow | null;
 
   if (requestError) {
     throw new Error(requestError.message);
@@ -2263,13 +2280,15 @@ export async function declineParentLinkRequest(requestId: string, locale: Locale
     throw new Error(rpcError.message);
   }
 
-  const { data: requestRow, error: requestError } = await db
+  const { data: requestRowRaw, error: requestError } = await db
     .from(PARENT_LINK_REQUESTS_TABLE)
     .select('*')
     .eq('id', requestId)
     .eq('status', 'pending')
     .gt('expires_at', new Date().toISOString())
     .maybeSingle();
+
+  const requestRow = requestRowRaw as ParentLinkRequestRow | null;
 
   if (requestError) {
     throw new Error(requestError.message);
