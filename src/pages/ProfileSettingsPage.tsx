@@ -152,6 +152,15 @@ function getDefaultFullName(
   );
 }
 
+function getFallbackFullName(
+  user?: {
+    fullName?: string | null;
+    email?: string | null;
+  } | null,
+) {
+  return getDefaultFullName(user) || 'Пайдаланушы';
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) {
     return cleanText(error.message, MAX_ERROR_CHARS);
@@ -444,7 +453,7 @@ export default function ProfileSettingsPage() {
     'Пайдаланушы';
 
   const upsertProfile = async (patch: {
-    full_name?: string | null;
+    full_name?: string;
     bio?: string | null;
     avatar_url?: string | null;
   }) => {
@@ -453,12 +462,13 @@ export default function ProfileSettingsPage() {
     }
 
     const nextFullName =
-      patch.full_name === null
-        ? null
-        : patch.full_name ?? (normalizedFullName || defaultFullName);
+      cleanText(
+        patch.full_name ?? normalizedFullName ?? defaultFullName,
+        MAX_FULL_NAME_CHARS,
+      ) || getFallbackFullName(user);
 
     const nextBio =
-      patch.bio === null ? null : patch.bio ?? (normalizedBio || null);
+      patch.bio === null ? null : cleanMultilineText(patch.bio ?? normalizedBio);
 
     const nextAvatarUrl = Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
       ? normalizeHttpUrl(patch.avatar_url)
@@ -470,7 +480,7 @@ export default function ProfileSettingsPage() {
         {
           user_id: safeUserId,
           full_name: nextFullName,
-          bio: nextBio,
+          bio: nextBio || null,
           avatar_url: nextAvatarUrl,
         },
         {
@@ -612,7 +622,7 @@ export default function ProfileSettingsPage() {
 
     try {
       await upsertProfile({
-        full_name: normalizedFullName || defaultFullName,
+        full_name: normalizedFullName || getFallbackFullName(user),
         bio: normalizedBio || null,
       });
 
