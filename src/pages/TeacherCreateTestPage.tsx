@@ -863,21 +863,24 @@ export default function TeacherCreateTestPage() {
       }),
   });
 
-  const saveQuestionMutation = useMutation({
+    const saveQuestionMutation = useMutation({
     mutationFn: async () => {
-      const testId = cleanId(selectedTest?.id);
+      const currentTest = selectedTest;
 
-      if (!testId) throw new Error('Тест таңдалмаған.');
+      if (!currentTest) {
+        throw new Error('Тест таңдалмаған.');
+      }
 
       const { questionText, explanation, options, correct } = parseQuestionPayload();
       const sortOrder =
         Number(normalizeNumericInput(questionForm.sortOrder, MAX_SORT_ORDER_CHARS)) || 1;
-      const questionType = questionForm.multiple ? 'multiple_choice' : 'single_choice';
-      const questionId = cleanId(editingQuestionId);
+      const questionType = questionForm.multiple
+        ? 'multiple_choice'
+        : 'single_choice';
 
-      if (questionId) {
+      if (editingQuestionId) {
         return updateTestQuestion({
-          questionId,
+          questionId: cleanText(editingQuestionId, 120),
           questionText,
           options,
           correctAnswer: correct,
@@ -888,19 +891,23 @@ export default function TeacherCreateTestPage() {
       }
 
       return createTestQuestion({
-        testId,
+        testId: cleanText(currentTest.id, 120),
         questionText,
         options,
         correctAnswer: correct,
         explanation,
-        sortOrder: sortOrder || selectedTest.questions.length + 1,
+        sortOrder: sortOrder || currentTest.questions.length + 1,
         questionType,
       });
     },
     onSuccess: async () => {
-      const nextSortOrder = editingQuestionId
-        ? getNextQuestionSortOrder(selectedTest, 1)
-        : getNextQuestionSortOrder(selectedTest, 2);
+      const currentTest = selectedTest;
+
+      const nextSortOrder = currentTest
+        ? editingQuestionId
+          ? getNextQuestionSortOrder(currentTest, 1)
+          : getNextQuestionSortOrder(currentTest, 2)
+        : '1';
 
       await refetch();
       resetQuestionForm(nextSortOrder);
@@ -1694,7 +1701,11 @@ export default function TeacherCreateTestPage() {
                             confirmLabel="Өшіру"
                             pending={deleteTestMutation.isPending}
                             variant="danger"
-                            onConfirm={() => deleteTestMutation.mutate(cleanId(selectedTest.id))}
+                            onConfirm={() => {
+                              const currentTestId = cleanText(selectedTest?.id || '', 120);
+                              if (!currentTestId) return;
+                              deleteTestMutation.mutate(currentTestId);
+                            }}
                             onCancel={() => setDeleteTestConfirmOpen(false)}
                           />
                         ) : null}
