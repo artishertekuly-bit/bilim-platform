@@ -863,7 +863,7 @@ export default function TeacherCreateTestPage() {
       }),
   });
 
-    const saveQuestionMutation = useMutation({
+  const saveQuestionMutation = useMutation({
     mutationFn: async () => {
       const currentTest = selectedTest;
 
@@ -934,17 +934,26 @@ export default function TeacherCreateTestPage() {
       questionId: string;
       remainingIds: string[];
     }) => {
-      if (!selectedTest) throw new Error('Тест таңдалмаған.');
+      const currentTest = selectedTest;
+      const currentTestId = cleanId(currentTest?.id);
+
+      if (!currentTest || !currentTestId) {
+        throw new Error('Тест таңдалмаған.');
+      }
 
       const cleanQuestionId = cleanId(questionId);
       const cleanRemainingIds = remainingIds
         .map((id) => cleanId(id))
         .filter(Boolean);
 
+      if (!cleanQuestionId) {
+        throw new Error('Сұрақ анықталмады.');
+      }
+
       await deleteTestQuestion(cleanQuestionId);
 
       if (cleanRemainingIds.length > 0) {
-        await reorderTestQuestions(cleanId(selectedTest.id), cleanRemainingIds);
+        await reorderTestQuestions(currentTestId, cleanRemainingIds);
       }
     },
     onSuccess: async (_data, variables) => {
@@ -972,7 +981,12 @@ export default function TeacherCreateTestPage() {
       questionId: string;
       direction: 'up' | 'down';
     }) => {
-      if (!selectedTest) throw new Error('Тест таңдалмаған.');
+      const currentTest = selectedTest;
+      const currentTestId = cleanId(currentTest?.id);
+
+      if (!currentTest || !currentTestId) {
+        throw new Error('Тест таңдалмаған.');
+      }
 
       const cleanQuestionId = cleanId(questionId);
       const currentIndex = sortedSelectedQuestions.findIndex(
@@ -981,6 +995,7 @@ export default function TeacherCreateTestPage() {
       const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
 
       if (
+        !cleanQuestionId ||
         currentIndex < 0 ||
         nextIndex < 0 ||
         nextIndex >= sortedSelectedQuestions.length
@@ -988,11 +1003,11 @@ export default function TeacherCreateTestPage() {
         return;
       }
 
-      const nextOrder = moveItem(sortedSelectedQuestions, currentIndex, nextIndex).map(
-        (question) => cleanId(question.id),
-      ).filter(Boolean);
+      const nextOrder = moveItem(sortedSelectedQuestions, currentIndex, nextIndex)
+        .map((question) => cleanId(question.id))
+        .filter(Boolean);
 
-      await reorderTestQuestions(cleanId(selectedTest.id), nextOrder);
+      await reorderTestQuestions(currentTestId, nextOrder);
     },
     onSuccess: async () => {
       await refetch();
@@ -1010,9 +1025,10 @@ export default function TeacherCreateTestPage() {
 
   const importAiQuestionsMutation = useMutation({
     mutationFn: async () => {
-      const testId = cleanId(selectedTest?.id);
+      const currentTest = selectedTest;
+      const testId = cleanId(currentTest?.id);
 
-      if (!testId) {
+      if (!currentTest || !testId) {
         throw new Error('Алдымен сұрақ қосылатын тестті таңдаңыз.');
       }
 
@@ -1021,7 +1037,7 @@ export default function TeacherCreateTestPage() {
       }
 
       const startSortOrder =
-        getSortedQuestions(selectedTest.questions).at(-1)?.sort_order || 0;
+        getSortedQuestions(currentTest.questions).at(-1)?.sort_order || 0;
 
       for (const [index, question] of pendingAiImport.questions.entries()) {
         const questionText = cleanMultilineText(
@@ -1088,6 +1104,21 @@ export default function TeacherCreateTestPage() {
     clearPendingAiQuestionImport();
     setPendingAiImport(null);
     setAiImportConfirmOpen(false);
+  };
+
+  const handleDeleteSelectedTest = () => {
+    const currentTestId = cleanId(selectedTest?.id);
+
+    if (!currentTestId) {
+      toast({
+        title: t('page.teacher_test_builder.toast.error_title'),
+        description: 'Тест таңдалмаған.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    deleteTestMutation.mutate(currentTestId);
   };
 
   const editQuestion = (questionId: string) => {
@@ -1701,11 +1732,7 @@ export default function TeacherCreateTestPage() {
                             confirmLabel="Өшіру"
                             pending={deleteTestMutation.isPending}
                             variant="danger"
-                            onConfirm={() => {
-                              const currentTestId = cleanText(selectedTest?.id || '', 120);
-                              if (!currentTestId) return;
-                              deleteTestMutation.mutate(currentTestId);
-                            }}
+                            onConfirm={handleDeleteSelectedTest}
                             onCancel={() => setDeleteTestConfirmOpen(false)}
                           />
                         ) : null}
