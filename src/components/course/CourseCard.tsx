@@ -23,6 +23,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import type { CourseAccessType, CourseView } from '@/lib/app-data-types';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 export type CourseCardMode = 'student' | 'teacher' | 'admin';
 
@@ -45,24 +46,68 @@ type CourseCardProps = {
 
 type LegacyCourseAccessType = 'open' | 'closed';
 
+const MAX_ID_CHARS = 180;
+const MAX_TITLE_CHARS = 240;
+const MAX_DESCRIPTION_CHARS = 500;
+const MAX_SUBJECT_CHARS = 160;
+const MAX_TEACHER_NAME_CHARS = 160;
+const MAX_TEACHER_BIO_CHARS = 700;
+const MAX_URL_CHARS = 2_000;
+const MAX_INVITE_CODE_CHARS = 120;
+const MAX_CURRENCY_CHARS = 12;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanMultilineText(value: unknown, limit = MAX_DESCRIPTION_CHARS): string {
+  return limitText(
+    cleanRawText(value)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim(),
+    limit,
+  );
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeKey(value: unknown): string {
+  return cleanText(value, 80).toLowerCase();
+}
+
+function cleanInviteCode(value: unknown): string {
+  return cleanText(value, MAX_INVITE_CODE_CHARS);
+}
+
 function buildCourseEditPath(courseId: string) {
-  return `/create-course?courseId=${encodeURIComponent(courseId)}`;
+  return `/create-course?courseId=${encodeURIComponent(cleanId(courseId))}`;
 }
 
 function buildCourseDetailPath(courseId: string) {
-  return `/courses/${encodeURIComponent(courseId)}`;
+  return `/courses/${encodeURIComponent(cleanId(courseId))}`;
 }
 
 function normalizeCatalogAccessType(
   accessType: CourseAccessType | LegacyCourseAccessType | string | null | undefined,
 ): CourseAccessType {
-  switch (accessType) {
+  const normalized = normalizeKey(accessType);
+
+  switch (normalized) {
     case 'public_free':
     case 'private_invite':
     case 'paid':
     case 'subscription_only':
     case 'school_only':
-      return accessType;
+      return normalized as CourseAccessType;
 
     case 'open':
       return 'public_free';
@@ -103,14 +148,15 @@ function getCourseAccessLabel(course: CourseView) {
 function formatCoursePrice(course: CourseView) {
   const accessType = getCourseAccessType(course);
   const price = Number(course.price ?? course.access?.price ?? 0);
-  const currency = course.currency ?? course.access?.currency ?? 'KZT';
+  const currency =
+    cleanText(course.currency ?? course.access?.currency, MAX_CURRENCY_CHARS) || 'KZT';
 
   if (accessType === 'public_free') return 'Тегін';
   if (accessType === 'private_invite') return 'Кодпен';
   if (accessType === 'subscription_only') return 'Жазылым';
   if (accessType === 'school_only') return 'Мектеп';
 
-  if (!price) return 'Ақылы';
+  if (!Number.isFinite(price) || price <= 0) return 'Ақылы';
 
   return `${price.toLocaleString('kk-KZ')} ${currency}`;
 }
@@ -151,8 +197,9 @@ function getStudentActionDisabled(
   pendingCourseId?: string | null,
 ) {
   const access = course.access;
+  const courseId = cleanId(course.id);
 
-  if (pendingCourseId === course.id) return true;
+  if (cleanId(pendingCourseId) === courseId) return true;
   if (course.enrolled) return false;
   if (!access) return false;
   if (access.pendingOrderId) return true;
@@ -171,6 +218,12 @@ function canOpenCourseDetail(course: CourseView) {
   return course.access.canAccess || course.access.unlockAction === 'open_course';
 }
 
+function formatNumber(value: unknown): number {
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue) ? Math.max(0, numericValue) : 0;
+}
+
 function MetricItem({
   icon,
   label,
@@ -182,11 +235,12 @@ function MetricItem({
 }) {
   return (
     <span
-      className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none ${
+      className={cn(
+        'inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none',
         emphasized
           ? 'border-accent-muted bg-accent-soft text-accent-foreground'
-          : 'border-border bg-muted/55 text-muted-foreground'
-      }`}
+          : 'border-border bg-muted/55 text-muted-foreground',
+      )}
     >
       <span className="shrink-0">{icon}</span>
       <span className="truncate">{label}</span>
@@ -201,6 +255,14 @@ function CourseBody({
   course: CourseView;
   accessType: CourseAccessType;
 }) {
+  const title = cleanText(course.title) || 'Курс';
+  const description = cleanMultilineText(course.description, MAX_DESCRIPTION_CHARS);
+  const subjectName = cleanText(course.subjectName, MAX_SUBJECT_CHARS) || 'Жалпы курс';
+  const teacherId = cleanId(course.teacherId);
+  const teacherName = cleanText(course.teacherName, MAX_TEACHER_NAME_CHARS);
+  const teacherAvatarUrl = cleanText(course.teacherAvatarUrl, MAX_URL_CHARS) || undefined;
+  const teacherBio = cleanMultilineText(course.teacherBio, MAX_TEACHER_BIO_CHARS);
+
   return (
     <>
       <div className="border-b border-border bg-muted/25 p-4">
@@ -222,26 +284,29 @@ function CourseBody({
       <CardContent className="space-y-4 p-4">
         <div>
           <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            <span className="truncate">{course.subjectName || 'Жалпы курс'}</span>
+            <span className="truncate">{subjectName}</span>
           </span>
 
           <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
-            {course.title}
+            {title}
           </h3>
 
-          {course.description ? (
+          {description ? (
             <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
-              {course.description}
+              {description}
             </p>
           ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <MetricItem icon={<Users size={11} />} label={course.students} />
+          <MetricItem
+            icon={<Users size={11} />}
+            label={formatNumber(course.students)}
+          />
 
           <MetricItem
             icon={<Clock size={11} />}
-            label={`${course.lessons} ${t('course.lessons_count')}`}
+            label={`${formatNumber(course.lessons)} ${t('course.lessons_count')}`}
           />
 
           <MetricItem
@@ -261,11 +326,11 @@ function CourseBody({
         <TeacherProfileCard
           compact
           teacher={{
-            id: course.teacherId,
-            fullName: course.teacherName,
-            avatarUrl: course.teacherAvatarUrl,
-            bio: course.teacherBio,
-            coursesCount: course.teacherCoursesCount,
+            id: teacherId,
+            fullName: teacherName,
+            avatarUrl: teacherAvatarUrl,
+            bio: teacherBio,
+            coursesCount: formatNumber(course.teacherCoursesCount),
           }}
         />
       </CardContent>
@@ -290,17 +355,23 @@ export default function CourseCard({
   const isTeacherView = mode === 'teacher';
   const isAdminView = mode === 'admin';
 
+  const courseId = cleanId(course.id);
+  const safePendingCourseId = cleanId(pendingCourseId);
+  const safePendingBookmarkCourseId = cleanId(pendingBookmarkCourseId);
+  const safeInviteCourseId = cleanId(inviteCourseId);
+  const safeInviteCode = cleanInviteCode(inviteCode);
+
   const accessType = getCourseAccessType(course);
   const actionLabel = getStudentActionLabel(course);
-  const actionDisabled = getStudentActionDisabled(course, pendingCourseId);
+  const actionDisabled = getStudentActionDisabled(course, safePendingCourseId);
 
   const showInviteInput =
     isStudentView &&
-    inviteCourseId === course.id &&
+    safeInviteCourseId === courseId &&
     course.access?.unlockAction === 'redeem_invite';
 
-  const courseDetailPath = buildCourseDetailPath(course.id);
-  const courseEditPath = buildCourseEditPath(course.id);
+  const courseDetailPath = buildCourseDetailPath(courseId);
+  const courseEditPath = buildCourseEditPath(courseId);
 
   const courseBody = <CourseBody course={course} accessType={accessType} />;
 
@@ -322,12 +393,13 @@ export default function CourseCard({
         {isStudentView ? (
           <button
             type="button"
-            disabled={pendingBookmarkCourseId === course.id}
-            className={`absolute right-3 top-3 z-10 rounded-2xl border p-2 transition-colors disabled:pointer-events-none disabled:opacity-60 ${
+            disabled={safePendingBookmarkCourseId === courseId}
+            className={cn(
+              'absolute right-3 top-3 z-10 rounded-2xl border p-2 transition-colors disabled:pointer-events-none disabled:opacity-60',
               course.bookmarked
                 ? 'border-primary-muted bg-primary text-primary-foreground'
-                : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
-            }`}
+                : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+            )}
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
@@ -349,7 +421,11 @@ export default function CourseCard({
         <div className="space-y-3 px-4 pb-4">
           {isStudentView && course.enrolled ? (
             <div className="space-y-3 rounded-3xl border border-border bg-muted/35 p-3">
-              <ProgressBar value={course.progress} size="sm" tone="success" />
+              <ProgressBar
+                value={formatNumber(course.progress)}
+                size="sm"
+                tone="success"
+              />
 
               <Button type="button" size="sm" className="w-full text-xs" asChild>
                 <Link to={courseDetailPath}>
@@ -368,11 +444,14 @@ export default function CourseCard({
                   </div>
 
                   <Input
-                    value={inviteCode}
-                    onChange={(event) => onInviteCodeChange?.(event.target.value)}
+                    value={safeInviteCode}
+                    onChange={(event) =>
+                      onInviteCodeChange?.(cleanInviteCode(event.target.value))
+                    }
                     placeholder="Код"
                     className="h-9 text-xs uppercase"
                     autoComplete="off"
+                    maxLength={MAX_INVITE_CODE_CHARS}
                   />
 
                   <div className="grid grid-cols-2 gap-2">
@@ -390,7 +469,7 @@ export default function CourseCard({
                       type="button"
                       size="sm"
                       className="text-xs"
-                      disabled={pendingCourseId === course.id || !inviteCode.trim()}
+                      disabled={safePendingCourseId === courseId || !safeInviteCode}
                       onClick={() => onRedeemInvite?.(course)}
                     >
                       Қабылдау
@@ -411,7 +490,7 @@ export default function CourseCard({
                 onClick={() => onStudentAction?.(course)}
                 disabled={actionDisabled}
               >
-                {pendingCourseId === course.id ? t('common.loading') : actionLabel}
+                {safePendingCourseId === courseId ? t('common.loading') : actionLabel}
               </Button>
             </>
           ) : isTeacherView ? (

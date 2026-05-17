@@ -33,11 +33,48 @@ import { bookmarkCourse, enrollInCourse, unbookmarkCourse } from '@/lib/app-data
 import type { CourseView } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type CatalogMode = 'student' | 'teacher' | 'admin';
 
+const MAX_ID_CHARS = 180;
 const MAX_SEARCH_CHARS = 160;
 const MAX_INVITE_CODE_CHARS = 120;
+const MAX_TEXT_CHARS = 500;
+const MAX_SUBJECT_CHARS = 160;
+const MAX_ERROR_CHARS = 700;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TEXT_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeText(value: unknown) {
+  return cleanText(value, MAX_TEXT_CHARS).toLowerCase();
+}
+
+function normalizeSearchInput(value: unknown): string {
+  return cleanText(value, MAX_SEARCH_CHARS);
+}
+
+function normalizeInviteCode(value: unknown): string {
+  return cleanText(value, MAX_INVITE_CODE_CHARS);
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
+  }
+
+  return fallback;
+}
 
 function getCatalogMode(pathname: string, role?: string): CatalogMode {
   if (pathname.startsWith('/manage-courses') || role === 'admin') return 'admin';
@@ -47,15 +84,7 @@ function getCatalogMode(pathname: string, role?: string): CatalogMode {
 }
 
 function buildCourseDetailPath(courseId: string) {
-  return `/courses/${encodeURIComponent(courseId)}`;
-}
-
-function normalizeText(value: string | null | undefined) {
-  return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-function cleanText(value: string, limit: number) {
-  return value.replace(/\x00/g, ' ').slice(0, limit);
+  return `/courses/${encodeURIComponent(cleanId(courseId))}`;
 }
 
 function getModeEyebrow({
@@ -79,14 +108,36 @@ function getModeBadge({
   isAdminView: boolean;
 }) {
   if (isTeacherView) {
-    return <Badge variant="secondary" className="text-[11px]">Мұғалім</Badge>;
+    return (
+      <Badge variant="secondary" className="text-[11px]">
+        Мұғалім
+      </Badge>
+    );
   }
 
   if (isAdminView) {
-    return <Badge variant="warning" className="text-[11px]">Әкімші</Badge>;
+    return (
+      <Badge variant="warning" className="text-[11px]">
+        Әкімші
+      </Badge>
+    );
   }
 
   return null;
+}
+
+function buildCourseSearchHaystack(course: CourseView): string {
+  return normalizeText(
+    [
+      course.title,
+      course.teacherName,
+      course.description,
+      course.subjectName,
+    ]
+      .map((item) => cleanText(item, MAX_TEXT_CHARS))
+      .filter(Boolean)
+      .join(' '),
+  );
 }
 
 export default function CourseCatalogPage() {
@@ -101,6 +152,8 @@ export default function CourseCatalogPage() {
   const isTeacherView = mode === 'teacher';
   const isAdminView = mode === 'admin';
 
+  const safeUserId = cleanId(user?.id);
+
   const [search, setSearch] = useState('');
   const [activeSubject, setActiveSubject] = useState('all');
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
@@ -114,13 +167,13 @@ export default function CourseCatalogPage() {
   const { data: subjects } = useSubjects();
 
   const { data, isLoading, error } = useCourseCatalog(
-    user?.role === 'student' ? user.id : undefined,
-    isTeacherView ? user?.id : undefined,
-    Boolean(user?.id),
+    user?.role === 'student' ? safeUserId : undefined,
+    isTeacherView ? safeUserId : undefined,
+    Boolean(safeUserId),
   );
 
-  const redeemInviteMutation = useRedeemCourseInviteMutation(user?.id);
-  const requestPaidAccessMutation = useRequestPaidCourseAccessMutation(user?.id);
+  const redeemInviteMutation = useRedeemCourseInviteMutation(safeUserId);
+  const requestPaidAccessMutation = useRequestPaidCourseAccessMutation(safeUserId);
 
   const invalidateCatalogData = async () => {
     await Promise.all([
@@ -139,14 +192,20 @@ export default function CourseCatalogPage() {
 
   const enrollMutation = useMutation({
     mutationFn: async (courseId: string) => {
-      if (!user?.id) {
+      const safeCourseId = cleanId(courseId);
+
+      if (!safeUserId) {
         throw new Error('Кіру қажет.');
       }
 
-      setPendingCourseId(courseId);
-      await enrollInCourse(user.id, courseId);
+      if (!safeCourseId) {
+        throw new Error('Курс анықталмады.');
+      }
 
-      return courseId;
+      setPendingCourseId(safeCourseId);
+      await enrollInCourse(safeUserId, safeCourseId);
+
+      return safeCourseId;
     },
     onSuccess: async (courseId) => {
       await invalidateCatalogData();
@@ -160,10 +219,10 @@ export default function CourseCatalogPage() {
     onError: (mutationError) =>
       toast({
         title: t('page.course_catalog.toast.error_title'),
-        description:
-          mutationError instanceof Error
-            ? mutationError.message
-            : t('page.course_catalog.toast.error_text'),
+        description: getErrorMessage(
+          mutationError,
+          t('page.course_catalog.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
     onSettled: () => {
@@ -179,15 +238,21 @@ export default function CourseCatalogPage() {
       courseId: string;
       bookmarked: boolean;
     }) => {
-      if (!user?.id) {
+      const safeCourseId = cleanId(courseId);
+
+      if (!safeUserId) {
         throw new Error('Кіру қажет.');
       }
 
-      setPendingBookmarkCourseId(courseId);
+      if (!safeCourseId) {
+        throw new Error('Курс анықталмады.');
+      }
+
+      setPendingBookmarkCourseId(safeCourseId);
 
       return bookmarked
-        ? unbookmarkCourse(user.id, courseId)
-        : bookmarkCourse(user.id, courseId);
+        ? unbookmarkCourse(safeUserId, safeCourseId)
+        : bookmarkCourse(safeUserId, safeCourseId);
     },
     onSuccess: async (_response, variables) => {
       await queryClient.invalidateQueries({ queryKey: ['courses'] });
@@ -201,10 +266,10 @@ export default function CourseCatalogPage() {
     onError: (bookmarkError) =>
       toast({
         title: t('page.course_catalog.toast.error_title'),
-        description:
-          bookmarkError instanceof Error
-            ? bookmarkError.message
-            : t('page.course_catalog.toast.error_text'),
+        description: getErrorMessage(
+          bookmarkError,
+          t('page.course_catalog.toast.error_text'),
+        ),
         variant: 'destructive',
       }),
     onSettled: () => {
@@ -212,32 +277,46 @@ export default function CourseCatalogPage() {
     },
   });
 
-  const subjectFilters = useMemo(
-    () => [
+  const subjectFilters = useMemo(() => {
+    const output = [
       {
         value: 'all',
         label: t('common.all'),
       },
-      ...((subjects || []).map((subject) => ({
-        value: subject.name_kk,
-        label: subject.name_kk,
-      })) || []),
-    ],
-    [subjects],
-  );
+    ];
+
+    const seen = new Set(['all']);
+
+    (subjects || []).forEach((subject) => {
+      const subjectName = cleanText(subject.name_kk, MAX_SUBJECT_CHARS);
+
+      if (!subjectName) return;
+
+      const key = subjectName.toLowerCase();
+
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      output.push({
+        value: subjectName,
+        label: subjectName,
+      });
+    });
+
+    return output;
+  }, [subjects]);
 
   const normalizedSearch = useMemo(() => normalizeText(search), [search]);
 
   const filtered = useMemo(
     () =>
       (data || []).filter((course) => {
-        const haystack = normalizeText(
-          `${course.title} ${course.teacherName || ''} ${course.description || ''}`,
-        );
+        const haystack = buildCourseSearchHaystack(course);
 
         const matchesSearch = !normalizedSearch || haystack.includes(normalizedSearch);
         const matchesSubject =
-          activeSubject === 'all' || course.subjectName === activeSubject;
+          activeSubject === 'all' ||
+          cleanText(course.subjectName, MAX_SUBJECT_CHARS) === activeSubject;
         const matchesBookmarks = !showBookmarksOnly || Boolean(course.bookmarked);
 
         return matchesSearch && matchesSubject && matchesBookmarks;
@@ -252,7 +331,9 @@ export default function CourseCatalogPage() {
   };
 
   const handleBookmarkToggle = (course: CourseView) => {
-    if (!user?.id) {
+    const courseId = cleanId(course.id);
+
+    if (!safeUserId) {
       toast({
         title: 'Кіру қажет',
         description: 'Курсты сақтау үшін жүйеге кіріңіз.',
@@ -261,14 +342,25 @@ export default function CourseCatalogPage() {
       return;
     }
 
+    if (!courseId) {
+      toast({
+        title: t('page.course_catalog.toast.error_title'),
+        description: 'Курс анықталмады.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     bookmarkMutation.mutate({
-      courseId: course.id,
+      courseId,
       bookmarked: course.bookmarked,
     });
   };
 
   const handleStudentCourseAction = async (course: CourseView) => {
-    if (!user?.id) {
+    const courseId = cleanId(course.id);
+
+    if (!safeUserId) {
       toast({
         title: 'Кіру қажет',
         description: 'Курсқа кіру үшін жүйеге кіріңіз.',
@@ -277,36 +369,45 @@ export default function CourseCatalogPage() {
       return;
     }
 
+    if (!courseId) {
+      toast({
+        title: t('page.course_catalog.toast.error_title'),
+        description: 'Курс анықталмады.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const access = course.access;
 
     if (course.enrolled) {
-      navigate(buildCourseDetailPath(course.id));
+      navigate(buildCourseDetailPath(courseId));
       return;
     }
 
     if (!access || access.unlockAction === 'enroll') {
-      enrollMutation.mutate(course.id);
+      enrollMutation.mutate(courseId);
       return;
     }
 
     if (access.unlockAction === 'open_course') {
-      navigate(buildCourseDetailPath(course.id));
+      navigate(buildCourseDetailPath(courseId));
       return;
     }
 
     if (access.unlockAction === 'redeem_invite') {
-      setInviteCourseId((current) => (current === course.id ? null : course.id));
+      setInviteCourseId((current) => (current === courseId ? null : courseId));
       setInviteCode('');
       return;
     }
 
     if (access.unlockAction === 'request_paid_access') {
-      setPendingCourseId(course.id);
+      setPendingCourseId(courseId);
 
       try {
         await requestPaidAccessMutation.mutateAsync({
-          courseId: course.id,
-          userId: user.id,
+          courseId,
+          userId: safeUserId,
         });
 
         await invalidateCatalogData();
@@ -318,10 +419,10 @@ export default function CourseCatalogPage() {
       } catch (requestError) {
         toast({
           title: t('page.course_catalog.toast.error_title'),
-          description:
-            requestError instanceof Error
-              ? requestError.message
-              : 'Ақылы курсқа сұраныс жіберу мүмкін болмады.',
+          description: getErrorMessage(
+            requestError,
+            'Ақылы курсқа сұраныс жіберу мүмкін болмады.',
+          ),
           variant: 'destructive',
         });
       } finally {
@@ -342,7 +443,8 @@ export default function CourseCatalogPage() {
   };
 
   const handleRedeemInvite = async (course: CourseView) => {
-    const code = inviteCode.trim();
+    const courseId = cleanId(course.id);
+    const code = normalizeInviteCode(inviteCode);
 
     if (!code) {
       toast({
@@ -352,7 +454,7 @@ export default function CourseCatalogPage() {
       return;
     }
 
-    if (!user?.id) {
+    if (!safeUserId) {
       toast({
         title: 'Кіру қажет',
         description: 'Шақыру кодын қолдану үшін жүйеге кіріңіз.',
@@ -361,12 +463,21 @@ export default function CourseCatalogPage() {
       return;
     }
 
-    setPendingCourseId(course.id);
+    if (!courseId) {
+      toast({
+        title: t('page.course_catalog.toast.error_title'),
+        description: 'Курс анықталмады.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setPendingCourseId(courseId);
 
     try {
       await redeemInviteMutation.mutateAsync({
         code,
-        userId: user.id,
+        userId: safeUserId,
       });
 
       await invalidateCatalogData();
@@ -379,14 +490,11 @@ export default function CourseCatalogPage() {
         description: 'Курс ашылды.',
       });
 
-      navigate(buildCourseDetailPath(course.id));
+      navigate(buildCourseDetailPath(courseId));
     } catch (inviteError) {
       toast({
         title: 'Шақыру коды қате',
-        description:
-          inviteError instanceof Error
-            ? inviteError.message
-            : 'Курсты ашу мүмкін болмады.',
+        description: getErrorMessage(inviteError, 'Курсты ашу мүмкін болмады.'),
         variant: 'destructive',
       });
     } finally {
@@ -395,11 +503,17 @@ export default function CourseCatalogPage() {
   };
 
   const handleInviteCodeChange = (value: string) => {
-    setInviteCode(cleanText(value, MAX_INVITE_CODE_CHARS));
+    setInviteCode(normalizeInviteCode(value));
   };
 
   const handleSearchChange = (value: string) => {
-    setSearch(cleanText(value, MAX_SEARCH_CHARS));
+    setSearch(normalizeSearchInput(value));
+  };
+
+  const handleSubjectChange = (value: string) => {
+    const nextSubject = cleanText(value, MAX_SUBJECT_CHARS);
+
+    setActiveSubject(nextSubject || 'all');
   };
 
   const pageTitle = isTeacherView
@@ -494,6 +608,7 @@ export default function CourseCatalogPage() {
                     <Input
                       placeholder={t('page.course_catalog.search_placeholder')}
                       value={search}
+                      maxLength={MAX_SEARCH_CHARS}
                       onChange={(event) => handleSearchChange(event.target.value)}
                       className="pl-10"
                     />
@@ -552,13 +667,14 @@ export default function CourseCatalogPage() {
                     <button
                       key={subject.value}
                       type="button"
-                      onClick={() => setActiveSubject(subject.value)}
+                      onClick={() => handleSubjectChange(subject.value)}
                       aria-pressed={active}
-                      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors active:scale-[0.99] ${
+                      className={cn(
+                        'shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors active:scale-[0.99]',
                         active
                           ? 'border-primary-muted bg-primary-soft text-primary'
-                          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary'
-                      }`}
+                          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary',
+                      )}
                     >
                       {subject.label}
                     </button>
@@ -635,25 +751,29 @@ export default function CourseCatalogPage() {
 
         {user && !isLoading && !error && filtered.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {filtered.map((course) => (
-              <CourseCard
-                key={course.id}
-                course={course}
-                mode={mode}
-                pendingCourseId={pendingCourseId}
-                pendingBookmarkCourseId={pendingBookmarkCourseId}
-                inviteCourseId={inviteCourseId}
-                inviteCode={inviteCode}
-                onBookmarkToggle={handleBookmarkToggle}
-                onStudentAction={handleStudentCourseAction}
-                onRedeemInvite={handleRedeemInvite}
-                onInviteCodeChange={handleInviteCodeChange}
-                onCloseInvite={() => {
-                  setInviteCourseId(null);
-                  setInviteCode('');
-                }}
-              />
-            ))}
+            {filtered.map((course) => {
+              const courseId = cleanId(course.id);
+
+              return (
+                <CourseCard
+                  key={courseId}
+                  course={course}
+                  mode={mode}
+                  pendingCourseId={pendingCourseId}
+                  pendingBookmarkCourseId={pendingBookmarkCourseId}
+                  inviteCourseId={inviteCourseId}
+                  inviteCode={inviteCode}
+                  onBookmarkToggle={handleBookmarkToggle}
+                  onStudentAction={handleStudentCourseAction}
+                  onRedeemInvite={handleRedeemInvite}
+                  onInviteCodeChange={handleInviteCodeChange}
+                  onCloseInvite={() => {
+                    setInviteCourseId(null);
+                    setInviteCode('');
+                  }}
+                />
+              );
+            })}
           </div>
         ) : null}
       </div>

@@ -45,16 +45,115 @@ import type {
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import { isYouTubeUrl, normalizeMediaUrl } from '@/lib/media-url';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 const MAX_NOTE_CHARS = 6_000;
+const MAX_ID_CHARS = 180;
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+const MAX_CONTENT_CHARS = 30_000;
+const MAX_RESOURCE_DESCRIPTION_CHARS = 700;
+const MAX_URL_CHARS = 2_000;
+const MAX_ERROR_CHARS = 700;
+const MAX_OPTION_CHARS = 700;
+const MAX_EXPLANATION_CHARS = 1_200;
+
+type ResourceItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  file: {
+    filename: string;
+    sizeBytes: number | null;
+    externalUrl: string | null;
+    storageBucket: string | null;
+    storagePath: string | null;
+  };
+};
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanMultilineText(value: unknown, limit = MAX_CONTENT_CHARS): string {
+  return limitText(
+    cleanRawText(value)
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{4,}/g, '\n\n\n')
+      .trim(),
+    limit,
+  );
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeNote(value: unknown): string {
+  return cleanMultilineText(value, MAX_NOTE_CHARS);
+}
+
+function getErrorMessage(error: unknown, fallback = 'Белгісіз қате пайда болды.'): string {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
+  }
+
+  return fallback;
+}
+
+function buildLessonPath(lessonId: unknown): string {
+  return `/lessons/${encodeURIComponent(cleanId(lessonId))}`;
+}
+
+function buildCoursePath(courseId: unknown): string {
+  return `/courses/${encodeURIComponent(cleanId(courseId))}`;
+}
+
+function formatNumber(value: unknown): number {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return 0;
+
+  return Math.max(0, Math.round(numberValue));
+}
+
+function formatPercent(value: unknown): string {
+  return `${Math.max(0, Math.min(100, formatNumber(value)))}%`;
+}
 
 function formatBytes(value: number | null | undefined) {
-  if (!value || value <= 0) return null;
+  const size = Number(value || 0);
 
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  if (!Number.isFinite(size) || size <= 0) return null;
 
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  if (size < 1024) return `${Math.round(size)} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function normalizeExternalUrl(value: unknown): string | null {
+  const rawUrl = cleanText(value, MAX_URL_CHARS);
+
+  if (!rawUrl) return null;
+
+  try {
+    const parsed = new URL(rawUrl);
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 function getFileUrl(file: {
@@ -62,7 +161,27 @@ function getFileUrl(file: {
   storageBucket: string | null;
   storagePath: string | null;
 }) {
-  return file.externalUrl || null;
+  return normalizeExternalUrl(file.externalUrl);
+}
+
+function getQuestionId(question: LessonMiniQuizQuestionView) {
+  return cleanId(question.id);
+}
+
+function getQuestionOptions(question: LessonMiniQuizQuestionView) {
+  return (question.options || []).map((option) => cleanText(option, MAX_OPTION_CHARS));
+}
+
+function clampOptionIndexes(indexes: number[], options: string[]) {
+  return indexes
+    .map((index) => Number(index))
+    .filter(
+      (index) =>
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < options.length &&
+        options[index],
+    );
 }
 
 function LessonDetailSkeleton() {
@@ -128,7 +247,9 @@ function ReadingSection({
           {icon}
         </span>
 
-        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {cleanText(title, MAX_META_CHARS)}
+        </h3>
       </div>
 
       {children}
@@ -141,18 +262,7 @@ function ResourceListCard({
   items,
 }: {
   title: string;
-  items: Array<{
-    id: string;
-    title: string;
-    description: string | null;
-    file: {
-      filename: string;
-      sizeBytes: number | null;
-      externalUrl: string | null;
-      storageBucket: string | null;
-      storagePath: string | null;
-    };
-  }>;
+  items: ResourceItem[];
 }) {
   if (items.length === 0) return null;
 
@@ -161,18 +271,25 @@ function ResourceListCard({
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <CardTitle className="flex items-center gap-2 text-base font-semibold">
           <FileText size={16} />
-          {title}
+          {cleanText(title, MAX_META_CHARS)}
         </CardTitle>
       </CardHeader>
 
       <CardContent className="space-y-3 p-4 sm:p-5">
-        {items.map((item) => {
+        {items.map((item, index) => {
           const fileUrl = getFileUrl(item.file);
           const sizeText = formatBytes(item.file.sizeBytes);
+          const itemId = cleanId(item.id) || `${cleanText(item.title)}-${index}`;
+          const itemTitle = cleanText(item.title) || 'Файл';
+          const itemDescription = cleanMultilineText(
+            item.description,
+            MAX_RESOURCE_DESCRIPTION_CHARS,
+          );
+          const filename = cleanText(item.file.filename, MAX_META_CHARS) || 'Файл';
 
           return (
             <div
-              key={item.id}
+              key={itemId}
               className="flex flex-col gap-3 rounded-3xl border border-border bg-card p-4 sm:flex-row sm:items-start sm:justify-between"
             >
               <div className="min-w-0">
@@ -182,18 +299,18 @@ function ResourceListCard({
                   </span>
 
                   <p className="truncate text-sm font-semibold text-foreground">
-                    {item.title}
+                    {itemTitle}
                   </p>
                 </div>
 
-                {item.description ? (
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    {item.description}
+                {itemDescription ? (
+                  <p className="mt-2 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+                    {itemDescription}
                   </p>
                 ) : null}
 
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  {item.file.filename}
+                  {filename}
                   {sizeText ? ` · ${sizeText}` : ''}
                 </p>
               </div>
@@ -228,9 +345,11 @@ function getQuestionTypeLabel(
 }
 
 function getSelectedAnswerLabel(indexes: number[], options: string[]) {
-  if (indexes.length === 0) return 'Жауап таңдалмаған';
+  const safeIndexes = clampOptionIndexes(indexes, options);
 
-  return indexes
+  if (safeIndexes.length === 0) return 'Жауап таңдалмаған';
+
+  return safeIndexes
     .map((index) => options[index])
     .filter(Boolean)
     .join(', ');
@@ -255,6 +374,7 @@ function MiniQuizCard({
     title: string;
     description: string | null;
     passingScore: number;
+    courseId?: string;
     questions: LessonMiniQuizQuestionView[];
   } | null;
   latestAttempt: {
@@ -312,9 +432,14 @@ function MiniQuizCard({
 
   if (!quiz) return null;
 
+  const questions = quiz.questions || [];
+  const safeQuizTitle = cleanText(quiz.title) || 'Шағын тест';
+  const safeQuizDescription = cleanMultilineText(quiz.description, MAX_META_CHARS);
+  const passingScore = Math.max(0, Math.min(100, formatNumber(quiz.passingScore)));
+
   const allQuestionsAnswered =
-    quiz.questions.length > 0 &&
-    quiz.questions.every((question) => (answers[question.id] || []).length > 0);
+    questions.length > 0 &&
+    questions.every((question) => (answers[getQuestionId(question)] || []).length > 0);
 
   const quizAlreadyPassed =
     latestResult?.attempt.passed === true || latestAttempt?.passed === true;
@@ -329,16 +454,16 @@ function MiniQuizCard({
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle className="flex items-center gap-2 text-base font-semibold">
                 <HelpCircle size={16} />
-                {quiz.title || 'Шағын тест'}
+                {safeQuizTitle}
               </CardTitle>
 
-              <StatusBadge tone="secondary">{quiz.questions.length} сұрақ</StatusBadge>
-              <StatusBadge tone="muted">Өту: {quiz.passingScore}%</StatusBadge>
+              <StatusBadge tone="secondary">{questions.length} сұрақ</StatusBadge>
+              <StatusBadge tone="muted">Өту: {passingScore}%</StatusBadge>
             </div>
 
-            {quiz.description ? (
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                {quiz.description}
+            {safeQuizDescription ? (
+              <p className="mt-2 whitespace-pre-line text-xs leading-5 text-muted-foreground">
+                {safeQuizDescription}
               </p>
             ) : null}
           </div>
@@ -350,14 +475,14 @@ function MiniQuizCard({
               ) : (
                 <RotateCcw size={12} />
               )}
-              Соңғы нәтиже: {latestAttempt.score}%
+              Соңғы нәтиже: {formatPercent(latestAttempt.score)}
             </StatusBadge>
           ) : null}
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4 p-4 sm:p-5">
-        {quiz.questions.length === 0 ? (
+        {questions.length === 0 ? (
           <EmptyState
             title="Сұрақ жоқ"
             text="Сұрақ қосылғаннан кейін көрінеді."
@@ -365,15 +490,19 @@ function MiniQuizCard({
             tone="ai"
           />
         ) : (
-          quiz.questions.map((question, questionIndex) => {
-            const selected = answers[question.id] || [];
+          questions.map((question, questionIndex) => {
+            const questionId = getQuestionId(question);
+            const questionText = cleanText(question.questionText) || 'Сұрақ';
+            const options = getQuestionOptions(question);
+            const selected = clampOptionIndexes(answers[questionId] || [], options);
+
             const resultItem = latestResult?.breakdown?.find(
-              (item) => item.questionId === question.id,
+              (item) => cleanId(item.questionId) === questionId,
             );
 
             return (
               <div
-                key={question.id}
+                key={questionId || `${questionText}-${questionIndex}`}
                 className="rounded-3xl border border-border bg-card p-4"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -384,7 +513,7 @@ function MiniQuizCard({
                     </p>
 
                     <h3 className="mt-1 text-sm font-semibold text-foreground">
-                      {question.questionText}
+                      {questionText}
                     </h3>
                   </div>
 
@@ -401,27 +530,31 @@ function MiniQuizCard({
                 </div>
 
                 <div className="mt-3 grid gap-2">
-                  {question.options.map((option, optionIndex) => {
+                  {options.map((option, optionIndex) => {
                     const active = selected.includes(optionIndex);
-                    const correct = resultItem?.correctAnswer.includes(optionIndex);
+                    const correct = Boolean(
+                      resultItem?.correctAnswer.includes(optionIndex),
+                    );
                     const wrongSelected = Boolean(resultItem && active && !correct);
                     const isAnswerLocked = disabled || Boolean(latestResult) || quizAlreadyPassed;
 
                     return (
                       <button
-                        key={`${question.id}-${optionIndex}`}
+                        key={`${questionId}-${optionIndex}`}
                         type="button"
                         disabled={isAnswerLocked}
                         onClick={() => onToggleAnswer(question, optionIndex)}
-                        className={`rounded-2xl border px-3 py-2.5 text-left text-sm transition-colors ${
+                        className={cn(
+                          'rounded-2xl border px-3 py-2.5 text-left text-sm transition-colors',
                           correct
                             ? 'border-success-muted bg-success-soft text-success-foreground'
                             : wrongSelected
                               ? 'border-destructive-muted bg-destructive-soft text-destructive'
                               : active
                                 ? 'border-primary-muted bg-primary-soft text-primary'
-                                : 'border-border bg-background hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary'
-                        } ${isAnswerLocked ? 'cursor-default' : ''}`}
+                                : 'border-border bg-background hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary',
+                          isAnswerLocked && 'cursor-default',
+                        )}
                       >
                         <span className="mr-2 text-xs text-muted-foreground">
                           {String.fromCharCode(65 + optionIndex)}.
@@ -438,19 +571,19 @@ function MiniQuizCard({
                       <span className="font-medium text-foreground">
                         Сіздің жауабыңыз:
                       </span>{' '}
-                      {getSelectedAnswerLabel(resultItem.selectedAnswer, question.options)}
+                      {getSelectedAnswerLabel(resultItem.selectedAnswer, options)}
                     </p>
 
                     <p className="mt-1">
                       <span className="font-medium text-foreground">
                         Дұрыс жауап:
                       </span>{' '}
-                      {getSelectedAnswerLabel(resultItem.correctAnswer, question.options)}
+                      {getSelectedAnswerLabel(resultItem.correctAnswer, options)}
                     </p>
 
                     {resultItem.explanation ? (
                       <p className="mt-2 text-muted-foreground">
-                        {resultItem.explanation}
+                        {cleanMultilineText(resultItem.explanation, MAX_EXPLANATION_CHARS)}
                       </p>
                     ) : null}
                   </div>
@@ -465,12 +598,12 @@ function MiniQuizCard({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-foreground">
-                  Нәтиже: {latestResult.attempt.score}%
+                  Нәтиже: {formatPercent(latestResult.attempt.score)}
                 </p>
 
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {latestResult.attempt.correctCount}/
-                  {latestResult.attempt.totalQuestions} дұрыс
+                  {formatNumber(latestResult.attempt.correctCount)}/
+                  {formatNumber(latestResult.attempt.totalQuestions)} дұрыс
                 </p>
               </div>
 
@@ -506,8 +639,10 @@ function MiniQuizCard({
             </p>
 
             <p className="mt-1 text-xs text-muted-foreground">
-              {latestAttempt.correctCount}/{latestAttempt.totalQuestions} дұрыс ·{' '}
-              {latestAttempt.score}% · {latestAttempt.passed ? 'өтті' : 'қайталау керек'}
+              {formatNumber(latestAttempt.correctCount)}/
+              {formatNumber(latestAttempt.totalQuestions)} дұрыс ·{' '}
+              {formatPercent(latestAttempt.score)} ·{' '}
+              {latestAttempt.passed ? 'өтті' : 'қайталау керек'}
             </p>
           </div>
         ) : null}
@@ -519,7 +654,7 @@ function MiniQuizCard({
             disabled={
               disabled ||
               submitting ||
-              quiz.questions.length === 0 ||
+              questions.length === 0 ||
               !allQuestionsAnswered ||
               Boolean(latestResult) ||
               quizAlreadyPassed
@@ -550,7 +685,9 @@ function SidebarInfoRow({
 }) {
   return (
     <div className="flex justify-between gap-3 rounded-2xl border border-border bg-muted/35 px-3 py-2.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground">
+        {cleanText(label, MAX_META_CHARS)}
+      </span>
       <span className="text-right text-xs font-semibold text-foreground">{value}</span>
     </div>
   );
@@ -564,6 +701,9 @@ export default function LessonDetailPage() {
   const queryClient = useQueryClient();
   const isStudent = user?.role === 'student';
 
+  const safeLessonId = cleanId(lessonId);
+  const safeUserId = cleanId(user?.id);
+
   const [noteDraft, setNoteDraft] = useState('');
   const [noteSeededForLessonId, setNoteSeededForLessonId] = useState('');
   const [miniQuizAnswers, setMiniQuizAnswers] = useState<Record<string, number[]>>({});
@@ -571,9 +711,9 @@ export default function LessonDetailPage() {
     useState<LessonMiniQuizSubmitResult | null>(null);
 
   const { data, isLoading, error } = useLessonDetail(
-    lessonId,
-    isStudent ? user?.id : undefined,
-    Boolean(lessonId && user?.id),
+    safeLessonId,
+    isStudent ? safeUserId : undefined,
+    Boolean(safeLessonId && safeUserId),
   );
 
   const {
@@ -581,9 +721,9 @@ export default function LessonDetailPage() {
     isLoading: learningStateLoading,
     error: learningStateError,
   } = useLessonLearningState(
-    user?.id || '',
-    lessonId,
-    Boolean(isStudent && user?.id && lessonId && data && !data.isLocked),
+    safeUserId,
+    safeLessonId,
+    Boolean(isStudent && safeUserId && safeLessonId && data && !data.isLocked),
   );
 
   const {
@@ -591,9 +731,9 @@ export default function LessonDetailPage() {
     isLoading: miniQuizLoading,
     error: miniQuizError,
   } = useLessonMiniQuiz(
-    lessonId,
-    isStudent ? user?.id : undefined,
-    Boolean(lessonId && user?.id && data && !data.isLocked),
+    safeLessonId,
+    isStudent ? safeUserId : undefined,
+    Boolean(safeLessonId && safeUserId && data && !data.isLocked),
     !isStudent,
   );
 
@@ -603,7 +743,8 @@ export default function LessonDetailPage() {
   const toggleReviewLaterMutation = useToggleReviewLaterMutation();
   const submitMiniQuizMutation = useSubmitLessonMiniQuizMutation();
 
-  const normalizedMediaUrl = normalizeMediaUrl(data?.mediaUrl);
+  const safeMediaSource = cleanText(data?.mediaUrl, MAX_URL_CHARS);
+  const normalizedMediaUrl = normalizeMediaUrl(safeMediaSource);
   const hasMedia = Boolean(normalizedMediaUrl);
   const isYoutubeMedia = Boolean(
     normalizedMediaUrl && isYouTubeUrl(normalizedMediaUrl),
@@ -615,36 +756,43 @@ export default function LessonDetailPage() {
 
   const miniQuizPassed =
     !miniQuiz ||
-    miniQuiz.questions.length === 0 ||
+    (miniQuiz.questions || []).length === 0 ||
     miniQuizResult?.attempt.passed === true ||
     latestMiniQuizAttempt?.passed === true;
 
   const canCompleteLesson =
     isStudent && Boolean(data) && !data?.isCompleted && !data?.isLocked && miniQuizPassed;
 
-  const lessonCourseId = (data as { courseId?: string } | undefined)?.courseId || '';
-  const courseId = learningState?.courseId || lessonCourseId || miniQuiz?.courseId || '';
-  const lessonAttachments = learningState?.attachments || data?.attachments || [];
-  const courseAssets = learningState?.courseAssets || data?.courseAssets || [];
+  const lessonCourseId = cleanId((data as { courseId?: string } | undefined)?.courseId);
+  const courseId = cleanId(learningState?.courseId || lessonCourseId || miniQuiz?.courseId || '');
+  const lessonAttachments = (learningState?.attachments || data?.attachments || []) as ResourceItem[];
+  const courseAssets = (learningState?.courseAssets || data?.courseAssets || []) as ResourceItem[];
+
+  const lessonTitle = cleanText(data?.title) || t('page.lesson_detail.title');
+  const subjectName = cleanText(data?.subjectName, MAX_META_CHARS) || 'Пән';
+  const courseTitle = cleanText(data?.courseTitle, MAX_META_CHARS);
+  const moduleTitle = cleanText(data?.moduleTitle, MAX_META_CHARS);
+  const contentBody = cleanMultilineText(data?.contentBody, MAX_CONTENT_CHARS);
+  const practiceContent = cleanMultilineText(data?.practiceContent, MAX_CONTENT_CHARS);
 
   const hasLessonAttachments = lessonAttachments.length > 0;
   const hasCourseAssets = courseAssets.length > 0;
   const hasAnyLessonContent = Boolean(
-    data?.contentBody || hasMedia || data?.practiceContent,
+    contentBody || hasMedia || practiceContent,
   );
 
   const noteChanged = useMemo(
-    () => noteDraft !== (learningState?.noteContent || ''),
+    () => noteDraft !== normalizeNote(learningState?.noteContent || ''),
     [learningState?.noteContent, noteDraft],
   );
 
   const completeMutation = useMutation({
     mutationFn: async () => {
-      if (!user?.id) {
+      if (!safeUserId) {
         throw new Error('Пайдаланушы табылмады.');
       }
 
-      if (!lessonId) {
+      if (!safeLessonId) {
         throw new Error('Сабақ табылмады.');
       }
 
@@ -656,10 +804,10 @@ export default function LessonDetailPage() {
         );
       }
 
-      return markLessonComplete(user.id, lessonId);
+      return markLessonComplete(safeUserId, safeLessonId);
     },
     onSuccess: async () => {
-      if (!user?.id) return;
+      if (!safeUserId) return;
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['lessons'] }),
@@ -682,10 +830,7 @@ export default function LessonDetailPage() {
     onError: (completeError) =>
       toast({
         title: t('lesson.toast.error_title'),
-        description:
-          completeError instanceof Error
-            ? completeError.message
-            : t('lesson.toast.error_text'),
+        description: getErrorMessage(completeError, t('lesson.toast.error_text')),
         variant: 'destructive',
       }),
   });
@@ -693,18 +838,20 @@ export default function LessonDetailPage() {
   useEffect(() => {
     setMiniQuizAnswers({});
     setMiniQuizResult(null);
-  }, [lessonId, miniQuiz?.id]);
+  }, [safeLessonId, miniQuiz?.id]);
 
   useEffect(() => {
-    if (!learningState || !lessonId) return;
-    if (noteSeededForLessonId === lessonId) return;
+    if (!learningState || !safeLessonId) return;
+    if (noteSeededForLessonId === safeLessonId) return;
 
-    setNoteDraft(learningState.noteContent || '');
-    setNoteSeededForLessonId(lessonId);
-  }, [learningState, lessonId, noteSeededForLessonId]);
+    setNoteDraft(normalizeNote(learningState.noteContent || ''));
+    setNoteSeededForLessonId(safeLessonId);
+  }, [learningState, noteSeededForLessonId, safeLessonId]);
 
   const handleSaveNote = async () => {
-    if (!user?.id || !lessonId || !courseId) {
+    const safeNote = normalizeNote(noteDraft);
+
+    if (!safeUserId || !safeLessonId || !courseId) {
       toast({
         title: 'Жазбаны сақтау мүмкін болмады',
         description: 'Сабақ немесе курс дерегі толық емес.',
@@ -715,11 +862,13 @@ export default function LessonDetailPage() {
 
     try {
       await upsertNoteMutation.mutateAsync({
-        studentId: user.id,
-        lessonId,
+        studentId: safeUserId,
+        lessonId: safeLessonId,
         courseId,
-        content: noteDraft.slice(0, MAX_NOTE_CHARS),
+        content: safeNote,
       });
+
+      setNoteDraft(safeNote);
 
       toast({
         title: 'Жазба сақталды',
@@ -727,20 +876,19 @@ export default function LessonDetailPage() {
     } catch (noteError) {
       toast({
         title: 'Жазбаны сақтау мүмкін болмады',
-        description:
-          noteError instanceof Error ? noteError.message : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(noteError),
         variant: 'destructive',
       });
     }
   };
 
   const handleDeleteNote = async () => {
-    if (!user?.id || !lessonId) return;
+    if (!safeUserId || !safeLessonId) return;
 
     try {
       await deleteNoteMutation.mutateAsync({
-        studentId: user.id,
-        lessonId,
+        studentId: safeUserId,
+        lessonId: safeLessonId,
         courseId,
       });
 
@@ -752,15 +900,14 @@ export default function LessonDetailPage() {
     } catch (noteError) {
       toast({
         title: 'Жазбаны өшіру мүмкін болмады',
-        description:
-          noteError instanceof Error ? noteError.message : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(noteError),
         variant: 'destructive',
       });
     }
   };
 
   const handleToggleBookmark = async () => {
-    if (!user?.id || !lessonId || !courseId) {
+    if (!safeUserId || !safeLessonId || !courseId) {
       toast({
         title: 'Сақтау мүмкін болмады',
         description: 'Сабақ немесе курс дерегі толық емес.',
@@ -773,8 +920,8 @@ export default function LessonDetailPage() {
 
     try {
       await toggleBookmarkMutation.mutateAsync({
-        studentId: user.id,
-        lessonId,
+        studentId: safeUserId,
+        lessonId: safeLessonId,
         courseId,
         bookmarked: nextBookmarked,
       });
@@ -785,17 +932,14 @@ export default function LessonDetailPage() {
     } catch (bookmarkError) {
       toast({
         title: 'Сабақты сақтау мүмкін болмады',
-        description:
-          bookmarkError instanceof Error
-            ? bookmarkError.message
-            : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(bookmarkError),
         variant: 'destructive',
       });
     }
   };
 
   const handleToggleReviewLater = async () => {
-    if (!user?.id || !lessonId || !courseId || !data) {
+    if (!safeUserId || !safeLessonId || !courseId || !data) {
       toast({
         title: 'Кейін қайталауға қосу мүмкін болмады',
         description: 'Сабақ немесе курс дерегі толық емес.',
@@ -808,12 +952,12 @@ export default function LessonDetailPage() {
 
     try {
       await toggleReviewLaterMutation.mutateAsync({
-        studentId: user.id,
+        studentId: safeUserId,
         itemType: 'lesson',
-        itemId: lessonId,
-        lessonId,
+        itemId: safeLessonId,
+        lessonId: safeLessonId,
         courseId,
-        title: data.title,
+        title: lessonTitle,
         note: null,
         reviewLater: nextReviewLater,
       });
@@ -826,10 +970,7 @@ export default function LessonDetailPage() {
     } catch (reviewError) {
       toast({
         title: 'Әрекет орындалмады',
-        description:
-          reviewError instanceof Error
-            ? reviewError.message
-            : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(reviewError),
         variant: 'destructive',
       });
     }
@@ -839,23 +980,36 @@ export default function LessonDetailPage() {
     question: LessonMiniQuizQuestionView,
     optionIndex: number,
   ) => {
+    const questionId = getQuestionId(question);
+    const options = getQuestionOptions(question);
+    const safeOptionIndex = Number(optionIndex);
+
+    if (
+      !questionId ||
+      !Number.isInteger(safeOptionIndex) ||
+      safeOptionIndex < 0 ||
+      safeOptionIndex >= options.length
+    ) {
+      return;
+    }
+
     setMiniQuizAnswers((previous) => {
-      const current = previous[question.id] || [];
+      const current = clampOptionIndexes(previous[questionId] || [], options);
 
       if (question.questionType === 'single_choice') {
         return {
           ...previous,
-          [question.id]: [optionIndex],
+          [questionId]: [safeOptionIndex],
         };
       }
 
-      const next = current.includes(optionIndex)
-        ? current.filter((item) => item !== optionIndex)
-        : [...current, optionIndex];
+      const next = current.includes(safeOptionIndex)
+        ? current.filter((item) => item !== safeOptionIndex)
+        : [...current, safeOptionIndex];
 
       return {
         ...previous,
-        [question.id]: next.sort((a, b) => a - b),
+        [questionId]: next.sort((a, b) => a - b),
       };
     });
   };
@@ -873,7 +1027,7 @@ export default function LessonDetailPage() {
   };
 
   const handleSubmitMiniQuiz = async () => {
-    if (!user?.id || !lessonId || !courseId || !miniQuiz) {
+    if (!safeUserId || !safeLessonId || !courseId || !miniQuiz) {
       toast({
         title: 'Шағын тест тапсыру мүмкін болмады',
         description: 'Сабақ, курс немесе тест дерегі толық емес.',
@@ -882,8 +1036,31 @@ export default function LessonDetailPage() {
       return;
     }
 
-    const unanswered = miniQuiz.questions.some(
-      (question) => (miniQuizAnswers[question.id] || []).length === 0,
+    const quizId = cleanId(miniQuiz.id);
+    const questions = miniQuiz.questions || [];
+
+    if (!quizId || questions.length === 0) {
+      toast({
+        title: 'Шағын тест тапсыру мүмкін болмады',
+        description: 'Тест дерегі толық емес.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const sanitizedAnswers = questions.reduce<Record<string, number[]>>((acc, question) => {
+      const questionId = getQuestionId(question);
+      const options = getQuestionOptions(question);
+
+      if (!questionId) return acc;
+
+      acc[questionId] = clampOptionIndexes(miniQuizAnswers[questionId] || [], options);
+
+      return acc;
+    }, {});
+
+    const unanswered = questions.some(
+      (question) => (sanitizedAnswers[getQuestionId(question)] || []).length === 0,
     );
 
     if (unanswered) {
@@ -897,14 +1074,15 @@ export default function LessonDetailPage() {
 
     try {
       const result = await submitMiniQuizMutation.mutateAsync({
-        quizId: miniQuiz.id,
-        lessonId,
+        quizId,
+        lessonId: safeLessonId,
         courseId,
-        studentId: user.id,
-        answers: miniQuizAnswers,
+        studentId: safeUserId,
+        answers: sanitizedAnswers,
       });
 
       setMiniQuizResult(result);
+      setMiniQuizAnswers(sanitizedAnswers);
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['lesson-mini-quiz'] }),
@@ -916,15 +1094,14 @@ export default function LessonDetailPage() {
         title: result.attempt.passed
           ? 'Шағын тест өтті'
           : 'Шағын тест қайталауды қажет етеді',
-        description: `${result.attempt.correctCount}/${result.attempt.totalQuestions} дұрыс · ${result.attempt.score}%`,
+        description: `${formatNumber(result.attempt.correctCount)}/${formatNumber(
+          result.attempt.totalQuestions,
+        )} дұрыс · ${formatPercent(result.attempt.score)}`,
       });
     } catch (quizError) {
       toast({
         title: 'Шағын тест тапсыру мүмкін болмады',
-        description:
-          quizError instanceof Error
-            ? quizError.message
-            : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(quizError),
         variant: 'destructive',
       });
     }
@@ -951,12 +1128,10 @@ export default function LessonDetailPage() {
             </>
           }
           icon={<GraduationCap size={20} />}
-          title={data?.title || t('page.lesson_detail.title')}
+          title={lessonTitle}
           description={
             data
-              ? [data.subjectName, data.courseTitle, data.moduleTitle]
-                  .filter(Boolean)
-                  .join(' · ')
+              ? [subjectName, courseTitle, moduleTitle].filter(Boolean).join(' · ')
               : undefined
           }
           actions={
@@ -1042,7 +1217,7 @@ export default function LessonDetailPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge tone="secondary">
                       <BookOpen size={12} />
-                      {data.subjectName}
+                      {subjectName}
                     </StatusBadge>
 
                     {data.isCompleted ? (
@@ -1059,19 +1234,19 @@ export default function LessonDetailPage() {
                   </div>
 
                   <CardTitle className="pt-2 text-lg font-semibold">
-                    {data.title}
+                    {lessonTitle}
                   </CardTitle>
 
                   <p className="text-xs leading-5 text-muted-foreground">
-                    {[data.courseTitle, data.moduleTitle].filter(Boolean).join(' · ')}
+                    {[courseTitle, moduleTitle].filter(Boolean).join(' · ')}
                   </p>
                 </CardHeader>
 
                 <CardContent className="space-y-6 p-4 sm:p-5">
-                  {data.contentBody ? (
+                  {contentBody ? (
                     <ReadingSection title="Теория" icon={<FileText size={15} />}>
                       <article className="whitespace-pre-wrap rounded-3xl border border-border bg-card p-4 text-sm leading-7 text-foreground sm:p-5">
-                        {data.contentBody}
+                        {contentBody}
                       </article>
                     </ReadingSection>
                   ) : null}
@@ -1088,7 +1263,7 @@ export default function LessonDetailPage() {
                             className="aspect-video w-full"
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                             allowFullScreen
-                            title={data.title}
+                            title={lessonTitle}
                             loading="lazy"
                             referrerPolicy="strict-origin-when-cross-origin"
                           />
@@ -1107,13 +1282,13 @@ export default function LessonDetailPage() {
                     </ReadingSection>
                   ) : null}
 
-                  {data.practiceContent ? (
+                  {practiceContent ? (
                     <ReadingSection
                       title={t('page.lesson_detail.practice_title')}
                       icon={<BookOpen size={15} />}
                     >
                       <div className="whitespace-pre-wrap rounded-3xl border border-border bg-muted/35 p-4 text-sm leading-7 text-foreground sm:p-5">
-                        {data.practiceContent}
+                        {practiceContent}
                       </div>
                     </ReadingSection>
                   ) : null}
@@ -1151,7 +1326,7 @@ export default function LessonDetailPage() {
                 hasError={Boolean(miniQuizError)}
                 isStudent={isStudent}
                 submitting={submitMiniQuizMutation.isPending}
-                disabled={!isStudent || !user?.id || !courseId || Boolean(data.isLocked)}
+                disabled={!isStudent || !safeUserId || !courseId || Boolean(data.isLocked)}
                 onToggleAnswer={handleToggleMiniQuizAnswer}
                 onSubmit={handleSubmitMiniQuiz}
                 onRetry={handleRetryMiniQuiz}
@@ -1166,7 +1341,7 @@ export default function LessonDetailPage() {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     {courseId ? (
                       <Button type="button" variant="outline" asChild>
-                        <Link to={`/courses/${courseId}`}>
+                        <Link to={buildCoursePath(courseId)}>
                           Курсқа қайту
                           <ArrowRight size={15} className="ml-2" />
                         </Link>
@@ -1203,17 +1378,17 @@ export default function LessonDetailPage() {
                 <CardContent className="space-y-3 p-4 text-sm sm:p-5">
                   <SidebarInfoRow
                     label={t('page.lesson_detail.field.course')}
-                    value={data.courseTitle}
+                    value={courseTitle || '—'}
                   />
 
                   <SidebarInfoRow
                     label={t('page.lesson_detail.field.module')}
-                    value={data.moduleTitle}
+                    value={moduleTitle || '—'}
                   />
 
                   <SidebarInfoRow
                     label={t('page.lesson_detail.field.subject')}
-                    value={data.subjectName}
+                    value={subjectName}
                   />
 
                   <SidebarInfoRow
@@ -1323,9 +1498,7 @@ export default function LessonDetailPage() {
                       rows={8}
                       value={noteDraft}
                       maxLength={MAX_NOTE_CHARS}
-                      onChange={(event) =>
-                        setNoteDraft(event.target.value.slice(0, MAX_NOTE_CHARS))
-                      }
+                      onChange={(event) => setNoteDraft(normalizeNote(event.target.value))}
                       placeholder="Жазба"
                       disabled={!learningState || learningStateLoading}
                     />

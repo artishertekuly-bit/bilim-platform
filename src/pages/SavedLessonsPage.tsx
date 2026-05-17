@@ -33,21 +33,66 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import type { SavedLessonView } from '@/lib/app-data-types';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type SavedLessonFilter = 'all' | 'available' | 'locked' | 'completed';
 type SavedLessonMode = 'saved' | 'review';
 
-function normalizeText(value: string | null | undefined) {
-  return (value || '').toLowerCase().trim();
+const MAX_ID_CHARS = 180;
+const MAX_SEARCH_CHARS = 160;
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+const MAX_ERROR_CHARS = 700;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeText(value: unknown) {
+  return cleanText(value, MAX_TITLE_CHARS).toLowerCase();
+}
+
+function normalizeSearchInput(value: unknown) {
+  return cleanText(value, MAX_SEARCH_CHARS);
+}
+
+function getErrorMessage(error: unknown, fallback = 'Белгісіз қате пайда болды.'): string {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
+  }
+
+  return fallback;
+}
+
+function buildLessonPath(lessonId: unknown) {
+  return `/lessons/${encodeURIComponent(cleanId(lessonId))}`;
+}
+
+function formatNumber(value: unknown): number {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) return 0;
+
+  return Math.max(0, Math.round(numberValue));
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return '—';
+  const rawValue = cleanText(value, 80);
 
-  const parsed = new Date(value);
+  if (!rawValue) return '—';
+
+  const parsed = new Date(rawValue);
 
   if (Number.isNaN(parsed.getTime())) {
-    return value;
+    return rawValue;
   }
 
   return parsed.toLocaleDateString('kk-KZ', {
@@ -71,7 +116,22 @@ function getFilterLabel(filter: SavedLessonFilter) {
 function getLessonStatus(lesson: SavedLessonView): SavedLessonFilter {
   if (lesson.isLocked) return 'locked';
   if (lesson.isCompleted) return 'completed';
+
   return 'available';
+}
+
+function buildSearchHaystack(lesson: SavedLessonView): string {
+  return normalizeText(
+    [
+      lesson.lessonTitle,
+      lesson.courseTitle,
+      lesson.moduleTitle,
+      lesson.subjectName,
+    ]
+      .map((item) => cleanText(item))
+      .filter(Boolean)
+      .join(' '),
+  );
 }
 
 function SavedLessonStatus({ lesson }: { lesson: SavedLessonView }) {
@@ -124,13 +184,18 @@ function SavedStatCard({
     <Card interactive className="overflow-hidden">
       <CardContent className="flex items-center gap-3 p-4 sm:p-5">
         <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${toneClassName}`}
+          className={cn(
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            toneClassName,
+          )}
         >
           <Icon size={18} />
         </div>
 
         <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className="text-xs font-medium text-muted-foreground">
+            {cleanText(label, MAX_META_CHARS)}
+          </p>
           <p className="mt-0.5 text-2xl font-semibold tracking-tight text-foreground">
             {value}
           </p>
@@ -158,26 +223,32 @@ function ModeTab({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`rounded-3xl border p-4 text-left shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99] ${
+      className={cn(
+        'rounded-3xl border p-4 text-left shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]',
         active
           ? 'border-primary-muted bg-primary-soft'
-          : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/55'
-      }`}
+          : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/55',
+      )}
     >
       <div className="flex items-start gap-3">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft ${
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
             active
               ? 'border-primary-muted bg-card text-primary'
-              : 'border-border bg-surface-soft text-muted-foreground'
-          }`}
+              : 'border-border bg-surface-soft text-muted-foreground',
+          )}
         >
           {icon}
         </div>
 
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
+          <p className="text-sm font-semibold text-foreground">
+            {cleanText(title, MAX_META_CHARS)}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {cleanText(text, MAX_META_CHARS)}
+          </p>
         </div>
       </div>
     </button>
@@ -198,11 +269,12 @@ function SubjectChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] ${
+      className={cn(
+        'shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ease-soft hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99]',
         active
           ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
-          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary'
-      }`}
+          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+      )}
     >
       {children}
     </button>
@@ -219,7 +291,7 @@ function SavedLessonMetric({
   return (
     <div className="rounded-2xl border border-border bg-surface-soft/60 p-3 shadow-inner-soft">
       <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
+        {cleanText(label, MAX_META_CHARS)}
       </span>
       <span className="mt-0.5 block truncate text-sm font-semibold text-foreground">
         {value}
@@ -237,12 +309,20 @@ function SavedLessonCard({
   removing: boolean;
   onRemove: (lesson: SavedLessonView) => void;
 }) {
+  const lessonId = cleanId(lesson.lessonId);
+  const lessonTitle = cleanText(lesson.lessonTitle) || 'Сабақ';
+  const subjectName = cleanText(lesson.subjectName, MAX_META_CHARS) || 'Пән';
+  const courseTitle = cleanText(lesson.courseTitle, MAX_META_CHARS);
+  const moduleTitle = cleanText(lesson.moduleTitle, MAX_META_CHARS);
+  const sortOrder = formatNumber(lesson.sortOrder || 1) || 1;
+
   return (
     <Card
       interactive={!lesson.isLocked}
-      className={`overflow-hidden ${
-        lesson.isLocked ? 'bg-muted/35 opacity-85' : 'bg-card'
-      }`}
+      className={cn(
+        'overflow-hidden',
+        lesson.isLocked ? 'bg-muted/35 opacity-85' : 'bg-card',
+      )}
     >
       <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -250,18 +330,18 @@ function SavedLessonCard({
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <StatusBadge tone="primary">
                 <BookOpen size={12} />
-                {lesson.subjectName}
+                {subjectName}
               </StatusBadge>
 
               <SavedLessonStatus lesson={lesson} />
             </div>
 
             <CardTitle className="line-clamp-2 text-base">
-              {lesson.lessonTitle}
+              {lessonTitle}
             </CardTitle>
 
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {[lesson.courseTitle, lesson.moduleTitle].filter(Boolean).join(' · ')}
+              {[courseTitle, moduleTitle].filter(Boolean).join(' · ')}
             </p>
           </div>
         </div>
@@ -269,11 +349,11 @@ function SavedLessonCard({
 
       <CardContent className="space-y-4 p-4 sm:p-5">
         <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-          <SavedLessonMetric label="Пән" value={lesson.subjectName} />
+          <SavedLessonMetric label="Пән" value={subjectName} />
 
           <SavedLessonMetric
             label="Сабақ реті"
-            value={`№${lesson.sortOrder || 1}`}
+            value={`№${sortOrder}`}
           />
 
           <SavedLessonMetric
@@ -299,14 +379,14 @@ function SavedLessonCard({
             {removing ? 'Алынып жатыр...' : 'Сақтаудан алу'}
           </Button>
 
-          {lesson.isLocked ? (
+          {lesson.isLocked || !lessonId ? (
             <Button type="button" disabled>
               <Lock size={15} className="mr-2" />
               Сабақ жабық
             </Button>
           ) : (
             <Button type="button" asChild>
-              <Link to={`/lessons/${lesson.lessonId}`}>
+              <Link to={buildLessonPath(lessonId)}>
                 Сабақты ашу
                 <ArrowRight size={15} className="ml-2" />
               </Link>
@@ -328,11 +408,13 @@ export default function SavedLessonsPage() {
   const [activeSubject, setActiveSubject] = useState('all');
   const [pendingLessonId, setPendingLessonId] = useState<string | null>(null);
 
+  const safeUserId = cleanId(user?.id);
+
   const {
     data: savedLessons = [],
     isLoading,
     error,
-  } = useSavedLessons(user?.id || '', Boolean(user?.id));
+  } = useSavedLessons(safeUserId, Boolean(safeUserId));
 
   const removeSavedLessonMutation = useRemoveSavedLessonMutation();
 
@@ -341,10 +423,12 @@ export default function SavedLessonsPage() {
     const completed = savedLessons.filter((lesson) => lesson.isCompleted).length;
     const locked = savedLessons.filter((lesson) => lesson.isLocked).length;
     const active = savedLessons.filter(
-      (lesson) => !lesson.isCompleted && !lesson.isLocked
+      (lesson) => !lesson.isCompleted && !lesson.isLocked,
     ).length;
     const subjects = new Set(
-      savedLessons.map((lesson) => lesson.subjectName).filter(Boolean)
+      savedLessons
+        .map((lesson) => cleanText(lesson.subjectName, MAX_META_CHARS))
+        .filter(Boolean),
     ).size;
 
     return {
@@ -356,36 +440,43 @@ export default function SavedLessonsPage() {
     };
   }, [savedLessons]);
 
-  const subjects = useMemo(
-    () => [
-      'all',
-      ...Array.from(
-        new Set(savedLessons.map((lesson) => lesson.subjectName).filter(Boolean))
-      ),
-    ],
-    [savedLessons]
-  );
+  const subjects = useMemo(() => {
+    const output = ['all'];
+    const seen = new Set(output);
+
+    savedLessons.forEach((lesson) => {
+      const subjectName = cleanText(lesson.subjectName, MAX_META_CHARS);
+
+      if (!subjectName) return;
+
+      const key = subjectName.toLowerCase();
+
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      output.push(subjectName);
+    });
+
+    return output;
+  }, [savedLessons]);
 
   const filteredLessons = useMemo(() => {
     const query = normalizeText(search);
 
     return savedLessons.filter((lesson) => {
       const lessonStatus = getLessonStatus(lesson);
+      const lessonSubject = cleanText(lesson.subjectName, MAX_META_CHARS);
 
       const matchesMode =
         mode === 'saved' || (!lesson.isCompleted && !lesson.isLocked);
 
       const matchesSearch =
-        !query ||
-        normalizeText(lesson.lessonTitle).includes(query) ||
-        normalizeText(lesson.courseTitle).includes(query) ||
-        normalizeText(lesson.moduleTitle).includes(query) ||
-        normalizeText(lesson.subjectName).includes(query);
+        !query || buildSearchHaystack(lesson).includes(query);
 
       const matchesFilter = filter === 'all' || lessonStatus === filter;
 
       const matchesSubject =
-        activeSubject === 'all' || lesson.subjectName === activeSubject;
+        activeSubject === 'all' || lessonSubject === activeSubject;
 
       return matchesMode && matchesSearch && matchesFilter && matchesSubject;
     });
@@ -398,7 +489,11 @@ export default function SavedLessonsPage() {
     mode !== 'saved';
 
   const handleRemove = async (lesson: SavedLessonView) => {
-    if (!user?.id) {
+    const lessonId = cleanId(lesson.lessonId);
+    const courseId = cleanId(lesson.courseId);
+    const lessonTitle = cleanText(lesson.lessonTitle) || 'Сабақ';
+
+    if (!safeUserId) {
       toast({
         title: 'Әрекет орындалмады',
         description: 'Аккаунт дерегі табылмады.',
@@ -407,26 +502,32 @@ export default function SavedLessonsPage() {
       return;
     }
 
-    setPendingLessonId(lesson.lessonId);
+    if (!lessonId || !courseId) {
+      toast({
+        title: 'Сабақты алып тастау мүмкін болмады',
+        description: 'Сабақ немесе курс дерегі толық емес.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setPendingLessonId(lessonId);
 
     try {
       await removeSavedLessonMutation.mutateAsync({
-        studentId: user.id,
-        lessonId: lesson.lessonId,
-        courseId: lesson.courseId,
+        studentId: safeUserId,
+        lessonId,
+        courseId,
       });
 
       toast({
         title: 'Сабақ сақталғандардан алынды',
-        description: lesson.lessonTitle,
+        description: lessonTitle,
       });
     } catch (removeError) {
       toast({
         title: 'Сабақты алып тастау мүмкін болмады',
-        description:
-          removeError instanceof Error
-            ? removeError.message
-            : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(removeError),
         variant: 'destructive',
       });
     } finally {
@@ -441,6 +542,16 @@ export default function SavedLessonsPage() {
     setActiveSubject('all');
   };
 
+  const handleSearchChange = (value: string) => {
+    setSearch(normalizeSearchInput(value));
+  };
+
+  const handleSubjectChange = (value: string) => {
+    const nextSubject = cleanText(value, MAX_META_CHARS);
+
+    setActiveSubject(nextSubject || 'all');
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
@@ -453,7 +564,6 @@ export default function SavedLessonsPage() {
           }
           icon={<Bookmark size={20} />}
           title="Сақталған сабақтар"
-          description="Өзіңізге маңызды сабақтарды осы жерден тез ашып, оқуды жалғастырасыз."
           actions={
             <Button type="button" variant="outline" asChild>
               <Link to="/lessons">
@@ -527,14 +637,14 @@ export default function SavedLessonsPage() {
               <ModeTab
                 active={mode === 'saved'}
                 title="Сақталғандар"
-                text="Барлық bookmark жасалған сабақтар."
+                text="Барлық сақталған сабақтар."
                 icon={<Bookmark size={17} />}
                 onClick={() => setMode('saved')}
               />
               <ModeTab
                 active={mode === 'review'}
                 title="Қайталау керек"
-                text="Әлі аяқталмаған және ашық сақталған сабақтар."
+                text="Әлі аяқталмаған ашық сабақтар."
                 icon={<Clock size={17} />}
                 onClick={() => setMode('review')}
               />
@@ -550,8 +660,9 @@ export default function SavedLessonsPage() {
                     />
                     <Input
                       value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder="Сабақ, курс, модуль немесе пән бойынша іздеу..."
+                      maxLength={MAX_SEARCH_CHARS}
+                      onChange={(event) => handleSearchChange(event.target.value)}
+                      placeholder="Сабақ, курс, модуль немесе пән"
                       className="pl-10"
                     />
                   </div>
@@ -568,7 +679,7 @@ export default function SavedLessonsPage() {
                         >
                           {getFilterLabel(item)}
                         </Button>
-                      )
+                      ),
                     )}
 
                     {hasActiveFilters ? (
@@ -591,7 +702,7 @@ export default function SavedLessonsPage() {
                       <SubjectChip
                         key={subject}
                         active={activeSubject === subject}
-                        onClick={() => setActiveSubject(subject)}
+                        onClick={() => handleSubjectChange(subject)}
                       >
                         {subject === 'all' ? 'Барлық пән' : subject}
                       </SubjectChip>
@@ -603,7 +714,7 @@ export default function SavedLessonsPage() {
                   <EmptyState
                     icon={<Bookmark size={18} />}
                     title="Сақталған сабақ жоқ"
-                    text="Сабақ бетінде “Сабақты сақтау” батырмасын бассаңыз, ол осы жерде пайда болады."
+                    text="Сабақ бетінде сақтау батырмасын бассаңыз, ол осы жерде пайда болады."
                     action={
                       <Button type="button" asChild>
                         <Link to="/lessons">
@@ -647,14 +758,19 @@ export default function SavedLessonsPage() {
 
                 {filteredLessons.length > 0 ? (
                   <div className="grid gap-3">
-                    {filteredLessons.map((lesson) => (
-                      <SavedLessonCard
-                        key={lesson.bookmarkId}
-                        lesson={lesson}
-                        removing={pendingLessonId === lesson.lessonId}
-                        onRemove={handleRemove}
-                      />
-                    ))}
+                    {filteredLessons.map((lesson, index) => {
+                      const bookmarkId = cleanId(lesson.bookmarkId);
+                      const lessonId = cleanId(lesson.lessonId);
+
+                      return (
+                        <SavedLessonCard
+                          key={bookmarkId || lessonId || `${cleanText(lesson.lessonTitle)}-${index}`}
+                          lesson={lesson}
+                          removing={cleanId(pendingLessonId) === lessonId}
+                          onRemove={handleRemove}
+                        />
+                      );
+                    })}
                   </div>
                 ) : null}
               </CardContent>

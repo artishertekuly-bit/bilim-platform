@@ -9,7 +9,7 @@ import {
 import StatusBadge, { LessonStatusBadge } from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
 import type { LessonView } from '@/lib/app-data-types';
-import { cn } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type LessonCardProps = {
   lesson: LessonView;
@@ -18,6 +18,18 @@ type LessonCardProps = {
   onOpen?: (lesson: LessonView) => void;
   onComplete?: (lesson: LessonView) => void;
 };
+
+const MAX_TITLE_CHARS = 240;
+const MAX_META_CHARS = 180;
+const MAX_ARIA_CHARS = 260;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
 
 function getLessonStatus(lesson: LessonView) {
   if (lesson.isCompleted) return 'completed';
@@ -58,7 +70,27 @@ function getOpenButtonLabel(lesson: LessonView) {
 }
 
 function getLessonMeta(lesson: LessonView) {
-  return [lesson.courseTitle, lesson.moduleTitle].filter(Boolean).join(' · ');
+  return [lesson.courseTitle, lesson.moduleTitle]
+    .map((item) => cleanText(item, MAX_META_CHARS))
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function getLessonTitle(lesson: LessonView) {
+  return cleanText(lesson.title, MAX_TITLE_CHARS) || 'Сабақ';
+}
+
+function getSubjectName(lesson: LessonView) {
+  return cleanText(lesson.subjectName, MAX_META_CHARS) || 'Пән';
+}
+
+function getAriaLabel(lesson: LessonView, canOpen: boolean) {
+  const title = getLessonTitle(lesson);
+
+  return cleanText(
+    canOpen ? `${title} сабағын ашу` : `${title} сабағы жабық`,
+    MAX_ARIA_CHARS,
+  );
 }
 
 export default function LessonCard({
@@ -70,6 +102,8 @@ export default function LessonCard({
 }: LessonCardProps) {
   const status = getLessonStatus(lesson);
   const canOpen = !lesson.isLocked;
+  const title = getLessonTitle(lesson);
+  const subjectName = getSubjectName(lesson);
   const meta = getLessonMeta(lesson);
 
   const handleOpen = () => {
@@ -99,11 +133,7 @@ export default function LessonCard({
       role={canOpen ? 'button' : undefined}
       tabIndex={canOpen ? 0 : undefined}
       aria-disabled={!canOpen}
-      aria-label={
-        canOpen
-          ? `${lesson.title} сабағын ашу`
-          : `${lesson.title} сабағы жабық`
-      }
+      aria-label={getAriaLabel(lesson, canOpen)}
       onKeyDown={(event) => {
         if (!canOpen) return;
 
@@ -127,7 +157,7 @@ export default function LessonCard({
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone="primary">
               <BookOpen size={12} />
-              {lesson.subjectName || 'Пән'}
+              {subjectName}
             </StatusBadge>
 
             <LessonStatusBadge status={status} />
@@ -135,7 +165,7 @@ export default function LessonCard({
 
           <div className="min-w-0">
             <h3 className="line-clamp-2 text-sm font-semibold leading-6 text-foreground">
-              {lesson.title}
+              {title}
             </h3>
 
             {meta ? (

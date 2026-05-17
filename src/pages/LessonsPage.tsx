@@ -24,13 +24,37 @@ import { useLessons } from '@/hooks/use-platform-data';
 import type { LessonView } from '@/lib/app-data-types';
 import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type LessonStatusFilter = 'all' | 'available' | 'completed' | 'locked';
 
+const MAX_ID_CHARS = 180;
 const MAX_SEARCH_CHARS = 160;
+const MAX_TEXT_CHARS = 500;
+const MAX_SUBJECT_CHARS = 160;
 
-function normalizeText(value: string | null | undefined) {
-  return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_TEXT_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeText(value: unknown) {
+  return cleanText(value, MAX_TEXT_CHARS).toLowerCase();
+}
+
+function normalizeSearchInput(value: unknown) {
+  return cleanText(value, MAX_SEARCH_CHARS);
+}
+
+function buildLessonPath(lessonId: unknown) {
+  return `/lessons/${encodeURIComponent(cleanId(lessonId))}`;
 }
 
 function getStatusFilterLabel(filter: LessonStatusFilter) {
@@ -49,6 +73,20 @@ function getLessonStatusFilter(lesson: LessonView): LessonStatusFilter {
   if (lesson.isLocked) return 'locked';
 
   return 'available';
+}
+
+function buildLessonSearchHaystack(lesson: LessonView): string {
+  return normalizeText(
+    [
+      lesson.title,
+      lesson.courseTitle,
+      lesson.moduleTitle,
+      lesson.subjectName,
+    ]
+      .map((item) => cleanText(item))
+      .filter(Boolean)
+      .join(' '),
+  );
 }
 
 function LessonsPageSkeleton() {
@@ -119,11 +157,12 @@ function FilterChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors active:scale-[0.99] ${
+      className={cn(
+        'shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors active:scale-[0.99]',
         active
           ? 'border-primary-muted bg-primary-soft text-primary'
-          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary'
-      }`}
+          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary',
+      )}
     >
       {children}
     </button>
@@ -139,23 +178,34 @@ export default function LessonsPage() {
   const [search, setSearch] = useState('');
 
   const isStudent = user?.role === 'student';
+  const safeUserId = cleanId(user?.id);
 
   const { data, isLoading, error } = useLessons(
-    isStudent ? user?.id : undefined,
+    isStudent ? safeUserId : undefined,
     Boolean(user),
   );
 
   const lessons = data || [];
 
-  const subjects = useMemo(
-    () => [
-      'all',
-      ...Array.from(
-        new Set(lessons.map((item) => item.subjectName).filter(Boolean)),
-      ),
-    ],
-    [lessons],
-  );
+  const subjects = useMemo(() => {
+    const output = ['all'];
+    const seen = new Set(output);
+
+    lessons.forEach((lesson) => {
+      const subjectName = cleanText(lesson.subjectName, MAX_SUBJECT_CHARS);
+
+      if (!subjectName) return;
+
+      const key = subjectName.toLowerCase();
+
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      output.push(subjectName);
+    });
+
+    return output;
+  }, [lessons]);
 
   const stats = useMemo(() => {
     const total = lessons.length;
@@ -177,19 +227,17 @@ export default function LessonsPage() {
     const query = normalizeText(search);
 
     return lessons.filter((lesson) => {
+      const lessonSubject = cleanText(lesson.subjectName, MAX_SUBJECT_CHARS);
+
       const matchesSubject =
-        activeSubject === 'all' || lesson.subjectName === activeSubject;
+        activeSubject === 'all' || lessonSubject === activeSubject;
 
       const lessonStatus = getLessonStatusFilter(lesson);
       const matchesStatus =
         activeStatus === 'all' || lessonStatus === activeStatus;
 
       const matchesSearch =
-        !query ||
-        normalizeText(lesson.title).includes(query) ||
-        normalizeText(lesson.courseTitle).includes(query) ||
-        normalizeText(lesson.moduleTitle).includes(query) ||
-        normalizeText(lesson.subjectName).includes(query);
+        !query || buildLessonSearchHaystack(lesson).includes(query);
 
       return matchesSubject && matchesStatus && matchesSearch;
     });
@@ -205,13 +253,21 @@ export default function LessonsPage() {
   };
 
   const handleOpenLesson = (lesson: LessonView) => {
-    if (lesson.isLocked) return;
+    const lessonId = cleanId(lesson.id);
 
-    navigate(`/lessons/${lesson.id}`);
+    if (lesson.isLocked || !lessonId) return;
+
+    navigate(buildLessonPath(lessonId));
   };
 
   const handleSearchChange = (value: string) => {
-    setSearch(value.slice(0, MAX_SEARCH_CHARS));
+    setSearch(normalizeSearchInput(value));
+  };
+
+  const handleSubjectChange = (value: string) => {
+    const nextSubject = cleanText(value, MAX_SUBJECT_CHARS);
+
+    setActiveSubject(nextSubject || 'all');
   };
 
   const pageTitle = isStudent
@@ -293,6 +349,7 @@ export default function LessonsPage() {
 
                     <Input
                       value={search}
+                      maxLength={MAX_SEARCH_CHARS}
                       onChange={(event) => handleSearchChange(event.target.value)}
                       placeholder="Сабақ, курс, модуль немесе пән"
                       className="pl-10"
@@ -355,7 +412,7 @@ export default function LessonsPage() {
                     <FilterChip
                       key={subject}
                       active={activeSubject === subject}
-                      onClick={() => setActiveSubject(subject)}
+                      onClick={() => handleSubjectChange(subject)}
                     >
                       {subject === 'all' ? t('common.all') : subject}
                     </FilterChip>
@@ -410,14 +467,18 @@ export default function LessonsPage() {
                   </div>
 
                   <div className="grid gap-3">
-                    {filtered.map((lesson) => (
-                      <LessonCard
-                        key={lesson.id}
-                        lesson={lesson}
-                        isStudent={isStudent}
-                        onOpen={handleOpenLesson}
-                      />
-                    ))}
+                    {filtered.map((lesson, index) => {
+                      const lessonId = cleanId(lesson.id);
+
+                      return (
+                        <LessonCard
+                          key={lessonId || `${cleanText(lesson.title)}-${index}`}
+                          lesson={lesson}
+                          isStudent={isStudent}
+                          onOpen={handleOpenLesson}
+                        />
+                      );
+                    })}
                   </div>
                 </CardContent>
               </Card>
