@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Session } from '@supabase/supabase-js';
 import {
@@ -14,36 +14,78 @@ import KazakhOrnament from '@/components/KazakhOrnament';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth, type UserRole } from '@/lib/auth-context';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
 const PENDING_OAUTH_ROLE_KEY = 'bilim.pendingOAuthRole';
 
-function isUserRole(value: unknown): value is Exclude<UserRole, 'admin'> {
-  return value === 'student' || value === 'teacher' || value === 'parent';
+const MAX_ROLE_CHARS = 40;
+const MAX_ERROR_CHARS = 700;
+const MAX_MESSAGE_CHARS = 240;
+const SESSION_RETRY_COUNT = 20;
+const SESSION_RETRY_DELAY_MS = 200;
+
+type OAuthRole = Exclude<UserRole, 'admin'>;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
 }
 
-function getPendingOAuthRole(): Exclude<UserRole, 'admin'> | null {
-  if (typeof window === 'undefined') return null;
-
-  const value = window.localStorage.getItem(PENDING_OAUTH_ROLE_KEY);
-  return isUserRole(value) ? value : null;
+function cleanText(value: unknown, limit = MAX_MESSAGE_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
 }
 
-function getRoleFromUrl(): Exclude<UserRole, 'admin'> | null {
-  const searchParams = new URLSearchParams(window.location.search);
-  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+function normalizeRoleCandidate(value: unknown): string {
+  return cleanText(value, MAX_ROLE_CHARS).toLowerCase();
+}
+
+function isUserRole(value: unknown): value is OAuthRole {
+  const normalized = normalizeRoleCandidate(value);
+
+  return normalized === 'student' || normalized === 'teacher' || normalized === 'parent';
+}
+
+function getSafeWindow() {
+  return typeof window === 'undefined' ? null : window;
+}
+
+function getPendingOAuthRole(): OAuthRole | null {
+  const safeWindow = getSafeWindow();
+
+  if (!safeWindow) return null;
+
+  const value = safeWindow.localStorage.getItem(PENDING_OAUTH_ROLE_KEY);
+
+  return isUserRole(value) ? (normalizeRoleCandidate(value) as OAuthRole) : null;
+}
+
+function getRoleFromUrl(): OAuthRole | null {
+  const safeWindow = getSafeWindow();
+
+  if (!safeWindow) return null;
+
+  const searchParams = new URLSearchParams(safeWindow.location.search);
+  const hashParams = new URLSearchParams(safeWindow.location.hash.replace(/^#/, ''));
 
   const roleFromSearch = searchParams.get('role');
   const roleFromHash = hashParams.get('role');
 
-  if (isUserRole(roleFromSearch)) return roleFromSearch;
-  if (isUserRole(roleFromHash)) return roleFromHash;
+  if (isUserRole(roleFromSearch)) {
+    return normalizeRoleCandidate(roleFromSearch) as OAuthRole;
+  }
+
+  if (isUserRole(roleFromHash)) {
+    return normalizeRoleCandidate(roleFromHash) as OAuthRole;
+  }
 
   return null;
 }
 
 function clearPendingOAuthRole() {
-  if (typeof window === 'undefined') return;
-  window.localStorage.removeItem(PENDING_OAUTH_ROLE_KEY);
+  const safeWindow = getSafeWindow();
+
+  if (!safeWindow) return;
+
+  safeWindow.localStorage.removeItem(PENDING_OAUTH_ROLE_KEY);
 }
 
 function sleep(ms: number) {
@@ -51,43 +93,78 @@ function sleep(ms: number) {
 }
 
 function getOAuthErrorFromUrl() {
-  const searchParams = new URLSearchParams(window.location.search);
-  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const safeWindow = getSafeWindow();
 
-  return (
+  if (!safeWindow) return '';
+
+  const searchParams = new URLSearchParams(safeWindow.location.search);
+  const hashParams = new URLSearchParams(safeWindow.location.hash.replace(/^#/, ''));
+
+  return cleanText(
     searchParams.get('error_description') ||
-    searchParams.get('error') ||
-    hashParams.get('error_description') ||
-    hashParams.get('error') ||
-    ''
+      searchParams.get('error') ||
+      hashParams.get('error_description') ||
+      hashParams.get('error') ||
+      '',
+    MAX_ERROR_CHARS,
   );
 }
 
 function isMissingRoleRpcError(message: string) {
+  const normalized = cleanText(message, MAX_ERROR_CHARS);
+
   return (
-    /could not find the function/i.test(message) ||
-    /schema cache/i.test(message) ||
-    (/not found/i.test(message) && /claim_requested_role/i.test(message))
+    /could not find the function/i.test(normalized) ||
+    /schema cache/i.test(normalized) ||
+    (/not found/i.test(normalized) && /claim_requested_role/i.test(normalized))
   );
 }
 
-async function claimRequestedRoleSafe(
-  requestedRole: Exclude<UserRole, 'admin'> | null
-) {
+async function claimRequestedRoleSafe(requestedRole: OAuthRole | null) {
   const { error } = await supabase.rpc('claim_requested_role' as never, {
     p_requested_role: requestedRole ?? null,
   } as never);
 
   if (!error) return;
 
-  const message = error.message || '';
+  const message = cleanText(error.message, MAX_ERROR_CHARS);
 
   if (isMissingRoleRpcError(message)) {
     console.warn('claim_requested_role RPC is missing, continuing without role sync');
     return;
   }
 
-  throw new Error(message);
+  throw new Error(message || 'Рөлді сақтау мүмкін болмады.');
+}
+
+function getProviderList(session: Session | null): string[] {
+  const authUser = session?.user;
+
+  if (!authUser) return [];
+
+  const providers = authUser.app_metadata?.providers;
+  const identities = authUser.identities || [];
+  const providerSet = new Set<string>();
+
+  if (Array.isArray(providers)) {
+    providers.forEach((provider) => {
+      const normalized = cleanText(provider, MAX_ROLE_CHARS).toLowerCase();
+
+      if (normalized) {
+        providerSet.add(normalized);
+      }
+    });
+  }
+
+  identities.forEach((identity) => {
+    const normalized = cleanText(identity.provider, MAX_ROLE_CHARS).toLowerCase();
+
+    if (normalized) {
+      providerSet.add(normalized);
+    }
+  });
+
+  return Array.from(providerSet);
 }
 
 function hasPasswordIdentity(session: Session | null) {
@@ -99,27 +176,13 @@ function hasPasswordIdentity(session: Session | null) {
     return true;
   }
 
-  const providers = authUser.app_metadata?.providers;
-  const identities = authUser.identities || [];
-
-  return (
-    (Array.isArray(providers) && providers.includes('email')) ||
-    identities.some((identity) => identity.provider === 'email')
-  );
+  return getProviderList(session).includes('email');
 }
 
 function hasGoogleIdentity(session: Session | null) {
-  const authUser = session?.user;
+  if (!session?.user) return false;
 
-  if (!authUser) return false;
-
-  const providers = authUser.app_metadata?.providers;
-  const identities = authUser.identities || [];
-
-  return (
-    (Array.isArray(providers) && providers.includes('google')) ||
-    identities.some((identity) => identity.provider === 'google')
-  );
+  return getProviderList(session).includes('google');
 }
 
 function needsPasswordSetup(session: Session | null) {
@@ -129,11 +192,7 @@ function needsPasswordSetup(session: Session | null) {
   return hasGoogleIdentity(session);
 }
 
-function AuthCallbackShell({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function AuthCallbackShell({ children }: { children: ReactNode }) {
   return (
     <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background p-6">
       <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary-soft blur-3xl" />
@@ -163,6 +222,7 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     if (processedRef.current) return;
+
     processedRef.current = true;
 
     let cancelled = false;
@@ -177,8 +237,9 @@ export default function AuthCallbackPage() {
 
         const requestedRole = getRoleFromUrl() || getPendingOAuthRole();
 
-        const searchParams = new URLSearchParams(window.location.search);
-        const code = searchParams.get('code');
+        const safeWindow = getSafeWindow();
+        const searchParams = new URLSearchParams(safeWindow?.location.search || '');
+        const code = cleanText(searchParams.get('code'), 2_000);
 
         if (code) {
           setMessage('Google сессиясы сақталуда...');
@@ -187,24 +248,24 @@ export default function AuthCallbackPage() {
             await supabase.auth.exchangeCodeForSession(code);
 
           if (exchangeError) {
-            throw new Error(exchangeError.message);
+            throw new Error(cleanText(exchangeError.message, MAX_ERROR_CHARS));
           }
 
-          window.history.replaceState(null, document.title, '/auth/callback');
+          safeWindow?.history.replaceState(null, document.title, '/auth/callback');
         }
 
         setMessage('Сессия тексерілуде...');
 
         let currentSession: Session | null = null;
 
-        for (let attempt = 0; attempt < 20; attempt += 1) {
+        for (let attempt = 0; attempt < SESSION_RETRY_COUNT; attempt += 1) {
           const {
             data: { session },
             error: sessionError,
           } = await supabase.auth.getSession();
 
           if (sessionError) {
-            throw new Error(sessionError.message);
+            throw new Error(cleanText(sessionError.message, MAX_ERROR_CHARS));
           }
 
           if (session?.user) {
@@ -212,7 +273,7 @@ export default function AuthCallbackPage() {
             break;
           }
 
-          await sleep(200);
+          await sleep(SESSION_RETRY_DELAY_MS);
         }
 
         if (!currentSession?.user) {
@@ -232,16 +293,21 @@ export default function AuthCallbackPage() {
 
         const {
           data: { session: refreshedSession },
+          error: refreshedSessionError,
         } = await supabase.auth.getSession();
 
+        if (refreshedSessionError) {
+          throw new Error(cleanText(refreshedSessionError.message, MAX_ERROR_CHARS));
+        }
+
         const mustSetupPassword = needsPasswordSetup(
-          refreshedSession || currentSession
+          refreshedSession || currentSession,
         );
 
         if (!cancelled) {
           navigate(
             mustSetupPassword ? '/setup-password?next=/dashboard' : '/dashboard',
-            { replace: true }
+            { replace: true },
           );
         }
       } catch (err) {
@@ -250,8 +316,8 @@ export default function AuthCallbackPage() {
         if (!cancelled) {
           setError(
             err instanceof Error
-              ? err.message
-              : 'Google арқылы кіруді аяқтау мүмкін болмады.'
+              ? cleanText(err.message, MAX_ERROR_CHARS)
+              : 'Google арқылы кіруді аяқтау мүмкін болмады.',
           );
         }
       }
@@ -275,7 +341,7 @@ export default function AuthCallbackPage() {
 
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-destructive-muted bg-destructive-soft px-3 py-1 text-xs font-semibold text-destructive">
               <AlertTriangle size={12} />
-              OAuth error
+              OAuth қатесі
             </div>
 
             <h1 className="text-xl font-semibold tracking-tight text-foreground">
@@ -320,7 +386,7 @@ export default function AuthCallbackPage() {
 
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-ai-border bg-ai-soft px-3 py-1 text-xs font-semibold text-primary">
               <Sparkles size={12} />
-              Google OAuth
+              Google авторизациясы
             </div>
 
             <h1 className="text-xl font-semibold tracking-tight text-foreground">
@@ -328,7 +394,7 @@ export default function AuthCallbackPage() {
             </h1>
 
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {message}
+              {cleanText(message, MAX_MESSAGE_CHARS)}
             </p>
           </div>
         </div>
@@ -342,11 +408,10 @@ export default function AuthCallbackPage() {
 
               <div>
                 <p className="text-sm font-semibold text-foreground">
-                  Сессия қауіпсіз тексеріліп жатыр
+                  Сессия тексеріліп жатыр
                 </p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Google жауап беріп болған соң, профиль, рөл және password setup
-                  күйі тексеріледі.
+                  Профиль, рөл және құпия сөз күйі тексеріледі.
                 </p>
               </div>
             </div>
@@ -356,7 +421,7 @@ export default function AuthCallbackPage() {
 
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <GraduationCap size={13} />
-            Bilimcorp Soft Academic LMS
+            Bilimcorp
           </div>
         </div>
       </div>

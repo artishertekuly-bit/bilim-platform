@@ -41,6 +41,7 @@ const MAX_AVATAR_SIZE_MB = 25;
 
 const MAX_ID_CHARS = 160;
 const MAX_FULL_NAME_CHARS = 180;
+const MAX_EMAIL_CHARS = 320;
 const MAX_BIO_CHARS = 1_000;
 const MAX_PASSWORD_CHARS = 256;
 const MAX_PROVIDER_CHARS = 80;
@@ -74,6 +75,10 @@ function cleanMultilineText(value: unknown, limit = MAX_BIO_CHARS): string {
   );
 }
 
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
 function normalizePassword(value: unknown): string {
   return cleanRawText(value).slice(0, MAX_PASSWORD_CHARS);
 }
@@ -86,6 +91,24 @@ function normalizeUrl(value: unknown): string {
   return cleanText(value, MAX_URL_CHARS);
 }
 
+function normalizeHttpUrl(value: unknown): string | null {
+  const rawUrl = normalizeUrl(value);
+
+  if (!rawUrl) return null;
+
+  try {
+    const parsed = new URL(rawUrl);
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 function safeDecodePath(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -95,7 +118,7 @@ function safeDecodePath(value: string): string {
 }
 
 function extractStoragePath(url?: string | null) {
-  const normalizedUrl = normalizeUrl(url);
+  const normalizedUrl = normalizeHttpUrl(url);
 
   if (!normalizedUrl) return null;
 
@@ -138,7 +161,10 @@ function getErrorMessage(error: unknown, fallback: string) {
 }
 
 function getCacheBustedUrl(url: string) {
-  const normalizedUrl = normalizeUrl(url);
+  const normalizedUrl = normalizeHttpUrl(url);
+
+  if (!normalizedUrl) return null;
+
   const separator = normalizedUrl.includes('?') ? '&' : '?';
 
   return `${normalizedUrl}${separator}v=${Date.now()}`;
@@ -155,6 +181,14 @@ function getProviderLabel(provider: string) {
   if (normalizedProvider === 'email') return 'Email';
 
   return cleanText(provider, MAX_PROVIDER_CHARS) || 'Басқа';
+}
+
+function getRoleLabel(role: UserRole | string | null | undefined) {
+  if (role === 'student' || role === 'teacher' || role === 'parent' || role === 'admin') {
+    return ROLE_LABELS[role];
+  }
+
+  return '—';
 }
 
 function SectionCard({
@@ -175,7 +209,7 @@ function SectionCard({
               {icon}
             </span>
           ) : null}
-          {title}
+          {cleanText(title, MAX_FULL_NAME_CHARS)}
         </CardTitle>
       </CardHeader>
 
@@ -193,7 +227,9 @@ function InfoRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 px-3 py-2.5 shadow-inner-soft">
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground">
+        {cleanText(label, MAX_FULL_NAME_CHARS)}
+      </span>
       <div className="min-w-0 text-right text-sm font-semibold text-foreground">
         {value}
       </div>
@@ -296,50 +332,59 @@ export default function ProfileSettingsPage() {
   const [authProviders, setAuthProviders] = useState<string[]>([]);
   const [passwordSetupCompleted, setPasswordSetupCompleted] = useState(false);
 
+  const safeUserId = cleanId(user?.id);
+
   useEffect(() => {
     setFullName(getDefaultFullName(user));
     setBio(cleanMultilineText(user?.bio || '', MAX_BIO_CHARS));
-    setAvatarUrl(user?.avatarUrl ? normalizeUrl(user.avatarUrl) : null);
+    setAvatarUrl(normalizeHttpUrl(user?.avatarUrl));
   }, [user]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadAuthStatus = async () => {
-      const { data } = await supabase.auth.getUser();
-      const authUser = data.user;
+      try {
+        const { data } = await supabase.auth.getUser();
+        const authUser = data.user;
 
-      if (!authUser || cancelled) return;
+        if (!authUser || cancelled) return;
 
-      const providerSet = new Set<string>();
+        const providerSet = new Set<string>();
 
-      const providers = authUser.app_metadata?.providers;
+        const providers = authUser.app_metadata?.providers;
 
-      if (Array.isArray(providers)) {
-        providers.forEach((provider) => {
-          const normalizedProvider = normalizeProvider(provider);
+        if (Array.isArray(providers)) {
+          providers.forEach((provider) => {
+            const normalizedProvider = normalizeProvider(provider);
+
+            if (normalizedProvider) {
+              providerSet.add(normalizedProvider);
+            }
+          });
+        }
+
+        authUser.identities?.forEach((identity) => {
+          const normalizedProvider = normalizeProvider(identity.provider);
 
           if (normalizedProvider) {
             providerSet.add(normalizedProvider);
           }
         });
-      }
 
-      authUser.identities?.forEach((identity) => {
-        const normalizedProvider = normalizeProvider(identity.provider);
+        const nextProviders = Array.from(providerSet).slice(0, 8);
 
-        if (normalizedProvider) {
-          providerSet.add(normalizedProvider);
+        setAuthProviders(nextProviders);
+        setPasswordSetupCompleted(
+          authUser.user_metadata?.password_setup_completed === true ||
+            nextProviders.includes('email'),
+        );
+      } catch {
+        if (!cancelled) {
+          setAuthProviders([]);
+          setPasswordSetupCompleted(false);
         }
-      });
-
-      const nextProviders = Array.from(providerSet);
-
-      setAuthProviders(nextProviders);
-      setPasswordSetupCompleted(
-        authUser.user_metadata?.password_setup_completed === true ||
-          nextProviders.includes('email'),
-      );
+      }
     };
 
     void loadAuthStatus();
@@ -367,8 +412,8 @@ export default function ProfileSettingsPage() {
     normalizedFullName !== defaultFullName || normalizedBio !== defaultBio;
 
   const hasAvatar = Boolean(avatarUrl);
-  const canSaveProfile = Boolean(user) && isProfileDirty && !savingProfile;
-  const canRemoveAvatar = Boolean(user) && hasAvatar && !savingAvatar;
+  const canSaveProfile = Boolean(safeUserId) && isProfileDirty && !savingProfile;
+  const canRemoveAvatar = Boolean(safeUserId) && hasAvatar && !savingAvatar;
 
   const normalizedNewPassword = normalizePassword(newPassword);
   const normalizedConfirmPassword = normalizePassword(confirmPassword);
@@ -383,7 +428,7 @@ export default function ProfileSettingsPage() {
     normalizedNewPassword !== normalizedConfirmPassword;
 
   const canSavePassword =
-    Boolean(user) &&
+    Boolean(safeUserId) &&
     isValidPassword(normalizedNewPassword) &&
     normalizedConfirmPassword.length >= 8 &&
     normalizedNewPassword === normalizedConfirmPassword &&
@@ -403,20 +448,30 @@ export default function ProfileSettingsPage() {
     bio?: string | null;
     avatar_url?: string | null;
   }) => {
-    if (!user) {
+    if (!safeUserId) {
       throw new Error('Пайдаланушы табылмады.');
     }
+
+    const nextFullName =
+      patch.full_name === null
+        ? null
+        : patch.full_name ?? (normalizedFullName || defaultFullName);
+
+    const nextBio =
+      patch.bio === null ? null : patch.bio ?? (normalizedBio || null);
+
+    const nextAvatarUrl = Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
+      ? normalizeHttpUrl(patch.avatar_url)
+      : avatarUrl;
 
     const { error } = await supabase
       .from('profiles')
       .upsert(
         {
-          user_id: cleanText(user.id, MAX_ID_CHARS),
-          full_name: patch.full_name ?? (normalizedFullName || defaultFullName),
-          bio: patch.bio ?? (normalizedBio || null),
-          avatar_url: Object.prototype.hasOwnProperty.call(patch, 'avatar_url')
-            ? patch.avatar_url
-            : avatarUrl,
+          user_id: safeUserId,
+          full_name: nextFullName,
+          bio: nextBio,
+          avatar_url: nextAvatarUrl,
         },
         {
           onConflict: 'user_id',
@@ -477,7 +532,7 @@ export default function ProfileSettingsPage() {
   };
 
   const handleAvatarCropped = async (croppedFile: File) => {
-    if (!user) return;
+    if (!safeUserId) return;
 
     if (!croppedFile.type.startsWith('image/')) {
       toast({
@@ -489,12 +544,21 @@ export default function ProfileSettingsPage() {
       return;
     }
 
+    if (croppedFile.size > MAX_AVATAR_SIZE_MB * 1024 * 1024) {
+      toast({
+        title: t('page.profile.toast.error_title'),
+        description: t('page.profile.toast.file_too_large'),
+        variant: 'destructive',
+      });
+
+      return;
+    }
+
     setSavingAvatar(true);
 
     try {
-      const userId = cleanText(user.id, MAX_ID_CHARS);
       const oldStoragePath = extractStoragePath(avatarUrl);
-      const filePath = `${userId}/avatar-${Date.now()}.jpg`;
+      const filePath = `${safeUserId}/avatar-${Date.now()}.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from(AVATAR_BUCKET)
@@ -509,7 +573,11 @@ export default function ProfileSettingsPage() {
       }
 
       const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(filePath);
-      const nextAvatarUrl = normalizeUrl(data.publicUrl);
+      const nextAvatarUrl = normalizeHttpUrl(data.publicUrl);
+
+      if (!nextAvatarUrl) {
+        throw new Error(t('page.profile.toast.avatar_save_error'));
+      }
 
       await upsertProfile({
         avatar_url: nextAvatarUrl,
@@ -538,7 +606,7 @@ export default function ProfileSettingsPage() {
   };
 
   const saveProfile = async () => {
-    if (!user || !isProfileDirty) return;
+    if (!safeUserId || !isProfileDirty) return;
 
     setSavingProfile(true);
 
@@ -565,7 +633,7 @@ export default function ProfileSettingsPage() {
   };
 
   const removeAvatar = async () => {
-    if (!user || !avatarUrl) return;
+    if (!safeUserId || !avatarUrl) return;
 
     setSavingAvatar(true);
 
@@ -605,12 +673,16 @@ export default function ProfileSettingsPage() {
     try {
       await updatePassword(normalizedNewPassword);
 
-      await supabase.auth.updateUser({
+      const { error } = await supabase.auth.updateUser({
         data: {
           password_setup_completed: true,
           password_setup_completed_at: new Date().toISOString(),
         },
       });
+
+      if (error) {
+        throw new Error(error.message);
+      }
 
       setPasswordSetupCompleted(true);
       setAuthProviders((current) => Array.from(new Set([...current, 'email'])));
@@ -674,7 +746,7 @@ export default function ProfileSettingsPage() {
                 </h3>
 
                 <p className="mt-1 max-w-full truncate text-sm text-muted-foreground">
-                  {cleanText(user?.email, MAX_FULL_NAME_CHARS)}
+                  {cleanText(user?.email, MAX_EMAIL_CHARS)}
                 </p>
 
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -699,11 +771,8 @@ export default function ProfileSettingsPage() {
               </div>
 
               <div className="mt-5 space-y-2">
-                <InfoRow
-                  label="Рөл"
-                  value={user?.role ? ROLE_LABELS[user.role] : '—'}
-                />
-                <InfoRow label="Email" value={cleanText(user?.email, 320) || '—'} />
+                <InfoRow label="Рөл" value={getRoleLabel(user?.role)} />
+                <InfoRow label="Email" value={cleanText(user?.email, MAX_EMAIL_CHARS) || '—'} />
                 <InfoRow
                   label="Google"
                   value={hasGoogleProvider ? 'Қосылған' : 'Қосылмаған'}

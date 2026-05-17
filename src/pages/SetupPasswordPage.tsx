@@ -23,9 +23,42 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth-context';
-import { cn } from '@/lib/utils';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type PasswordStrengthTone = 'muted' | 'danger' | 'warning' | 'success';
+
+const MAX_PASSWORD_CHARS = 256;
+const MAX_NEXT_PATH_CHARS = 300;
+const MAX_ERROR_CHARS = 700;
+
+const BLOCKED_NEXT_PATHS = new Set([
+  '/login',
+  '/register',
+  '/auth/callback',
+  '/setup-password',
+  '/forgot-password',
+  '/update-password',
+]);
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_ERROR_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function normalizePassword(value: unknown): string {
+  return cleanRawText(value).slice(0, MAX_PASSWORD_CHARS);
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return cleanText(error.message, MAX_ERROR_CHARS);
+  }
+
+  return fallback;
+}
 
 function getPasswordStrength(password: string) {
   let score = 0;
@@ -91,21 +124,20 @@ function validatePassword(password: string, confirmPassword: string) {
 }
 
 function sanitizeNextPath(value: string | null) {
-  if (!value) return '/dashboard';
+  const nextPath = cleanText(value, MAX_NEXT_PATH_CHARS);
 
-  if (!value.startsWith('/')) {
+  if (!nextPath) return '/dashboard';
+  if (!nextPath.startsWith('/')) return '/dashboard';
+  if (nextPath.startsWith('//')) return '/dashboard';
+  if (nextPath.includes('\\')) return '/dashboard';
+
+  const pathOnly = nextPath.split('?')[0].split('#')[0];
+
+  if (BLOCKED_NEXT_PATHS.has(pathOnly)) {
     return '/dashboard';
   }
 
-  if (value.startsWith('//')) {
-    return '/dashboard';
-  }
-
-  if (value === '/login' || value === '/register') {
-    return '/dashboard';
-  }
-
-  return value;
+  return nextPath;
 }
 
 function getStrengthToneClassName(tone: PasswordStrengthTone) {
@@ -147,10 +179,12 @@ function PasswordField({
           id={id}
           type={visible ? 'text' : 'password'}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(normalizePassword(event.target.value))}
           placeholder={placeholder}
           autoComplete="new-password"
           className="pr-11"
+          minLength={8}
+          maxLength={MAX_PASSWORD_CHARS}
           disabled={disabled}
         />
 
@@ -181,7 +215,7 @@ function RequirementItem({
         'flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-medium',
         ok
           ? 'border-success-muted bg-success-soft text-success-foreground'
-          : 'border-border bg-card text-muted-foreground'
+          : 'border-border bg-card text-muted-foreground',
       )}
     >
       {ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
@@ -204,20 +238,20 @@ export default function SetupPasswordPage() {
 
   const nextPath = useMemo(
     () => sanitizeNextPath(searchParams.get('next')),
-    [searchParams]
+    [searchParams],
   );
 
-  const normalizedPassword = password.trim();
-  const normalizedConfirmPassword = confirmPassword.trim();
+  const normalizedPassword = normalizePassword(password);
+  const normalizedConfirmPassword = normalizePassword(confirmPassword);
 
   const strength = useMemo(
     () => getPasswordStrength(normalizedPassword),
-    [normalizedPassword]
+    [normalizedPassword],
   );
 
   const validationErrors = useMemo(
     () => validatePassword(normalizedPassword, normalizedConfirmPassword),
-    [normalizedPassword, normalizedConfirmPassword]
+    [normalizedPassword, normalizedConfirmPassword],
   );
 
   const passwordHasMinLength = normalizedPassword.length >= 8;
@@ -232,24 +266,6 @@ export default function SetupPasswordPage() {
     Boolean(normalizedConfirmPassword) &&
     validationErrors.length === 0 &&
     !isSaving;
-
-  if (isLoading) {
-    return (
-      <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="w-full max-w-md">
-          <LoadingState
-            align="center"
-            title="Сессия тексерілуде"
-            text="Аккаунт дерегі және кіру күйі тексеріліп жатыр."
-          />
-        </div>
-      </div>
-    );
-  }
-
-  if (!session || !user) {
-    return <Navigate to="/login" replace />;
-  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -270,33 +286,53 @@ export default function SetupPasswordPage() {
     try {
       await updatePassword(normalizedPassword);
 
-      await supabase.auth.updateUser({
+      const { error } = await supabase.auth.updateUser({
         data: {
           password_setup_completed: true,
           password_setup_completed_at: new Date().toISOString(),
         },
       });
 
+      if (error) {
+        throw new Error(error.message);
+      }
+
       await refreshUser();
 
       toast({
         title: 'Құпия сөз қойылды',
-        description:
-          'Енді аккаунтқа Google арқылы да, email/password арқылы да кіре аласыз.',
+        description: 'Енді аккаунтқа Google немесе email арқылы кіре аласыз.',
       });
 
       navigate(nextPath, { replace: true });
     } catch (error) {
       toast({
         title: 'Құпия сөз қою мүмкін болмады',
-        description:
-          error instanceof Error ? error.message : 'Белгісіз қате пайда болды.',
+        description: getErrorMessage(error, 'Белгісіз қате пайда болды.'),
         variant: 'destructive',
       });
     } finally {
       setIsSaving(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="w-full max-w-md">
+          <LoadingState
+            align="center"
+            title="Сессия тексерілуде"
+            text="Аккаунт дерегі және кіру күйі тексеріліп жатыр."
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (!session || !user) {
+    return <Navigate to="/login" replace />;
+  }
 
   return (
     <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background px-4 py-8">
@@ -308,7 +344,7 @@ export default function SetupPasswordPage() {
           <div>
             <span className="block text-sm font-semibold">Bilimcorp</span>
             <span className="block text-[11px] text-muted-foreground">
-              Password setup
+              Қауіпсіздік
             </span>
           </div>
         </div>
@@ -325,14 +361,13 @@ export default function SetupPasswordPage() {
 
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-ai-border bg-ai-soft px-3 py-1 text-xs font-semibold text-primary">
                 <ShieldCheck size={12} />
-                Account security
+                Аккаунт қауіпсіздігі
               </div>
 
               <CardTitle className="text-xl">Құпия сөз қойыңыз</CardTitle>
 
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Google арқылы кірдіңіз. Аккаунтыңызды толық қолдану үшін
-                платформаға бөлек құпия сөз қойыңыз.
+                Аккаунтқа бөлек құпия сөз орнатыңыз.
               </p>
             </div>
           </CardHeader>
@@ -345,8 +380,8 @@ export default function SetupPasswordPage() {
                 </div>
 
                 <p className="text-xs leading-5 text-muted-foreground">
-                  Бұл құпия сөз Google аккаунтыңызды алмастырмайды. Кейін
-                  платформаға Google арқылы да, email/password арқылы да кіре аласыз.
+                  Google арқылы кіру сақталады. Құпия сөз email арқылы кіруге
+                  де мүмкіндік береді.
                 </p>
               </div>
             </div>
@@ -369,7 +404,7 @@ export default function SetupPasswordPage() {
                 <span
                   className={cn(
                     'rounded-full border px-2.5 py-1 text-[11px] font-semibold',
-                    getStrengthToneClassName(strength.tone)
+                    getStrengthToneClassName(strength.tone),
                   )}
                 >
                   {strength.label}

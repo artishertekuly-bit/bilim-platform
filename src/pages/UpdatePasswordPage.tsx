@@ -1,4 +1,11 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -11,17 +18,21 @@ import {
   KeyRound,
   Loader2,
   ShieldCheck,
+  XCircle,
 } from 'lucide-react';
 
 import KazakhOrnament from '@/components/KazakhOrnament';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/lib/auth-context';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 const MAX_PASSWORD_CHARS = 256;
+const MIN_PASSWORD_CHARS = 8;
 const MAX_ALERT_CHARS = 700;
+const REDIRECT_DELAY_MS = 900;
 
 function cleanRawText(value: unknown): string {
   return removeNullCharacters(String(value ?? ''));
@@ -37,10 +48,32 @@ function normalizePassword(value: unknown): string {
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
-    return cleanText(error.message);
+    return cleanText(error.message, MAX_ALERT_CHARS);
   }
 
   return 'Құпия сөзді жаңарту мүмкін болмады.';
+}
+
+function validatePassword(password: string, confirmPassword: string) {
+  const errors: string[] = [];
+
+  if (password.length < MIN_PASSWORD_CHARS) {
+    errors.push(`Құпия сөз кемінде ${MIN_PASSWORD_CHARS} таңбадан тұруы керек.`);
+  }
+
+  if (!/[A-Za-zА-Яа-я]/.test(password)) {
+    errors.push('Құпия сөзде кемінде бір әріп болуы керек.');
+  }
+
+  if (!/\d/.test(password)) {
+    errors.push('Құпия сөзде кемінде бір сан болуы керек.');
+  }
+
+  if (password !== confirmPassword) {
+    errors.push('Құпия сөздер сәйкес келмейді.');
+  }
+
+  return errors;
 }
 
 function AuthAlert({
@@ -50,7 +83,7 @@ function AuthAlert({
   tone: 'danger' | 'warning' | 'success';
   children: string;
 }) {
-  const message = cleanText(children);
+  const message = cleanText(children, MAX_ALERT_CHARS);
 
   if (!message) return null;
 
@@ -75,6 +108,28 @@ function AuthAlert({
     >
       <Icon size={15} className="mt-0.5 shrink-0" />
       <span>{message}</span>
+    </div>
+  );
+}
+
+function RequirementItem({
+  ok,
+  children,
+}: {
+  ok: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-medium',
+        ok
+          ? 'border-success-muted bg-success-soft text-success-foreground'
+          : 'border-border bg-card text-muted-foreground',
+      )}
+    >
+      {ok ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+      <span>{children}</span>
     </div>
   );
 }
@@ -113,7 +168,8 @@ function PasswordField({
           placeholder={placeholder}
           className="pr-11"
           required
-          minLength={6}
+          minLength={MIN_PASSWORD_CHARS}
+          maxLength={MAX_PASSWORD_CHARS}
           autoComplete="new-password"
           disabled={disabled}
         />
@@ -133,7 +189,7 @@ function PasswordField({
 }
 
 export default function UpdatePasswordPage() {
-  const { session, isLoading, updatePassword } = useAuth();
+  const { session, isLoading, updatePassword, refreshUser } = useAuth();
   const navigate = useNavigate();
   const redirectTimeoutRef = useRef<number | null>(null);
 
@@ -148,28 +204,49 @@ export default function UpdatePasswordPage() {
   const normalizedPassword = normalizePassword(password);
   const normalizedConfirmPassword = normalizePassword(confirmPassword);
 
-  const passwordMismatch =
-    normalizedPassword.length > 0 &&
-    normalizedConfirmPassword.length > 0 &&
-    normalizedPassword !== normalizedConfirmPassword;
+  const validationErrors = useMemo(
+    () => validatePassword(normalizedPassword, normalizedConfirmPassword),
+    [normalizedPassword, normalizedConfirmPassword],
+  );
 
-  const passwordTooShort =
-    normalizedPassword.length > 0 && normalizedPassword.length < 6;
+  const passwordHasMinLength = normalizedPassword.length >= MIN_PASSWORD_CHARS;
+  const passwordHasLetter = /[A-Za-zА-Яа-я]/.test(normalizedPassword);
+  const passwordHasNumber = /\d/.test(normalizedPassword);
+  const passwordsMatch =
+    normalizedConfirmPassword.length > 0 &&
+    normalizedPassword === normalizedConfirmPassword;
+
+  const hasStartedTyping = Boolean(password || confirmPassword);
 
   const canSubmit = useMemo(
     () =>
-      normalizedPassword.length >= 6 &&
-      normalizedConfirmPassword.length >= 6 &&
-      normalizedPassword === normalizedConfirmPassword &&
+      normalizedPassword.length > 0 &&
+      normalizedConfirmPassword.length > 0 &&
+      validationErrors.length === 0 &&
       !loading &&
       Boolean(session),
-    [loading, normalizedConfirmPassword, normalizedPassword, session],
+    [loading, normalizedConfirmPassword, normalizedPassword, session, validationErrors.length],
   );
 
   const formDisabled = loading || isLoading || !session;
 
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current) {
+        window.clearTimeout(redirectTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    const errors = validatePassword(normalizedPassword, normalizedConfirmPassword);
+
+    if (errors.length > 0) {
+      setError(errors[0]);
+      return;
+    }
 
     if (!canSubmit) return;
 
@@ -185,13 +262,28 @@ export default function UpdatePasswordPage() {
     try {
       await updatePassword(normalizedPassword);
 
+      const { error: metadataError } = await supabase.auth.updateUser({
+        data: {
+          password_setup_completed: true,
+          password_setup_completed_at: new Date().toISOString(),
+        },
+      });
+
+      if (metadataError) {
+        throw new Error(metadataError.message);
+      }
+
+      await refreshUser();
+
       setInfo('Құпия сөз жаңартылды.');
       setPassword('');
       setConfirmPassword('');
+      setShowPassword(false);
+      setShowConfirmPassword(false);
 
       redirectTimeoutRef.current = window.setTimeout(() => {
         navigate('/profile', { replace: true });
-      }, 900);
+      }, REDIRECT_DELAY_MS);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -310,8 +402,11 @@ export default function UpdatePasswordPage() {
                   id="password"
                   label="Жаңа құпия сөз"
                   value={password}
-                  onChange={setPassword}
-                  placeholder="Кемінде 6 таңба"
+                  onChange={(value) => {
+                    setPassword(value);
+                    setError('');
+                  }}
+                  placeholder={`Кемінде ${MIN_PASSWORD_CHARS} таңба`}
                   visible={showPassword}
                   onToggleVisible={() => setShowPassword((prev) => !prev)}
                   disabled={formDisabled}
@@ -321,23 +416,33 @@ export default function UpdatePasswordPage() {
                   id="confirmPassword"
                   label="Қайталау"
                   value={confirmPassword}
-                  onChange={setConfirmPassword}
+                  onChange={(value) => {
+                    setConfirmPassword(value);
+                    setError('');
+                  }}
                   placeholder="Құпия сөзді қайталаңыз"
                   visible={showConfirmPassword}
                   onToggleVisible={() => setShowConfirmPassword((prev) => !prev)}
                   disabled={formDisabled}
                 />
 
-                {passwordMismatch ? (
-                  <AuthAlert tone="danger">
-                    Құпия сөздер сәйкес келмейді.
-                  </AuthAlert>
-                ) : null}
+                <div className="grid gap-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft sm:grid-cols-2">
+                  <RequirementItem ok={passwordHasMinLength}>
+                    Кемінде {MIN_PASSWORD_CHARS} таңба
+                  </RequirementItem>
+                  <RequirementItem ok={passwordHasLetter}>
+                    Кемінде 1 әріп
+                  </RequirementItem>
+                  <RequirementItem ok={passwordHasNumber}>
+                    Кемінде 1 сан
+                  </RequirementItem>
+                  <RequirementItem ok={passwordsMatch}>
+                    Құпия сөздер сәйкес
+                  </RequirementItem>
+                </div>
 
-                {passwordTooShort ? (
-                  <AuthAlert tone="danger">
-                    Құпия сөз кемінде 6 таңбадан тұруы керек.
-                  </AuthAlert>
+                {hasStartedTyping && validationErrors.length > 0 ? (
+                  <AuthAlert tone="warning">{validationErrors[0]}</AuthAlert>
                 ) : null}
 
                 <Button type="submit" className="w-full" disabled={!canSubmit}>

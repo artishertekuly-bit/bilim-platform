@@ -44,12 +44,31 @@ function normalizeToken(value: unknown): string {
   return cleanRawText(value).replace(/[^\d]/g, '').slice(0, MAX_TOKEN_CHARS);
 }
 
+function isValidEmail(value: string): boolean {
+  if (!value || value.length > MAX_EMAIL_CHARS) return false;
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) {
-    return cleanText(error.message);
+    return cleanText(error.message, MAX_ALERT_CHARS);
   }
 
   return fallback;
+}
+
+function getLocationState(value: unknown): VerifyLocationState {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  const state = value as Record<string, unknown>;
+
+  return {
+    email: normalizeEmail(state.email),
+    info: cleanText(state.info, MAX_ALERT_CHARS),
+  };
 }
 
 function AuthAlert({
@@ -59,7 +78,7 @@ function AuthAlert({
   tone: 'danger' | 'warning' | 'success';
   children: string;
 }) {
-  const message = cleanText(children);
+  const message = cleanText(children, MAX_ALERT_CHARS);
 
   if (!message) return null;
 
@@ -93,33 +112,45 @@ export default function VerifyEmailPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const state = location.state as VerifyLocationState | null;
+  const state = getLocationState(location.state);
 
-  const [email, setEmail] = useState(() => normalizeEmail(state?.email || ''));
+  const [email, setEmail] = useState(() => normalizeEmail(state.email || ''));
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState(() =>
-    cleanText(state?.info || 'Email-ға жіберілген 6 таңбалы кодты енгізіңіз.'),
+    cleanText(state.info || 'Email-ға жіберілген 6 таңбалы кодты енгізіңіз.'),
   );
 
   const busy = loading || resending;
   const normalizedEmail = normalizeEmail(email);
   const normalizedToken = normalizeToken(token);
 
+  const emailIsValid = isValidEmail(normalizedEmail);
+
   const canVerify = useMemo(
-    () => normalizedEmail.length > 0 && normalizedToken.length === 6 && !busy,
-    [busy, normalizedEmail, normalizedToken],
+    () => emailIsValid && normalizedToken.length === MAX_TOKEN_CHARS && !busy,
+    [busy, emailIsValid, normalizedToken],
   );
 
   const canResend = useMemo(
-    () => normalizedEmail.length > 0 && !busy,
-    [busy, normalizedEmail],
+    () => emailIsValid && !busy,
+    [busy, emailIsValid],
   );
 
   const handleVerify = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!emailIsValid) {
+      setError('Email дұрыс енгізілмеген.');
+      return;
+    }
+
+    if (normalizedToken.length !== MAX_TOKEN_CHARS) {
+      setError('Код 6 таңбадан тұруы керек.');
+      return;
+    }
 
     if (!canVerify) return;
 
@@ -138,6 +169,11 @@ export default function VerifyEmailPage() {
   };
 
   const handleResend = async () => {
+    if (!emailIsValid) {
+      setError('Email дұрыс енгізілмеген.');
+      return;
+    }
+
     if (!canResend) return;
 
     setResending(true);
@@ -197,7 +233,7 @@ export default function VerifyEmailPage() {
                     Қауіпсіз растау
                   </p>
                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Код 6 таңбадан тұрады.
+                    Код 6 саннан тұрады.
                   </p>
                 </div>
               </div>
@@ -259,11 +295,21 @@ export default function VerifyEmailPage() {
                     type="email"
                     autoComplete="email"
                     value={email}
-                    onChange={(event) => setEmail(normalizeEmail(event.target.value))}
+                    maxLength={MAX_EMAIL_CHARS}
+                    onChange={(event) => {
+                      setEmail(normalizeEmail(event.target.value));
+                      setError('');
+                    }}
                     placeholder="email@example.com"
                     required
                     disabled={busy}
                   />
+
+                  {normalizedEmail && !emailIsValid ? (
+                    <p className="rounded-2xl border border-warning-muted bg-warning-soft px-3 py-2 text-xs leading-5 text-warning-foreground">
+                      Email форматы дұрыс емес.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-1.5">
@@ -276,7 +322,11 @@ export default function VerifyEmailPage() {
                       id="token"
                       inputMode="numeric"
                       value={token}
-                      onChange={(event) => setToken(normalizeToken(event.target.value))}
+                      maxLength={MAX_TOKEN_CHARS}
+                      onChange={(event) => {
+                        setToken(normalizeToken(event.target.value));
+                        setError('');
+                      }}
                       placeholder="123456"
                       required
                       disabled={busy}
@@ -288,9 +338,9 @@ export default function VerifyEmailPage() {
                     </div>
                   </div>
 
-                  {normalizedToken.length > 0 && normalizedToken.length < 6 ? (
+                  {normalizedToken.length > 0 && normalizedToken.length < MAX_TOKEN_CHARS ? (
                     <p className="rounded-2xl border border-warning-muted bg-warning-soft px-3 py-2 text-xs leading-5 text-warning-foreground">
-                      Код 6 таңбадан тұруы керек.
+                      Код 6 саннан тұруы керек.
                     </p>
                   ) : null}
                 </div>
