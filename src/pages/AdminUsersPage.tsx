@@ -1,52 +1,211 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import {
+  CalendarClock,
+  GraduationCap,
+  RotateCcw,
+  Search,
+  ShieldCheck,
+  UserRound,
+  Users,
+} from 'lucide-react';
+
 import DashboardLayout from '@/components/DashboardLayout';
-import { useUsers } from '@/hooks/use-platform-data';
-import t from '@/lib/i18n';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import PageHeader from '@/components/common/PageHeader';
+import StatusBadge from '@/components/common/StatusBadge';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
 import UserAvatar from '@/components/UserAvatar';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { useUsers } from '@/hooks/use-platform-data';
+import { useAuth } from '@/lib/auth-context';
+import t, { getLocale } from '@/lib/i18n';
+import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
-function formatRole(role: string) {
-  const roleMap: Record<string, string> = {
+type AdminUserRole = 'student' | 'teacher' | 'parent' | 'admin';
+type RoleFilter = 'all' | AdminUserRole | 'unknown';
+
+type AdminUserRow = {
+  userId?: string | null;
+  id?: string | null;
+  fullName?: string | null;
+  email?: string | null;
+  role?: string | null;
+  avatarUrl?: string | null;
+  createdAt?: string | null;
+};
+
+const ROLE_FILTERS: RoleFilter[] = ['all', 'admin', 'teacher', 'parent', 'student', 'unknown'];
+
+const MAX_ID_CHARS = 180;
+const MAX_NAME_CHARS = 160;
+const MAX_EMAIL_CHARS = 240;
+const MAX_ROLE_CHARS = 40;
+const MAX_SEARCH_CHARS = 160;
+const MAX_URL_CHARS = 2_000;
+const MAX_DATE_CHARS = 80;
+
+function cleanRawText(value: unknown): string {
+  return removeNullCharacters(String(value ?? ''));
+}
+
+function cleanText(value: unknown, limit = MAX_NAME_CHARS): string {
+  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+}
+
+function cleanId(value: unknown): string {
+  return cleanText(value, MAX_ID_CHARS);
+}
+
+function normalizeText(value: unknown, limit = MAX_NAME_CHARS): string {
+  return cleanText(value, limit).toLowerCase();
+}
+
+function normalizeSearchInput(value: unknown): string {
+  return cleanText(value, MAX_SEARCH_CHARS);
+}
+
+function normalizeRole(value: unknown): AdminUserRole | 'unknown' {
+  const role = cleanText(value, MAX_ROLE_CHARS).toLowerCase();
+
+  if (role === 'student' || role === 'teacher' || role === 'parent' || role === 'admin') {
+    return role;
+  }
+
+  return 'unknown';
+}
+
+function formatRole(role: string | null | undefined) {
+  const normalizedRole = normalizeRole(role);
+
+  const roleMap: Record<AdminUserRole | 'unknown', string> = {
     student: t('role.student'),
     teacher: t('role.teacher'),
     parent: t('role.parent'),
     admin: t('role.admin'),
+    unknown: 'Белгісіз',
   };
 
-  return roleMap[role] || role;
+  return roleMap[normalizedRole];
 }
 
-function formatDate(value: string | null | undefined) {
-  if (!value) return t('page.admin_users.not_available');
+function getRoleTone(role: string | null | undefined) {
+  const normalizedRole = normalizeRole(role);
 
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return t('page.admin_users.not_available');
-  }
+  if (normalizedRole === 'admin') return 'danger' as const;
+  if (normalizedRole === 'teacher') return 'warning' as const;
+  if (normalizedRole === 'parent') return 'info' as const;
+  if (normalizedRole === 'student') return 'success' as const;
 
-  return parsed.toLocaleString('kk-KZ');
+  return 'muted' as const;
 }
 
-function shortenId(value: string | null | undefined) {
-  if (!value) return t('page.admin_users.not_available');
-  if (value.length <= 16) return value;
-  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+function getRoleIcon(role: string | null | undefined) {
+  const normalizedRole = normalizeRole(role);
+
+  if (normalizedRole === 'admin') return <ShieldCheck size={12} />;
+  if (normalizedRole === 'teacher') return <GraduationCap size={12} />;
+  if (normalizedRole === 'parent') return <Users size={12} />;
+
+  return <UserRound size={12} />;
 }
 
-function safeName(value: string | null | undefined) {
-  return value?.trim() || t('page.admin_users.unnamed_user');
+function getRoleFilterLabel(filter: RoleFilter) {
+  if (filter === 'all') return 'Барлығы';
+  if (filter === 'unknown') return 'Белгісіз';
+
+  return formatRole(filter);
 }
 
-function roleOrder(role: string) {
-  const order: Record<string, number> = {
+function roleOrder(role: string | null | undefined) {
+  const normalizedRole = normalizeRole(role);
+
+  const order: Record<AdminUserRole | 'unknown', number> = {
     admin: 0,
     teacher: 1,
     parent: 2,
     student: 3,
+    unknown: 99,
   };
 
-  return order[role] ?? 99;
+  return order[normalizedRole];
+}
+
+function formatDate(value: string | null | undefined) {
+  const rawValue = cleanText(value, MAX_DATE_CHARS);
+
+  if (!rawValue) return t('page.admin_users.not_available');
+
+  const parsed = new Date(rawValue);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return t('page.admin_users.not_available');
+  }
+
+  const locale = getLocale() === 'ru' ? 'ru-RU' : 'kk-KZ';
+
+  return parsed.toLocaleString(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function shortenId(value: string | null | undefined) {
+  const safeId = cleanId(value);
+
+  if (!safeId) return t('page.admin_users.not_available');
+  if (safeId.length <= 16) return safeId;
+
+  return `${safeId.slice(0, 8)}...${safeId.slice(-6)}`;
+}
+
+function safeName(value: string | null | undefined) {
+  return cleanText(value, MAX_NAME_CHARS) || t('page.admin_users.unnamed_user');
+}
+
+function safeEmail(value: string | null | undefined) {
+  return cleanText(value, MAX_EMAIL_CHARS);
+}
+
+function cleanAvatarUrl(value: string | null | undefined): string | undefined {
+  const rawUrl = cleanText(value, MAX_URL_CHARS);
+
+  if (!rawUrl) return undefined;
+
+  try {
+    const parsed = new URL(rawUrl);
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return undefined;
+    }
+
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function getUserId(item: AdminUserRow) {
+  return cleanId(item.userId || item.id || '');
+}
+
+function buildUserSearchHaystack(item: AdminUserRow) {
+  return normalizeText(
+    [
+      getUserId(item),
+      item.fullName,
+      item.email,
+      formatRole(item.role),
+      normalizeRole(item.role),
+    ]
+      .map((value) => cleanText(value, MAX_EMAIL_CHARS))
+      .filter(Boolean)
+      .join(' '),
+    MAX_EMAIL_CHARS,
+  );
 }
 
 function InfoRow({
@@ -55,51 +214,236 @@ function InfoRow({
   title,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   title?: string;
 }) {
   return (
-    <div className="flex justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="max-w-[200px] truncate text-right" title={title || value}>
+    <div className="flex justify-between gap-3 rounded-2xl border border-border bg-muted/35 px-3 py-2.5">
+      <span className="text-muted-foreground">{cleanText(label, MAX_NAME_CHARS)}</span>
+      <span className="max-w-[220px] truncate text-right font-medium text-foreground" title={title}>
         {value}
       </span>
     </div>
   );
 }
 
+function UserCard({
+  item,
+  isCurrentUser,
+}: {
+  item: AdminUserRow;
+  isCurrentUser: boolean;
+}) {
+  const userId = getUserId(item);
+  const fullName = safeName(item.fullName);
+  const email = safeEmail(item.email);
+  const normalizedRole = normalizeRole(item.role);
+  const avatarUrl = cleanAvatarUrl(item.avatarUrl);
+
+  return (
+    <Card className="overflow-hidden border-border bg-card">
+      <CardHeader className="border-b border-border/70 bg-card pb-4">
+        <div className="flex items-start gap-3">
+          <UserAvatar
+            name={fullName}
+            avatarUrl={avatarUrl}
+            className="h-11 w-11"
+            fallbackClassName="bg-accent text-sm font-semibold"
+          />
+
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="truncate text-sm font-semibold">
+                {fullName}
+              </CardTitle>
+
+              {isCurrentUser ? (
+                <StatusBadge tone="primary">Бұл аккаунт</StatusBadge>
+              ) : null}
+            </div>
+
+            <p className="mt-1 truncate text-xs text-muted-foreground">
+              {email || t('page.admin_users.profile_meta')}
+            </p>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-2 p-4 text-sm sm:p-5">
+        <InfoRow
+          label={t('page.admin_users.field.role')}
+          value={
+            <StatusBadge tone={getRoleTone(normalizedRole)} icon={getRoleIcon(normalizedRole)}>
+              {formatRole(normalizedRole)}
+            </StatusBadge>
+          }
+        />
+
+        <InfoRow
+          label={t('page.admin_users.field.user_id')}
+          value={shortenId(userId)}
+          title={userId || undefined}
+        />
+
+        <InfoRow
+          label={t('page.admin_users.field.created_at')}
+          value={formatDate(item.createdAt)}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function AdminUsersPage() {
+  const { user } = useAuth();
+  const safeCurrentUserId = cleanId(user?.id);
   const { data, isLoading, error } = useUsers(true);
 
-  const users = useMemo(
-    () =>
-      [...(data || [])].sort((a, b) => {
-        const roleDiff = roleOrder(a.role) - roleOrder(b.role);
-        if (roleDiff !== 0) return roleDiff;
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
 
-        const nameDiff = safeName(a.fullName).localeCompare(safeName(b.fullName), 'kk');
-        if (nameDiff !== 0) return nameDiff;
+  const users = useMemo(() => {
+    const locale = getLocale() === 'ru' ? 'ru' : 'kk';
 
-        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return db - da;
-      }),
-    [data]
-  );
+    return ([...(data || [])] as AdminUserRow[]).sort((a, b) => {
+      const roleDiff = roleOrder(a.role) - roleOrder(b.role);
+      if (roleDiff !== 0) return roleDiff;
+
+      const nameDiff = safeName(a.fullName).localeCompare(safeName(b.fullName), locale);
+      if (nameDiff !== 0) return nameDiff;
+
+      const da = a.createdAt ? new Date(cleanText(a.createdAt, MAX_DATE_CHARS)).getTime() : 0;
+      const db = b.createdAt ? new Date(cleanText(b.createdAt, MAX_DATE_CHARS)).getTime() : 0;
+
+      return (Number.isFinite(db) ? db : 0) - (Number.isFinite(da) ? da : 0);
+    });
+  }, [data]);
+
+  const filteredUsers = useMemo(() => {
+    const query = normalizeText(search, MAX_SEARCH_CHARS);
+
+    return users.filter((item) => {
+      const role = normalizeRole(item.role);
+      const matchesRole = roleFilter === 'all' || role === roleFilter;
+      const matchesSearch = !query || buildUserSearchHaystack(item).includes(query);
+
+      return matchesRole && matchesSearch;
+    });
+  }, [roleFilter, search, users]);
+
+  const roleCounts = useMemo(() => {
+    const counts: Record<RoleFilter, number> = {
+      all: users.length,
+      admin: 0,
+      teacher: 0,
+      parent: 0,
+      student: 0,
+      unknown: 0,
+    };
+
+    users.forEach((item) => {
+      counts[normalizeRole(item.role)] += 1;
+    });
+
+    return counts;
+  }, [users]);
+
+  const hasActiveFilters = Boolean(search.trim()) || roleFilter !== 'all';
+
+  const resetFilters = () => {
+    setSearch('');
+    setRoleFilter('all');
+  };
 
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-fade-in">
-        <div>
-          <h2 className="text-xl font-bold">{t('nav.users')}</h2>
-          <p className="text-sm text-muted-foreground">
-            {t('page.admin_users.subtitle')}
-          </p>
-        </div>
+        <PageHeader
+          eyebrow={
+            <>
+              <ShieldCheck size={13} />
+              Әкімші
+            </>
+          }
+          icon={<Users size={20} />}
+          title={t('nav.users')}
+          actions={
+            <StatusBadge tone="muted">
+              {filteredUsers.length}/{users.length}
+            </StatusBadge>
+          }
+        />
 
         {isLoading ? <LoadingState text={t('page.admin_users.loading')} /> : null}
 
-        {error ? <ErrorState text={t('page.admin_users.error')} /> : null}
+        {error ? (
+          <ErrorState
+            text={t('page.admin_users.error')}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => window.location.reload()}
+              >
+                <RotateCcw size={15} className="mr-2" />
+                Қайта жүктеу
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!isLoading && !error ? (
+          <Card className="overflow-hidden border-border bg-card">
+            <CardContent className="space-y-4 p-4 sm:p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="relative w-full lg:max-w-md">
+                  <Search
+                    size={16}
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+
+                  <Input
+                    value={search}
+                    maxLength={MAX_SEARCH_CHARS}
+                    onChange={(event) => setSearch(normalizeSearchInput(event.target.value))}
+                    placeholder="Аты, email, рөлі немесе ID"
+                    className="pl-10"
+                  />
+                </div>
+
+                {hasActiveFilters ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={resetFilters}>
+                    <RotateCcw size={14} className="mr-1.5" />
+                    Тазалау
+                  </Button>
+                ) : null}
+              </div>
+
+              <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {ROLE_FILTERS.map((filter) => {
+                  const active = roleFilter === filter;
+
+                  return (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setRoleFilter(filter)}
+                      aria-pressed={active}
+                      className={cn(
+                        'shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors active:scale-[0.99]',
+                        active
+                          ? 'border-primary-muted bg-primary-soft text-primary'
+                          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft/45 hover:text-primary',
+                      )}
+                    >
+                      {getRoleFilterLabel(filter)}: {roleCounts[filter]}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {!isLoading && !error && users.length === 0 ? (
           <EmptyState
@@ -108,51 +452,32 @@ export default function AdminUsersPage() {
           />
         ) : null}
 
-        {!isLoading && !error && users.length > 0 ? (
+        {!isLoading && !error && users.length > 0 && filteredUsers.length === 0 ? (
+          <EmptyState
+            icon={<Search size={18} />}
+            title="Қолданушы табылмады"
+            text="Іздеу сөзін өзгертіңіз немесе сүзгіні тазалаңыз."
+            action={
+              <Button type="button" onClick={resetFilters}>
+                <RotateCcw size={15} className="mr-2" />
+                Сүзгіні тазалау
+              </Button>
+            }
+          />
+        ) : null}
+
+        {!isLoading && !error && filteredUsers.length > 0 ? (
           <div className="grid gap-4 lg:grid-cols-2">
-            {users.map((item) => {
-              const fullName = safeName(item.fullName);
+            {filteredUsers.map((item, index) => {
+              const userId = getUserId(item);
+              const role = normalizeRole(item.role);
 
               return (
-                <Card key={`${item.userId}-${item.role}`}>
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <UserAvatar
-                        name={fullName}
-                        avatarUrl={item.avatarUrl}
-                        className="h-10 w-10"
-                        fallbackClassName="bg-accent text-sm font-semibold"
-                      />
-
-                      <div className="min-w-0">
-                        <CardTitle className="truncate text-sm font-semibold">
-                          {fullName}
-                        </CardTitle>
-                        <p className="text-xs text-muted-foreground">
-                          {t('page.admin_users.profile_meta')}
-                        </p>
-                      </div>
-                    </div>
-                  </CardHeader>
-
-                  <CardContent className="space-y-2 text-sm">
-                    <InfoRow
-                      label={t('page.admin_users.field.role')}
-                      value={formatRole(item.role)}
-                    />
-
-                    <InfoRow
-                      label={t('page.admin_users.field.user_id')}
-                      value={shortenId(item.userId)}
-                      title={item.userId}
-                    />
-
-                    <InfoRow
-                      label={t('page.admin_users.field.created_at')}
-                      value={formatDate(item.createdAt)}
-                    />
-                  </CardContent>
-                </Card>
+                <UserCard
+                  key={userId || `${role}-${safeName(item.fullName)}-${index}`}
+                  item={item}
+                  isCurrentUser={Boolean(userId && userId === safeCurrentUserId)}
+                />
               );
             })}
           </div>
