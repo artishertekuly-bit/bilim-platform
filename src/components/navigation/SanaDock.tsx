@@ -18,9 +18,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import SanaAiLauncher, {
-  type SanaAiTool,
-} from '@/components/navigation/SanaAiLauncher';
+import SanaDockLauncher, {
+  type SanaLauncherTool,
+} from '@/components/navigation/SanaDockLauncher';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 export type SanaDockMode = 'auto' | 'main' | 'course';
@@ -48,7 +48,8 @@ export type SanaDockProps = {
   progress?: number | null;
   mainPaths?: Partial<SanaDockMainPaths>;
   coursePaths?: Partial<SanaDockCoursePaths>;
-  aiTools?: SanaAiTool[];
+  courseTools?: SanaLauncherTool[];
+  aiTools?: SanaLauncherTool[];
   position?: 'fixed' | 'static';
   className?: string;
   onNavigate?: () => void;
@@ -63,7 +64,7 @@ type DockItem = {
   aliases?: string[];
   active?: boolean;
   emphasis?: boolean;
-  action?: 'ai-launcher';
+  action?: 'course-launcher' | 'ai-launcher';
 };
 
 const ACTIVE_COURSE_STORAGE_KEY = 'sana.activeCourseId';
@@ -336,13 +337,16 @@ export default function SanaDock({
   progress,
   mainPaths,
   coursePaths,
+  courseTools = [],
   aiTools = [],
   position = 'fixed',
   className,
   onNavigate,
 }: SanaDockProps) {
   const location = useLocation();
-  const [aiLauncherOpen, setAiLauncherOpen] = useState(false);
+  const [openLauncher, setOpenLauncher] = useState<
+    'courses' | 'ai' | null
+  >(null);
 
   const pathCourseId = useMemo(
     () => extractCourseId(location.pathname),
@@ -356,7 +360,7 @@ export default function SanaDock({
   }, [pathCourseId]);
 
   useEffect(() => {
-    setAiLauncherOpen(false);
+    setOpenLauncher(null);
   }, [location.pathname]);
 
   const resolvedCourseId =
@@ -397,7 +401,17 @@ export default function SanaDock({
       label: 'Курстар',
       path: resolvedMainPaths.courses,
       icon: BookOpen,
-      aliases: ['/saved-lessons', '/my-courses', '/manage-courses'],
+      aliases: [
+        '/saved-lessons',
+        '/my-courses',
+        '/manage-courses',
+        '/lessons',
+        '/manage-lessons',
+        '/tests',
+        '/manage-tests',
+        '/students',
+      ],
+      action: courseTools.length > 0 ? 'course-launcher' : undefined,
     },
     ...(showCreate
       ? [
@@ -540,13 +554,24 @@ export default function SanaDock({
             {items.map((item) => {
               const active = isItemActive(location.pathname, item);
 
+              if (item.action === 'course-launcher') {
+                return (
+                  <DockAction
+                    key={item.key}
+                    item={item}
+                    active={active || openLauncher === 'courses'}
+                    onClick={() => setOpenLauncher('courses')}
+                  />
+                );
+              }
+
               if (item.action === 'ai-launcher') {
                 return (
                   <DockAction
                     key={item.key}
                     item={item}
-                    active={active}
-                    onClick={() => setAiLauncherOpen(true)}
+                    active={active || openLauncher === 'ai'}
+                    onClick={() => setOpenLauncher('ai')}
                   />
                 );
               }
@@ -564,10 +589,32 @@ export default function SanaDock({
         </nav>
       </div>
 
-      <SanaAiLauncher
-        open={aiLauncherOpen}
+      <SanaDockLauncher
+        open={openLauncher === 'courses'}
+        eyebrow="Sana оқу кеңістігі"
+        title="Қай бөлімді ашамыз?"
+        description="Курстар, сабақтар және тексеру құралдарының бірін таңдаңыз."
+        icon={BookOpen}
+        tools={courseTools}
+        emptyTitle="Курс бөлімі қолжетімсіз"
+        emptyText="Бұл аккаунт үшін оқу бөлімдері әлі қосылмаған."
+        onOpenChange={(open) =>
+          setOpenLauncher(open ? 'courses' : null)
+        }
+      />
+
+      <SanaDockLauncher
+        open={openLauncher === 'ai'}
+        eyebrow="Sana ЖИ"
+        title="Қазір не жасағыңыз келеді?"
+        description="Бір құралды таңдаңыз. Әр кеңістік нақты бір жұмысқа арналған."
+        icon={Bot}
         tools={aiTools}
-        onOpenChange={setAiLauncherOpen}
+        emptyTitle="Қолжетімді ЖИ құралы жоқ"
+        emptyText="Бұл аккаунт үшін құралдар кейін қосылады."
+        onOpenChange={(open) =>
+          setOpenLauncher(open ? 'ai' : null)
+        }
       />
     </>
   );

@@ -7,10 +7,14 @@ import {
 } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
+  BookOpen,
+  Bookmark,
   Bot,
   BrainCircuit,
   ChevronDown,
   ClipboardCheck,
+  ClipboardList,
+  FileText,
   ListChecks,
   LogOut,
   Monitor,
@@ -23,7 +27,7 @@ import {
 
 import UserAvatar from '@/components/UserAvatar';
 import SanaDock from '@/components/navigation/SanaDock';
-import type { SanaAiTool } from '@/components/navigation/SanaAiLauncher';
+import type { SanaLauncherTool } from '@/components/navigation/SanaDockLauncher';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
@@ -37,7 +41,8 @@ type ThemeValue = 'light' | 'dark' | 'system';
 
 type DockConfig = {
   showCreate: boolean;
-  aiTools: SanaAiTool[];
+  courseTools: SanaLauncherTool[];
+  aiTools: SanaLauncherTool[];
   mainPaths: {
     home: string;
     courses: string;
@@ -52,7 +57,128 @@ type DockConfig = {
   };
 };
 
-const STUDENT_AI_TOOLS: SanaAiTool[] = [
+
+const STUDENT_COURSE_TOOLS: SanaLauncherTool[] = [
+  {
+    id: 'course-catalog',
+    title: 'Курс таңдау',
+    description:
+      'Қолжетімді курстарды қарап, өзіңізге қызық оқу бағытын бастаңыз.',
+    path: '/courses',
+    icon: BookOpen,
+    badge: 'Каталог',
+    featured: true,
+  },
+  {
+    id: 'student-lessons',
+    title: 'Барлық сабақтар',
+    description:
+      'Оқу материалдарын бір жерден қарап, керек сабаққа бірден өтіңіз.',
+    path: '/lessons',
+    icon: FileText,
+    badge: 'Сабақтар',
+  },
+  {
+    id: 'saved-lessons',
+    title: 'Сақталған сабақтар',
+    description:
+      'Кейін қайта қарау үшін белгілеген материалдарыңызды ашыңыз.',
+    path: '/saved-lessons',
+    icon: Bookmark,
+    badge: 'Жеке жинақ',
+  },
+  {
+    id: 'student-tests',
+    title: 'Тесттер',
+    description:
+      'Өтілген тақырыптарды тексеріп, нәтижеңізді көріңіз.',
+    path: '/tests',
+    icon: ClipboardList,
+    badge: 'Тексеру',
+  },
+];
+
+const TEACHER_COURSE_TOOLS: SanaLauncherTool[] = [
+  {
+    id: 'teacher-courses',
+    title: 'Менің курстарым',
+    description:
+      'Өзіңіз дайындаған курстарды қарап, мазмұнын жалғастырыңыз.',
+    path: '/my-courses',
+    icon: BookOpen,
+    badge: 'Курстар',
+    featured: true,
+  },
+  {
+    id: 'teacher-create-course',
+    title: 'Жаңа курс',
+    description:
+      'Жаңа оқу бағытын ашып, модульдер мен сабақтарды құрастырыңыз.',
+    path: '/create-course',
+    icon: Sparkles,
+    badge: 'Құрастыру',
+  },
+  {
+    id: 'teacher-create-test',
+    title: 'Жаңа тест',
+    description:
+      'Курсқа арналған сұрақтар мен бағалау тапсырмаларын дайындаңыз.',
+    path: '/create-test',
+    icon: ClipboardList,
+    badge: 'Бағалау',
+  },
+  {
+    id: 'teacher-students',
+    title: 'Оқушылар',
+    description:
+      'Курстарыңыздағы оқушылар мен олардың оқу барысын қараңыз.',
+    path: '/students',
+    icon: UserRound,
+    badge: 'Аудитория',
+  },
+];
+
+const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
+  {
+    id: 'admin-courses',
+    title: 'Курстарды басқару',
+    description:
+      'Барлық курстарды қарап, өңдеп және жариялау күйін басқарыңыз.',
+    path: '/manage-courses',
+    icon: BookOpen,
+    badge: 'Барлық курс',
+    featured: true,
+  },
+  {
+    id: 'admin-create-course',
+    title: 'Жаңа курс',
+    description:
+      'Авторлық курстың құрылымын нөлден бастап дайындаңыз.',
+    path: '/create-course',
+    icon: Sparkles,
+    badge: 'Құрастыру',
+  },
+  {
+    id: 'admin-lessons',
+    title: 'Сабақтарды басқару',
+    description:
+      'Сабақтарды қарап, курс мазмұнын реттеңіз.',
+    path: '/manage-lessons',
+    icon: FileText,
+    badge: 'Сабақтар',
+  },
+  {
+    id: 'admin-tests',
+    title: 'Тесттерді басқару',
+    description:
+      'Тест материалдарын және тексеру тапсырмаларын ашыңыз.',
+    path: '/manage-tests',
+    icon: ClipboardList,
+    badge: 'Тесттер',
+  },
+];
+
+const STUDENT_AI_TOOLS: SanaLauncherTool[] = [
   {
     id: 'tutor',
     title: 'Тақырыпты бірге түсіну',
@@ -92,7 +218,7 @@ const STUDENT_AI_TOOLS: SanaAiTool[] = [
   },
 ];
 
-const AUTHOR_AI_TOOLS: SanaAiTool[] = [
+const AUTHOR_AI_TOOLS: SanaLauncherTool[] = [
   {
     id: 'assistant',
     title: 'Автор көмекшісі',
@@ -486,6 +612,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (user.role === 'student') {
       return {
         showCreate: false,
+        courseTools: STUDENT_COURSE_TOOLS,
         aiTools: STUDENT_AI_TOOLS,
         mainPaths: {
           home: '/dashboard',
@@ -504,6 +631,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (user.role === 'teacher') {
       return {
         showCreate: true,
+        courseTools: TEACHER_COURSE_TOOLS,
         aiTools: AUTHOR_AI_TOOLS,
         mainPaths: {
           home: '/dashboard',
@@ -523,6 +651,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (user.role === 'admin') {
       return {
         showCreate: true,
+        courseTools: ADMIN_COURSE_TOOLS,
         aiTools: AUTHOR_AI_TOOLS,
         mainPaths: {
           home: '/dashboard',
@@ -624,6 +753,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       {dockConfig ? (
         <SanaDock
           showCreate={dockConfig.showCreate}
+          courseTools={dockConfig.courseTools}
           aiTools={dockConfig.aiTools}
           mainPaths={dockConfig.mainPaths}
           coursePaths={dockConfig.coursePaths}
