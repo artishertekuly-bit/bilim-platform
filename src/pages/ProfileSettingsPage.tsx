@@ -15,7 +15,6 @@ import {
   Mail,
   Save,
   ShieldCheck,
-  Sparkles,
   Trash2,
   User,
   XCircle,
@@ -899,26 +898,26 @@ export default function ProfileSettingsPage() {
               </p>
             </div>
 
-            <div className="flex w-full justify-center lg:justify-end">
-              <div className="relative aspect-square w-full max-w-[290px] shrink-0 rounded-[2.25rem] border border-background/15 bg-background/[0.08] p-4 shadow-soft-lg backdrop-blur-sm sm:max-w-[320px]">
+            <div className="flex w-full justify-center lg:-translate-x-4 xl:-translate-x-6">
+              <div className="relative aspect-square w-full max-w-[280px] shrink-0 sm:max-w-[300px]">
                 <UserAvatar
                   name={displayName}
                   avatarUrl={avatarUrl}
-                  className="h-full w-full border-background/20 bg-background/10"
+                  className="h-full w-full bg-transparent"
                   fallbackClassName="text-5xl"
                 />
 
                 <label
                   htmlFor="hero-avatar"
                   className={cn(
-                    'absolute bottom-5 right-5 flex h-12 w-12 cursor-pointer items-center justify-center rounded-full',
+                    'absolute bottom-2 right-2 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full',
                     'border border-background/20 bg-background text-foreground shadow-soft-md',
                     'transition-transform duration-200 hover:scale-105 active:scale-95',
                     savingAvatar && 'pointer-events-none opacity-50',
                   )}
                   aria-label="Аватарды өзгерту"
                 >
-                  <Camera size={18} />
+                  <Camera size={17} />
                 </label>
 
                 <input
@@ -1164,17 +1163,12 @@ export default function ProfileSettingsPage() {
               icon={<Camera size={18} />}
             >
               <div className="flex flex-col items-center text-center">
-                <div className="relative rounded-full border border-border bg-muted p-2 shadow-soft-md">
-                  <UserAvatar
-                    name={displayName}
-                    avatarUrl={avatarUrl}
-                    className="h-32 w-32"
-                    fallbackClassName="text-3xl"
-                  />
-                  <span className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card shadow-soft">
-                    <Sparkles size={14} />
-                  </span>
-                </div>
+                <UserAvatar
+                  name={displayName}
+                  avatarUrl={avatarUrl}
+                  className="h-32 w-32 bg-transparent"
+                  fallbackClassName="text-3xl"
+                />
 
                 <p className="mt-5 text-sm font-bold">{displayName}</p>
                 <p className="mt-1 text-xs text-muted-foreground">

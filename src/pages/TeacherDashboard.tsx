@@ -6,7 +6,6 @@ import {
   Bot,
   ClipboardCheck,
   FilePlus2,
-  GraduationCap,
   LayoutGrid,
   ListChecks,
   Plus,
@@ -325,34 +324,6 @@ export default function TeacherDashboard() {
           />
         </section>
 
-        <section className="relative overflow-hidden rounded-[2rem] border border-border bg-muted/40 p-5 sm:p-6">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full border border-foreground/10"
-          />
-
-          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card">
-                <GraduationCap size={17} />
-              </span>
-
-              <div>
-                <p className="text-sm font-bold">Sana автор платформасы</p>
-                <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">
-                  Бұл бетте тек авторға қажет негізгі құралдар қалдырылды.
-                </p>
-              </div>
-            </div>
-
-            <Button type="button" variant="ghost" size="sm" asChild>
-              <Link to="/my-courses">
-                Жұмысты ашу
-                <ArrowRight size={14} className="ml-2" />
-              </Link>
-            </Button>
-          </div>
-        </section>
       </div>
     </DashboardLayout>
   );
