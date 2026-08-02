@@ -803,13 +803,6 @@ export default function ProfileSettingsPage() {
     ? safeUserId.slice(0, 8).toUpperCase()
     : 'БЕЛГІСІЗ';
 
-  const profileCompletion = [
-    Boolean(normalizedFullName),
-    Boolean(normalizedBio),
-    Boolean(avatarUrl),
-    hasEmailProvider,
-  ].filter(Boolean).length * 25;
-
   const roleActions = useMemo(() => {
     if (user?.role === 'student') {
       return [
@@ -879,29 +872,53 @@ export default function ProfileSettingsPage() {
             className="pointer-events-none absolute bottom-0 right-0 h-48 w-48 bg-background/[0.04] blur-3xl"
           />
 
-          <div className="relative grid gap-8 p-5 sm:p-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end lg:p-10">
-            <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
-              <div className="relative w-fit shrink-0">
-                <div className="rounded-full border border-background/20 bg-background/10 p-2 shadow-soft-lg">
-                  <UserAvatar
-                    name={displayName}
-                    avatarUrl={avatarUrl}
-                    className="h-28 w-28 sm:h-36 sm:w-36"
-                    fallbackClassName="text-3xl"
-                  />
-                </div>
+          <div className="relative grid gap-8 p-5 sm:p-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-center lg:p-10">
+            <div className="min-w-0 py-2 lg:py-8">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-background/20 bg-background/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-background/70">
+                  Sana · {shortUserId}
+                </span>
+                <span className="rounded-full border border-background/20 bg-background/10 px-3 py-1 text-[10px] font-semibold text-background/80">
+                  {sanaRoleLabel}
+                </span>
+              </div>
+
+              <h1 className="mt-5 break-words text-4xl font-black tracking-[-0.055em] text-background sm:text-5xl lg:text-6xl">
+                {displayName}
+              </h1>
+
+              <p className="mt-3 break-all text-sm text-background/55">
+                {cleanText(user?.email, MAX_EMAIL_CHARS)}
+              </p>
+
+              <p className="mt-5 max-w-2xl whitespace-pre-line text-sm leading-6 text-background/70 sm:text-base">
+                {normalizedBio ||
+                  (user?.role === 'student'
+                    ? 'Sana-дағы оқу жолыңыз осы жерден көрінеді.'
+                    : 'Авторлық бағытыңызды қысқаша сипаттап, профильге мінез беріңіз.')}
+              </p>
+            </div>
+
+            <div className="flex w-full justify-center lg:justify-end">
+              <div className="relative aspect-square w-full max-w-[290px] shrink-0 rounded-[2.25rem] border border-background/15 bg-background/[0.08] p-4 shadow-soft-lg backdrop-blur-sm sm:max-w-[320px]">
+                <UserAvatar
+                  name={displayName}
+                  avatarUrl={avatarUrl}
+                  className="h-full w-full border-background/20 bg-background/10"
+                  fallbackClassName="text-5xl"
+                />
 
                 <label
                   htmlFor="hero-avatar"
                   className={cn(
-                    'absolute bottom-1 right-1 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full',
-                    'border border-background/20 bg-background text-foreground shadow-soft',
+                    'absolute bottom-5 right-5 flex h-12 w-12 cursor-pointer items-center justify-center rounded-full',
+                    'border border-background/20 bg-background text-foreground shadow-soft-md',
                     'transition-transform duration-200 hover:scale-105 active:scale-95',
                     savingAvatar && 'pointer-events-none opacity-50',
                   )}
                   aria-label="Аватарды өзгерту"
                 >
-                  <Camera size={16} />
+                  <Camera size={18} />
                 </label>
 
                 <input
@@ -913,58 +930,6 @@ export default function ProfileSettingsPage() {
                   className="sr-only"
                 />
               </div>
-
-              <div className="min-w-0 pb-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full border border-background/20 bg-background/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-background/70">
-                    Sana · {shortUserId}
-                  </span>
-                  <span className="rounded-full border border-background/20 bg-background/10 px-3 py-1 text-[10px] font-semibold text-background/80">
-                    {sanaRoleLabel}
-                  </span>
-                </div>
-
-                <h1 className="mt-4 break-words text-4xl font-black tracking-[-0.055em] text-background sm:text-5xl">
-                  {displayName}
-                </h1>
-
-                <p className="mt-2 break-all text-sm text-background/55">
-                  {cleanText(user?.email, MAX_EMAIL_CHARS)}
-                </p>
-
-                <p className="mt-4 max-w-2xl whitespace-pre-line text-sm leading-6 text-background/70">
-                  {normalizedBio ||
-                    (user?.role === 'student'
-                      ? 'Sana-дағы оқу жолыңыз осы жерден көрінеді.'
-                      : 'Авторлық бағытыңызды қысқаша сипаттап, профильге мінез беріңіз.')}
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-[1.75rem] border border-background/15 bg-background/[0.07] p-5 backdrop-blur-sm">
-              <div className="flex items-end justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-background/45">
-                    Профиль күйі
-                  </p>
-                  <p className="mt-2 text-3xl font-black tracking-[-0.045em] text-background">
-                    {profileCompletion}%
-                  </p>
-                </div>
-
-                <Sparkles size={20} className="text-background/55" />
-              </div>
-
-              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-background/15">
-                <div
-                  className="h-full rounded-full bg-background transition-[width] duration-500 ease-soft"
-                  style={{ width: `${profileCompletion}%` }}
-                />
-              </div>
-
-              <p className="mt-3 text-xs leading-5 text-background/55">
-                Аватар, аты-жөн, био және қауіпсіздік күйі есепке алынады.
-              </p>
             </div>
           </div>
         </section>
@@ -1263,30 +1228,6 @@ export default function ProfileSettingsPage() {
               </Button>
             </SectionCard>
 
-            <section className="relative overflow-hidden rounded-[2rem] border border-border bg-muted/45 p-5">
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full border border-foreground/10"
-              />
-
-              <div className="relative">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Sana белгісі
-                </p>
-                <p className="mt-3 text-lg font-black tracking-[-0.035em]">
-                  Профиль — жай баптау емес.
-                </p>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  Бұл сіздің платформадағы жеке белгіңіз: атыңыз, бағытыңыз
-                  және жинақталған оқу жолыңыз.
-                </p>
-
-                <div className="mt-5 flex items-center gap-2 text-xs font-semibold">
-                  <ShieldCheck size={14} />
-                  {getRoleLabel(user?.role)} аккаунты қорғалған
-                </div>
-              </div>
-            </section>
           </div>
         </div>
 
