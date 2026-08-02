@@ -3,52 +3,25 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowRight,
+  BookOpen,
   Eye,
   EyeOff,
-  GraduationCap,
   Loader2,
   ShieldCheck,
+  Sparkles,
   UserPlus,
 } from 'lucide-react';
 
-import KazakhOrnament from '@/components/KazakhOrnament';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useAuth, type UserRole } from '@/lib/auth-context';
-import t from '@/lib/i18n';
-import { cn, limitText, removeNullCharacters } from '@/lib/utils';
-
-type RegisterableRole = Exclude<UserRole, 'admin'>;
-
-type RoleOption = {
-  value: RegisterableRole;
-  label: string;
-  hint: string;
-};
+import { useAuth } from '@/lib/auth-context';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
 const MAX_FULL_NAME_CHARS = 180;
 const MAX_EMAIL_CHARS = 320;
 const MAX_PASSWORD_CHARS = 256;
 const MAX_ERROR_CHARS = 700;
-
-const ROLES: RoleOption[] = [
-  {
-    value: 'student',
-    label: t('role.student'),
-    hint: 'Оқу',
-  },
-  {
-    value: 'teacher',
-    label: t('role.teacher'),
-    hint: 'Курс құру',
-  },
-  {
-    value: 'parent',
-    label: t('role.parent'),
-    hint: 'Бақылау',
-  },
-];
 
 function cleanRawText(value: unknown): string {
   return removeNullCharacters(String(value ?? ''));
@@ -75,18 +48,21 @@ function resolveRegisterError(error: unknown): string {
     return cleanText(error.message);
   }
 
-  return t('auth.register_failed');
+  return 'Тіркелу мүмкін болмады. Қайта көріңіз.';
 }
 
-function AuthErrorAlert({ children }: { children: string }) {
-  const message = cleanText(children);
+function AuthErrorAlert({ message }: { message: string }) {
+  const safeMessage = cleanText(message);
 
-  if (!message) return null;
+  if (!safeMessage) return null;
 
   return (
-    <div className="mb-4 flex items-start gap-2 rounded-2xl border border-destructive-muted bg-destructive-soft px-3 py-2.5 text-sm leading-5 text-destructive">
-      <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-      <span>{message}</span>
+    <div
+      role="alert"
+      className="mb-5 flex items-start gap-3 rounded-[1.25rem] border border-destructive-muted bg-destructive-soft px-4 py-3 text-sm leading-5 text-destructive"
+    >
+      <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+      <span>{safeMessage}</span>
     </div>
   );
 }
@@ -99,7 +75,6 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState<RegisterableRole>('student');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
@@ -107,7 +82,6 @@ export default function RegisterPage() {
   const normalizedFullName = normalizeFullName(fullName);
   const normalizedEmail = normalizeEmail(email);
   const normalizedPassword = normalizePassword(password);
-
   const authBusy = loading || googleLoading;
 
   const canSubmit = useMemo(
@@ -132,7 +106,6 @@ export default function RegisterPage() {
         normalizedEmail,
         normalizedPassword,
         normalizedFullName,
-        role,
       );
 
       if (result.requiresEmailConfirmation) {
@@ -140,15 +113,17 @@ export default function RegisterPage() {
           replace: true,
           state: {
             email: normalizedEmail,
-            info: cleanText(result.message || 'Email-ға жіберілген кодты енгізіңіз.'),
+            info: cleanText(
+              result.message || 'Email-ға жіберілген кодты енгізіңіз.',
+            ),
           },
         });
         return;
       }
 
       navigate('/dashboard', { replace: true });
-    } catch (err: unknown) {
-      setError(resolveRegisterError(err));
+    } catch (registerError: unknown) {
+      setError(resolveRegisterError(registerError));
     } finally {
       setLoading(false);
     }
@@ -159,11 +134,11 @@ export default function RegisterPage() {
     setError('');
 
     try {
-      await loginWithGoogle(role);
-    } catch (err: unknown) {
+      await loginWithGoogle('student');
+    } catch (googleError: unknown) {
       setError(
-        err instanceof Error
-          ? cleanText(err.message)
+        googleError instanceof Error
+          ? cleanText(googleError.message)
           : 'Google арқылы тіркелу мүмкін болмады.',
       );
       setGoogleLoading(false);
@@ -171,212 +146,232 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="w-full max-w-md">
-        <div className="mb-8 flex items-center justify-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
-            <GraduationCap size={18} />
-          </div>
+    <main className="relative min-h-screen overflow-hidden bg-background px-4 py-6 text-foreground sm:px-6 lg:flex lg:items-center lg:py-10">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-foreground/[0.045] blur-3xl"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -bottom-40 -right-24 h-[30rem] w-[30rem] rounded-full bg-foreground/[0.035] blur-3xl"
+      />
 
-          <div>
-            <span className="block text-sm font-semibold">Bilimcorp</span>
-            <span className="block text-[11px] text-muted-foreground">
-              Оқу платформасы
-            </span>
-          </div>
-        </div>
+      <div className="relative mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2.5rem] border border-border bg-card shadow-soft-lg lg:grid-cols-[1.02fr_0.98fr]">
+        <section className="relative overflow-hidden bg-foreground p-6 text-background sm:p-9 lg:flex lg:min-h-[43rem] lg:flex-col lg:justify-between lg:p-12">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-28 -top-28 h-72 w-72 rounded-full bg-background/10 blur-3xl"
+          />
 
-        <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft-lg">
-          <div className="relative overflow-hidden border-b border-border/70 bg-card/80 px-5 py-5">
-            <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full bg-primary-soft blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-20 left-10 h-32 w-32 rounded-full bg-secondary-soft blur-3xl" />
+          <div className="relative">
+            <Link
+              to="/"
+              aria-label="Sana басты беті"
+              className="inline-flex items-center gap-3 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/40"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-full border border-background/20 bg-background/10">
+                <Sparkles size={17} />
+              </span>
+              <span className="text-sm font-black lowercase tracking-[-0.05em]">
+                sana
+              </span>
+            </Link>
 
-            <div className="relative">
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
-                <UserPlus size={12} />
-                Тіркелу
-              </div>
+            <div className="mt-12 max-w-xl lg:mt-20">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-background/50">
+                Оқушы кеңістігі
+              </p>
 
-              <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">
-                {t('auth.register_title')}
-              </h2>
+              <h1 className="mt-4 text-4xl font-black tracking-[-0.055em] text-background sm:text-5xl lg:text-6xl">
+                Қызыққан тақырыптан бастаңыз.
+              </h1>
 
-              <p className="mt-1 text-center text-sm leading-6 text-muted-foreground">
-                {t('auth.register_hint')}
+              <p className="mt-5 max-w-lg text-sm leading-6 text-background/65 sm:text-base">
+                Курстарды оқыңыз, тапсырмаларды орындаңыз және қажет кезде
+                Sana ЖИ құралдарын пайдаланыңыз.
               </p>
             </div>
           </div>
 
-          <div className="p-5">
-            {error ? <AuthErrorAlert>{error}</AuthErrorAlert> : null}
-
-            <div className="mb-4 space-y-2">
-              <Label className="text-xs font-medium">{t('auth.role')}</Label>
-
-              <div className="grid gap-2 sm:grid-cols-3">
-                {ROLES.map((item) => {
-                  const active = role === item.value;
-
-                  return (
-                    <button
-                      key={item.value}
-                      type="button"
-                      onClick={() => setRole(item.value)}
-                      aria-pressed={active}
-                      disabled={authBusy}
-                      className={cn(
-                        'rounded-2xl border p-3 text-left transition-all duration-200 ease-soft disabled:cursor-not-allowed disabled:opacity-60',
-                        active
-                          ? 'border-primary-muted bg-primary-soft text-primary shadow-soft'
-                          : 'border-border bg-card text-muted-foreground hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/60 hover:text-primary hover:shadow-soft',
-                      )}
-                    >
-                      <span className="block text-xs font-semibold">
-                        {item.label}
-                      </span>
-                      <span className="mt-1 block text-[10px] leading-4">
-                        {item.hint}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+          <div className="relative mt-10 grid gap-3 sm:grid-cols-2 lg:mt-16">
+            <div className="rounded-[1.5rem] border border-background/15 bg-background/[0.06] p-4">
+              <BookOpen size={18} className="text-background/75" />
+              <p className="mt-5 text-sm font-bold text-background">
+                Курстар бір жерде
+              </p>
+              <p className="mt-2 text-xs leading-5 text-background/55">
+                Сабақтар, тесттер және оқу барысы.
+              </p>
             </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              onClick={handleGoogleRegister}
-              disabled={authBusy}
-            >
-              {googleLoading ? (
-                <>
-                  <Loader2 size={15} className="mr-2 animate-spin" />
-                  Ашылуда...
-                </>
-              ) : (
-                <>
-                  <ShieldCheck size={15} className="mr-2" />
-                  Google арқылы тіркелу
-                </>
-              )}
-            </Button>
+            <div className="rounded-[1.5rem] border border-background/15 bg-background/[0.06] p-4">
+              <Sparkles size={18} className="text-background/75" />
+              <p className="mt-5 text-sm font-bold text-background">
+                ЖИ оқу көмекшісі
+              </p>
+              <p className="mt-2 text-xs leading-5 text-background/55">
+                Түсіндіру, жаттығу және талдау құралдары.
+              </p>
+            </div>
+          </div>
+        </section>
 
-            <div className="my-5 flex items-center gap-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-xs text-muted-foreground">немесе</span>
-              <div className="h-px flex-1 bg-border" />
+        <section className="p-5 sm:p-8 lg:flex lg:flex-col lg:justify-center lg:p-12">
+          <div className="mx-auto w-full max-w-md">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/45 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+              <UserPlus size={12} />
+              Оқушы аккаунты
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="fullName" className="text-xs font-medium">
-                  {t('auth.full_name')}
-                </Label>
+            <h2 className="mt-4 text-3xl font-black tracking-[-0.045em]">
+              Sana-ға қосылыңыз
+            </h2>
 
-                <Input
-                  id="fullName"
-                  autoComplete="name"
-                  value={fullName}
-                  onChange={(event) =>
-                    setFullName(normalizeFullName(event.target.value))
-                  }
-                  placeholder={t('auth.full_name_placeholder')}
-                  required
-                  disabled={authBusy}
-                />
-              </div>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Бір аккаунт — барлық оқу материалыңыз үшін.
+            </p>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="email" className="text-xs font-medium">
-                  {t('auth.email')}
-                </Label>
+            <div className="mt-7">
+              <AuthErrorAlert message={error} />
 
-                <Input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) =>
-                    setEmail(normalizeEmail(event.target.value))
-                  }
-                  placeholder="email@example.com"
-                  required
-                  disabled={authBusy}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="password" className="text-xs font-medium">
-                  {t('auth.password')}
-                </Label>
-
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(event) =>
-                      setPassword(normalizePassword(event.target.value))
-                    }
-                    placeholder="••••••••"
-                    required
-                    minLength={6}
-                    className="pr-11"
-                    disabled={authBusy}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((previous) => !previous)}
-                    className="absolute inset-y-0 right-0 flex items-center rounded-r-2xl px-3 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
-                    aria-label={
-                      showPassword
-                        ? t('auth.hide_password')
-                        : t('auth.show_password')
-                    }
-                    disabled={authBusy}
-                  >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-
-                <p className="rounded-2xl border border-border bg-surface-soft/60 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-                  Кемінде 6 таңба.
-                </p>
-              </div>
-
-              <Button type="submit" className="w-full" disabled={!canSubmit}>
-                {loading ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full rounded-2xl"
+                onClick={handleGoogleRegister}
+                disabled={authBusy}
+              >
+                {googleLoading ? (
                   <>
                     <Loader2 size={15} className="mr-2 animate-spin" />
-                    {t('common.loading')}
+                    Ашылуда...
                   </>
                 ) : (
                   <>
-                    {t('auth.register_btn')}
-                    <ArrowRight size={15} className="ml-2" />
+                    <ShieldCheck size={15} className="mr-2" />
+                    Google арқылы жалғастыру
                   </>
                 )}
               </Button>
-            </form>
 
-            <KazakhOrnament variant="divider" className="my-5" />
+              <div className="my-6 flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[11px] text-muted-foreground">
+                  немесе email
+                </span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
 
-            <p className="text-center text-sm text-muted-foreground">
-              {t('auth.has_account')}{' '}
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="fullName">Аты-жөніңіз</Label>
+                  <Input
+                    id="fullName"
+                    autoComplete="name"
+                    value={fullName}
+                    onChange={(event) =>
+                      setFullName(normalizeFullName(event.target.value))
+                    }
+                    placeholder="Аты-жөніңіз"
+                    maxLength={MAX_FULL_NAME_CHARS}
+                    required
+                    disabled={authBusy}
+                    className="h-11 rounded-2xl"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(event) =>
+                      setEmail(normalizeEmail(event.target.value))
+                    }
+                    placeholder="email@example.com"
+                    maxLength={MAX_EMAIL_CHARS}
+                    required
+                    disabled={authBusy}
+                    className="h-11 rounded-2xl"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="password">Құпиясөз</Label>
+
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(event) =>
+                        setPassword(normalizePassword(event.target.value))
+                      }
+                      placeholder="Кемінде 6 таңба"
+                      required
+                      minLength={6}
+                      maxLength={MAX_PASSWORD_CHARS}
+                      className="h-11 rounded-2xl pr-11"
+                      disabled={authBusy}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowPassword((previous) => !previous)
+                      }
+                      className="absolute inset-y-0 right-0 flex items-center rounded-r-2xl px-3 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                      aria-label={
+                        showPassword
+                          ? 'Құпиясөзді жасыру'
+                          : 'Құпиясөзді көрсету'
+                      }
+                      disabled={authBusy}
+                    >
+                      {showPassword ? (
+                        <EyeOff size={16} />
+                      ) : (
+                        <Eye size={16} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  className="h-11 w-full rounded-2xl"
+                  disabled={!canSubmit}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 size={15} className="mr-2 animate-spin" />
+                      Тіркелуде...
+                    </>
+                  ) : (
+                    <>
+                      Аккаунт ашу
+                      <ArrowRight size={15} className="ml-2" />
+                    </>
+                  )}
+                </Button>
+              </form>
+            </div>
+
+            <p className="mt-7 text-center text-sm text-muted-foreground">
+              Аккаунтыңыз бар ма?{' '}
               <Link
                 to="/login"
-                className="font-semibold text-foreground transition-colors hover:text-primary hover:underline"
+                className="font-semibold text-foreground underline-offset-4 hover:underline"
               >
-                {t('nav.login')}
+                Кіру
               </Link>
             </p>
           </div>
-        </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }

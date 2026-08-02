@@ -40,7 +40,6 @@ interface AuthContextType {
     email: string,
     password: string,
     fullName: string,
-    role: UserRole,
   ) => Promise<AuthActionResult>;
   loginWithGoogle: (role?: UserRole) => Promise<void>;
   verifyEmailOtp: (email: string, token: string) => Promise<User | null>;
@@ -129,16 +128,16 @@ function requireFullName(fullName: string): string {
   return normalizedFullName;
 }
 
-function isRegisterableRole(value: unknown): value is Exclude<UserRole, 'admin'> {
-  return value === 'student' || value === 'teacher' || value === 'parent';
+function isPublicRegistrationRole(value: unknown): value is 'student' {
+  return value === 'student';
 }
 
-function normalizeRegisterableRole(role: UserRole): Exclude<UserRole, 'admin'> {
-  if (!isRegisterableRole(role)) {
-    throw new Error('Бұл рөлмен тіркелуге болмайды.');
+function normalizePublicRegistrationRole(role: UserRole): 'student' {
+  if (!isPublicRegistrationRole(role)) {
+    throw new Error('Ашық тіркелу тек оқушы аккаунтына қолжетімді.');
   }
 
-  return role;
+  return 'student';
 }
 
 function isUserRole(value: unknown): value is UserRole {
@@ -164,7 +163,7 @@ function getPendingOAuthRole(): UserRole | null {
   const storage = getStorage();
   const value = cleanText(storage?.getItem(PENDING_OAUTH_ROLE_KEY), 40);
 
-  return isRegisterableRole(value) ? value : null;
+  return isPublicRegistrationRole(value) ? value : null;
 }
 
 function setPendingOAuthRole(role: UserRole) {
@@ -172,7 +171,7 @@ function setPendingOAuthRole(role: UserRole) {
 
   if (!storage) return;
 
-  const normalizedRole = normalizeRegisterableRole(role);
+  const normalizedRole = normalizePublicRegistrationRole(role);
 
   storage.setItem(PENDING_OAUTH_ROLE_KEY, normalizedRole);
 }
@@ -246,7 +245,9 @@ async function fetchProfile(userId: string) {
 
 async function syncRequestedRole(requestedRole?: UserRole | null) {
   const safeRole =
-    requestedRole && isRegisterableRole(requestedRole) ? requestedRole : null;
+    requestedRole && isPublicRegistrationRole(requestedRole)
+      ? requestedRole
+      : null;
 
   const { error } = await supabase.rpc('claim_requested_role' as never, {
     p_requested_role: safeRole,
@@ -454,12 +455,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       fullName: string,
-      role: UserRole,
     ): Promise<AuthActionResult> => {
       const normalizedEmail = requireEmail(email);
       const normalizedPassword = requirePassword(password);
       const normalizedFullName = requireFullName(fullName);
-      const normalizedRole = normalizeRegisterableRole(role);
+      const normalizedRole: 'student' = 'student';
 
       const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
@@ -500,7 +500,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const callbackUrl = new URL(`${window.location.origin}/auth/callback`);
 
     if (role) {
-      const normalizedRole = normalizeRegisterableRole(role);
+      const normalizedRole = normalizePublicRegistrationRole(role);
       setPendingOAuthRole(normalizedRole);
       callbackUrl.searchParams.set('role', normalizedRole);
     }
