@@ -256,7 +256,14 @@ export default function SanaDockLauncher({
                       </div>
 
                       <div className="mt-5 flex-1">
-                        <h3 className="text-lg font-bold tracking-[-0.025em]">
+                        <h3
+                          className={cn(
+                            'text-lg font-bold tracking-[-0.025em]',
+                            tool.featured
+                              ? 'text-background'
+                              : 'text-foreground',
+                          )}
+                        >
                           {toolTitle}
                         </h3>
 
