@@ -392,8 +392,8 @@ export default function AiAssistantPage() {
     'teacher_course_creator_advisor',
   );
 
-  const isTeacher = user?.role === 'teacher';
-  const canUseAssistant = Boolean(user?.id && isTeacher);
+  const isAuthor = user?.role === 'teacher' || user?.role === 'admin';
+  const canUseAssistant = Boolean(user?.id && isAuthor);
 
   const {
     data: workspace,
@@ -594,7 +594,7 @@ export default function AiAssistantPage() {
   const disabledReason = !teacherAi.isConfigured
     ? 'ЖИ сервисі қосылмаған.'
     : !canUseAssistant
-      ? 'Бұл бөлім мұғалімге арналған.'
+      ? 'Бұл бөлім автор аккаунтына арналған.'
       : undefined;
 
   return (
@@ -630,10 +630,10 @@ export default function AiAssistantPage() {
           />
         ) : null}
 
-        {user && !isTeacher ? (
+        {user && !isAuthor ? (
           <EmptyState
-            title="Мұғалім аккаунты қажет"
-            text="Бұл бөлім мұғалімге арналған."
+            title="Автор аккаунты қажет"
+            text="Бұл бөлім курс авторына арналған."
             tone="ai"
           />
         ) : null}

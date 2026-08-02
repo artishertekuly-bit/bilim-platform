@@ -691,7 +691,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       };
     }
 
-    if (user.role === 'teacher' || user.role === 'admin') {
+    if (user.role === 'teacher') {
       return {
         showCreate: true,
         mainPaths: {
@@ -704,8 +704,25 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         coursePaths: {
           back: '/my-courses',
           tests: '/create-test',
-          progress:
-            user.role === 'admin' ? '/admin-analytics' : '/analytics',
+          progress: '/analytics',
+        },
+      };
+    }
+
+    if (user.role === 'admin') {
+      return {
+        showCreate: true,
+        mainPaths: {
+          home: '/dashboard',
+          courses: '/manage-courses',
+          create: '/create-course',
+          ai: '/ai',
+          profile: '/profile',
+        },
+        coursePaths: {
+          back: '/manage-courses',
+          tests: '/create-test',
+          progress: '/admin-analytics',
         },
       };
     }
