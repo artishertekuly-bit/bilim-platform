@@ -1,403 +1,127 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Award,
-  BarChart3,
-  BookOpen,
-  Bookmark,
   Bot,
   BrainCircuit,
-  ClipboardList,
-  Eye,
-  FileText,
-  FolderOpen,
-  Gamepad2,
-  GraduationCap,
-  LayoutDashboard,
+  ChevronDown,
+  ClipboardCheck,
+  ListChecks,
   LogOut,
-  Menu,
-  MessageCircle,
   Monitor,
   Moon,
-  Plus,
-  Settings,
-  ShieldCheck,
   Sparkles,
   Sun,
-  Trophy,
-  Users,
-  X,
-  type LucideIcon,
+  UserRound,
+  WandSparkles,
 } from 'lucide-react';
 
 import UserAvatar from '@/components/UserAvatar';
 import SanaDock from '@/components/navigation/SanaDock';
+import type { SanaAiTool } from '@/components/navigation/SanaAiLauncher';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { useAuth, type UserRole } from '@/lib/auth-context';
-import t, { type TranslationKey } from '@/lib/i18n';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
-
-type NavItemConfig = {
-  labelKey?: TranslationKey;
-  label?: string;
-  path: string;
-  icon: LucideIcon;
-  matchMode?: 'exact' | 'section';
-  aliases?: string[];
-  tone?: 'default' | 'ai' | 'create';
-};
-
-type NavGroupConfig = {
-  title: string;
-  items: NavItemConfig[];
-};
-
-const SIDEBAR_ID = 'dashboard-sidebar';
 
 const MAX_NAME_CHARS = 160;
 const MAX_EMAIL_CHARS = 320;
 const MAX_URL_CHARS = 2_000;
 const MAX_LABEL_CHARS = 120;
 
-const roleTitleKeys: Record<UserRole, TranslationKey> = {
-  student: 'role.student',
-  teacher: 'role.teacher',
-  parent: 'role.parent',
-  admin: 'role.admin',
+type ThemeValue = 'light' | 'dark' | 'system';
+
+type DockConfig = {
+  showCreate: boolean;
+  aiTools: SanaAiTool[];
+  mainPaths: {
+    home: string;
+    courses: string;
+    create?: string;
+    ai: string;
+    profile: string;
+  };
+  coursePaths: {
+    back: string;
+    tests: string;
+    progress: string;
+  };
 };
 
-const chatNavItem: NavItemConfig = {
-  label: 'Чат',
-  path: '/chat',
-  icon: MessageCircle,
-  matchMode: 'section',
-};
+const STUDENT_AI_TOOLS: SanaAiTool[] = [
+  {
+    id: 'tutor',
+    title: 'Тақырыпты бірге түсіну',
+    description:
+      'Сұрақ қойыңыз, күрделі ойды қарапайым тілмен талдап, өз мысалыңызбен бекітіңіз.',
+    path: '/ai-tutor',
+    icon: Bot,
+    badge: 'Сұрақ пен түсіндіру',
+    featured: true,
+  },
+  {
+    id: 'practice',
+    title: 'Жаттығу жасау',
+    description:
+      'Өзіңізге лайық тапсырмалар алып, қателерді бірден талдап көріңіз.',
+    path: '/ai-practice',
+    icon: WandSparkles,
+    badge: 'Практика',
+  },
+  {
+    id: 'tracker',
+    title: 'Оқу ізін көру',
+    description:
+      'Қай тақырып жақсы жүріп жатқанын және қай жерге қайта оралу керегін байқаңыз.',
+    path: '/ai-tracker',
+    icon: BrainCircuit,
+    badge: 'Талдау',
+  },
+  {
+    id: 'student-exams',
+    title: 'ЖИ емтихандары',
+    description:
+      'Қолжетімді емтихандарды ашып, нақты уақыттағы сынақтан өтіңіз.',
+    path: '/ai-exams-open',
+    icon: ClipboardCheck,
+    badge: 'Сынақ',
+  },
+];
 
-const roleNavGroups: Record<UserRole, NavGroupConfig[]> = {
-  student: [
-    {
-      title: 'Негізгі',
-      items: [
-        {
-          labelKey: 'nav.dashboard',
-          path: '/dashboard',
-          icon: LayoutDashboard,
-          matchMode: 'exact',
-        },
-        {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        chatNavItem,
-      ],
-    },
-    {
-      title: 'Оқу',
-      items: [
-        {
-          labelKey: 'nav.courses',
-          path: '/courses',
-          icon: BookOpen,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.lessons',
-          path: '/lessons',
-          icon: FileText,
-          matchMode: 'section',
-        },
-        {
-          label: 'Сақталған сабақтар',
-          path: '/saved-lessons',
-          icon: Bookmark,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.tests',
-          path: '/tests',
-          icon: ClipboardList,
-          matchMode: 'section',
-        },
-      ],
-    },
-    {
-      title: 'ЖИ құралдар',
-      items: [
-        {
-          labelKey: 'nav.ai_practice',
-          path: '/ai-practice',
-          icon: Sparkles,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-        {
-          labelKey: 'nav.ai_tutor',
-          path: '/ai-tutor',
-          icon: Bot,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-        {
-          labelKey: 'nav.ai_tracker',
-          path: '/ai-tracker',
-          icon: BrainCircuit,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-      ],
-    },
-    {
-      title: 'Нәтиже',
-      items: [
-        {
-          labelKey: 'nav.analytics',
-          path: '/analytics',
-          icon: BarChart3,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.gamification',
-          path: '/games',
-          icon: Gamepad2,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.leaderboard',
-          path: '/leaderboard',
-          icon: Trophy,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.achievements',
-          path: '/achievements',
-          icon: Award,
-          matchMode: 'section',
-        },
-      ],
-    },
-  ],
-
-  teacher: [
-    {
-      title: 'Негізгі',
-      items: [
-        {
-          labelKey: 'nav.dashboard',
-          path: '/dashboard',
-          icon: LayoutDashboard,
-          matchMode: 'exact',
-        },
-        {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        chatNavItem,
-      ],
-    },
-    {
-      title: 'Курстар',
-      items: [
-        {
-          labelKey: 'nav.my_courses',
-          path: '/my-courses',
-          icon: BookOpen,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.create_course',
-          path: '/create-course',
-          icon: Plus,
-          matchMode: 'section',
-          tone: 'create',
-        },
-        {
-          labelKey: 'nav.create_test',
-          path: '/create-test',
-          icon: ClipboardList,
-          matchMode: 'section',
-          tone: 'create',
-        },
-      ],
-    },
-    {
-      title: 'ЖИ және емтихан',
-      items: [
-        {
-          labelKey: 'nav.ai_question_builder',
-          path: '/ai-question-builder',
-          icon: Sparkles,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-        {
-          labelKey: 'nav.ai_exams',
-          path: '/ai-exams',
-          icon: Bot,
-          matchMode: 'section',
-          aliases: ['/ai-exams-open'],
-          tone: 'ai',
-        },
-        {
-          labelKey: 'nav.ai_assistant',
-          path: '/ai-assistant',
-          icon: BrainCircuit,
-          matchMode: 'section',
-          tone: 'ai',
-        },
-      ],
-    },
-    {
-      title: 'Бақылау',
-      items: [
-        {
-          labelKey: 'nav.students',
-          path: '/students',
-          icon: Users,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.analytics',
-          path: '/analytics',
-          icon: BarChart3,
-          matchMode: 'section',
-        },
-      ],
-    },
-  ],
-
-  parent: [
-    {
-      title: 'Негізгі',
-      items: [
-        {
-          labelKey: 'nav.dashboard',
-          path: '/dashboard',
-          icon: LayoutDashboard,
-          matchMode: 'exact',
-        },
-        {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        chatNavItem,
-      ],
-    },
-    {
-      title: 'Бала бақылауы',
-      items: [
-        {
-          labelKey: 'nav.children',
-          path: '/children',
-          icon: Users,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.child_progress',
-          path: '/child-progress',
-          icon: BarChart3,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.child_tests',
-          path: '/child-tests',
-          icon: ClipboardList,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.child_achievements',
-          path: '/child-achievements',
-          icon: Award,
-          matchMode: 'section',
-        },
-      ],
-    },
-  ],
-
-  admin: [
-    {
-      title: 'Негізгі',
-      items: [
-        {
-          labelKey: 'nav.dashboard',
-          path: '/dashboard',
-          icon: LayoutDashboard,
-          matchMode: 'exact',
-        },
-        {
-          labelKey: 'nav.profile',
-          path: '/profile',
-          icon: Settings,
-          matchMode: 'exact',
-        },
-        chatNavItem,
-      ],
-    },
-    {
-      title: 'Контент',
-      items: [
-        {
-          labelKey: 'nav.subjects',
-          path: '/subjects',
-          icon: GraduationCap,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.manage_lessons',
-          path: '/manage-lessons',
-          icon: FileText,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.manage_courses',
-          path: '/manage-courses',
-          icon: BookOpen,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.manage_tests',
-          path: '/manage-tests',
-          icon: ClipboardList,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.cms',
-          path: '/cms',
-          icon: FolderOpen,
-          matchMode: 'section',
-        },
-      ],
-    },
-    {
-      title: 'Басқару',
-      items: [
-        {
-          labelKey: 'nav.moderation',
-          path: '/moderation',
-          icon: Eye,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.analytics',
-          path: '/admin-analytics',
-          icon: BarChart3,
-          matchMode: 'section',
-        },
-        {
-          labelKey: 'nav.users',
-          path: '/manage-users',
-          icon: Users,
-          matchMode: 'section',
-        },
-      ],
-    },
-  ],
-};
+const AUTHOR_AI_TOOLS: SanaAiTool[] = [
+  {
+    id: 'assistant',
+    title: 'Автор көмекшісі',
+    description:
+      'Курс идеясын дамыту, сабақ құрылымын ойлау және материалды жинақтау үшін.',
+    path: '/ai-assistant',
+    icon: Bot,
+    badge: 'Идея мен құрылым',
+    featured: true,
+  },
+  {
+    id: 'question-builder',
+    title: 'Сұрақ генераторы',
+    description:
+      'Тақырыптан тест сұрақтарын, жауап нұсқаларын және түсіндірмелерді дайындаңыз.',
+    path: '/ai-question-builder',
+    icon: ListChecks,
+    badge: 'Тест құрастыру',
+  },
+  {
+    id: 'ai-exams',
+    title: 'ЖИ емтихандары',
+    description:
+      'Емтихан сценарийін құрып, тапсырмалар мен өткізу тәртібін басқарыңыз.',
+    path: '/ai-exams',
+    icon: ClipboardCheck,
+    badge: 'Емтихан',
+  },
+];
 
 function cleanRawText(value: unknown): string {
   return removeNullCharacters(String(value ?? ''));
@@ -407,117 +131,106 @@ function cleanText(value: unknown, limit = MAX_LABEL_CHARS): string {
   return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
 }
 
-function normalizeUiLabel(value: unknown, limit = MAX_LABEL_CHARS): string {
-  return cleanText(value, limit)
-    .replace(/\bAI\b/g, 'ЖИ')
-    .replace(/\bAi\b/g, 'ЖИ')
-    .replace(/\bDashboard\b/g, 'Кабинет')
-    .replace(/\bdashboard\b/g, 'кабинет')
-    .trim();
-}
-
 function normalizeAvatarUrl(value: unknown): string | undefined {
   const url = cleanText(value, MAX_URL_CHARS);
 
   return url || undefined;
 }
 
-function getNavLabel(item: NavItemConfig) {
-  const label = item.label || (item.labelKey ? t(item.labelKey) : '');
-
-  return normalizeUiLabel(label);
-}
-
-function matchesPath(
-  pathname: string,
-  path: string,
-  matchMode: NavItemConfig['matchMode'] = 'section',
-) {
-  if (matchMode === 'exact') {
-    return pathname === path;
-  }
-
-  return pathname === path || pathname.startsWith(`${path}/`);
-}
-
-function isPathActive(pathname: string, item: NavItemConfig) {
-  if (matchesPath(pathname, item.path, item.matchMode)) {
-    return true;
-  }
-
-  return (item.aliases || []).some((alias) =>
-    matchesPath(pathname, alias, item.matchMode),
-  );
-}
-
 function getDisplayName(user?: {
   fullName?: string | null;
   email?: string | null;
-} | null) {
-  if (!user) return '';
-
-  const fullName = cleanText(user.fullName, MAX_NAME_CHARS);
-  const emailName = cleanText(user.email?.split('@')[0], MAX_NAME_CHARS);
+} | null): string {
+  const fullName = cleanText(user?.fullName, MAX_NAME_CHARS);
+  const emailName = cleanText(user?.email?.split('@')[0], MAX_NAME_CHARS);
 
   return fullName || emailName || 'Пайдаланушы';
 }
 
-function getDisplayEmail(email?: string | null) {
+function getDisplayEmail(email?: string | null): string {
   return cleanText(email, MAX_EMAIL_CHARS) || '—';
 }
 
-function flattenGroups(groups: NavGroupConfig[]) {
-  return groups.flatMap((group) => group.items);
+function getRoleLabel(role: UserRole): string {
+  if (role === 'admin') return 'Автор';
+  if (role === 'teacher') return 'Автор';
+  if (role === 'student') return 'Оқушы';
+
+  return 'Ескі аккаунт';
 }
 
-function getIconToneClass(item: NavItemConfig, isActive: boolean) {
-  if (isActive) {
-    if (item.tone === 'ai') {
-      return 'border-ai-border bg-ai-soft text-primary';
-    }
+function getPageLabel(pathname: string): string {
+  if (pathname === '/dashboard') return 'Басты бет';
+  if (pathname === '/profile') return 'Профиль';
 
-    if (item.tone === 'create') {
-      return 'border-accent-muted bg-accent-soft text-accent-foreground';
-    }
-
-    return 'border-primary-muted bg-card text-primary';
+  if (
+    pathname === '/courses' ||
+    pathname === '/my-courses' ||
+    pathname === '/manage-courses' ||
+    pathname.startsWith('/courses/')
+  ) {
+    return 'Курстар';
   }
 
-  if (item.tone === 'ai') {
-    return 'border-ai-border/60 bg-ai-soft/55 text-primary';
+  if (
+    pathname === '/lessons' ||
+    pathname === '/manage-lessons' ||
+    pathname.startsWith('/lessons/')
+  ) {
+    return 'Сабақтар';
   }
 
-  if (item.tone === 'create') {
-    return 'border-accent-muted/60 bg-accent-soft/55 text-accent-foreground';
+  if (
+    pathname === '/tests' ||
+    pathname === '/create-test' ||
+    pathname === '/manage-tests'
+  ) {
+    return 'Тесттер';
   }
 
-  return 'border-transparent bg-card/40 text-muted-foreground group-hover:border-primary-muted group-hover:bg-card group-hover:text-primary';
+  if (pathname === '/create-course') return 'Жаңа курс';
+
+  if (
+    pathname === '/ai' ||
+    pathname.startsWith('/ai-')
+  ) {
+    return 'ЖИ';
+  }
+
+  if (
+    pathname === '/analytics' ||
+    pathname === '/admin-analytics'
+  ) {
+    return 'Прогресс';
+  }
+
+  if (pathname === '/manage-users') return 'Қолданушылар';
+  if (pathname === '/saved-lessons') return 'Сақталғандар';
+  if (pathname === '/students') return 'Оқушылар';
+
+  return 'Sana';
 }
 
-function getThemeLabel(value: string) {
-  if (value === 'light') return 'Жарық';
-  if (value === 'dark') return 'Қараңғы';
-  if (value === 'system') return 'Жүйе';
+function ThemeControl({ compact = false }: { compact?: boolean }) {
+  const { theme, setTheme } = useTheme();
 
-  return 'Жүйе';
-}
-
-function ThemeToggle() {
-  const { theme, resolvedTheme, setTheme } = useTheme();
-
-  const items = [
+  const items: Array<{
+    value: ThemeValue;
+    label: string;
+    icon: typeof Sun;
+  }> = [
     {
-      value: 'light' as const,
+      value: 'light',
       label: 'Жарық',
       icon: Sun,
     },
     {
-      value: 'dark' as const,
+      value: 'dark',
       label: 'Қараңғы',
       icon: Moon,
     },
     {
-      value: 'system' as const,
+      value: 'system',
       label: 'Жүйе',
       icon: Monitor,
     },
@@ -525,9 +238,11 @@ function ThemeToggle() {
 
   return (
     <div
-      className="flex items-center rounded-2xl border border-border bg-card p-1"
-      title={`Тақырып: ${getThemeLabel(theme)} · белсенді ${getThemeLabel(resolvedTheme)}`}
-      aria-label="Тақырып ауыстыру"
+      className={cn(
+        'flex items-center rounded-full border border-border bg-background/80 p-1',
+        compact ? 'w-full justify-between' : 'shrink-0',
+      )}
+      aria-label="Тақырып"
     >
       {items.map((item) => {
         const Icon = item.icon;
@@ -540,10 +255,13 @@ function ThemeToggle() {
             onClick={() => setTheme(item.value)}
             aria-label={item.label}
             aria-pressed={active}
+            title={item.label}
             className={cn(
-              'inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted-foreground transition-colors',
-              'hover:bg-primary-soft hover:text-primary',
-              active && 'bg-primary-soft text-primary ring-1 ring-primary-muted',
+              'inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground',
+              'transition-[background-color,color,transform] duration-200',
+              'hover:bg-muted hover:text-foreground active:scale-95',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+              active && 'bg-foreground text-background hover:bg-foreground hover:text-background',
             )}
           >
             <Icon size={14} />
@@ -554,62 +272,190 @@ function ThemeToggle() {
   );
 }
 
-function SidebarSection({
-  group,
-  pathname,
-  onNavigate,
+function AccountMenu({
+  displayName,
+  displayEmail,
+  avatarUrl,
+  role,
+  onLogout,
 }: {
-  group: NavGroupConfig;
-  pathname: string;
-  onNavigate: () => void;
+  displayName: string;
+  displayEmail: string;
+  avatarUrl?: string;
+  role: UserRole;
+  onLogout: () => Promise<void>;
 }) {
+  const [open, setOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
+
+  useEffect(() => {
+    setOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (
+        wrapperRef.current &&
+        !wrapperRef.current.contains(event.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+
+    setLoggingOut(true);
+
+    try {
+      await onLogout();
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   return (
-    <div className="space-y-1">
-      <div className="px-3 pb-1 pt-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-          {normalizeUiLabel(group.title)}
-        </p>
-      </div>
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Аккаунт мәзірі"
+        className={cn(
+          'group flex items-center gap-2 rounded-full border border-border bg-card/85 p-1.5 pr-2',
+          'shadow-sm backdrop-blur-xl transition-all duration-200',
+          'hover:border-foreground/20 hover:bg-card hover:shadow-md',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+          open && 'border-foreground/20 bg-card shadow-md',
+        )}
+      >
+        <UserAvatar
+          name={displayName}
+          avatarUrl={avatarUrl}
+          className="h-8 w-8"
+          fallbackClassName="bg-foreground text-[10px] font-bold text-background"
+        />
 
-      {group.items.map((item) => {
-        const Icon = item.icon;
-        const isActive = isPathActive(pathname, item);
-        const label = getNavLabel(item);
+        <span className="hidden max-w-32 truncate text-xs font-semibold sm:block">
+          {displayName}
+        </span>
 
-        return (
-          <Link
-            key={item.path}
-            to={item.path}
-            onClick={onNavigate}
-            aria-current={isActive ? 'page' : undefined}
+        <ChevronDown
+          size={14}
+          className={cn(
+            'text-muted-foreground transition-transform duration-200',
+            open && 'rotate-180',
+          )}
+        />
+      </button>
+
+      {open ? (
+        <div
+          role="menu"
+          className={cn(
+            'absolute right-0 top-[calc(100%+0.65rem)] z-50 w-[min(20rem,calc(100vw-2rem))]',
+            'overflow-hidden rounded-[1.75rem] border border-border bg-card/95 p-2',
+            'shadow-[0_20px_60px_rgba(0,0,0,0.18)] backdrop-blur-2xl',
+            'animate-scale-in',
+          )}
+        >
+          <div className="rounded-[1.35rem] bg-muted/45 p-3">
+            <div className="flex items-center gap-3">
+              <UserAvatar
+                name={displayName}
+                avatarUrl={avatarUrl}
+                className="h-11 w-11"
+                fallbackClassName="bg-foreground text-xs font-bold text-background"
+              />
+
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-bold">{displayName}</p>
+                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  {displayEmail}
+                </p>
+              </div>
+
+              <span className="rounded-full border border-border bg-background px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
+                {getRoleLabel(role)}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-2 grid gap-1">
+            <Link
+              to="/profile"
+              role="menuitem"
+              className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background">
+                <UserRound size={15} />
+              </span>
+              Профиль
+            </Link>
+
+            {(role === 'admin' || role === 'teacher') ? (
+              <Link
+                to="/ai"
+                role="menuitem"
+                className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background">
+                  <Bot size={15} />
+                </span>
+                ЖИ көмекші
+              </Link>
+            ) : null}
+          </div>
+
+          <div className="my-2 h-px bg-border" />
+
+          <div className="px-2 pb-2">
+            <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Көрініс
+            </p>
+            <ThemeControl compact />
+          </div>
+
+          <div className="h-px bg-border" />
+
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => void handleLogout()}
+            disabled={loggingOut}
             className={cn(
-              'group relative flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm transition-colors',
-              isActive
-                ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground ring-1 ring-sidebar-border'
-                : 'text-sidebar-foreground hover:bg-sidebar-accent/75 hover:text-foreground',
+              'mt-2 flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-sm font-medium',
+              'text-destructive transition-colors hover:bg-destructive-soft',
+              'disabled:cursor-not-allowed disabled:opacity-60',
             )}
           >
-            {isActive ? (
-              <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-primary" />
-            ) : null}
-
-            <span
-              className={cn(
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors',
-                getIconToneClass(item, isActive),
-              )}
-            >
-              <Icon size={16} />
+            <span className="flex h-8 w-8 items-center justify-center rounded-full border border-destructive/20 bg-destructive-soft">
+              <LogOut size={15} />
             </span>
-
-            <span className="min-w-0 flex-1 truncate">{label}</span>
-
-            {item.tone === 'ai' && !isActive ? (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" />
-            ) : null}
-          </Link>
-        );
-      })}
+            {loggingOut ? 'Шығуда...' : 'Шығу'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -618,65 +464,29 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setSidebarOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-
-    const previousOverflow = document.body.style.overflow;
-
-    if (sidebarOpen) {
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [sidebarOpen]);
-
-  const navGroups = useMemo(() => {
-    if (!user) return [];
-
-    return roleNavGroups[user.role] || [];
-  }, [user]);
-
-  const navItems = useMemo(() => flattenGroups(navGroups), [navGroups]);
-
-  const activeItem = useMemo(
-    () => navItems.find((item) => isPathActive(location.pathname, item)),
-    [location.pathname, navItems],
-  );
 
   const displayName = useMemo(() => getDisplayName(user), [user]);
-  const displayEmail = useMemo(() => getDisplayEmail(user?.email), [user?.email]);
-  const avatarUrl = useMemo(() => normalizeAvatarUrl(user?.avatarUrl), [user?.avatarUrl]);
+  const displayEmail = useMemo(
+    () => getDisplayEmail(user?.email),
+    [user?.email],
+  );
+  const avatarUrl = useMemo(
+    () => normalizeAvatarUrl(user?.avatarUrl),
+    [user?.avatarUrl],
+  );
 
-  const sanaDockConfig = useMemo(() => {
+  const pageLabel = useMemo(
+    () => getPageLabel(location.pathname),
+    [location.pathname],
+  );
+
+  const dockConfig = useMemo<DockConfig | null>(() => {
     if (!user) return null;
 
     if (user.role === 'student') {
       return {
         showCreate: false,
+        aiTools: STUDENT_AI_TOOLS,
         mainPaths: {
           home: '/dashboard',
           courses: '/courses',
@@ -694,6 +504,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (user.role === 'teacher') {
       return {
         showCreate: true,
+        aiTools: AUTHOR_AI_TOOLS,
         mainPaths: {
           home: '/dashboard',
           courses: '/my-courses',
@@ -712,6 +523,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (user.role === 'admin') {
       return {
         showCreate: true,
+        aiTools: AUTHOR_AI_TOOLS,
         mainPaths: {
           home: '/dashboard',
           courses: '/manage-courses',
@@ -730,16 +542,11 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     return null;
   }, [user]);
 
-  const activeLabel = activeItem ? getNavLabel(activeItem) : normalizeUiLabel(t('nav.dashboard'));
-  const ActiveIcon = activeItem?.icon;
-
   const handleLogout = async () => {
-    setSidebarOpen(false);
-
     try {
       await logout();
     } catch {
-      // Logout failure should not leave the user trapped in the layout.
+      // Local navigation still completes when the remote logout request fails.
     } finally {
       navigate('/login', { replace: true });
     }
@@ -748,177 +555,78 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   if (!user) return null;
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
-      {sidebarOpen ? (
-        <button
-          type="button"
-          className="fixed inset-0 z-40 bg-foreground/20 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-          aria-label={t('common.close')}
-          aria-controls={SIDEBAR_ID}
-        />
-      ) : null}
+    <div className="relative min-h-screen overflow-x-clip bg-background text-foreground">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-x-0 top-0 z-0 h-72 bg-gradient-to-b from-muted/55 via-background/25 to-transparent"
+      />
 
-      <aside
-        id={SIDEBAR_ID}
+      <header
         className={cn(
-          'fixed left-0 top-0 z-50 flex h-screen w-72 flex-col border-r border-sidebar-border bg-sidebar',
-          'transition-transform duration-200 ease-soft',
-          'lg:sticky lg:translate-x-0',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+          'sticky top-0 z-40 border-b border-border/70 bg-background/82',
+          'backdrop-blur-2xl supports-[backdrop-filter]:bg-background/72',
         )}
       >
-        <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
+        <div className="mx-auto flex h-16 w-full max-w-[1480px] items-center gap-3 px-4 sm:px-5 lg:px-8">
           <Link
             to="/dashboard"
-            onClick={() => setSidebarOpen(false)}
-            className="flex min-w-0 items-center gap-3 rounded-2xl"
+            aria-label="Sana басты беті"
+            className={cn(
+              'group flex min-w-0 items-center gap-2.5 rounded-full',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+            )}
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-              <GraduationCap size={18} />
-            </div>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-transform duration-200 group-hover:scale-105">
+              <Sparkles size={16} strokeWidth={2.2} />
+            </span>
 
-            <div className="min-w-0">
-              <span className="block truncate text-sm font-semibold tracking-tight">
-                Sana
+            <span className="min-w-0">
+              <span className="block text-sm font-black lowercase tracking-[-0.05em]">
+                sana
               </span>
-            </div>
+              <span className="hidden text-[10px] font-medium text-muted-foreground sm:block">
+                {getRoleLabel(user.role)}
+              </span>
+            </span>
           </Link>
 
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(false)}
-            className="rounded-2xl p-2 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground lg:hidden"
-            aria-label={t('common.close')}
-            aria-controls={SIDEBAR_ID}
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="px-5 py-4">
-          <div className="rounded-3xl border border-sidebar-border bg-card/70 p-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
-                <ShieldCheck size={16} />
-              </div>
-
-              <div className="min-w-0">
-                <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  Рөл
-                </span>
-                <span className="block truncate text-sm font-semibold">
-                  {t(roleTitleKeys[user.role])}
-                </span>
-              </div>
-            </div>
+          <div className="mx-auto min-w-0 flex-1 px-2 text-center">
+            <p className="truncate text-sm font-semibold tracking-[-0.015em]">
+              {pageLabel}
+            </p>
           </div>
-        </div>
 
-        <nav
-          className="flex-1 overflow-y-auto px-3 pb-3"
-          aria-label="Навигация"
-        >
-          {navGroups.map((group) => (
-            <SidebarSection
-              key={group.title}
-              group={group}
-              pathname={location.pathname}
-              onNavigate={() => setSidebarOpen(false)}
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="hidden md:block">
+              <ThemeControl />
+            </div>
+
+            <AccountMenu
+              displayName={displayName}
+              displayEmail={displayEmail}
+              avatarUrl={avatarUrl}
+              role={user.role}
+              onLogout={handleLogout}
             />
-          ))}
-        </nav>
-
-        <div className="border-t border-sidebar-border px-4 py-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <span className="text-[11px] font-medium text-muted-foreground">
-              Тақырып
-            </span>
-            <ThemeToggle />
-          </div>
-
-          <div className="flex items-center gap-2 rounded-3xl border border-sidebar-border bg-card/70 p-2">
-            <Link
-              to="/profile"
-              onClick={() => setSidebarOpen(false)}
-              className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-1.5 transition-colors hover:bg-primary-soft"
-            >
-              <UserAvatar
-                name={displayName}
-                avatarUrl={avatarUrl}
-                className="h-9 w-9"
-                fallbackClassName="bg-primary-soft text-xs font-semibold text-primary"
-              />
-
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">{displayName}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {displayEmail}
-                </p>
-              </div>
-            </Link>
-
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="shrink-0 rounded-2xl p-2 text-muted-foreground transition-colors hover:bg-destructive-soft hover:text-destructive"
-              title={t('nav.logout')}
-              aria-label={t('nav.logout')}
-            >
-              <LogOut size={16} />
-            </button>
           </div>
         </div>
-      </aside>
+      </header>
 
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-16 items-center border-b border-border bg-background px-4 lg:px-6">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="-ml-2 mr-3 rounded-2xl p-2 text-muted-foreground transition-colors hover:bg-primary-soft hover:text-primary lg:hidden"
-            aria-label={t('common.open_menu')}
-            aria-controls={SIDEBAR_ID}
-            aria-expanded={sidebarOpen}
-          >
-            <Menu size={19} />
-          </button>
+      <main
+        className={cn(
+          'relative z-10 px-4 pt-4 sm:px-5 sm:pt-5 lg:px-8 lg:pt-7',
+          dockConfig ? 'pb-28 sm:pb-32' : 'pb-6',
+        )}
+      >
+        <div className="mx-auto w-full max-w-[1480px]">{children}</div>
+      </main>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              {ActiveIcon ? (
-                <ActiveIcon
-                  size={15}
-                  className="shrink-0 text-muted-foreground"
-                />
-              ) : null}
-              <p className="truncate text-sm font-semibold">{activeLabel}</p>
-            </div>
-          </div>
-
-          <div className="hidden lg:block">
-            <ThemeToggle />
-          </div>
-        </header>
-
-        <main
-          className={cn(
-            'flex-1 bg-background px-4 pt-4 lg:px-6 lg:pt-6',
-            sanaDockConfig ? 'pb-28 lg:pb-32' : 'pb-4 lg:pb-6',
-          )}
-        >
-          <div className="mx-auto w-full max-w-[1480px]">
-            {children}
-          </div>
-        </main>
-      </div>
-
-      {sanaDockConfig && !sidebarOpen ? (
+      {dockConfig ? (
         <SanaDock
-          showCreate={sanaDockConfig.showCreate}
-          mainPaths={sanaDockConfig.mainPaths}
-          coursePaths={sanaDockConfig.coursePaths}
-          className="lg:pl-72"
+          showCreate={dockConfig.showCreate}
+          aiTools={dockConfig.aiTools}
+          mainPaths={dockConfig.mainPaths}
+          coursePaths={dockConfig.coursePaths}
         />
       ) : null}
     </div>
