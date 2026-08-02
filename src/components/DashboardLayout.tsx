@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 
 import UserAvatar from '@/components/UserAvatar';
+import SanaDock from '@/components/navigation/SanaDock';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 import t, { type TranslationKey } from '@/lib/i18n';
@@ -670,6 +671,48 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const displayEmail = useMemo(() => getDisplayEmail(user?.email), [user?.email]);
   const avatarUrl = useMemo(() => normalizeAvatarUrl(user?.avatarUrl), [user?.avatarUrl]);
 
+  const sanaDockConfig = useMemo(() => {
+    if (!user) return null;
+
+    if (user.role === 'student') {
+      return {
+        showCreate: false,
+        mainPaths: {
+          home: '/dashboard',
+          courses: '/courses',
+          ai: '/ai',
+          profile: '/profile',
+        },
+        coursePaths: {
+          back: '/courses',
+          tests: '/tests',
+          progress: '/analytics',
+        },
+      };
+    }
+
+    if (user.role === 'teacher' || user.role === 'admin') {
+      return {
+        showCreate: true,
+        mainPaths: {
+          home: '/dashboard',
+          courses: '/my-courses',
+          create: '/create-course',
+          ai: '/ai',
+          profile: '/profile',
+        },
+        coursePaths: {
+          back: '/my-courses',
+          tests: '/create-test',
+          progress:
+            user.role === 'admin' ? '/admin-analytics' : '/analytics',
+        },
+      };
+    }
+
+    return null;
+  }, [user]);
+
   const activeLabel = activeItem ? getNavLabel(activeItem) : normalizeUiLabel(t('nav.dashboard'));
   const ActiveIcon = activeItem?.icon;
 
@@ -720,7 +763,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
             <div className="min-w-0">
               <span className="block truncate text-sm font-semibold tracking-tight">
-                Bilimcorp
+                Sana
               </span>
             </div>
           </Link>
@@ -841,12 +884,26 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 bg-background p-4 lg:p-6">
+        <main
+          className={cn(
+            'flex-1 bg-background px-4 pt-4 lg:px-6 lg:pt-6',
+            sanaDockConfig ? 'pb-28 lg:pb-32' : 'pb-4 lg:pb-6',
+          )}
+        >
           <div className="mx-auto w-full max-w-[1480px]">
             {children}
           </div>
         </main>
       </div>
+
+      {sanaDockConfig && !sidebarOpen ? (
+        <SanaDock
+          showCreate={sanaDockConfig.showCreate}
+          mainPaths={sanaDockConfig.mainPaths}
+          coursePaths={sanaDockConfig.coursePaths}
+          className="lg:pl-72"
+        />
+      ) : null}
     </div>
   );
 }
