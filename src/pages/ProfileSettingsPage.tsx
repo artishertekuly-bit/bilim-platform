@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import {
+  ArrowRight,
   BadgeCheck,
+  BarChart3,
+  BookOpen,
+  Bot,
   Camera,
   CheckCircle2,
   Eye,
@@ -10,6 +15,7 @@ import {
   Mail,
   Save,
   ShieldCheck,
+  Sparkles,
   Trash2,
   User,
   XCircle,
@@ -18,15 +24,8 @@ import {
 import AvatarCropDialog from '@/components/AvatarCropDialog';
 import DashboardLayout from '@/components/DashboardLayout';
 import UserAvatar from '@/components/UserAvatar';
-import PageHeader from '@/components/common/PageHeader';
 import StatusBadge from '@/components/common/StatusBadge';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -201,49 +200,130 @@ function getRoleLabel(role: UserRole | string | null | undefined) {
 }
 
 function SectionCard({
+  eyebrow,
   title,
+  description,
   icon,
   children,
+  className,
 }: {
+  eyebrow?: string;
   title: string;
+  description?: string;
   icon?: ReactNode;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <CardTitle className="flex items-center gap-2 text-base">
-          {icon ? (
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-              {icon}
-            </span>
-          ) : null}
-          {cleanText(title, MAX_FULL_NAME_CHARS)}
-        </CardTitle>
-      </CardHeader>
+    <section
+      className={cn(
+        'overflow-hidden rounded-[2rem] border border-border bg-card shadow-soft',
+        className,
+      )}
+    >
+      <div className="flex items-start gap-4 border-b border-border/75 px-5 py-5 sm:px-6">
+        {icon ? (
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground">
+            {icon}
+          </span>
+        ) : null}
 
-      <CardContent className="p-5">{children}</CardContent>
-    </Card>
+        <div className="min-w-0">
+          {eyebrow ? (
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {cleanText(eyebrow, MAX_FULL_NAME_CHARS)}
+            </p>
+          ) : null}
+
+          <h2 className="mt-1 text-xl font-black tracking-[-0.035em]">
+            {cleanText(title, MAX_FULL_NAME_CHARS)}
+          </h2>
+
+          {description ? (
+            <p className="mt-1.5 max-w-2xl text-xs leading-5 text-muted-foreground">
+              {cleanText(description, MAX_BIO_CHARS)}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="p-5 sm:p-6">{children}</div>
+    </section>
   );
 }
 
-function InfoRow({
-  label,
-  value,
+function ProfileActionCard({
+  title,
+  text,
+  href,
+  icon,
+  featured = false,
 }: {
-  label: string;
-  value: ReactNode;
+  title: string;
+  text: string;
+  href: string;
+  icon: ReactNode;
+  featured?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface-soft/60 px-3 py-2.5 shadow-inner-soft">
-      <span className="text-xs text-muted-foreground">
-        {cleanText(label, MAX_FULL_NAME_CHARS)}
-      </span>
-      <div className="min-w-0 text-right text-sm font-semibold text-foreground">
-        {value}
+    <Link
+      to={href}
+      className={cn(
+        'group relative overflow-hidden rounded-[1.5rem] border p-4',
+        'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
+        'hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+        featured
+          ? 'border-foreground bg-foreground text-background'
+          : 'border-border bg-card text-foreground hover:border-foreground/20',
+      )}
+    >
+      <div className="relative flex items-start gap-3">
+        <span
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border',
+            featured
+              ? 'border-background/20 bg-background/10'
+              : 'border-border bg-background',
+          )}
+        >
+          {icon}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              'text-sm font-bold',
+              featured ? 'text-background' : 'text-foreground',
+            )}
+          >
+            {cleanText(title, MAX_FULL_NAME_CHARS)}
+          </p>
+          <p
+            className={cn(
+              'mt-1 text-xs leading-5',
+              featured ? 'text-background/60' : 'text-muted-foreground',
+            )}
+          >
+            {cleanText(text, MAX_BIO_CHARS)}
+          </p>
+        </div>
+
+        <ArrowRight
+          size={15}
+          className="mt-1 shrink-0 transition-transform duration-200 group-hover:translate-x-1"
+        />
       </div>
-    </div>
+    </Link>
   );
+}
+
+function getSanaRoleLabel(role: UserRole | null | undefined) {
+  if (role === 'student') return 'Оқушы';
+  if (role === 'teacher' || role === 'admin') return 'Автор';
+  if (role === 'parent') return 'Ата-ана';
+
+  return 'Қолданушы';
 }
 
 function PasswordRule({
@@ -718,170 +798,259 @@ export default function ProfileSettingsPage() {
     }
   };
 
+  const sanaRoleLabel = getSanaRoleLabel(user?.role);
+  const shortUserId = safeUserId
+    ? safeUserId.slice(0, 8).toUpperCase()
+    : 'БЕЛГІСІЗ';
+
+  const profileCompletion = [
+    Boolean(normalizedFullName),
+    Boolean(normalizedBio),
+    Boolean(avatarUrl),
+    hasEmailProvider,
+  ].filter(Boolean).length * 25;
+
+  const roleActions = useMemo(() => {
+    if (user?.role === 'student') {
+      return [
+        {
+          title: 'Курстарым',
+          text: 'Оқуды жалғастыру',
+          href: '/courses',
+          icon: <BookOpen size={17} />,
+          featured: true,
+        },
+        {
+          title: 'ЖИ көмекші',
+          text: 'Тақырыпты бірге түсіну',
+          href: '/ai-tutor',
+          icon: <Bot size={17} />,
+          featured: false,
+        },
+        {
+          title: 'Оқу барысы',
+          text: 'Нәтиже мен белсенділік',
+          href: '/analytics',
+          icon: <BarChart3 size={17} />,
+          featured: false,
+        },
+      ];
+    }
+
+    return [
+      {
+        title: 'Курстарым',
+        text: 'Авторлық материалдарды басқару',
+        href: user?.role === 'admin' ? '/manage-courses' : '/my-courses',
+        icon: <BookOpen size={17} />,
+        featured: true,
+      },
+      {
+        title: 'Автор көмекшісі',
+        text: 'Идея мен сабақ құрылымы',
+        href: '/ai-assistant',
+        icon: <Bot size={17} />,
+        featured: false,
+      },
+      {
+        title: 'Аналитика',
+        text: 'Платформа көрінісі',
+        href: user?.role === 'admin' ? '/admin-analytics' : '/analytics',
+        icon: <BarChart3 size={17} />,
+        featured: false,
+      },
+    ];
+  }, [user?.role]);
+
   return (
     <DashboardLayout>
-      <div className="mx-auto max-w-5xl space-y-6 animate-fade-in">
-        <PageHeader
-          eyebrow={
-            <>
-              <User size={13} />
-              Аккаунт
-            </>
-          }
-          icon={<User size={20} />}
-          title={t('page.profile.title')}
-          actions={
-            <StatusBadge tone={hasEmailProvider ? 'success' : 'warning'}>
-              {hasEmailProvider ? <ShieldCheck size={12} /> : <KeyRound size={12} />}
-              {hasEmailProvider ? 'Құпия сөз бар' : 'Құпия сөз жоқ'}
-            </StatusBadge>
-          }
-        />
+      <div className="mx-auto max-w-6xl animate-fade-in space-y-6">
+        <section className="relative overflow-hidden rounded-[2.5rem] border border-foreground bg-foreground text-background shadow-soft-lg">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-24 -top-32 h-80 w-80 rounded-full border border-background/10"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-8 -top-16 h-52 w-52 rounded-full border border-background/10"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-0 right-0 h-48 w-48 bg-background/[0.04] blur-3xl"
+          />
 
-        <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <div className="space-y-6">
-            <SectionCard title="Аккаунт" icon={<BadgeCheck size={16} />}>
-              <div className="flex flex-col items-center text-center">
-                <div className="rounded-full border border-primary-muted bg-primary-soft p-1.5 shadow-soft">
+          <div className="relative grid gap-8 p-5 sm:p-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end lg:p-10">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-end">
+              <div className="relative w-fit shrink-0">
+                <div className="rounded-full border border-background/20 bg-background/10 p-2 shadow-soft-lg">
                   <UserAvatar
                     name={displayName}
                     avatarUrl={avatarUrl}
-                    className="h-28 w-28"
-                    fallbackClassName="text-2xl"
+                    className="h-28 w-28 sm:h-36 sm:w-36"
+                    fallbackClassName="text-3xl"
                   />
                 </div>
 
-                <h3 className="mt-4 max-w-full truncate text-base font-semibold text-foreground">
-                  {displayName}
-                </h3>
+                <label
+                  htmlFor="hero-avatar"
+                  className={cn(
+                    'absolute bottom-1 right-1 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full',
+                    'border border-background/20 bg-background text-foreground shadow-soft',
+                    'transition-transform duration-200 hover:scale-105 active:scale-95',
+                    savingAvatar && 'pointer-events-none opacity-50',
+                  )}
+                  aria-label="Аватарды өзгерту"
+                >
+                  <Camera size={16} />
+                </label>
 
-                <p className="mt-1 max-w-full truncate text-sm text-muted-foreground">
+                <input
+                  id="hero-avatar"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/jpg"
+                  onChange={handleAvatarFileSelect}
+                  disabled={savingAvatar}
+                  className="sr-only"
+                />
+              </div>
+
+              <div className="min-w-0 pb-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-background/20 bg-background/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-background/70">
+                    Sana · {shortUserId}
+                  </span>
+                  <span className="rounded-full border border-background/20 bg-background/10 px-3 py-1 text-[10px] font-semibold text-background/80">
+                    {sanaRoleLabel}
+                  </span>
+                </div>
+
+                <h1 className="mt-4 break-words text-4xl font-black tracking-[-0.055em] text-background sm:text-5xl">
+                  {displayName}
+                </h1>
+
+                <p className="mt-2 break-all text-sm text-background/55">
                   {cleanText(user?.email, MAX_EMAIL_CHARS)}
                 </p>
 
-                <div className="mt-4 flex flex-wrap justify-center gap-2">
-                  {authProviders.length > 0 ? (
-                    authProviders.map((provider) => (
-                      <StatusBadge
-                        key={provider}
-                        tone={provider === 'google' ? 'primary' : 'success'}
-                      >
-                        {provider === 'google' ? (
-                          <BadgeCheck size={12} />
-                        ) : (
-                          <Mail size={12} />
-                        )}
-                        {getProviderLabel(provider)}
-                      </StatusBadge>
-                    ))
-                  ) : (
-                    <StatusBadge tone="muted">Анықталмады</StatusBadge>
-                  )}
-                </div>
+                <p className="mt-4 max-w-2xl whitespace-pre-line text-sm leading-6 text-background/70">
+                  {normalizedBio ||
+                    (user?.role === 'student'
+                      ? 'Sana-дағы оқу жолыңыз осы жерден көрінеді.'
+                      : 'Авторлық бағытыңызды қысқаша сипаттап, профильге мінез беріңіз.')}
+                </p>
               </div>
+            </div>
 
-              <div className="mt-5 space-y-2">
-                <InfoRow label="Рөл" value={getRoleLabel(user?.role)} />
-                <InfoRow label="Email" value={cleanText(user?.email, MAX_EMAIL_CHARS) || '—'} />
-                <InfoRow
-                  label="Google"
-                  value={hasGoogleProvider ? 'Қосылған' : 'Қосылмаған'}
-                />
-                <InfoRow
-                  label="Құпия сөз"
-                  value={hasEmailProvider ? 'Орнатылған' : 'Орнатылмаған'}
-                />
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Аватар" icon={<Camera size={16} />}>
-              <div className="space-y-4">
-                <div className="rounded-3xl border border-dashed border-border bg-surface-soft/60 p-4 shadow-inner-soft">
-                  <div className="flex items-start gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-inner-soft">
-                      <ImageIcon size={18} />
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-foreground">
-                        Сурет таңдау
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        PNG, JPG, JPEG немесе WEBP. Максимум {MAX_AVATAR_SIZE_MB} MB.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    <Input
-                      id="avatar"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/jpg"
-                      onChange={handleAvatarFileSelect}
-                      disabled={savingAvatar}
-                    />
-                  </div>
+            <div className="rounded-[1.75rem] border border-background/15 bg-background/[0.07] p-5 backdrop-blur-sm">
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-background/45">
+                    Профиль күйі
+                  </p>
+                  <p className="mt-2 text-3xl font-black tracking-[-0.045em] text-background">
+                    {profileCompletion}%
+                  </p>
                 </div>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={removeAvatar}
-                  disabled={!canRemoveAvatar}
-                  className="w-full"
-                >
-                  <Trash2 size={16} className="mr-2" />
-                  {savingAvatar
-                    ? t('page.profile.action.removing_avatar')
-                    : t('page.profile.action.remove_avatar')}
-                </Button>
+                <Sparkles size={20} className="text-background/55" />
               </div>
-            </SectionCard>
+
+              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-background/15">
+                <div
+                  className="h-full rounded-full bg-background transition-[width] duration-500 ease-soft"
+                  style={{ width: `${profileCompletion}%` }}
+                />
+              </div>
+
+              <p className="mt-3 text-xs leading-5 text-background/55">
+                Аватар, аты-жөн, био және қауіпсіздік күйі есепке алынады.
+              </p>
+            </div>
           </div>
+        </section>
 
+        <section className="grid gap-3 sm:grid-cols-3">
+          {roleActions.map((action) => (
+            <ProfileActionCard
+              key={action.title}
+              title={action.title}
+              text={action.text}
+              href={action.href}
+              icon={action.icon}
+              featured={action.featured}
+            />
+          ))}
+        </section>
+
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
           <div className="space-y-6">
-            <SectionCard title={t('page.profile.card_title')} icon={<User size={16} />}>
+            <SectionCard
+              eyebrow="Жеке кеңістік"
+              title="Профильді құрастыру"
+              description="Атыңыз бен қысқа сипаттамаңыз Sana-дағы жеке бейнеңізді қалыптастырады."
+              icon={<User size={18} />}
+            >
               <div className="space-y-5">
-                <div className="grid gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="fullName">{t('auth.full_name')}</Label>
-                    <Input
-                      id="fullName"
-                      value={fullName}
-                      maxLength={MAX_FULL_NAME_CHARS}
-                      onChange={(event) =>
-                        setFullName(cleanText(event.target.value, MAX_FULL_NAME_CHARS))
-                      }
-                      disabled={savingProfile}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="bio">Өзі туралы</Label>
-                    <Textarea
-                      id="bio"
-                      value={bio}
-                      maxLength={MAX_BIO_CHARS}
-                      onChange={(event) =>
-                        setBio(cleanMultilineText(event.target.value, MAX_BIO_CHARS))
-                      }
-                      placeholder="Қысқаша ақпарат"
-                      rows={5}
-                      disabled={savingProfile}
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      {bio.length}/{MAX_BIO_CHARS}
-                    </p>
-                  </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="fullName">{t('auth.full_name')}</Label>
+                  <Input
+                    id="fullName"
+                    value={fullName}
+                    maxLength={MAX_FULL_NAME_CHARS}
+                    onChange={(event) =>
+                      setFullName(
+                        cleanText(event.target.value, MAX_FULL_NAME_CHARS),
+                      )
+                    }
+                    disabled={savingProfile}
+                    className="h-12 rounded-2xl"
+                    placeholder="Аты-жөніңіз"
+                  />
                 </div>
 
-                <div className="flex justify-end">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="bio">Өзіңіз туралы</Label>
+                    <span className="text-[10px] text-muted-foreground">
+                      {bio.length}/{MAX_BIO_CHARS}
+                    </span>
+                  </div>
+
+                  <Textarea
+                    id="bio"
+                    value={bio}
+                    maxLength={MAX_BIO_CHARS}
+                    onChange={(event) =>
+                      setBio(
+                        cleanMultilineText(
+                          event.target.value,
+                          MAX_BIO_CHARS,
+                        ),
+                      )
+                    }
+                    placeholder={
+                      user?.role === 'student'
+                        ? 'Не үйренгіңіз келеді? Қандай тақырыптар қызықтырады?'
+                        : 'Қандай бағытта курс жасайсыз? Авторлық ұстанымыңыз қандай?'
+                    }
+                    rows={7}
+                    disabled={savingProfile}
+                    className="resize-none rounded-2xl"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Өзгеріс тек «Сақтау» батырмасынан кейін жарияланады.
+                  </p>
+
                   <Button
                     type="button"
                     onClick={saveProfile}
                     disabled={!canSaveProfile}
+                    className="rounded-full"
                   >
-                    <Save size={16} className="mr-2" />
+                    <Save size={15} className="mr-2" />
                     {savingProfile
                       ? t('page.profile.action.saving')
                       : t('page.profile.action.save_changes')}
@@ -890,96 +1059,234 @@ export default function ProfileSettingsPage() {
               </div>
             </SectionCard>
 
-            <SectionCard title="Қауіпсіздік" icon={<ShieldCheck size={16} />}>
+            <SectionCard
+              eyebrow="Қауіпсіздік"
+              title="Кіру және құпиясөз"
+              description="Google мен email арқылы кіру әдістерін осы жерден бақылаңыз."
+              icon={<ShieldCheck size={18} />}
+            >
               <div className="space-y-5">
-                <div className="rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm font-semibold text-foreground">
-                      Кіру әдістері
-                    </p>
-
-                    <div className="flex flex-wrap gap-2">
-                      {hasGoogleProvider ? (
-                        <StatusBadge tone="primary">
-                          <BadgeCheck size={12} />
-                          Google
-                        </StatusBadge>
-                      ) : null}
-
-                      <StatusBadge tone={hasEmailProvider ? 'success' : 'warning'}>
-                        {hasEmailProvider ? (
-                          <CheckCircle2 size={12} />
-                        ) : (
-                          <KeyRound size={12} />
-                        )}
-                        {hasEmailProvider ? 'Құпия сөз бар' : 'Құпия сөз керек'}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-[1.5rem] border border-border bg-background p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card">
+                        <BadgeCheck size={15} />
+                      </span>
+                      <StatusBadge tone={hasGoogleProvider ? 'primary' : 'muted'}>
+                        {hasGoogleProvider ? 'Қосылған' : 'Қосылмаған'}
                       </StatusBadge>
                     </div>
+                    <p className="mt-4 text-sm font-bold">Google</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Жылдам авторизация
+                    </p>
+                  </div>
+
+                  <div className="rounded-[1.5rem] border border-border bg-background p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card">
+                        <Mail size={15} />
+                      </span>
+                      <StatusBadge tone={hasEmailProvider ? 'success' : 'warning'}>
+                        {hasEmailProvider ? 'Орнатылған' : 'Қажет'}
+                      </StatusBadge>
+                    </div>
+                    <p className="mt-4 text-sm font-bold">Email және құпиясөз</p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {cleanText(user?.email, MAX_EMAIL_CHARS) || '—'}
+                    </p>
                   </div>
                 </div>
 
-                <div className="grid gap-4">
-                  <PasswordField
-                    id="newPassword"
-                    label="Жаңа құпия сөз"
-                    value={newPassword}
-                    onChange={setNewPassword}
-                    placeholder="Кемінде 8 таңба, әріп және сан"
-                    visible={showNewPassword}
-                    onToggleVisible={() => setShowNewPassword((prev) => !prev)}
-                    disabled={savingPassword}
-                  />
+                <details className="group rounded-[1.5rem] border border-border bg-muted/35">
+                  <summary className="flex cursor-pointer list-none items-center gap-3 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/35">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card">
+                      <KeyRound size={15} />
+                    </span>
 
-                  <PasswordField
-                    id="confirmPassword"
-                    label="Қайталау"
-                    value={confirmPassword}
-                    onChange={setConfirmPassword}
-                    placeholder="Құпия сөзді қайталаңыз"
-                    visible={showConfirmPassword}
-                    onToggleVisible={() => setShowConfirmPassword((prev) => !prev)}
-                    disabled={savingPassword}
-                  />
-                </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold">Құпиясөзді жаңарту</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Кемінде 8 таңба, бір әріп және бір сан.
+                      </p>
+                    </div>
 
-                <div className="grid gap-2 rounded-3xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft sm:grid-cols-2">
-                  <PasswordRule ok={passwordHasMinLength}>
-                    Кемінде 8 таңба
-                  </PasswordRule>
-                  <PasswordRule ok={passwordHasLetter}>
-                    Кемінде 1 әріп
-                  </PasswordRule>
-                  <PasswordRule ok={passwordHasNumber}>
-                    Кемінде 1 сан
-                  </PasswordRule>
-                  <PasswordRule
-                    ok={
-                      normalizedConfirmPassword.length > 0 &&
-                      normalizedNewPassword === normalizedConfirmPassword
-                    }
-                  >
-                    Қайталау сәйкес
-                  </PasswordRule>
-                </div>
+                    <ArrowRight
+                      size={15}
+                      className="text-muted-foreground transition-transform duration-200 group-open:rotate-90"
+                    />
+                  </summary>
 
-                {passwordMismatch ? (
-                  <p className="rounded-2xl border border-destructive-muted bg-destructive-soft px-3 py-2 text-sm text-destructive">
-                    Құпия сөздер сәйкес келмейді.
-                  </p>
-                ) : null}
+                  <div className="space-y-5 border-t border-border p-4 sm:p-5">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <PasswordField
+                        id="newPassword"
+                        label="Жаңа құпиясөз"
+                        value={newPassword}
+                        onChange={setNewPassword}
+                        placeholder="Жаңа құпиясөз"
+                        visible={showNewPassword}
+                        onToggleVisible={() =>
+                          setShowNewPassword((previous) => !previous)
+                        }
+                        disabled={savingPassword}
+                      />
 
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    onClick={savePassword}
-                    disabled={!canSavePassword}
-                  >
-                    <KeyRound size={16} className="mr-2" />
-                    {savingPassword ? 'Жаңартылуда...' : 'Құпия сөзді жаңарту'}
-                  </Button>
-                </div>
+                      <PasswordField
+                        id="confirmPassword"
+                        label="Қайталау"
+                        value={confirmPassword}
+                        onChange={setConfirmPassword}
+                        placeholder="Қайта енгізіңіз"
+                        visible={showConfirmPassword}
+                        onToggleVisible={() =>
+                          setShowConfirmPassword((previous) => !previous)
+                        }
+                        disabled={savingPassword}
+                      />
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <PasswordRule ok={passwordHasMinLength}>
+                        Кемінде 8 таңба
+                      </PasswordRule>
+                      <PasswordRule ok={passwordHasLetter}>
+                        Кемінде 1 әріп
+                      </PasswordRule>
+                      <PasswordRule ok={passwordHasNumber}>
+                        Кемінде 1 сан
+                      </PasswordRule>
+                      <PasswordRule
+                        ok={
+                          normalizedConfirmPassword.length > 0 &&
+                          normalizedNewPassword === normalizedConfirmPassword
+                        }
+                      >
+                        Қайталау сәйкес
+                      </PasswordRule>
+                    </div>
+
+                    {passwordMismatch ? (
+                      <p className="rounded-2xl border border-destructive-muted bg-destructive-soft px-3 py-2 text-sm text-destructive">
+                        Құпиясөздер сәйкес келмейді.
+                      </p>
+                    ) : null}
+
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        onClick={savePassword}
+                        disabled={!canSavePassword}
+                        className="rounded-full"
+                      >
+                        <KeyRound size={15} className="mr-2" />
+                        {savingPassword
+                          ? 'Жаңартылуда...'
+                          : 'Құпиясөзді жаңарту'}
+                      </Button>
+                    </div>
+                  </div>
+                </details>
               </div>
             </SectionCard>
+          </div>
+
+          <div className="space-y-6">
+            <SectionCard
+              eyebrow="Көрнекі бейне"
+              title="Профиль суреті"
+              description="Аватар сіздің курстарыңызда, пікірлерде және жеке кеңістікте көрінеді."
+              icon={<Camera size={18} />}
+            >
+              <div className="flex flex-col items-center text-center">
+                <div className="relative rounded-full border border-border bg-muted p-2 shadow-soft-md">
+                  <UserAvatar
+                    name={displayName}
+                    avatarUrl={avatarUrl}
+                    className="h-32 w-32"
+                    fallbackClassName="text-3xl"
+                  />
+                  <span className="absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card shadow-soft">
+                    <Sparkles size={14} />
+                  </span>
+                </div>
+
+                <p className="mt-5 text-sm font-bold">{displayName}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {sanaRoleLabel} · Sana
+                </p>
+              </div>
+
+              <label
+                htmlFor="avatar"
+                className={cn(
+                  'mt-6 block cursor-pointer rounded-[1.5rem] border border-dashed border-foreground/25 bg-muted/40 p-5',
+                  'transition-[border-color,background-color,transform] duration-200 ease-soft',
+                  'hover:-translate-y-0.5 hover:border-foreground/45 hover:bg-muted/70',
+                  savingAvatar && 'pointer-events-none opacity-50',
+                )}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card">
+                    <ImageIcon size={17} />
+                  </span>
+
+                  <div className="min-w-0 text-left">
+                    <p className="text-sm font-bold">Жаңа сурет таңдау</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      PNG, JPG немесе WEBP · {MAX_AVATAR_SIZE_MB} MB дейін
+                    </p>
+                  </div>
+                </div>
+              </label>
+
+              <input
+                id="avatar"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/jpg"
+                onChange={handleAvatarFileSelect}
+                disabled={savingAvatar}
+                className="sr-only"
+              />
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={removeAvatar}
+                disabled={!canRemoveAvatar}
+                className="mt-3 w-full rounded-full"
+              >
+                <Trash2 size={15} className="mr-2" />
+                {savingAvatar
+                  ? t('page.profile.action.removing_avatar')
+                  : t('page.profile.action.remove_avatar')}
+              </Button>
+            </SectionCard>
+
+            <section className="relative overflow-hidden rounded-[2rem] border border-border bg-muted/45 p-5">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full border border-foreground/10"
+              />
+
+              <div className="relative">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Sana белгісі
+                </p>
+                <p className="mt-3 text-lg font-black tracking-[-0.035em]">
+                  Профиль — жай баптау емес.
+                </p>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  Бұл сіздің платформадағы жеке белгіңіз: атыңыз, бағытыңыз
+                  және жинақталған оқу жолыңыз.
+                </p>
+
+                <div className="mt-5 flex items-center gap-2 text-xs font-semibold">
+                  <ShieldCheck size={14} />
+                  {getRoleLabel(user?.role)} аккаунты қорғалған
+                </div>
+              </div>
+            </section>
           </div>
         </div>
 
@@ -993,3 +1300,4 @@ export default function ProfileSettingsPage() {
     </DashboardLayout>
   );
 }
+
