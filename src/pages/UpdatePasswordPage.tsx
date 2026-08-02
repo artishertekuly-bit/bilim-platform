@@ -315,7 +315,7 @@ export default function UpdatePasswordPage() {
             </div>
 
             <h1 className="mb-3 text-3xl font-bold tracking-tight text-foreground">
-              Bilimcorp
+              Sana
             </h1>
 
             <p className="mx-auto max-w-sm text-sm leading-7 text-muted-foreground">
@@ -352,7 +352,7 @@ export default function UpdatePasswordPage() {
             </div>
 
             <div>
-              <span className="block text-sm font-semibold">Bilimcorp</span>
+              <span className="block text-sm font-semibold">Sana</span>
               <span className="block text-[11px] text-muted-foreground">
                 Құпия сөзді жаңарту
               </span>

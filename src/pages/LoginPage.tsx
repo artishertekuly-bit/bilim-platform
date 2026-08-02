@@ -5,13 +5,12 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
-  GraduationCap,
   Info,
   Loader2,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 
-import KazakhOrnament from '@/components/KazakhOrnament';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -53,7 +52,9 @@ function normalizeSearch(value: unknown): string {
 
   if (!search || search === '?') return '';
 
-  return search.startsWith('?') ? search.slice(0, MAX_REDIRECT_CHARS) : '';
+  return search.startsWith('?')
+    ? search.slice(0, MAX_REDIRECT_CHARS)
+    : '';
 }
 
 function normalizeRedirectPath(pathname?: string, search?: string): string {
@@ -74,9 +75,14 @@ function normalizeRedirectPath(pathname?: string, search?: string): string {
   return `${limitText(path, MAX_REDIRECT_CHARS)}${normalizeSearch(search)}`;
 }
 
-function resolveLoginError(error: unknown): { error?: string; info?: string } {
+function resolveLoginError(error: unknown): {
+  error?: string;
+  info?: string;
+} {
   const message =
-    error instanceof Error ? cleanText(error.message) : t('auth.login_failed');
+    error instanceof Error
+      ? cleanText(error.message)
+      : t('auth.login_failed');
 
   if (message.toLowerCase().includes('email not confirmed')) {
     return {
@@ -103,17 +109,18 @@ function AuthAlert({
 
   return (
     <div
+      role="alert"
       className={cn(
-        'mb-3 flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-sm leading-5',
+        'mb-4 flex items-start gap-3 rounded-[1.25rem] border px-4 py-3 text-sm leading-5',
         isDanger
           ? 'border-destructive-muted bg-destructive-soft text-destructive'
           : 'border-warning-muted bg-warning-soft text-warning-foreground',
       )}
     >
       {isDanger ? (
-        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+        <AlertTriangle size={16} className="mt-0.5 shrink-0" />
       ) : (
-        <Info size={15} className="mt-0.5 shrink-0" />
+        <Info size={16} className="mt-0.5 shrink-0" />
       )}
 
       <span>{message}</span>
@@ -155,9 +162,11 @@ export default function LoginPage() {
 
   const normalizedEmail = normalizeEmail(email);
   const normalizedPassword = normalizePassword(password);
-  const canSubmit =
-    normalizedEmail.length > 0 && normalizedPassword.length > 0 && !loading;
   const authBusy = loading || googleLoading;
+  const canSubmit =
+    normalizedEmail.length > 0 &&
+    normalizedPassword.length > 0 &&
+    !authBusy;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -172,13 +181,18 @@ export default function LoginPage() {
       const result = await login(normalizedEmail, normalizedPassword);
 
       if (result.requiresEmailConfirmation) {
-        setInfo(cleanText(result.message || t('auth.email_confirmation_required')));
+        setInfo(
+          cleanText(
+            result.message ||
+              t('auth.email_confirmation_required'),
+          ),
+        );
         return;
       }
 
       navigate(redirectTo, { replace: true });
-    } catch (err: unknown) {
-      const resolved = resolveLoginError(err);
+    } catch (loginError: unknown) {
+      const resolved = resolveLoginError(loginError);
 
       if (resolved.info) {
         setInfo(resolved.info);
@@ -197,10 +211,10 @@ export default function LoginPage() {
 
     try {
       await loginWithGoogle();
-    } catch (err: unknown) {
+    } catch (googleError: unknown) {
       setError(
-        err instanceof Error
-          ? cleanText(err.message)
+        googleError instanceof Error
+          ? cleanText(googleError.message)
           : 'Google арқылы кіру мүмкін болмады.',
       );
       setGoogleLoading(false);
@@ -221,99 +235,114 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="kazakh-ornament-bg grid min-h-screen bg-background lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-      <div className="relative hidden overflow-hidden border-r border-border bg-card lg:flex">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary-soft blur-3xl" />
-          <div className="absolute right-10 top-20 h-72 w-72 rounded-full bg-secondary-soft blur-3xl" />
-          <div className="absolute bottom-10 left-1/3 h-64 w-64 rounded-full bg-accent-soft blur-3xl" />
-        </div>
+    <main className="relative min-h-screen overflow-hidden bg-background px-4 py-6 text-foreground sm:px-6 lg:flex lg:items-center lg:py-10">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-foreground/[0.045] blur-3xl"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -bottom-40 -right-24 h-[30rem] w-[30rem] rounded-full bg-foreground/[0.035] blur-3xl"
+      />
 
-        <div className="absolute left-8 top-8 text-primary">
-          <KazakhOrnament variant="corner" />
-        </div>
+      <div className="relative mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2.5rem] border border-border bg-card shadow-soft-lg lg:grid-cols-[1.02fr_0.98fr]">
+        <section className="relative overflow-hidden bg-foreground p-6 text-background sm:p-9 lg:flex lg:min-h-[43rem] lg:flex-col lg:justify-between lg:p-12">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-28 -top-28 h-72 w-72 rounded-full bg-background/10 blur-3xl"
+          />
 
-        <div className="absolute bottom-8 right-8 rotate-180 text-primary">
-          <KazakhOrnament variant="corner" />
-        </div>
-
-        <div className="relative z-10 flex w-full items-center justify-center px-12">
-          <div className="max-w-md text-center">
-            <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-3xl border border-primary-muted bg-primary-soft text-primary shadow-soft">
-              <GraduationCap size={32} />
-            </div>
-
-            <h1 className="mb-3 text-3xl font-bold tracking-tight text-foreground">
-              Bilimcorp
-            </h1>
-
-            <p className="mx-auto max-w-sm text-sm leading-7 text-muted-foreground">
-              {t('landing.hero_subtitle')}
-            </p>
-
-            <div className="mt-8 rounded-3xl border border-border bg-card/80 p-4 text-left shadow-soft backdrop-blur">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-success-muted bg-success-soft text-success-foreground shadow-inner-soft">
-                  <ShieldCheck size={18} />
-                </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    Қауіпсіз кіру
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Email немесе Google арқылы кіріңіз.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <KazakhOrnament variant="divider" className="mt-8" />
-          </div>
-        </div>
-      </div>
-
-      <div className="flex min-h-screen items-center justify-center p-6">
-        <div className="w-full max-w-md">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
-              <GraduationCap size={18} />
-            </div>
-
-            <div>
-              <span className="block text-sm font-semibold">Bilimcorp</span>
-              <span className="block text-[11px] text-muted-foreground">
-                Оқу платформасы
+          <div className="relative">
+            <Link
+              to="/"
+              aria-label="Sana басты беті"
+              className="inline-flex items-center gap-3 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/40"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-full border border-background/20 bg-background/10">
+                <Sparkles size={17} />
               </span>
-            </div>
-          </div>
+              <span className="text-sm font-black lowercase tracking-[-0.05em] text-background">
+                sana
+              </span>
+            </Link>
 
-          <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft-lg">
-            <div className="border-b border-border/70 bg-card/80 px-5 py-5">
-              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary-muted bg-primary-soft px-3 py-1 text-xs font-semibold text-primary">
-                <ShieldCheck size={12} />
-                Кіру
-              </div>
+            <div className="mt-12 max-w-xl lg:mt-20">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-background/50">
+                Оқу және авторлық кеңістік
+              </p>
 
-              <h2 className="text-xl font-semibold tracking-tight text-foreground">
-                {t('auth.login_title')}
-              </h2>
+              <h1 className="mt-4 text-4xl font-black tracking-[-0.055em] text-background sm:text-5xl lg:text-6xl">
+                Оқу мен идеяға қайта оралыңыз.
+              </h1>
 
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                {t('auth.login_hint')}
+              <p className="mt-5 max-w-lg text-sm leading-6 text-background/65 sm:text-base">
+                Курстарыңыз, сабақтарыңыз және Sana ЖИ құралдары бір
+                аккаунтта сақталады.
               </p>
             </div>
+          </div>
 
-            <div className="p-5">
+          <div className="relative mt-10 rounded-[1.5rem] border border-background/15 bg-background/[0.06] p-5 lg:mt-16">
+            <ShieldCheck size={18} className="text-background/75" />
+            <p className="mt-5 text-sm font-bold text-background">
+              Қауіпсіз кіру
+            </p>
+            <p className="mt-2 text-xs leading-5 text-background/55">
+              Email және Google арқылы кіру қолжетімді.
+            </p>
+          </div>
+        </section>
+
+        <section className="p-5 sm:p-8 lg:flex lg:flex-col lg:justify-center lg:p-12">
+          <div className="mx-auto w-full max-w-md">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/45 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+              <ShieldCheck size={12} />
+              Sana аккаунты
+            </div>
+
+            <h2 className="mt-4 text-3xl font-black tracking-[-0.045em]">
+              Қайта келдіңіз
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Аккаунтыңызға кіріп, жұмысыңызды жалғастырыңыз.
+            </p>
+
+            <div className="mt-7">
               {error ? <AuthAlert tone="danger">{error}</AuthAlert> : null}
               {info ? <AuthAlert tone="warning">{info}</AuthAlert> : null}
 
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full rounded-2xl"
+                onClick={handleGoogleLogin}
+                disabled={authBusy}
+              >
+                {googleLoading ? (
+                  <>
+                    <Loader2 size={15} className="mr-2 animate-spin" />
+                    Ашылуда...
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck size={15} className="mr-2" />
+                    Google арқылы кіру
+                  </>
+                )}
+              </Button>
+
+              <div className="my-6 flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[11px] text-muted-foreground">
+                  немесе email
+                </span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-xs font-medium">
-                    {t('auth.email')}
-                  </Label>
-
+                  <Label htmlFor="email">{t('auth.email')}</Label>
                   <Input
                     id="email"
                     type="email"
@@ -323,15 +352,15 @@ export default function LoginPage() {
                       setEmail(normalizeEmail(event.target.value))
                     }
                     placeholder="email@example.com"
+                    maxLength={MAX_EMAIL_CHARS}
                     required
                     disabled={authBusy}
+                    className="h-11 rounded-2xl"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="password" className="text-xs font-medium">
-                    {t('auth.password')}
-                  </Label>
+                  <Label htmlFor="password">{t('auth.password')}</Label>
 
                   <div className="relative">
                     <Input
@@ -343,15 +372,18 @@ export default function LoginPage() {
                         setPassword(normalizePassword(event.target.value))
                       }
                       placeholder="••••••••"
+                      maxLength={MAX_PASSWORD_CHARS}
                       required
-                      className="pr-11"
+                      className="h-11 rounded-2xl pr-11"
                       disabled={authBusy}
                     />
 
                     <button
                       type="button"
-                      onClick={() => setShowPassword((previous) => !previous)}
-                      className="absolute inset-y-0 right-0 flex items-center rounded-r-2xl px-3 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+                      onClick={() =>
+                        setShowPassword((previous) => !previous)
+                      }
+                      className="absolute inset-y-0 right-0 flex items-center rounded-r-2xl px-3 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
                       aria-label={
                         showPassword
                           ? t('auth.hide_password')
@@ -359,87 +391,66 @@ export default function LoginPage() {
                       }
                       disabled={authBusy}
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showPassword ? (
+                        <EyeOff size={16} />
+                      ) : (
+                        <Eye size={16} />
+                      )}
                     </button>
                   </div>
                 </div>
 
                 <Button
                   type="submit"
-                  className="w-full"
-                  disabled={!canSubmit || authBusy}
+                  className="h-11 w-full rounded-2xl"
+                  disabled={!canSubmit}
                 >
                   {loading ? (
                     <>
                       <Loader2 size={15} className="mr-2 animate-spin" />
-                      {t('common.loading')}
+                      Кіру...
                     </>
                   ) : (
                     <>
-                      {t('auth.login_btn')}
+                      Кіру
                       <ArrowRight size={15} className="ml-2" />
                     </>
                   )}
                 </Button>
               </form>
 
-              <div className="my-5 flex items-center gap-3">
-                <div className="h-px flex-1 bg-border" />
-                <span className="text-xs text-muted-foreground">немесе</span>
-                <div className="h-px flex-1 bg-border" />
-              </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={handleGoogleLogin}
-                disabled={authBusy}
-              >
-                {googleLoading ? (
-                  <>
-                    <Loader2 size={15} className="mr-2 animate-spin" />
-                    Ашылуда...
-                  </>
-                ) : (
-                  'Google арқылы кіру'
-                )}
-              </Button>
-
               <div className="mt-4 flex items-center justify-between gap-3 text-sm">
                 <Link
                   to="/forgot-password"
-                  className="text-muted-foreground transition-colors hover:text-primary hover:underline"
+                  className="text-muted-foreground transition-colors hover:text-foreground hover:underline"
                 >
-                  Құпия сөзді ұмыттым
+                  Құпиясөзді ұмыттым
                 </Link>
 
                 {normalizedEmail ? (
                   <button
                     type="button"
                     onClick={handleVerifyEmailClick}
-                    className="text-right font-medium text-foreground transition-colors hover:text-primary hover:underline"
+                    className="text-right font-medium text-foreground transition-colors hover:underline"
                   >
                     Email кодын енгізу
                   </button>
                 ) : null}
               </div>
-
-              <KazakhOrnament variant="divider" className="my-5" />
-
-              <p className="text-center text-sm text-muted-foreground">
-                {t('auth.no_account')}{' '}
-                <Link
-                  to="/register"
-                  className="font-semibold text-foreground transition-colors hover:text-primary hover:underline"
-                >
-                  {t('nav.register')}
-                </Link>
-              </p>
             </div>
+
+            <p className="mt-7 text-center text-sm text-muted-foreground">
+              Аккаунтыңыз жоқ па?{' '}
+              <Link
+                to="/register"
+                className="font-semibold text-foreground underline-offset-4 hover:underline"
+              >
+                Тіркелу
+              </Link>
+            </p>
           </div>
-        </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }

@@ -1,94 +1,105 @@
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
-  AlertTriangle,
-  GraduationCap,
+  ArrowRight,
   Loader2,
-  ShieldCheck,
+  ShieldAlert,
+  Sparkles,
+  UserRound,
 } from 'lucide-react';
 
+import DashboardLayout from '@/components/DashboardLayout';
 import { Button } from '@/components/ui/button';
-import KazakhOrnament from '@/components/KazakhOrnament';
-import { useAuth, type UserRole } from '@/lib/auth-context';
+import { useAuth } from '@/lib/auth-context';
 import AdminDashboard from '@/pages/AdminDashboard';
-import ParentDashboard from '@/pages/ParentDashboard';
 import StudentDashboard from '@/pages/StudentDashboard';
-import TeacherDashboard from '@/pages/TeacherDashboard';
-
-const DASHBOARD_BY_ROLE: Record<UserRole, JSX.Element> = {
-  student: <StudentDashboard />,
-  teacher: <TeacherDashboard />,
-  parent: <ParentDashboard />,
-  admin: <AdminDashboard />,
-};
 
 function DashboardLoadingScreen() {
   return (
-    <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-border bg-card p-6 text-center shadow-soft">
-        <div className="pointer-events-none absolute -left-16 -top-16 h-32 w-32 rounded-full bg-primary-soft blur-3xl" />
-        <div className="pointer-events-none absolute -right-16 top-4 h-32 w-32 rounded-full bg-secondary-soft blur-3xl" />
-
-        <div className="relative">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-            <Loader2 size={23} className="animate-spin" />
-          </div>
-
-          <h1 className="mt-4 text-base font-semibold text-foreground">
-            Жеке кабинет жүктелуде
-          </h1>
-
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Аккаунт дерегі тексерілуде.
-          </p>
-
-          <div className="mt-5">
-            <KazakhOrnament variant="divider" className="py-0 opacity-70" />
-          </div>
+    <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <div className="w-full max-w-sm rounded-[2rem] border border-border bg-card p-7 text-center shadow-soft">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background">
+          <Loader2 size={19} className="animate-spin" />
         </div>
+
+        <p className="mt-5 text-sm font-bold">Sana ашылуда</p>
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+          Аккаунт кеңістігі дайындалып жатыр.
+        </p>
       </div>
     </div>
   );
 }
 
+function LegacyParentAccountState() {
+  return (
+    <DashboardLayout>
+      <div className="mx-auto max-w-2xl animate-fade-in py-8 sm:py-14">
+        <section className="relative overflow-hidden rounded-[2.25rem] border border-border bg-card p-6 shadow-soft sm:p-9">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-foreground/[0.045] blur-3xl"
+          />
+
+          <div className="relative">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background">
+              <ShieldAlert size={19} />
+            </div>
+
+            <p className="mt-7 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              Ескі аккаунт
+            </p>
+
+            <h1 className="mt-2 text-3xl font-black tracking-[-0.045em] sm:text-4xl">
+              Ата-ана кеңістігі жабылды
+            </h1>
+
+            <p className="mt-4 max-w-xl text-sm leading-6 text-muted-foreground">
+              Sana енді автор мен оқушыға арналған жеке платформа ретінде
+              жұмыс істейді. Бұл аккаунттың деректері өшірілген жоқ.
+            </p>
+
+            <div className="mt-7 flex flex-col gap-2 sm:flex-row">
+              <Button type="button" asChild>
+                <Link to="/profile">
+                  <UserRound size={15} className="mr-2" />
+                  Профильді ашу
+                </Link>
+              </Button>
+
+              <Button type="button" variant="outline" asChild>
+                <Link to="/">
+                  Басты бет
+                  <ArrowRight size={15} className="ml-2" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </DashboardLayout>
+  );
+}
+
 function UnknownRoleState() {
   return (
-    <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background p-6">
-      <div className="relative w-full max-w-md overflow-hidden rounded-3xl border border-destructive-muted bg-destructive-soft/70 p-6 text-center shadow-soft">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full bg-destructive-muted/40 blur-3xl" />
-
-        <div className="relative">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-destructive-muted bg-card text-destructive shadow-inner-soft">
-            <AlertTriangle size={23} />
-          </div>
-
-          <div className="mt-4 flex justify-center">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-destructive-muted bg-destructive-soft px-3 py-1 text-xs font-semibold text-destructive">
-              <ShieldCheck size={12} />
-              Рөл қатесі
-            </span>
-          </div>
-
-          <h1 className="mt-4 text-lg font-semibold text-foreground">
-            Рөл анықталмады
-          </h1>
-
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Аккаунт рөлі дұрыс орнатылмаған. Профильді тексеріңіз немесе әкімшіге хабарласыңыз.
-          </p>
-
-          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
-            <Button type="button" variant="outline" asChild>
-              <Link to="/">Басты бет</Link>
-            </Button>
-
-            <Button type="button" asChild>
-              <Link to="/profile">
-                <GraduationCap size={15} className="mr-2" />
-                Профиль
-              </Link>
-            </Button>
-          </div>
+    <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
+      <div className="w-full max-w-md rounded-[2rem] border border-destructive-muted bg-card p-7 text-center shadow-soft">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-destructive-soft text-destructive">
+          <ShieldAlert size={19} />
         </div>
+
+        <h1 className="mt-5 text-xl font-black tracking-[-0.03em]">
+          Аккаунт рөлі анықталмады
+        </h1>
+
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          Профиль дерегін тексеріңіз немесе аккаунт рөлін база арқылы
+          қайта орнатыңыз.
+        </p>
+
+        <Button type="button" className="mt-6" asChild>
+          <Link to="/profile">Профильді ашу</Link>
+        </Button>
       </div>
     </div>
   );
@@ -121,5 +132,17 @@ export default function DashboardRouter() {
     );
   }
 
-  return DASHBOARD_BY_ROLE[user.role] ?? <UnknownRoleState />;
+  if (user.role === 'student') {
+    return <StudentDashboard />;
+  }
+
+  if (user.role === 'teacher' || user.role === 'admin') {
+    return <AdminDashboard />;
+  }
+
+  if (user.role === 'parent') {
+    return <LegacyParentAccountState />;
+  }
+
+  return <UnknownRoleState />;
 }

@@ -13,7 +13,7 @@ import {
 import KazakhOrnament from '@/components/KazakhOrnament';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth, type UserRole } from '@/lib/auth-context';
+import { useAuth } from '@/lib/auth-context';
 import { limitText, removeNullCharacters } from '@/lib/utils';
 
 const PENDING_OAUTH_ROLE_KEY = 'bilim.pendingOAuthRole';
@@ -24,7 +24,7 @@ const MAX_MESSAGE_CHARS = 240;
 const SESSION_RETRY_COUNT = 20;
 const SESSION_RETRY_DELAY_MS = 200;
 
-type OAuthRole = Exclude<UserRole, 'admin'>;
+type OAuthRole = 'student';
 
 function cleanRawText(value: unknown): string {
   return removeNullCharacters(String(value ?? ''));
@@ -38,10 +38,8 @@ function normalizeRoleCandidate(value: unknown): string {
   return cleanText(value, MAX_ROLE_CHARS).toLowerCase();
 }
 
-function isUserRole(value: unknown): value is OAuthRole {
-  const normalized = normalizeRoleCandidate(value);
-
-  return normalized === 'student' || normalized === 'teacher' || normalized === 'parent';
+function isPublicOAuthRole(value: unknown): value is OAuthRole {
+  return normalizeRoleCandidate(value) === 'student';
 }
 
 function getSafeWindow() {
@@ -55,7 +53,7 @@ function getPendingOAuthRole(): OAuthRole | null {
 
   const value = safeWindow.localStorage.getItem(PENDING_OAUTH_ROLE_KEY);
 
-  return isUserRole(value) ? (normalizeRoleCandidate(value) as OAuthRole) : null;
+  return isPublicOAuthRole(value) ? 'student' : null;
 }
 
 function getRoleFromUrl(): OAuthRole | null {
@@ -69,12 +67,12 @@ function getRoleFromUrl(): OAuthRole | null {
   const roleFromSearch = searchParams.get('role');
   const roleFromHash = hashParams.get('role');
 
-  if (isUserRole(roleFromSearch)) {
-    return normalizeRoleCandidate(roleFromSearch) as OAuthRole;
+  if (isPublicOAuthRole(roleFromSearch)) {
+    return 'student';
   }
 
-  if (isUserRole(roleFromHash)) {
-    return normalizeRoleCandidate(roleFromHash) as OAuthRole;
+  if (isPublicOAuthRole(roleFromHash)) {
+    return 'student';
   }
 
   return null;
@@ -235,7 +233,11 @@ export default function AuthCallbackPage() {
           throw new Error(oauthError);
         }
 
-        const requestedRole = getRoleFromUrl() || getPendingOAuthRole();
+        const requestedRole: OAuthRole = 'student';
+
+        // Clear any stale or manipulated role value from URL/localStorage.
+        getRoleFromUrl();
+        getPendingOAuthRole();
 
         const safeWindow = getSafeWindow();
         const searchParams = new URLSearchParams(safeWindow?.location.search || '');
@@ -411,7 +413,7 @@ export default function AuthCallbackPage() {
                   Сессия тексеріліп жатыр
                 </p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Профиль, рөл және құпия сөз күйі тексеріледі.
+                  Профиль және құпия сөз күйі тексеріледі.
                 </p>
               </div>
             </div>
@@ -421,7 +423,7 @@ export default function AuthCallbackPage() {
 
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <GraduationCap size={13} />
-            Bilimcorp
+            Sana
           </div>
         </div>
       </div>

@@ -186,7 +186,7 @@ export default function LandingPage() {
 
             <div>
               <span className="block text-sm font-semibold tracking-tight">
-                Bilimcorp
+                Sana
               </span>
               <span className="block text-[10px] font-medium text-muted-foreground">
                 Soft Academic LMS
@@ -366,7 +366,7 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <span className="block text-xs font-semibold">Bilimcorp</span>
+              <span className="block text-xs font-semibold">Sana</span>
               <span className="block text-[10px] text-muted-foreground">
                 Soft Academic LMS
               </span>

@@ -66,11 +66,11 @@ export default function AboutPage() {
           <div className="mx-auto max-w-4xl text-center">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground">
               <GraduationCap size={14} />
-              Bilimcorp
+              Sana
             </div>
 
             <h1 className="mx-auto max-w-3xl text-4xl font-bold tracking-tight leading-[1.1] lg:text-6xl">
-              Bilimcorp — білім беруге арналған құрылымды цифрлық платформа
+              Sana — білім беруге арналған құрылымды цифрлық платформа
             </h1>
 
             <p className="mx-auto mt-6 max-w-2xl text-sm leading-7 text-muted-foreground lg:text-base">
@@ -104,7 +104,7 @@ export default function AboutPage() {
           </h2>
           <p className="text-sm leading-7 text-muted-foreground">
             Көп өнімдер не жай контент жеткізумен шектеледі, не AI-ды нақты архитектурасыз уәде
-            ретінде көрсетеді. Bilimcorp бұдан бөлек жолды ұстанады: алдымен сенімді оқу
+            ретінде көрсетеді. Sana бұдан бөлек жолды ұстанады: алдымен сенімді оқу
             платформасын құру, содан кейін ғана интеллектуалды қабатты мағыналы түрде енгізу.
           </p>
           <p className="text-sm leading-7 text-muted-foreground">

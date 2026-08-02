@@ -342,7 +342,7 @@ export default function SetupPasswordPage() {
             <GraduationCap size={18} />
           </div>
           <div>
-            <span className="block text-sm font-semibold">Bilimcorp</span>
+            <span className="block text-sm font-semibold">Sana</span>
             <span className="block text-[11px] text-muted-foreground">
               Қауіпсіздік
             </span>
