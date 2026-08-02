@@ -1,624 +1,358 @@
-import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   BarChart3,
   BookOpen,
-  CheckCircle2,
-  ClipboardList,
+  Bot,
+  ClipboardCheck,
+  FilePlus2,
   GraduationCap,
-  LineChart,
+  LayoutGrid,
+  ListChecks,
   Plus,
-  RotateCcw,
   Sparkles,
-  Target,
+  UserRound,
   Users,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
-import StatCard from '@/components/StatCard';
-import PageHeader from '@/components/common/PageHeader';
-import StatusBadge from '@/components/common/StatusBadge';
-import { EmptyState, ErrorState } from '@/components/common/DataState';
-import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useTeacherDashboard } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
-import t from '@/lib/i18n';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
-const MAX_ID_CHARS = 160;
-const MAX_TITLE_CHARS = 240;
-const MAX_META_CHARS = 180;
-const MAX_NAME_CHARS = 120;
+const MAX_NAME_CHARS = 180;
 
-function cleanRawText(value: unknown): string {
-  return removeNullCharacters(String(value ?? ''));
+function cleanText(value: unknown, limit = MAX_NAME_CHARS): string {
+  return limitText(
+    removeNullCharacters(String(value ?? ''))
+      .replace(/\s+/g, ' ')
+      .trim(),
+    limit,
+  );
 }
 
-function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
-  return limitText(cleanRawText(value).replace(/\s+/g, ' ').trim(), limit);
+function getFirstName(value: unknown): string {
+  const fullName = cleanText(value);
+  return fullName.split(' ')[0] || 'Автор';
 }
 
-function cleanId(value: unknown): string {
-  return cleanText(value, MAX_ID_CHARS);
-}
+type AuthorAction = {
+  eyebrow: string;
+  title: string;
+  description: string;
+  path: string;
+  icon: typeof BookOpen;
+  featured?: boolean;
+  wide?: boolean;
+};
 
-function buildCourseEditPath(courseId: string) {
-  return `/create-course?courseId=${encodeURIComponent(cleanId(courseId))}`;
-}
+const AUTHOR_ACTIONS: AuthorAction[] = [
+  {
+    eyebrow: 'Жаңа жоба',
+    title: 'Курс құру',
+    description:
+      'Идеяны курсқа айналдырып, модульдер мен сабақтардың құрылымын бастаңыз.',
+    path: '/create-course',
+    icon: Plus,
+    featured: true,
+    wide: true,
+  },
+  {
+    eyebrow: 'Жұмыс кеңістігі',
+    title: 'Курстарымды ашу',
+    description:
+      'Бұрын басталған курстарды өңдеңіз және мазмұнды жалғастырыңыз.',
+    path: '/my-courses',
+    icon: BookOpen,
+  },
+  {
+    eyebrow: 'Sana ЖИ',
+    title: 'Автор көмекшісі',
+    description:
+      'Сабақ жоспарын, мәтін құрылымын және жаңа идеяларды бірге дайындаңыз.',
+    path: '/ai-assistant',
+    icon: Bot,
+  },
+  {
+    eyebrow: 'Бағалау',
+    title: 'Сұрақ генераторы',
+    description:
+      'Тақырып бойынша сұрақтар мен жауап нұсқаларын жылдам құрастырыңыз.',
+    path: '/ai-question-builder',
+    icon: ListChecks,
+  },
+  {
+    eyebrow: 'Тест',
+    title: 'Жаңа тест',
+    description:
+      'Оқушы білімін тексеруге арналған тест пен тапсырмаларды дайындаңыз.',
+    path: '/create-test',
+    icon: ClipboardCheck,
+  },
+  {
+    eyebrow: 'Аудитория',
+    title: 'Оқушылар',
+    description:
+      'Курстардағы оқушыларды және олардың оқу қозғалысын қараңыз.',
+    path: '/students',
+    icon: Users,
+  },
+];
 
-function formatPercent(value: number | null | undefined) {
-  if (value === null || value === undefined) return '—';
-
-  const numberValue = Number(value);
-
-  if (!Number.isFinite(numberValue)) return '—';
-
-  return `${Math.max(0, Math.min(100, Math.round(numberValue)))}%`;
-}
-
-function getTeacherHealthStatus(stats: {
-  totalCourses: number;
-  totalStudents: number;
-  totalTests: number;
-  avgScore: number | null;
-}) {
-  if (stats.totalCourses === 0) return 'Курс құру керек';
-  if (stats.totalStudents === 0) return 'Оқушы қосу керек';
-  if (stats.totalTests === 0) return 'Тест қосу керек';
-
-  const avgScore = Number(stats.avgScore || 0);
-
-  if (avgScore >= 80) return 'Жақсы';
-  if (avgScore >= 50) return 'Орташа';
-
-  return 'Назар керек';
-}
-
-function getTeacherHealthTone(stats: {
-  totalCourses: number;
-  totalStudents: number;
-  totalTests: number;
-  avgScore: number | null;
-}) {
-  if (stats.totalCourses === 0 || stats.totalStudents === 0 || stats.totalTests === 0) {
-    return 'warning' as const;
-  }
-
-  const avgScore = Number(stats.avgScore || 0);
-
-  if (avgScore >= 80) return 'success' as const;
-  if (avgScore >= 50) return 'important' as const;
-
-  return 'danger' as const;
-}
-
-function SummaryRow({
-  label,
-  value,
-  icon,
-  emphasized = false,
+function AuthorActionCard({
+  action,
 }: {
-  label: string;
-  value: string | number;
-  icon: ReactNode;
-  emphasized?: boolean;
+  action: AuthorAction;
 }) {
+  const Icon = action.icon;
+
   return (
-    <div
+    <Link
+      to={action.path}
       className={cn(
-        'flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5',
-        emphasized
-          ? 'border-primary-muted bg-primary-soft/70'
-          : 'border-border bg-surface-soft/60',
+        'group relative flex min-h-52 flex-col overflow-hidden rounded-[2rem] border p-5',
+        'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
+        'hover:-translate-y-1 hover:shadow-soft-lg active:translate-y-0 active:scale-[0.99]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+        action.featured
+          ? 'border-foreground bg-foreground text-background'
+          : 'border-border bg-card text-foreground hover:border-foreground/25',
+        action.wide && 'md:col-span-2',
       )}
     >
-      <span className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+      <div
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full blur-3xl',
+          action.featured ? 'bg-background/15' : 'bg-foreground/[0.045]',
+        )}
+      />
+
+      <div className="relative flex items-start justify-between gap-4">
         <span
           className={cn(
-            'flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border',
-            emphasized
-              ? 'border-primary-muted bg-card text-primary'
-              : 'border-border bg-card text-muted-foreground',
+            'flex h-12 w-12 shrink-0 items-center justify-center rounded-full border',
+            action.featured
+              ? 'border-background/20 bg-background/10'
+              : 'border-border bg-background',
           )}
         >
-          {icon}
+          <Icon size={19} />
         </span>
-        <span className="truncate">{label}</span>
-      </span>
-
-      <span className="shrink-0 text-right text-sm font-semibold text-foreground">
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function PanelCard({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <Card className="overflow-hidden">
-      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-sm font-semibold">{title}</CardTitle>
-          {action}
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-3 p-4 sm:p-5">{children}</CardContent>
-    </Card>
-  );
-}
-
-function QuickActionCard({
-  title,
-  text,
-  to,
-  icon,
-  tone = 'primary',
-}: {
-  title: string;
-  text: string;
-  to: string;
-  icon: ReactNode;
-  tone?: 'primary' | 'accent' | 'ai';
-}) {
-  const toneClassName = {
-    primary: {
-      card: 'hover:border-primary-muted hover:bg-primary-soft/60',
-      icon: 'border-primary-muted bg-primary-soft text-primary',
-    },
-    accent: {
-      card: 'hover:border-accent-muted hover:bg-accent-soft/60',
-      icon: 'border-accent-muted bg-accent-soft text-accent-foreground',
-    },
-    ai: {
-      card: 'hover:border-ai-border hover:bg-ai-soft/70',
-      icon: 'border-ai-border bg-ai-soft text-primary',
-    },
-  }[tone];
-
-  return (
-    <Link
-      to={to}
-      className={cn(
-        'group rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]',
-        toneClassName.card,
-      )}
-    >
-      <div className="flex items-start gap-3">
-        <div
-          className={cn(
-            'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
-            toneClassName.icon,
-          )}
-        >
-          {icon}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">{title}</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
-        </div>
 
         <ArrowRight
-          size={15}
-          className="mt-1 shrink-0 text-muted-foreground transition-transform duration-200 ease-soft group-hover:translate-x-0.5 group-hover:text-primary"
+          size={17}
+          className={cn(
+            'mt-1 shrink-0 transition-transform duration-200 group-hover:translate-x-1',
+            action.featured
+              ? 'text-background/60'
+              : 'text-muted-foreground',
+          )}
         />
       </div>
+
+      <div className="relative mt-auto pt-10">
+        <p
+          className={cn(
+            'text-[10px] font-semibold uppercase tracking-[0.18em]',
+            action.featured
+              ? 'text-background/45'
+              : 'text-muted-foreground',
+          )}
+        >
+          {action.eyebrow}
+        </p>
+
+        <h2
+          className={cn(
+            'mt-2 text-2xl font-black tracking-[-0.04em]',
+            action.featured ? 'text-background' : 'text-foreground',
+          )}
+        >
+          {action.title}
+        </h2>
+
+        <p
+          className={cn(
+            'mt-3 max-w-xl text-sm leading-6',
+            action.featured
+              ? 'text-background/60'
+              : 'text-muted-foreground',
+          )}
+        >
+          {action.description}
+        </p>
+      </div>
     </Link>
   );
 }
 
-function CourseListItem({
-  course,
+function CompactLink({
+  title,
+  description,
+  path,
+  icon: Icon,
 }: {
-  course: {
-    id: string;
-    title: string;
-    subjectName?: string | null;
-    students: number;
-    lessons: number;
-  };
+  title: string;
+  description: string;
+  path: string;
+  icon: typeof BookOpen;
 }) {
-  const courseId = cleanId(course.id);
-  const title = cleanText(course.title);
-  const subjectName = cleanText(course.subjectName, MAX_META_CHARS);
-
   return (
     <Link
-      to={buildCourseEditPath(courseId)}
-      className="group block rounded-3xl border border-border bg-card p-4 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/55 hover:shadow-soft-md active:translate-y-0 active:scale-[0.99]"
+      to={path}
+      className={cn(
+        'group flex items-center gap-4 rounded-[1.5rem] border border-border bg-card p-4',
+        'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
+        'hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-soft-md',
+        'active:translate-y-0 active:scale-[0.99]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+      )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-              <BookOpen size={16} />
-            </div>
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+        <Icon size={16} />
+      </span>
 
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="line-clamp-1 text-sm font-semibold text-foreground">
-                  {title || 'Курс'}
-                </p>
-
-                {subjectName ? (
-                  <StatusBadge tone="primary">
-                    <BookOpen size={12} />
-                    {subjectName}
-                  </StatusBadge>
-                ) : null}
-              </div>
-
-              <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-                {[
-                  `${Number(course.students || 0)} ${t('page.teacher_dashboard.students_label')}`,
-                  `${Number(course.lessons || 0)} ${t('course.lessons_count')}`,
-                ].join(' · ')}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <span className="flex shrink-0 items-center gap-1 rounded-2xl border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground transition-all duration-200 ease-soft group-hover:border-primary-muted group-hover:text-primary">
-          {t('common.edit')}
-          <ArrowRight size={14} />
-        </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold">{title}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       </div>
+
+      <ArrowRight
+        size={15}
+        className="shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1"
+      />
     </Link>
-  );
-}
-
-function TeacherDashboardSkeleton() {
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-3xl border border-border bg-card p-5 shadow-soft">
-            <div className="flex items-center gap-3">
-              <SkeletonBlock className="h-10 w-10 rounded-2xl" />
-              <div className="space-y-2">
-                <SkeletonBlock className="h-3 w-24" />
-                <SkeletonBlock className="h-6 w-14" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <div key={index} className="rounded-3xl border border-border bg-card p-4 shadow-soft">
-            <div className="flex items-start gap-3">
-              <SkeletonBlock className="h-10 w-10 rounded-2xl" />
-              <div className="flex-1 space-y-2">
-                <SkeletonBlock className="h-4 w-28" />
-                <SkeletonBlock className="h-3 w-full" />
-                <SkeletonBlock className="h-3 w-4/5" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
-          <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
-            <SkeletonBlock className="h-5 w-32" />
-
-            <div className="mt-5 space-y-3">
-              {Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="rounded-3xl border border-border p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="space-y-2">
-                      <SkeletonBlock className="h-4 w-52" />
-                      <SkeletonBlock className="h-3 w-72 max-w-full" />
-                    </div>
-
-                    <SkeletonBlock className="h-8 w-20 rounded-2xl" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {Array.from({ length: 2 }).map((_, index) => (
-            <div key={index} className="rounded-3xl border border-border bg-card p-5 shadow-soft">
-              <SkeletonBlock className="h-5 w-36" />
-              <div className="mt-4 space-y-3">
-                <SkeletonBlock className="h-10 w-full rounded-2xl" />
-                <SkeletonBlock className="h-10 w-full rounded-2xl" />
-                <SkeletonBlock className="h-10 w-full rounded-2xl" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }
 
 export default function TeacherDashboard() {
   const { user } = useAuth();
-  const { data, isLoading, error } = useTeacherDashboard(user?.id || '', !!user?.id);
-
-  const firstName = useMemo(
-    () =>
-      cleanText(user?.fullName, MAX_NAME_CHARS).split(/\s+/)[0] ||
-      cleanText(user?.email?.split('@')[0], MAX_NAME_CHARS) ||
-      t('role.teacher'),
-    [user?.email, user?.fullName],
-  );
-
-  const courses = useMemo(() => data?.courses || [], [data?.courses]);
-  const healthStatus = data ? getTeacherHealthStatus(data.stats) : '';
-  const healthTone = data ? getTeacherHealthTone(data.stats) : 'muted';
+  const firstName = getFirstName(user?.fullName);
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 animate-fade-in">
-        <PageHeader
-          eyebrow={
-            <>
-              <GraduationCap size={13} />
-              Мұғалім кабинеті
-            </>
-          }
-          icon={<GraduationCap size={20} />}
-          title={`${t('dashboard.welcome', { name: firstName })}!`}
-          actions={
-            <Button type="button" asChild>
-              <Link to="/create-course">
-                <Plus size={15} className="mr-2" />
-                {t('nav.create_course')}
-              </Link>
-            </Button>
-          }
-        />
+      <div className="mx-auto max-w-6xl animate-fade-in space-y-6">
+        <section className="relative overflow-hidden rounded-[2.5rem] border border-border bg-card px-5 py-7 shadow-soft sm:px-8 sm:py-10">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-28 -top-28 h-72 w-72 rounded-full bg-foreground/[0.045] blur-3xl"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute right-14 top-8 h-24 w-24 rounded-full border border-foreground/[0.07]"
+          />
 
-        {isLoading ? <TeacherDashboardSkeleton /> : null}
+          <div className="relative flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
+                  <Sparkles size={12} />
+                  Sana автор кеңістігі
+                </span>
 
-        {!isLoading && error ? (
-          <ErrorState
-            text={t('page.teacher_dashboard.error')}
-            action={
+                <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-[10px] font-semibold text-muted-foreground">
+                  Автор
+                </span>
+              </div>
+
+              <h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-5xl lg:text-6xl">
+                Сәлем, {firstName}.
+                <span className="block text-muted-foreground">
+                  Идеядан курсқа дейін.
+                </span>
+              </h1>
+
+              <p className="mt-5 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
+                Курсты құрыңыз, материалды дайындаңыз және оқушымен жұмысты
+                бір кеңістіктен басқарыңыз.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => window.location.reload()}
+                className="rounded-full"
+                asChild
               >
-                <RotateCcw size={15} className="mr-2" />
-                Қайта жүктеу
-              </Button>
-            }
-          />
-        ) : null}
-
-        {!isLoading && !error && !data ? (
-          <EmptyState
-            icon={<BookOpen size={18} />}
-            title={t('page.teacher_dashboard.empty.title')}
-            text={t('page.teacher_dashboard.empty.text')}
-            action={
-              <Button type="button" asChild>
-                <Link to="/create-course">
-                  <Plus size={15} className="mr-2" />
-                  Курс құру
+                <Link to="/my-courses">
+                  <LayoutGrid size={15} className="mr-2" />
+                  Курстарым
                 </Link>
               </Button>
-            }
+
+              <Button type="button" className="rounded-full" asChild>
+                <Link to="/create-course">
+                  <FilePlus2 size={15} className="mr-2" />
+                  Жаңа курс
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Автор құралдары
+            </p>
+            <h2 className="mt-1 text-2xl font-black tracking-[-0.04em]">
+              Қай жерден жалғастырамыз?
+            </h2>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {AUTHOR_ACTIONS.map((action) => (
+              <AuthorActionCard key={action.path} action={action} />
+            ))}
+          </div>
+        </section>
+
+        <section className="grid gap-3 sm:grid-cols-2">
+          <CompactLink
+            title="Аналитика"
+            description="Курстар мен оқушылардың жалпы көрінісі"
+            path="/analytics"
+            icon={BarChart3}
           />
-        ) : null}
 
-        {!isLoading && !error && data ? (
-          <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatCard
-                label={t('dashboard.total_courses')}
-                value={data.stats.totalCourses}
-                icon={<BookOpen size={16} />}
-              />
-              <StatCard
-                label={t('dashboard.total_students')}
-                value={data.stats.totalStudents}
-                icon={<Users size={16} />}
-              />
-              <StatCard
-                label={t('dashboard.total_tests')}
-                value={data.stats.totalTests}
-                icon={<ClipboardList size={16} />}
-              />
-              <StatCard
-                label={t('dashboard.avg_score')}
-                value={formatPercent(data.stats.avgScore)}
-                icon={<BarChart3 size={16} />}
-              />
-            </div>
+          <CompactLink
+            title="Профиль"
+            description="Авторлық бейнеңіз бен аккаунт баптаулары"
+            path="/profile"
+            icon={UserRound}
+          />
+        </section>
 
-            <div className="grid gap-3 md:grid-cols-3">
-              <QuickActionCard
-                title="Курс құру"
-                text="Жаңа курс ашып, сабақтарды қосыңыз."
-                to="/create-course"
-                icon={<Plus size={18} />}
-                tone="primary"
-              />
+        <section className="relative overflow-hidden rounded-[2rem] border border-border bg-muted/40 p-5 sm:p-6">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full border border-foreground/10"
+          />
 
-              <QuickActionCard
-                title="Тест құру"
-                text="Оқушыларға арналған тест жасаңыз."
-                to="/create-test"
-                icon={<ClipboardList size={18} />}
-                tone="accent"
-              />
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card">
+                <GraduationCap size={17} />
+              </span>
 
-              <QuickActionCard
-                title="ЖИ сұрақ құрастыру"
-                text="ЖИ арқылы сұрақтар дайындаңыз."
-                to="/ai-question-builder"
-                icon={<Sparkles size={18} />}
-                tone="ai"
-              />
-            </div>
-
-            <div className="grid gap-6 lg:grid-cols-3">
-              <div className="space-y-4 lg:col-span-2">
-                <PanelCard
-                  title={t('nav.my_courses')}
-                  action={
-                    <Button type="button" variant="ghost" size="sm" asChild>
-                      <Link to="/my-courses">
-                        {t('common.view')}
-                        <ArrowRight size={14} className="ml-1.5" />
-                      </Link>
-                    </Button>
-                  }
-                >
-                  {courses.length === 0 ? (
-                    <EmptyState
-                      title={t('page.teacher_dashboard.courses_empty.title')}
-                      text={t('page.teacher_dashboard.courses_empty.text')}
-                      action={
-                        <Button type="button" asChild>
-                          <Link to="/create-course">
-                            <Plus size={15} className="mr-2" />
-                            Курс құру
-                          </Link>
-                        </Button>
-                      }
-                      compact
-                    />
-                  ) : (
-                    <div className="space-y-3">
-                      {courses.map((course) => (
-                        <CourseListItem key={cleanId(course.id)} course={course} />
-                      ))}
-                    </div>
-                  )}
-                </PanelCard>
-              </div>
-
-              <div className="space-y-4">
-                <PanelCard title={t('page.teacher_dashboard.quick_actions')}>
-                  <div className="space-y-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-start"
-                      asChild
-                    >
-                      <Link to="/create-course">
-                        <Plus size={14} className="mr-2" />
-                        {t('page.teacher_dashboard.action.create_course')}
-                      </Link>
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-start"
-                      asChild
-                    >
-                      <Link to="/create-test">
-                        <ClipboardList size={14} className="mr-2" />
-                        {t('page.teacher_dashboard.action.create_test')}
-                      </Link>
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-start"
-                      asChild
-                    >
-                      <Link to="/students">
-                        <Users size={14} className="mr-2" />
-                        Оқушыларды қарау
-                      </Link>
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full justify-start"
-                      asChild
-                    >
-                      <Link to="/analytics">
-                        <LineChart size={14} className="mr-2" />
-                        Талдауды ашу
-                      </Link>
-                    </Button>
-                  </div>
-                </PanelCard>
-
-                <PanelCard title={t('page.teacher_dashboard.summary_title')}>
-                  <div className="space-y-3">
-                    <SummaryRow
-                      label={t('dashboard.total_courses')}
-                      value={data.stats.totalCourses}
-                      icon={<BookOpen size={13} />}
-                    />
-                    <SummaryRow
-                      label={t('dashboard.total_students')}
-                      value={data.stats.totalStudents}
-                      icon={<Users size={13} />}
-                    />
-                    <SummaryRow
-                      label={t('dashboard.total_tests')}
-                      value={data.stats.totalTests}
-                      icon={<ClipboardList size={13} />}
-                    />
-                    <SummaryRow
-                      label={t('dashboard.avg_score')}
-                      value={formatPercent(data.stats.avgScore)}
-                      icon={<BarChart3 size={13} />}
-                      emphasized
-                    />
-                  </div>
-                </PanelCard>
-
-                <PanelCard title="Жалпы жағдай">
-                  <div className="rounded-3xl border border-border bg-surface-soft/60 p-4">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-                        <Target size={16} />
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold text-foreground">
-                            Статус
-                          </p>
-
-                          <StatusBadge tone={healthTone}>
-                            <CheckCircle2 size={12} />
-                            {healthStatus}
-                          </StatusBadge>
-                        </div>
-
-                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                          Курс, оқушы және тест саны бойынша есептеледі.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </PanelCard>
+              <div>
+                <p className="text-sm font-bold">Sana автор платформасы</p>
+                <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">
+                  Бұл бетте тек авторға қажет негізгі құралдар қалдырылды.
+                </p>
               </div>
             </div>
-          </>
-        ) : null}
+
+            <Button type="button" variant="ghost" size="sm" asChild>
+              <Link to="/my-courses">
+                Жұмысты ашу
+                <ArrowRight size={14} className="ml-2" />
+              </Link>
+            </Button>
+          </div>
+        </section>
       </div>
     </DashboardLayout>
   );

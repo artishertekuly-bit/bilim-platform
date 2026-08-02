@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Loader2,
   ShieldAlert,
-  Sparkles,
   UserRound,
 } from 'lucide-react';
 
@@ -12,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import AdminDashboard from '@/pages/AdminDashboard';
 import StudentDashboard from '@/pages/StudentDashboard';
+import TeacherDashboard from '@/pages/TeacherDashboard';
 
 function DashboardLoadingScreen() {
   return (
@@ -136,7 +136,11 @@ export default function DashboardRouter() {
     return <StudentDashboard />;
   }
 
-  if (user.role === 'teacher' || user.role === 'admin') {
+  if (user.role === 'teacher') {
+    return <TeacherDashboard />;
+  }
+
+  if (user.role === 'admin') {
     return <AdminDashboard />;
   }
 
