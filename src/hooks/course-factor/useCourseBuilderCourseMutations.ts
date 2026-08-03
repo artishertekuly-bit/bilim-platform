@@ -31,6 +31,7 @@ import {
   type CourseStatus,
 } from '@/lib/course-creator/course-builder-utils';
 import t from '@/lib/i18n';
+import { removeCourseThumbnailStorageObject } from '@/lib/course-thumbnail-storage';
 import { normalizeMediaUrl } from '@/lib/media-url';
 import { removeNullCharacters } from '@/lib/utils';
 
@@ -52,6 +53,7 @@ type NewCourseForm = {
   title: string;
   description: string;
   subjectId: string;
+  thumbnailUrl: string;
   accessType: CourseAccessType;
   visibility: CourseVisibility;
   price: string;
@@ -327,6 +329,9 @@ export function useCourseBuilderCourseMutations({
         title,
         description,
         subjectId,
+        thumbnailUrl: normalizeNullableText(
+          normalizeMediaUrl(cleanLooseText(newCourse.thumbnailUrl)),
+        ),
         teacherId: activeUser.id,
         status: 'draft',
         accessType,
@@ -399,14 +404,17 @@ export function useCourseBuilderCourseMutations({
         currency: courseEdit.currency,
       });
 
+      const previousThumbnailUrl = cleanLooseText(course.thumbnailUrl);
+      const nextThumbnailUrl = normalizeNullableText(
+        normalizeMediaUrl(cleanLooseText(courseEdit.thumbnailUrl)),
+      );
+
       await updateCourse({
         courseId: course.id,
         title: requireCourseTitle(courseEdit.title),
         description: requireCourseDescription(courseEdit.description),
         subjectId: normalizeNullableText(courseEdit.subjectId),
-        thumbnailUrl: normalizeNullableText(
-          normalizeMediaUrl(cleanLooseText(courseEdit.thumbnailUrl)),
-        ),
+        thumbnailUrl: nextThumbnailUrl,
         status: courseEdit.status,
         accessType,
         visibility: resolveVisibilityFromAccessType(accessType),
@@ -415,8 +423,24 @@ export function useCourseBuilderCourseMutations({
         enrollmentOpen: Boolean(courseEdit.enrollmentOpen),
         maxStudents: parseMaxStudents(cleanLooseText(courseEdit.maxStudents)),
       });
+
+      return {
+        previousThumbnailUrl,
+        nextThumbnailUrl: nextThumbnailUrl || '',
+      };
     },
-    onSuccess: async () => {
+    onSuccess: async ({ previousThumbnailUrl, nextThumbnailUrl }) => {
+      if (
+        previousThumbnailUrl &&
+        previousThumbnailUrl !== nextThumbnailUrl
+      ) {
+        try {
+          await removeCourseThumbnailStorageObject(previousThumbnailUrl);
+        } catch {
+          // The course is already updated. Old-file cleanup must not block UI.
+        }
+      }
+
       await refetchWorkspace();
 
       toast({

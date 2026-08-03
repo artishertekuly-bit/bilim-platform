@@ -492,6 +492,7 @@ export default function TeacherCreateCoursePage() {
 
                 <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
                   <CourseBasicCreateCard
+                    userId={user?.id || ''}
                     newCourse={newCourse}
                     setNewCourse={setNewCourse}
                     subjectOptions={subjectOptions}
@@ -585,6 +586,7 @@ export default function TeacherCreateCoursePage() {
 
                       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
                         <CourseSettingsCard
+                          userId={user?.id || ''}
                           courseEdit={courseEdit}
                           setCourseEdit={setCourseEdit}
                           subjectOptions={subjectOptions}

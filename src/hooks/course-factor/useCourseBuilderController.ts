@@ -29,6 +29,7 @@ type NewCourseForm = {
   title: string;
   description: string;
   subjectId: string;
+  thumbnailUrl: string;
   accessType: CourseAccessType;
   visibility: CourseVisibility;
   price: string;
@@ -338,6 +339,7 @@ export function useCourseBuilderController({
       title: '',
       description: '',
       subjectId: '',
+      thumbnailUrl: '',
       accessType: 'public_free',
       visibility: 'public',
       price: '0',

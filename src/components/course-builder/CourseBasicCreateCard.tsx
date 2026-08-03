@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useState,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
@@ -8,6 +9,7 @@ import { BookOpen, KeyRound, Plus, Tag } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
 import { CourseAccessTypeCards } from '@/components/course-builder/CourseAccessTypeCards';
+import { CourseThumbnailUploader } from '@/components/course-builder/CourseThumbnailUploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -29,6 +31,7 @@ type NewCourseForm = {
   title: string;
   description: string;
   subjectId: string;
+  thumbnailUrl: string;
   accessType: CourseAccessType;
   visibility: CourseVisibility;
   price: string;
@@ -43,6 +46,7 @@ type NewCourseForm = {
 };
 
 type CourseBasicCreateCardProps = {
+  userId: string;
   newCourse: NewCourseForm;
   setNewCourse: Dispatch<SetStateAction<NewCourseForm>>;
   subjectOptions: SubjectRow[];
@@ -141,6 +145,7 @@ function CompactSection({
 }
 
 export function CourseBasicCreateCard({
+  userId,
   newCourse,
   setNewCourse,
   subjectOptions,
@@ -148,6 +153,7 @@ export function CourseBasicCreateCard({
   creating,
   onCreateCourse,
 }: CourseBasicCreateCardProps) {
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
   const pricingVisible = shouldShowCoursePricing(newCourse.accessType);
 
   const basicsComplete =
@@ -155,7 +161,8 @@ export function CourseBasicCreateCard({
     newCourse.description.trim().length > 0 &&
     newCourse.subjectId.trim().length > 0;
 
-  const createButtonDisabled = creating || !basicsComplete || !canCreateCourse;
+  const createButtonDisabled =
+    creating || thumbnailUploading || !basicsComplete || !canCreateCourse;
 
   useEffect(() => {
     if (!newCourse.title.trim()) return;
@@ -290,6 +297,16 @@ export function CourseBasicCreateCard({
                 ))}
               </select>
             </FieldBlock>
+
+            <FieldBlock label="Курс мұқабасы">
+              <CourseThumbnailUploader
+                userId={userId}
+                value={newCourse.thumbnailUrl}
+                onChange={(url) => updateCourseField('thumbnailUrl', url)}
+                disabled={creating}
+                onUploadingChange={setThumbnailUploading}
+              />
+            </FieldBlock>
           </div>
         </CompactSection>
 
@@ -369,9 +386,11 @@ export function CourseBasicCreateCard({
             disabled={createButtonDisabled}
           >
             <Plus size={15} className="mr-2" />
-            {creating
-              ? t('page.teacher_course_builder.action.saving')
-              : t('page.teacher_course_builder.action.create_course')}
+            {thumbnailUploading
+              ? 'Сурет жүктелуде...'
+              : creating
+                ? t('page.teacher_course_builder.action.saving')
+                : t('page.teacher_course_builder.action.create_course')}
           </Button>
         </div>
       </CardContent>

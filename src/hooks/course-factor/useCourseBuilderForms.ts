@@ -14,6 +14,7 @@ export function useCourseBuilderForms() {
     title: '',
     description: '',
     subjectId: '',
+    thumbnailUrl: '',
     accessType: 'public_free' as CourseAccessType,
     visibility: 'public' as CourseVisibility,
     price: '0',

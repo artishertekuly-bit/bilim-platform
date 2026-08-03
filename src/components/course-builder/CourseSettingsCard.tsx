@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useMemo,
   useState,
   type Dispatch,
@@ -9,7 +8,6 @@ import {
 import {
   AlertCircle,
   CheckCircle2,
-  Image as ImageIcon,
   KeyRound,
   Save,
   Settings,
@@ -19,6 +17,7 @@ import {
 
 import StatusBadge from '@/components/common/StatusBadge';
 import { CourseAccessTypeCards } from '@/components/course-builder/CourseAccessTypeCards';
+import { CourseThumbnailUploader } from '@/components/course-builder/CourseThumbnailUploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -36,7 +35,6 @@ import {
   type CourseStatus,
 } from '@/lib/course-creator/course-builder-utils';
 import t from '@/lib/i18n';
-import { normalizeMediaUrl } from '@/lib/media-url';
 import { cn, removeNullCharacters } from '@/lib/utils';
 
 type CourseEditForm = {
@@ -54,6 +52,7 @@ type CourseEditForm = {
 };
 
 type CourseSettingsCardProps = {
+  userId: string;
   courseEdit: CourseEditForm;
   setCourseEdit: Dispatch<SetStateAction<CourseEditForm>>;
   subjectOptions: SubjectRow[];
@@ -64,7 +63,6 @@ type CourseSettingsCardProps = {
 
 const MAX_TITLE_CHARS = 180;
 const MAX_DESCRIPTION_CHARS = 1_200;
-const MAX_THUMBNAIL_URL_CHARS = 700;
 const MAX_CURRENCY_CHARS = 3;
 const MAX_MAX_STUDENTS_CHARS = 6;
 const DEFAULT_PAID_PRICE = '5000';
@@ -169,6 +167,7 @@ function CompactSection({
 }
 
 export function CourseSettingsCard({
+  userId,
   courseEdit,
   setCourseEdit,
   subjectOptions,
@@ -176,11 +175,9 @@ export function CourseSettingsCard({
   updating,
   onSaveCourse,
 }: CourseSettingsCardProps) {
-  const [thumbnailError, setThumbnailError] = useState(false);
+  const [thumbnailUploading, setThumbnailUploading] = useState(false);
 
   const pricingVisible = shouldShowCoursePricing(courseEdit.accessType);
-  const thumbnailUrl = courseEdit.thumbnailUrl.trim();
-
   const basicsComplete = useMemo(
     () =>
       courseEdit.title.trim().length > 0 &&
@@ -189,9 +186,6 @@ export function CourseSettingsCard({
     [courseEdit.description, courseEdit.subjectId, courseEdit.title],
   );
 
-  useEffect(() => {
-    setThumbnailError(false);
-  }, [thumbnailUrl]);
 
   const updateCourseField = <K extends keyof CourseEditForm>(
     key: K,
@@ -222,12 +216,6 @@ export function CourseSettingsCard({
     }));
   };
 
-  const handleThumbnailBlur = (value: string) => {
-    updateCourseField(
-      'thumbnailUrl',
-      sanitizeInputValue(normalizeMediaUrl(value) || '', MAX_THUMBNAIL_URL_CHARS),
-    );
-  };
 
   return (
     <Card id="course-settings" className="scroll-mt-24 overflow-hidden">
@@ -332,64 +320,15 @@ export function CourseSettingsCard({
               </select>
             </FieldBlock>
 
-            <FieldBlock label={t('page.teacher_course_builder.field.thumbnail')}>
-              <Input
+            <FieldBlock label="Курс мұқабасы">
+              <CourseThumbnailUploader
+                userId={userId}
                 value={courseEdit.thumbnailUrl}
-                maxLength={MAX_THUMBNAIL_URL_CHARS}
-                onChange={(event) =>
-                  updateCourseField(
-                    'thumbnailUrl',
-                    sanitizeInputValue(
-                      event.target.value,
-                      MAX_THUMBNAIL_URL_CHARS,
-                    ),
-                  )
-                }
-                onBlur={(event) => handleThumbnailBlur(event.target.value)}
-                placeholder="https://..."
+                onChange={(url) => updateCourseField('thumbnailUrl', url)}
+                disabled={updating}
+                onUploadingChange={setThumbnailUploading}
               />
             </FieldBlock>
-
-            {thumbnailUrl || thumbnailError ? (
-              <div className="rounded-3xl border border-border bg-muted/25 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-                    <ImageIcon size={13} />
-                    Сурет
-                  </div>
-
-                  {thumbnailError ? (
-                    <StatusBadge tone="muted">
-                      <AlertCircle size={12} />
-                      Жүктелмеді
-                    </StatusBadge>
-                  ) : (
-                    <StatusBadge tone="success">
-                      <CheckCircle2 size={12} />
-                      Дайын
-                    </StatusBadge>
-                  )}
-                </div>
-
-                {thumbnailUrl && !thumbnailError ? (
-                  <div className="overflow-hidden rounded-2xl border border-border bg-card">
-                    <img
-                      src={thumbnailUrl}
-                      alt="Курс суреті"
-                      className="aspect-video w-full object-cover"
-                      loading="lazy"
-                      onError={() => setThumbnailError(true)}
-                    />
-                  </div>
-                ) : (
-                  <div className="flex aspect-video w-full items-center justify-center rounded-2xl border border-dashed border-border bg-card px-4 text-center">
-                    <p className="text-xs font-semibold text-muted-foreground">
-                      Сурет жүктелмеді
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : null}
           </div>
         </CompactSection>
 
@@ -516,13 +455,15 @@ export function CourseSettingsCard({
           <Button
             type="button"
             onClick={onSaveCourse}
-            disabled={updating || !basicsComplete}
+            disabled={updating || thumbnailUploading || !basicsComplete}
             className="w-full sm:w-auto"
           >
             <Save size={15} className="mr-2" />
-            {updating
-              ? t('page.teacher_course_builder.action.saving')
-              : t('page.teacher_course_builder.action.save_course')}
+            {thumbnailUploading
+              ? 'Сурет жүктелуде...'
+              : updating
+                ? t('page.teacher_course_builder.action.saving')
+                : t('page.teacher_course_builder.action.save_course')}
           </Button>
         </div>
       </CardContent>

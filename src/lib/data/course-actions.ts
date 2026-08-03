@@ -998,6 +998,7 @@ export async function createCourse(input: {
   title: string;
   description?: string;
   subjectId?: string;
+  thumbnailUrl?: string | null;
   teacherId: string;
   status?: CourseStatus;
   accessType?: CourseAccessType;
@@ -1040,6 +1041,7 @@ export async function createCourse(input: {
     title,
     description: normalizeNullableMultilineText(input.description),
     subject_id: normalizeNullableText(input.subjectId),
+    thumbnail_url: normalizeNullableText(input.thumbnailUrl),
     teacher_id: context.isAdmin && input.teacherId ? input.teacherId : context.userId,
     status: input.status || 'draft',
     access_type: accessType,
