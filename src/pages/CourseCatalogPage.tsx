@@ -7,14 +7,12 @@ import {
   BookOpen,
   Bookmark,
   Bot,
-  Clock3,
   Eye,
   FileText,
   Layers3,
   Plus,
   RotateCcw,
   Search,
-  Sparkles,
   Users,
 } from 'lucide-react';
 
@@ -26,7 +24,6 @@ import {
   FilterPanelSkeleton,
 } from '@/components/common/SkeletonBlocks';
 import CourseCard from '@/components/course/CourseCard';
-import { CourseAccessBadge, CourseStatusBadge } from '@/components/common/StatusBadge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -190,6 +187,42 @@ function normalizeCourseAccessType(course: CourseView): CourseAccessType {
   return 'public_free';
 }
 
+type CourseWithThumbnail = CourseView & {
+  thumbnailUrl?: string | null;
+};
+
+function getCourseThumbnailUrl(course: CourseView): string {
+  const raw = cleanRawText(
+    (course as CourseWithThumbnail).thumbnailUrl,
+  ).trim();
+
+  if (!raw || raw.length > 2048) return '';
+
+  return /^(https?:\/\/|\/)/i.test(raw) ? raw : '';
+}
+
+function getTeacherCourseStatusLabel(status: CourseView['status']): string {
+  const normalized = cleanText(status, 80).toLowerCase();
+
+  if (normalized === 'published') return 'Жарияланды';
+  if (normalized === 'draft') return 'Жоба';
+  if (normalized === 'review' || normalized === 'under_review') {
+    return 'Тексерісте';
+  }
+  if (normalized === 'archived') return 'Мұрағат';
+
+  return 'Курс';
+}
+
+function getTeacherAccessLabel(accessType: CourseAccessType): string {
+  if (accessType === 'private_invite') return 'Шақырумен';
+  if (accessType === 'paid') return 'Ақылы';
+  if (accessType === 'subscription_only') return 'Жазылым';
+  if (accessType === 'school_only') return 'Мектепке';
+
+  return 'Ашық';
+}
+
 function TeacherMetric({
   label,
   value,
@@ -200,14 +233,18 @@ function TeacherMetric({
   icon: typeof BookOpen;
 }) {
   return (
-    <div className="rounded-[1.5rem] border border-border bg-background/70 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card">
-          <Icon size={15} />
+    <div className="flex min-h-[148px] flex-col justify-between rounded-[1.75rem] border border-border bg-card p-5 shadow-soft">
+      <div className="flex items-start justify-between gap-4">
+        <span className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background">
+          <Icon size={17} />
         </span>
-        <span className="text-2xl font-black tracking-[-0.04em]">{value}</span>
+
+        <span className="text-4xl font-black tracking-[-0.055em] sm:text-5xl">
+          {value}
+        </span>
       </div>
-      <p className="mt-4 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+
+      <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
         {label}
       </p>
     </div>
@@ -216,110 +253,143 @@ function TeacherMetric({
 
 function TeacherCourseCard({
   course,
-  featured = false,
   sequence,
 }: {
   course: CourseView;
-  featured?: boolean;
   sequence: number;
 }) {
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+
   const courseId = cleanId(course.id);
   const title = cleanText(course.title) || 'Атаусыз курс';
   const description = cleanText(course.description, MAX_TEXT_CHARS);
-  const subjectName = cleanText(course.subjectName, MAX_SUBJECT_CHARS) || 'Жалпы';
+  const subjectName =
+    cleanText(course.subjectName, MAX_SUBJECT_CHARS) || 'Жалпы';
   const editPath = buildCourseEditPath(courseId);
   const detailPath = buildCourseDetailPath(courseId);
   const accessType = normalizeCourseAccessType(course);
+  const thumbnailUrl = getCourseThumbnailUrl(course);
+  const showThumbnail = Boolean(thumbnailUrl && !thumbnailFailed);
   const courseNumber = String(sequence + 1).padStart(2, '0');
 
   return (
     <article
       className={cn(
-        'group relative flex min-h-[330px] flex-col overflow-hidden rounded-[2rem] border border-border bg-card',
+        'group overflow-hidden rounded-[1.9rem] border border-border bg-card',
         'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
         'hover:-translate-y-1 hover:border-foreground/20 hover:shadow-soft-lg',
-        featured && 'lg:col-span-2 lg:min-h-[360px]',
       )}
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-foreground/[0.04] blur-3xl"
-      />
+      <div className="relative aspect-[16/9] overflow-hidden border-b border-border bg-muted">
+        {showThumbnail ? (
+          <img
+            src={thumbnailUrl}
+            alt={`${title} курсының мұқабасы`}
+            loading="lazy"
+            onError={() => setThumbnailFailed(true)}
+            className="h-full w-full object-cover transition-transform duration-500 ease-soft group-hover:scale-[1.035]"
+          />
+        ) : (
+          <div className="relative flex h-full items-center justify-center overflow-hidden bg-muted">
+            <div
+              aria-hidden="true"
+              className="absolute -right-12 -top-12 h-40 w-40 rounded-full border border-foreground/10"
+            />
+            <div
+              aria-hidden="true"
+              className="absolute -bottom-16 -left-10 h-44 w-44 rounded-full border border-foreground/[0.07]"
+            />
 
-      <div className="relative flex items-start justify-between gap-4 border-b border-border/75 p-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-background font-mono text-xs font-bold">
-            {courseNumber}
+            <div className="relative text-center">
+              <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-border bg-card shadow-soft">
+                <BookOpen size={21} />
+              </span>
+              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                {subjectName}
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
+          <span className="rounded-full border border-white/45 bg-black/55 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-md">
+            {getTeacherCourseStatusLabel(course.status)}
           </span>
+          <span className="rounded-full border border-white/45 bg-white/85 px-2.5 py-1 text-[10px] font-semibold text-black backdrop-blur-md">
+            {getTeacherAccessLabel(accessType)}
+          </span>
+        </div>
 
-          <div className="min-w-0">
-            <p className="truncate text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
-              {subjectName}
+        <span className="absolute right-3 top-3 rounded-full border border-white/35 bg-black/45 px-2.5 py-1 font-mono text-[10px] font-bold text-white backdrop-blur-md">
+          {courseNumber}
+        </span>
+      </div>
+
+      <div className="p-5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
+          {subjectName}
+        </p>
+
+        <Link
+          to={editPath}
+          className="mt-2 block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+        >
+          <h3 className="line-clamp-2 text-2xl font-black tracking-[-0.04em] text-foreground">
+            {title}
+          </h3>
+        </Link>
+
+        <p className="mt-3 line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">
+          {description || 'Курс сипаттамасы әлі толтырылмаған.'}
+        </p>
+
+        <div className="mt-5 grid grid-cols-3 divide-x divide-border rounded-[1.25rem] border border-border bg-background">
+          <div className="px-3 py-3 text-center">
+            <p className="text-base font-black">
+              {formatMetric(course.lessons)}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Авторлық курс
+            <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+              Сабақ
+            </p>
+          </div>
+          <div className="px-3 py-3 text-center">
+            <p className="text-base font-black">
+              {formatMetric(course.students)}
+            </p>
+            <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+              Оқушы
+            </p>
+          </div>
+          <div className="px-3 py-3 text-center">
+            <p className="text-base font-black">
+              {formatMetric(course.courseAssetsCount)}
+            </p>
+            <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+              Файл
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-2">
-          <CourseStatusBadge status={course.status} />
-          <CourseAccessBadge accessType={accessType} />
+        <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+          <Button type="button" className="rounded-full" asChild>
+            <Link to={editPath}>
+              Өңдеу
+              <ArrowRight size={14} className="ml-2" />
+            </Link>
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-10 w-10 rounded-full"
+            asChild
+          >
+            <Link to={detailPath} aria-label={`${title} курсын көру`}>
+              <Eye size={15} />
+            </Link>
+          </Button>
         </div>
-      </div>
-
-      <Link
-        to={editPath}
-        className="relative block flex-1 p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/35"
-      >
-        <h3
-          className={cn(
-            'max-w-2xl font-black tracking-[-0.045em] text-foreground',
-            featured ? 'text-3xl sm:text-4xl' : 'text-2xl',
-          )}
-        >
-          {title}
-        </h3>
-
-        <p
-          className={cn(
-            'mt-4 line-clamp-3 leading-6 text-muted-foreground',
-            featured ? 'max-w-2xl text-sm sm:text-base' : 'text-sm',
-          )}
-        >
-          {description || 'Курс сипаттамасы әлі толтырылмаған.'}
-        </p>
-
-        <div className="mt-7 flex flex-wrap gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/45 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground">
-            <FileText size={12} />
-            {formatMetric(course.lessons)} сабақ
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/45 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground">
-            <Users size={12} />
-            {formatMetric(course.students)} оқушы
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/45 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground">
-            <Layers3 size={12} />
-            {formatMetric(course.courseAssetsCount)} файл
-          </span>
-        </div>
-      </Link>
-
-      <div className="relative grid grid-cols-2 gap-2 border-t border-border/75 p-4">
-        <Button type="button" className="rounded-full" asChild>
-          <Link to={editPath}>
-            Өңдеу
-            <ArrowRight size={14} className="ml-2" />
-          </Link>
-        </Button>
-
-        <Button type="button" variant="outline" className="rounded-full" asChild>
-          <Link to={detailPath}>
-            <Eye size={14} className="mr-2" />
-            Көру
-          </Link>
-        </Button>
       </div>
     </article>
   );
@@ -767,76 +837,64 @@ export default function CourseCatalogPage() {
     <DashboardLayout>
       <div className="mx-auto max-w-7xl animate-fade-in space-y-6">
         {isTeacherView ? (
-          <section className="relative overflow-hidden rounded-[2.5rem] border border-border bg-card p-5 shadow-soft sm:p-8 lg:p-10">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-foreground/[0.045] blur-3xl"
-            />
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute right-16 top-8 h-28 w-28 rounded-full border border-foreground/[0.06]"
-            />
+          <div className="space-y-4">
+            <section className="relative overflow-hidden rounded-[2rem] border border-border bg-card px-5 py-6 shadow-soft sm:px-7">
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-20 -top-24 h-60 w-60 rounded-full bg-foreground/[0.045] blur-3xl"
+              />
 
-            <div className="relative grid gap-8 xl:grid-cols-[minmax(0,1fr)_430px] xl:items-end">
-              <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  <Sparkles size={12} />
-                  Sana курс шеберханасы
-                </div>
-
-                <h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-5xl lg:text-6xl">
+              <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                <h1 className="text-4xl font-black tracking-[-0.055em] sm:text-5xl">
                   Курстарым
-                  <span className="block text-muted-foreground">
-                    Идеядан дайын сабаққа дейін.
-                  </span>
                 </h1>
 
-                <p className="mt-5 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-                  Курстарды құрыңыз, құрылымын өңдеңіз және оқушыға дайын
-                  материалды бір кеңістіктен басқарыңыз.
-                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full"
+                    asChild
+                  >
+                    <Link to="/ai-assistant">
+                      <Bot size={15} className="mr-2" />
+                      Автор көмекшісі
+                    </Link>
+                  </Button>
 
-                <div className="mt-7 flex flex-wrap gap-2">
                   <Button type="button" className="rounded-full" asChild>
                     <Link to="/create-course">
                       <Plus size={15} className="mr-2" />
                       Жаңа курс
                     </Link>
                   </Button>
-
-                  <Button type="button" variant="outline" className="rounded-full" asChild>
-                    <Link to="/ai-assistant">
-                      <Bot size={15} className="mr-2" />
-                      Автор көмекшісі
-                    </Link>
-                  </Button>
                 </div>
               </div>
+            </section>
 
-              <div className="grid grid-cols-2 gap-3">
-                <TeacherMetric
-                  label="Курс"
-                  value={teacherSummary.courses}
-                  icon={BookOpen}
-                />
-                <TeacherMetric
-                  label="Сабақ"
-                  value={teacherSummary.lessons}
-                  icon={FileText}
-                />
-                <TeacherMetric
-                  label="Қатысушы"
-                  value={teacherSummary.students}
-                  icon={Users}
-                />
-                <TeacherMetric
-                  label="Жарияланған"
-                  value={teacherSummary.published}
-                  icon={BarChart3}
-                />
-              </div>
-            </div>
-          </section>
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <TeacherMetric
+                label="Курс"
+                value={teacherSummary.courses}
+                icon={BookOpen}
+              />
+              <TeacherMetric
+                label="Сабақ"
+                value={teacherSummary.lessons}
+                icon={FileText}
+              />
+              <TeacherMetric
+                label="Қатысушы"
+                value={teacherSummary.students}
+                icon={Users}
+              />
+              <TeacherMetric
+                label="Жарияланған"
+                value={teacherSummary.published}
+                icon={BarChart3}
+              />
+            </section>
+          </div>
         ) : (
           <PageHeader
             eyebrow={
@@ -1089,28 +1147,21 @@ export default function CourseCatalogPage() {
         {user && !isLoading && !error && filtered.length > 0 ? (
           isTeacherView ? (
             <section>
-              <div className="mb-4 flex items-end justify-between gap-4">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Авторлық жинақ
-                  </p>
-                  <h2 className="mt-1 text-2xl font-black tracking-[-0.04em]">
-                    Жұмыстағы курстар
-                  </h2>
-                </div>
-                <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
-                  <Clock3 size={14} />
-                  Карточканы ашып, өңдеуді жалғастырыңыз
-                </div>
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <h2 className="text-2xl font-black tracking-[-0.04em]">
+                  Курстар
+                </h2>
+                <span className="text-xs text-muted-foreground">
+                  {filtered.length} курс
+                </span>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                 {filtered.map((course, index) => (
                   <TeacherCourseCard
                     key={cleanId(course.id)}
                     course={course}
                     sequence={index}
-                    featured={index === 0 && filtered.length > 1}
                   />
                 ))}
               </div>

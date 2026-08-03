@@ -79,10 +79,11 @@ function normalizeCrop(image: HTMLImageElement, crop: AreaPixels) {
   };
 }
 
-export async function getCroppedImageBlob(
+export async function getCroppedImageBlobBySize(
   imageSrc: string,
   pixelCrop: AreaPixels,
-  outputSize = 512,
+  outputWidth: number,
+  outputHeight: number,
   mimeType: 'image/jpeg' | 'image/png' = 'image/jpeg',
   quality = 0.92
 ): Promise<Blob> {
@@ -94,8 +95,13 @@ export async function getCroppedImageBlob(
     throw new Error('Crop аймағы дұрыс емес.');
   }
 
-  if (!Number.isFinite(outputSize) || outputSize <= 0) {
-    throw new Error('Output size дұрыс емес.');
+  if (
+    !Number.isFinite(outputWidth) ||
+    !Number.isFinite(outputHeight) ||
+    outputWidth <= 0 ||
+    outputHeight <= 0
+  ) {
+    throw new Error('Output өлшемі дұрыс емес.');
   }
 
   const image = await createImage(imageSrc);
@@ -108,21 +114,17 @@ export async function getCroppedImageBlob(
     throw new Error('Canvas контекстін алу мүмкін болмады.');
   }
 
-  canvas.width = outputSize;
-  canvas.height = outputSize;
+  canvas.width = Math.round(outputWidth);
+  canvas.height = Math.round(outputHeight);
 
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  /**
-   * JPEG transparent background сақтамайды.
-   * PNG/WebP transparent болса, JPEG-ке айналғанда қара болып кетпеуі үшін ақ фон береміз.
-   */
   if (mimeType === 'image/jpeg') {
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, outputSize, outputSize);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   } else {
-    ctx.clearRect(0, 0, outputSize, outputSize);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
 
   try {
@@ -134,8 +136,8 @@ export async function getCroppedImageBlob(
       crop.height,
       0,
       0,
-      outputSize,
-      outputSize
+      canvas.width,
+      canvas.height
     );
   } catch {
     throw new Error('Суретті canvas арқылы қию мүмкін болмады.');
@@ -158,9 +160,26 @@ export async function getCroppedImageBlob(
     } catch {
       reject(
         new Error(
-          'Суретті сақтау мүмкін болмады. Егер remote URL қолданылса, CORS рұқсаты керек.'
+          'Суретті сақтау мүмкін болмады. Remote URL қолданылса, CORS рұқсаты керек.'
         )
       );
     }
   });
+}
+
+export async function getCroppedImageBlob(
+  imageSrc: string,
+  pixelCrop: AreaPixels,
+  outputSize = 512,
+  mimeType: 'image/jpeg' | 'image/png' = 'image/jpeg',
+  quality = 0.92
+): Promise<Blob> {
+  return getCroppedImageBlobBySize(
+    imageSrc,
+    pixelCrop,
+    outputSize,
+    outputSize,
+    mimeType,
+    quality
+  );
 }
