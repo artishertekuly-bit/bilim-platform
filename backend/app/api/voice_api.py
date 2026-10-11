@@ -5,7 +5,7 @@ import logging
 import urllib.parse
 from typing import Any
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import JSONResponse, Response
 
 from ..dependencies.auth import (
@@ -338,4 +338,100 @@ async def get_livekit_token_endpoint(
     except Exception as exc:
         logger.exception("Failed to generate LiveKit token: %s", exc)
         raise HTTPException(status_code=500, detail=f"LiveKit токенін жасау қатесі: {exc}")
+
+
+@router.websocket("/stream")
+async def voice_realtime_websocket(websocket: WebSocket):
+    """
+    GoPrep Architecture: WebSocket Realtime Audio Streaming Endpoint.
+    Браузермен тікелей дуплексті байланыс: Deepgram STT -> Groq LLM -> Cartesia/Edge-TTS.
+    """
+    await websocket.accept()
+    logger.info("Realtime Voice WebSocket қосылды (client connected)")
+    session_lang = "kk"
+    history: list[dict[str, str]] = []
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "")
+
+            if msg_type == "init":
+                session_lang = data.get("language", "kk")
+                await websocket.send_json({"type": "ready", "status": "connected"})
+
+            elif msg_type == "audio":
+                audio_b64 = data.get("audio_base64", "")
+                if not audio_b64:
+                    continue
+                audio_bytes = base64.b64decode(audio_b64)
+                req_lang = data.get("language", session_lang)
+
+                # 1. STT: Deepgram Nova-2 (~120ms) немесе Groq Whisper
+                user_transcript = None
+                if req_lang in {"ru", "en"}:
+                    user_transcript = await transcribe_audio_deepgram(
+                        audio_bytes=audio_bytes,
+                        filename="recording.webm",
+                        language=req_lang,
+                    )
+                if not user_transcript:
+                    user_transcript = await transcribe_audio_groq(
+                        audio_bytes=audio_bytes,
+                        filename="recording.webm",
+                        language=req_lang if req_lang in {"kk", "ru", "en"} else None,
+                    )
+
+                if not user_transcript or not user_transcript.strip():
+                    await websocket.send_json({"type": "empty"})
+                    continue
+
+                active_lang = detect_language(user_transcript, fallback=req_lang)
+                await websocket.send_json({
+                    "type": "transcript",
+                    "text": user_transcript,
+                    "language": active_lang,
+                })
+
+                # 2. LLM: Groq Llama 3.3 (~150ms)
+                ai_reply = await generate_voice_llm_response(
+                    user_text=user_transcript,
+                    history=history[-4:],
+                )
+                active_lang = detect_language(ai_reply, fallback=active_lang)
+                history.append({"role": "user", "content": user_transcript})
+                history.append({"role": "assistant", "content": ai_reply})
+
+                await websocket.send_json({
+                    "type": "reply_text",
+                    "text": ai_reply,
+                    "language": active_lang,
+                })
+
+                # 3. TTS: Cartesia Sonic (~90ms) немесе Edge-TTS
+                mp3_audio = await synthesize_speech_cartesia(
+                    text=ai_reply,
+                    language=active_lang,
+                )
+                if not mp3_audio:
+                    mp3_audio = await synthesize_speech_edge_tts(
+                        text=ai_reply,
+                        language=active_lang,
+                    )
+
+                audio_reply_b64 = base64.b64encode(mp3_audio).decode("ascii")
+                await websocket.send_json({
+                    "type": "audio",
+                    "audio_base64": audio_reply_b64,
+                    "mime": "audio/mpeg",
+                })
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+
+    except WebSocketDisconnect:
+        logger.info("Realtime Voice WebSocket үзілді (disconnect)")
+    except Exception as exc:
+        logger.warning("Realtime Voice WebSocket қатесі: %s", exc)
+
 

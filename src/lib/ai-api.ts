@@ -321,7 +321,7 @@ function getEnv(): Record<string, unknown> {
   return (import.meta as ImportMeta & { env?: Record<string, unknown> }).env ?? {};
 }
 
-function getAiApiBaseUrl(): string {
+export function getAiApiBaseUrl(): string {
   const env = getEnv();
   const rawBaseUrl = env.VITE_AI_API_BASE_URL;
   const baseUrl = typeof rawBaseUrl === 'string' ? rawBaseUrl.trim() : '';

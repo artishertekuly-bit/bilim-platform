@@ -118,13 +118,30 @@ def clean_voice_text(text: str) -> str:
 
 def detect_language(text: str, fallback: str = "kk") -> str:
     """Определяет язык текста (қазақша или орысша)."""
+    if not text:
+        return fallback
     kazakh_specific_letters = set("әіңғүұқөһӘІҢҒҮҰҚӨҺ")
     if any(ch in kazakh_specific_letters for ch in text):
         return "kk"
-    # Проверка на кириллицу
-    cyrillic_count = len(re.findall(r"[а-яА-ЯёЁ]", text))
-    if cyrillic_count > 0:
-        return "ru" if fallback == "ru" else "kk"
+
+    text_lower = text.lower()
+    common_kk_words = {
+        "сәлем", "қалай", "қандай", "неге", "рахмет", "болады", "маған", "білім",
+        "иә", "жоқ", "мен", "сен", "сіз", "оқушы", "сабақ", "мұғалім", "айтшы",
+        "түсіндір", "көмектес", "қайда", "не", "кім", "қанша", "жақсы"
+    }
+    tokens = set(re.findall(r"\b\w+\b", text_lower))
+    if tokens & common_kk_words:
+        return "kk"
+
+    common_ru_words = {
+        "привет", "здравствуйте", "как", "дела", "что", "это", "пожалуйста", "спасибо",
+        "меня", "тебя", "было", "когда", "почему", "где", "кто", "сколько", "хорошо",
+        "объясни", "расскажи", "помоги", "хочу", "можно", "да", "нет", "приветствую"
+    }
+    if tokens & common_ru_words:
+        return "ru"
+
     return fallback
 
 
@@ -136,15 +153,16 @@ async def transcribe_audio_deepgram(
     """
     GoPrep Architecture: Deepgram Nova-2 (~150 мс ағындық транскрипция).
     Егер DEEPGRAM_API_KEY бар болса, аудионы бұлттық Deepgram API арқылы найзағайдай жылдам өңдейді.
+    Қазақ тіліне Deepgram Nova-2 қолдау көрсетпейтіндіктен, Groq Whisper қолданылады.
     """
     deepgram_key = (os.getenv("DEEPGRAM_API_KEY") or "").strip()
-    if not deepgram_key:
+    if not deepgram_key or language == "kk":
         return None
 
     try:
         import httpx
         url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true"
-        if language in {"kk", "ru", "en"}:
+        if language in {"ru", "en"}:
             url += f"&language={language}"
         else:
             url += "&detect_language=true"
@@ -347,9 +365,10 @@ async def synthesize_speech_cartesia(
     """
     GoPrep Architecture: Cartesia Sonic (~90 мс табиғи найзағайдай жылдам дыбыстау).
     Егер CARTESIA_API_KEY бар болса, бұлттық Cartesia Sonic моделімен дыбыстайды.
+    Ескерту: Cartesia қазақ тілін (kk) ресми түрде қолдамайды, сондықтан қазақшаға Edge-TTS қолданылады.
     """
     cartesia_key = (os.getenv("CARTESIA_API_KEY") or "").strip()
-    if not cartesia_key:
+    if not cartesia_key or language == "kk":
         return None
 
     try:
@@ -358,7 +377,11 @@ async def synthesize_speech_cartesia(
         if not cleaned_text:
             return None
 
-        voice_id = voice if (voice and len(voice) > 10 and not voice.startswith("kk-") and not voice.startswith("ru-")) else os.getenv("CARTESIA_VOICE_ID", "79a125e8-cd45-4c13-8a67-188112f4dd22")
+        voice_id = (
+            voice
+            if (voice and len(voice) > 10 and not voice.startswith("kk-") and not voice.startswith("ru-"))
+            else os.getenv("CARTESIA_VOICE_ID", "79a125e8-cd45-4c13-8a67-188112f4dd22")
+        )
 
         url = "https://api.cartesia.ai/tts/bytes"
         headers = {
@@ -366,8 +389,9 @@ async def synthesize_speech_cartesia(
             "Cartesia-Version": "2024-06-10",
             "Content-Type": "application/json",
         }
+        model_id = os.getenv("CARTESIA_MODEL_ID", "sonic-multilingual")
         payload = {
-            "model_id": "sonic",
+            "model_id": model_id,
             "transcript": cleaned_text,
             "voice": {
                 "mode": "id",
@@ -378,6 +402,7 @@ async def synthesize_speech_cartesia(
                 "encoding": "mp3",
                 "sample_rate": 44100,
             },
+            "language": "ru" if language == "ru" else "en",
         }
 
         async with httpx.AsyncClient(timeout=8.0) as client:

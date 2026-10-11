@@ -6,17 +6,13 @@ import {
 } from 'react';
 import {
   AlertCircle,
-  Check,
-  Copy,
   Loader2,
   Mic,
-  Pause,
-  Play,
-  RotateCcw,
-  Send,
+  MicOff,
+  PhoneOff,
+  Radio,
   Sparkles,
   Volume2,
-  X,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -29,19 +25,13 @@ import {
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 
-export type VoiceAssistantStatus =
+export type VoiceAssistantPhase =
   | 'idle'
-  | 'recording'
+  | 'connecting'
+  | 'listening'
   | 'processing'
   | 'speaking'
-  | 'paused'
   | 'error';
-
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  audioUrl?: string;
-}
 
 interface VoiceAssistantWidgetProps {
   className?: string;
@@ -50,8 +40,8 @@ interface VoiceAssistantWidgetProps {
   onResponse?: (response: VoiceAssistantResponse) => void;
 }
 
-const SILENCE_THRESHOLD = 15; // Дыбыс сезу шегі
-const SILENCE_TIMEOUT_MS = 1400; // Сөйлеп болған соң 1.4 сек үнсіздіктен кейін автоматты жіберу
+const SILENCE_THRESHOLD = 16; // Дыбыс деңгейінің шегі (VAD)
+const SILENCE_DURATION_MS = 750; // Сөйлеу аяқталған соң күту уақыты (750мс)
 
 export default function VoiceAssistantWidget({
   className,
@@ -62,48 +52,80 @@ export default function VoiceAssistantWidget({
   const { session } = useAuth();
   const { toast } = useToast();
 
-  const [status, setStatus] = useState<VoiceAssistantStatus>('idle');
+  const [phase, setPhase] = useState<VoiceAssistantPhase>('idle');
   const [language, setLanguage] = useState<'kk' | 'ru'>(defaultLanguage);
-  const [voice, setVoice] = useState<string>(
-    defaultLanguage === 'ru' ? 'ru-RU-DmitryNeural' : 'kk-KZ-DauletNeural',
-  );
+  const [isCallActive, setIsCallActive] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
   const [audioLevel, setAudioLevel] = useState<number>(0);
-  const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [lastResponse, setLastResponse] = useState<VoiceAssistantResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
-  // Рефтер
+  // Соңғы диалог жазбасы (Сіз және AI)
+  const [lastExchange, setLastExchange] = useState<{
+    userText: string;
+    aiText: string;
+  } | null>(null);
+
+  // Тарихты сақтау (контекст үшін)
+  const historyRef = useRef<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+
+  // Аудио және микрофон рефтері
   const audioStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-  const timerRef = useRef<number | null>(null);
-  const silenceTimerRef = useRef<number | null>(null);
-  const isCancelledRef = useRef<boolean>(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Web Audio Analyser
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
-  const hasSpokenRef = useRef<boolean>(false);
+  const silenceTimerRef = useRef<number | null>(null);
 
-  // Тазалау (cleanup)
-  const cleanupRecording = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+  // Күйді тексеру рефтері (asynchronous closures)
+  const isCallActiveRef = useRef<boolean>(false);
+  const isMutedRef = useRef<boolean>(false);
+  const phaseRef = useRef<VoiceAssistantPhase>('idle');
+  const hasSpokenInChunkRef = useRef<boolean>(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const languageRef = useRef<'kk' | 'ru'>(language);
+
+  isCallActiveRef.current = isCallActive;
+  isMutedRef.current = isMuted;
+  phaseRef.current = phase;
+  languageRef.current = language;
+
+  // AI дыбысын тоқтату (Barge-in / сөзді бөлген кезде)
+  const stopAudioPlayback = useCallback(() => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current.currentTime = 0;
+      audioPlayerRef.current = null;
+    }
+  }, []);
+
+  // Барлық ресурстарды толық тазалау
+  const cleanupAll = useCallback(() => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
     }
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
+    stopAudioPlayback();
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        // ignore
+      }
+      mediaRecorderRef.current = null;
+    }
+    audioChunksRef.current = [];
+
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       try {
         audioContextRef.current.close();
@@ -112,179 +134,234 @@ export default function VoiceAssistantWidget({
       }
       audioContextRef.current = null;
     }
+
     if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
       audioStreamRef.current = null;
     }
+
     setAudioLevel(0);
-    hasSpokenRef.current = false;
-  }, []);
+    hasSpokenInChunkRef.current = false;
+  }, [stopAudioPlayback]);
 
-  useEffect(() => {
-    return () => {
-      cleanupRecording();
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current = null;
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, [cleanupRecording]);
-
-  const formatTimer = (totalSeconds: number): string => {
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  };
-
-  // Аудио ойнату
-  const playAudio = useCallback((audioUrl: string) => {
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-    }
-
-    const audio = new Audio(audioUrl);
-    audioPlayerRef.current = audio;
-
-    audio.onplay = () => {
-      setStatus('speaking');
-    };
-
-    audio.onpause = () => {
-      if (audio.currentTime < audio.duration) {
-        setStatus('paused');
-      }
-    };
-
-    audio.onended = () => {
-      setStatus('idle');
-    };
-
-    audio.onerror = () => {
-      setStatus('idle');
-    };
-
-    audio.play().catch(() => {
-      setStatus('idle');
-    });
-  }, []);
-
-  // Аудионы серверге жіберу
-  const sendAudioToBackend = useCallback(
+  // Дыбыстық сегментті серверге жіберу және жауап алу (GoPrep Pipeline)
+  const sendUtterance = useCallback(
     async (blob: Blob) => {
-      setStatus('processing');
-      setErrorMessage(null);
+      if (!isCallActiveRef.current || blob.size < 500) {
+        // Тым қысқа немесе сұхбат тоқтатылған болса, тыңдауды қайта жалғастыру
+        if (isCallActiveRef.current && phaseRef.current !== 'speaking') {
+          setPhase('listening');
+          startChunkRecording();
+        }
+        return;
+      }
+
+      setPhase('processing');
       abortControllerRef.current = new AbortController();
 
       try {
-        const historyContext = chatHistory.slice(-6).map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
-
         const response = await sendVoiceAssistantAudio(blob, {
-          language,
-          voice,
+          language: languageRef.current,
           systemPrompt,
-          history: historyContext,
-          accessToken: session?.access_token,
+          history: historyRef.current.slice(-4),
           signal: abortControllerRef.current.signal,
+          accessToken: session?.access_token,
         });
 
-        setLastResponse(response);
-        onResponse?.(response);
+        if (!isCallActiveRef.current) return;
 
-        setChatHistory((prev) => [
-          ...prev,
-          { role: 'user', content: response.userTranscript },
-          { role: 'assistant', content: response.aiReply, audioUrl: response.audioUrl },
-        ]);
+        // Контекст тарихын жаңарту
+        if (response.userTranscript && response.aiReply) {
+          historyRef.current.push(
+            { role: 'user', content: response.userTranscript },
+            { role: 'assistant', content: response.aiReply },
+          );
+          setLastExchange({
+            userText: response.userTranscript,
+            aiText: response.aiReply,
+          });
+        }
 
-        playAudio(response.audioUrl);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Дауысты өңдеу кезінде қате орын алды.';
-        setErrorMessage(msg);
-        setStatus('error');
-        toast({
-          title: 'Қате орын алды',
-          description: msg,
-          variant: 'destructive',
-        });
+        if (onResponse) {
+          onResponse(response);
+        }
+
+        // AI жауабын ойнату
+        if (response.audioUrl) {
+          setPhase('speaking');
+          stopAudioPlayback();
+
+          const audio = new Audio(response.audioUrl);
+          audioPlayerRef.current = audio;
+
+          audio.onended = () => {
+            if (isCallActiveRef.current) {
+              setPhase('listening');
+              startChunkRecording();
+            }
+          };
+
+          audio.onerror = () => {
+            if (isCallActiveRef.current) {
+              setPhase('listening');
+              startChunkRecording();
+            }
+          };
+
+          await audio.play();
+        } else {
+          // Дыбыс жоқ болса, бірден тыңдауға оралу
+          setPhase('listening');
+          startChunkRecording();
+        }
+      } catch (err: unknown) {
+        if (!isCallActiveRef.current) return;
+        const errObj = err as { name?: string; message?: string };
+        if (errObj?.name === 'AbortError') return;
+
+        console.warn('Дауыстық өңдеу қатесі:', err);
+        // Қате болған жағдайда да байланысты үзбей, тыңдауды жалғастыру
+        setPhase('listening');
+        startChunkRecording();
       }
     },
-    [chatHistory, language, onResponse, playAudio, session?.access_token, systemPrompt, toast, voice],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onResponse, session?.access_token, stopAudioPlayback, systemPrompt],
   );
 
-  // Жазуды аяқтап, серверге жіберу
-  const stopRecordingAndSend = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state === 'recording'
-    ) {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (e) {
-        console.error('Error stopping recorder:', e);
-      }
-    }
-  }, []);
-
-  // Жазуды толық болдырмау және өшіру
-  const cancelRecording = useCallback(() => {
-    isCancelledRef.current = true;
-    cleanupRecording();
-
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state === 'recording'
-    ) {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (e) {
-        console.error('Error stopping recorder on cancel:', e);
-      }
-    }
+  // Жаңа аудио фрагментін жазуды бастау
+  const startChunkRecording = useCallback(() => {
+    if (!audioStreamRef.current || !isCallActiveRef.current) return;
 
     audioChunksRef.current = [];
-    setStatus('idle');
-    setRecordingSeconds(0);
-
-    toast({
-      title: 'Жазба тоқтатылды',
-      description: 'Аудио өшірілді, сұраныс жіберілген жоқ.',
-    });
-  }, [cleanupRecording, toast]);
-
-  // Жазуды бастау (Start Recording & VAD)
-  const startRecording = useCallback(async () => {
-    cleanupRecording();
-    setErrorMessage(null);
-    isCancelledRef.current = false;
-    audioChunksRef.current = [];
-    hasSpokenRef.current = false;
-
-    // Егер AI сөйлеп жатса, тоқтатамыз
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-      audioPlayerRef.current = null;
-    }
+    hasSpokenInChunkRef.current = false;
 
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Браузер микрофонды қолдамайды.');
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
       }
 
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+      }
+
+      const recorder = mimeType
+        ? new MediaRecorder(audioStreamRef.current, { mimeType })
+        : new MediaRecorder(audioStreamRef.current);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: mimeType || 'audio/webm',
+        });
+        audioChunksRef.current = [];
+        if (hasSpokenInChunkRef.current && isCallActiveRef.current) {
+          sendUtterance(audioBlob);
+        } else if (isCallActiveRef.current && phaseRef.current === 'listening') {
+          // Егер дыбыс шықпаса, тыңдауды қайта бастау
+          startChunkRecording();
+        }
+      };
+
+      recorder.start(150); // 150мс сайын бөліктер жинау
+      mediaRecorderRef.current = recorder;
+    } catch (err) {
+      console.warn('MediaRecorder бастау қатесі:', err);
+    }
+  }, [sendUtterance]);
+
+  // Дыбыс деңгейін бақылау және VAD (Үнсіздікті автоматты сезу) циклі
+  const startAudioMonitoring = useCallback(
+    (stream: MediaStream) => {
+      try {
+        const AudioContextClass =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const ctx = new AudioContextClass();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.2;
+
+        const source = ctx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        audioContextRef.current = ctx;
+        analyserRef.current = analyser;
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const checkAudio = () => {
+          if (!isCallActiveRef.current) return;
+
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const avg = sum / dataArray.length;
+          const normalized = Math.min(100, Math.round(avg * 1.8));
+
+          // Микрофон өшірулі болса, дыбыс деңгейін 0 ету
+          if (isMutedRef.current) {
+            setAudioLevel(0);
+          } else {
+            setAudioLevel(normalized);
+
+            // 1. BARGE-IN: Егер AI сөйлеп тұрғанда пайдаланушы сөйлей бастаса
+            if (normalized > SILENCE_THRESHOLD && phaseRef.current === 'speaking') {
+              stopAudioPlayback();
+              setPhase('listening');
+              startChunkRecording();
+            }
+
+            // 2. VAD: Тыңдау кезіндегі сөйлеу мен үнсіздікті анықтау
+            if (phaseRef.current === 'listening') {
+              if (normalized > SILENCE_THRESHOLD) {
+                hasSpokenInChunkRef.current = true;
+                if (silenceTimerRef.current) {
+                  clearTimeout(silenceTimerRef.current);
+                  silenceTimerRef.current = null;
+                }
+              } else if (hasSpokenInChunkRef.current) {
+                // Пайдаланушы сөйлеп болды, үнсіздік басталды
+                if (!silenceTimerRef.current) {
+                  silenceTimerRef.current = window.setTimeout(() => {
+                    silenceTimerRef.current = null;
+                    if (
+                      mediaRecorderRef.current &&
+                      mediaRecorderRef.current.state === 'recording'
+                    ) {
+                      mediaRecorderRef.current.stop();
+                    }
+                  }, SILENCE_DURATION_MS);
+                }
+              }
+            }
+          }
+
+          animFrameRef.current = requestAnimationFrame(checkAudio);
+        };
+
+        checkAudio();
+      } catch (err) {
+        console.warn('AudioContext баптау қатесі:', err);
+      }
+    },
+    [startChunkRecording, stopAudioPlayback],
+  );
+
+  // Сұхбатты бастау (GoPrep Call Start)
+  const startCall = useCallback(async () => {
+    setErrorMessage(null);
+    setPhase('connecting');
+
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -294,417 +371,226 @@ export default function VoiceAssistantWidget({
       });
 
       audioStreamRef.current = stream;
+      setIsCallActive(true);
+      isCallActiveRef.current = true;
+      setIsMuted(false);
+      isMutedRef.current = false;
+      historyRef.current = [];
 
-      // Web Audio API дыбыс өлшеуіші
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const audioCtx = new AudioCtx();
-      audioContextRef.current = audioCtx;
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-      }
+      startAudioMonitoring(stream);
+      setPhase('listening');
+      startChunkRecording();
 
-      const sourceNode = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.3;
-      sourceNode.connect(analyser);
-      analyserRef.current = analyser;
-
-      // MediaRecorder
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4')
-        ? 'audio/mp4'
-        : '';
-
-      const recorder = new MediaRecorder(
-        stream,
-        mimeType ? { mimeType } : undefined,
-      );
-
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        cleanupRecording();
-
-        if (isCancelledRef.current) {
-          audioChunksRef.current = [];
-          setStatus('idle');
-          setRecordingSeconds(0);
-          return;
-        }
-
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: mimeType || 'audio/webm',
-        });
-
-        if (audioBlob.size > 500) {
-          sendAudioToBackend(audioBlob);
-        } else {
-          setStatus('idle');
-        }
-      };
-
-      recorder.start(150);
-      setStatus('recording');
-      setRecordingSeconds(0);
-
-      // Секундомер
-      timerRef.current = window.setInterval(() => {
-        setRecordingSeconds((prev) => {
-          if (prev >= 60) {
-            stopRecordingAndSend();
-            return 60;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-
-      // VAD ағындық циклі (Дыбысты үздіксіз бақылау және үнсіздікте автоматты тоқтату)
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const checkVolumeLoop = () => {
-        analyser.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
-        }
-        const avg = sum / dataArray.length;
-        const normalized = Math.min(100, Math.round((avg / 128) * 100));
-        setAudioLevel(normalized);
-
-        // Егер дауыс шықса
-        if (normalized > SILENCE_THRESHOLD) {
-          hasSpokenRef.current = true;
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = null;
-          }
-        } else {
-          // Егер адам сөйлеп болып, үнсіз қалса — 1.4 секундтан соң автоматты жібереміз
-          if (hasSpokenRef.current && !silenceTimerRef.current) {
-            silenceTimerRef.current = window.setTimeout(() => {
-              stopRecordingAndSend();
-            }, SILENCE_TIMEOUT_MS);
-          }
-        }
-
-        animFrameRef.current = requestAnimationFrame(checkVolumeLoop);
-      };
-
-      animFrameRef.current = requestAnimationFrame(checkVolumeLoop);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Микрофонды қосу мүмкін болмады.';
-      setErrorMessage(msg);
-      setStatus('error');
       toast({
-        title: 'Микрофон қатесі',
-        description: msg,
-        variant: 'destructive',
+        title: 'Сұхбат қосылды',
+        description: 'AI дайын. Сұрағыңызды қоя беріңіз.',
       });
+    } catch (err) {
+      console.error('Микрофонға рұқсат берілмеді:', err);
+      setErrorMessage('Микрофонға қолжетімділік жоқ. Браузер параметрлерін тексеріңіз.');
+      setPhase('error');
+      setIsCallActive(false);
+      isCallActiveRef.current = false;
     }
-  }, [cleanupRecording, sendAudioToBackend, stopRecordingAndSend, toast]);
+  }, [startAudioMonitoring, startChunkRecording, toast]);
 
+  // Сұхбатты тоқтату (Hang Up)
+  const endCall = useCallback(() => {
+    setIsCallActive(false);
+    isCallActiveRef.current = false;
+    setPhase('idle');
+    cleanupAll();
+  }, [cleanupAll]);
 
+  // Микрофонды қосу / өшіру (Mute / Unmute)
+  const toggleMute = useCallback(() => {
+    if (!audioStreamRef.current) return;
+    const nextMute = !isMuted;
+    setIsMuted(nextMute);
+    isMutedRef.current = nextMute;
+    audioStreamRef.current.getAudioTracks().forEach((track) => {
+      track.enabled = !nextMute;
+    });
+  }, [isMuted]);
 
-  const togglePlayPause = () => {
-    if (!audioPlayerRef.current) {
-      if (lastResponse?.audioUrl) {
-        playAudio(lastResponse.audioUrl);
-      }
-      return;
-    }
-
-    if (status === 'speaking') {
-      audioPlayerRef.current.pause();
-    } else if (status === 'paused') {
-      audioPlayerRef.current.play().catch(console.error);
-    }
-  };
-
-  const handleCopyText = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
+  // Компонент жабылғанда тазалау
+  useEffect(() => {
+    return () => {
+      cleanupAll();
+    };
+  }, [cleanupAll]);
 
   return (
     <Card
       className={cn(
-        'relative overflow-hidden border-none bg-card/95 shadow-xs backdrop-blur-xs transition-all',
+        'relative mx-auto w-full max-w-xl overflow-hidden rounded-3xl',
+        'border border-border/60 bg-gradient-to-b from-card/95 via-card/85 to-muted/30 shadow-xl backdrop-blur-xl',
         className,
       )}
     >
-      <CardContent className="p-6 sm:p-8 space-y-6">
-        {/* Жоғарғы қатар: Таза тақырып және дауыс / тіл баптауы */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-4">
+      <CardContent className="p-6 sm:p-8 flex flex-col items-center text-center">
+        {/* Жоғарғы қатар: Статус және Тіл таңдау (ҚАЗ / РУС) */}
+        <div className="w-full flex items-center justify-between pb-4 border-b border-border/40">
           <div className="flex items-center gap-2">
-            <Sparkles size={16} className="text-primary" />
-            <h3 className="text-sm font-bold tracking-tight text-foreground sm:text-base">
-              Дауыстық көмекші
-            </h3>
+            <span
+              className={cn(
+                'flex h-2.5 w-2.5 rounded-full transition-colors duration-300',
+                isCallActive ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground/40',
+              )}
+            />
+            <span className="text-xs font-semibold tracking-wide text-foreground/80">
+              {isCallActive ? 'GoPrep Live' : 'Bilim Voice AI'}
+            </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Дауыс түрін таңдау */}
-            <div className="flex items-center gap-1 rounded-full bg-muted/50 p-1 text-xs">
-              {language === 'kk' ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setVoice('kk-KZ-DauletNeural')}
-                    disabled={status === 'recording' || status === 'processing'}
-                    className={cn(
-                      'rounded-full px-2.5 py-1 text-xs font-semibold transition',
-                      voice === 'kk-KZ-DauletNeural'
-                        ? 'bg-card text-foreground shadow-xs'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    👨 Дәулет
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVoice('kk-KZ-AigulNeural')}
-                    disabled={status === 'recording' || status === 'processing'}
-                    className={cn(
-                      'rounded-full px-2.5 py-1 text-xs font-semibold transition',
-                      voice === 'kk-KZ-AigulNeural'
-                        ? 'bg-card text-foreground shadow-xs'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    👩 Айгүл
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setVoice('ru-RU-DmitryNeural')}
-                    disabled={status === 'recording' || status === 'processing'}
-                    className={cn(
-                      'rounded-full px-2.5 py-1 text-xs font-semibold transition',
-                      voice === 'ru-RU-DmitryNeural'
-                        ? 'bg-card text-foreground shadow-xs'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    👨 Дмитрий
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVoice('ru-RU-SvetlanaNeural')}
-                    disabled={status === 'recording' || status === 'processing'}
-                    className={cn(
-                      'rounded-full px-2.5 py-1 text-xs font-semibold transition',
-                      voice === 'ru-RU-SvetlanaNeural'
-                        ? 'bg-card text-foreground shadow-xs'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    👩 Светлана
-                  </button>
-                </>
+          {/* Тіл таңдау қосқышы */}
+          <div className="flex items-center gap-1 rounded-full bg-muted/70 p-1">
+            <button
+              type="button"
+              onClick={() => setLanguage('kk')}
+              disabled={isCallActive}
+              className={cn(
+                'rounded-full px-3 py-1 text-xs font-semibold transition-all duration-200',
+                language === 'kk'
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
-            </div>
-
-            {/* Тіл ауыстыру */}
-            <div className="flex items-center gap-1 rounded-full bg-muted/60 p-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setLanguage('kk');
-                  setVoice('kk-KZ-DauletNeural');
-                }}
-                disabled={status === 'recording' || status === 'processing'}
-                className={cn(
-                  'rounded-full px-3 py-1 text-xs font-semibold transition',
-                  language === 'kk'
-                    ? 'bg-card text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                ҚАЗ
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLanguage('ru');
-                  setVoice('ru-RU-DmitryNeural');
-                }}
-                disabled={status === 'recording' || status === 'processing'}
-                className={cn(
-                  'rounded-full px-3 py-1 text-xs font-semibold transition',
-                  language === 'ru'
-                    ? 'bg-card text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                РУС
-              </button>
-            </div>
+            >
+              ҚАЗ
+            </button>
+            <button
+              type="button"
+              onClick={() => setLanguage('ru')}
+              disabled={isCallActive}
+              className={cn(
+                'rounded-full px-3 py-1 text-xs font-semibold transition-all duration-200',
+                language === 'ru'
+                  ? 'bg-card text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              РУС
+            </button>
           </div>
         </div>
 
-        {/* Негізгі орталық интерактивті батырма (GoPrep / Clean UI) */}
-        <div className="my-6 flex flex-col items-center justify-center text-center space-y-5">
-          <div className="relative flex h-36 w-36 items-center justify-center sm:h-44 sm:w-44">
-            {/* Дыбыс ойналып жатқандағы пульсация */}
-            {status === 'speaking' ? (
-              <>
-                <span className="absolute h-36 w-36 animate-pulse rounded-full bg-primary/20 sm:h-44 sm:w-44" />
-                <span className="absolute h-32 w-32 animate-ping rounded-full bg-primary/10 sm:h-40 sm:w-40" />
-              </>
-            ) : null}
-
-            {/* Жазу кезіндегі динамикалық дыбыс толқыны */}
-            {status === 'recording' ? (
+        {/* Орталық визуалды Орб (GoPrep Voice Orb) */}
+        <div className="my-8 sm:my-10 flex flex-col items-center justify-center">
+          <div className="relative flex h-44 w-44 items-center justify-center sm:h-52 sm:w-52">
+            {/* 1. Толқындар мен Пульсация (Жиектер) */}
+            {isCallActive && phase === 'listening' && !isMuted ? (
               <>
                 <span
-                  className="absolute rounded-full bg-rose-500/20 transition-all duration-75"
+                  className="absolute rounded-full bg-emerald-500/15 transition-all duration-100 ease-out"
                   style={{
-                    width: `${Math.max(140, 140 + audioLevel * 1.3)}px`,
-                    height: `${Math.max(140, 140 + audioLevel * 1.3)}px`,
+                    width: `${Math.max(160, 160 + audioLevel * 1.4)}px`,
+                    height: `${Math.max(160, 160 + audioLevel * 1.4)}px`,
                   }}
                 />
                 <span
-                  className="absolute rounded-full bg-rose-500/30 transition-all duration-75"
+                  className="absolute rounded-full bg-emerald-500/25 transition-all duration-100 ease-out"
                   style={{
-                    width: `${Math.max(120, 120 + audioLevel * 0.9)}px`,
-                    height: `${Math.max(120, 120 + audioLevel * 0.9)}px`,
+                    width: `${Math.max(130, 130 + audioLevel * 0.9)}px`,
+                    height: `${Math.max(130, 130 + audioLevel * 0.9)}px`,
                   }}
                 />
               </>
             ) : null}
 
-            {/* БОС КҮЙ (IDLE): Микрофонды басып сөйлесу */}
-            {status === 'idle' || status === 'error' ? (
+            {isCallActive && phase === 'speaking' ? (
+              <>
+                <span className="absolute h-44 w-44 animate-ping rounded-full bg-primary/15 sm:h-52 sm:w-52" />
+                <span className="absolute h-40 w-40 animate-pulse rounded-full bg-primary/25 sm:h-48 sm:w-48" />
+              </>
+            ) : null}
+
+            {isCallActive && phase === 'processing' ? (
+              <span className="absolute h-36 w-36 animate-spin rounded-full border-2 border-primary/40 border-t-transparent sm:h-44 sm:w-44" />
+            ) : null}
+
+            {/* 2. Негізгі Орталық Интерактивті Түйме / Орб */}
+            {!isCallActive ? (
               <button
                 type="button"
-                onClick={startRecording}
+                onClick={startCall}
                 className={cn(
-                  'relative z-10 flex h-24 w-24 items-center justify-center rounded-full',
-                  'bg-primary text-primary-foreground shadow-lg transition-all duration-300',
-                  'hover:scale-105 active:scale-95 sm:h-28 sm:w-28',
+                  'relative z-10 flex h-28 w-28 items-center justify-center rounded-full sm:h-32 sm:w-32',
+                  'bg-gradient-to-tr from-primary to-primary/80 text-primary-foreground',
+                  'shadow-lg shadow-primary/25 transition-all duration-300',
+                  'hover:scale-105 active:scale-95 focus:outline-hidden',
                 )}
-                aria-label="Сөйлесуді бастау"
+                aria-label="Сұхбатты бастау"
               >
-                <Mic size={36} className="sm:size-10" />
+                <Mic size={44} className="sm:size-12" />
               </button>
-            ) : null}
-
-            {/* ЖАЗУ КЕЗІНДЕ: Болдырмау (X) және Жіберу (Send) батырмалары */}
-            {status === 'recording' ? (
-              <div className="relative z-10 flex items-center gap-4 sm:gap-6">
-                <button
-                  type="button"
-                  onClick={cancelRecording}
-                  className={cn(
-                    'flex h-12 w-12 items-center justify-center rounded-full',
-                    'bg-muted/80 text-muted-foreground shadow-xs transition-all duration-200',
-                    'hover:bg-destructive/15 hover:text-destructive active:scale-90',
-                  )}
-                  title="Жазбаны өшіру (болдырмау)"
-                  aria-label="Жазбаны өшіру"
-                >
-                  <X size={22} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={stopRecordingAndSend}
-                  className={cn(
-                    'flex h-20 w-20 items-center justify-center rounded-full',
-                    'bg-rose-500 text-white shadow-md transition-all duration-300',
-                    'hover:scale-105 active:scale-95 sm:h-24 sm:w-24',
-                  )}
-                  title="Аяқтау және жіберу"
-                  aria-label="Аяқтау және жіберу"
-                >
-                  <Send size={28} className="translate-x-0.5" />
-                </button>
-              </div>
-            ) : null}
-
-            {/* ӨҢДЕУ КЕЗІНДЕ (PROCESSING) */}
-            {status === 'processing' ? (
+            ) : (
               <div
                 className={cn(
-                  'relative z-10 flex h-24 w-24 items-center justify-center rounded-full',
-                  'bg-muted text-primary shadow-xs sm:h-28 sm:w-28',
+                  'relative z-10 flex h-28 w-28 items-center justify-center rounded-full sm:h-32 sm:w-32',
+                  'transition-all duration-500 shadow-xl',
+                  phase === 'speaking'
+                    ? 'bg-gradient-to-tr from-primary to-indigo-500 text-white shadow-primary/30'
+                    : phase === 'listening'
+                    ? isMuted
+                      ? 'bg-muted text-muted-foreground'
+                      : 'bg-gradient-to-tr from-emerald-500 to-teal-500 text-white shadow-emerald-500/30'
+                    : 'bg-muted text-primary',
                 )}
               >
-                <Loader2 size={36} className="animate-spin text-primary" />
-              </div>
-            ) : null}
-
-            {/* ДАУЫС ОЙНАЛЫП ЖАТҚАНДА (SPEAKING / PAUSED) */}
-            {status === 'speaking' || status === 'paused' ? (
-              <button
-                type="button"
-                onClick={togglePlayPause}
-                className={cn(
-                  'relative z-10 flex h-24 w-24 items-center justify-center rounded-full',
-                  'bg-primary text-primary-foreground shadow-md transition-all duration-300',
-                  'hover:scale-105 active:scale-95 sm:h-28 sm:w-28',
-                )}
-                aria-label={status === 'speaking' ? 'Кідірту' : 'Жалғастыру'}
-              >
-                {status === 'speaking' ? (
-                  <Pause size={32} className="fill-current" />
+                {phase === 'connecting' || phase === 'processing' ? (
+                  <Loader2 size={40} className="animate-spin" />
+                ) : phase === 'speaking' ? (
+                  <Volume2 size={40} className="animate-pulse" />
+                ) : isMuted ? (
+                  <MicOff size={40} />
                 ) : (
-                  <Play size={32} className="ml-1 fill-current" />
+                  <Mic size={40} />
                 )}
-              </button>
-            ) : null}
+              </div>
+            )}
           </div>
 
-          {/* Статустық нақты әрі қысқа мәтіндер */}
-          <div className="space-y-1.5">
-            {status === 'idle' ? (
-              <div className="space-y-1">
-                <p className="text-sm font-bold text-foreground">
-                  Сөйлесу үшін басыңыз
+          {/* Статус мәтіні */}
+          <div className="mt-4 space-y-1">
+            {!isCallActive ? (
+              <>
+                <h3 className="text-base font-bold text-foreground sm:text-lg">
+                  Сұхбатты бастау үшін басыңыз
+                </h3>
+                <p className="text-xs text-muted-foreground sm:text-sm">
+                  Нақты уақыттағы тікелей сөйлесу (қолмен түйме басудың қажеті жоқ)
+                </p>
+              </>
+            ) : phase === 'connecting' ? (
+              <p className="text-sm font-semibold text-muted-foreground animate-pulse">
+                Байланыс орнатылуда...
+              </p>
+            ) : phase === 'listening' ? (
+              <div className="space-y-0.5">
+                <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                  {isMuted ? 'Микрофон өшірулі' : 'Тыңдап тұрмын, сөйлей беріңіз...'}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Сұрағыңызды қойыңыз, AI нақты уақытта жауап береді
+                  Сөзді аяқтаған соң өзі автоматты түрде жауап береді
                 </p>
               </div>
-            ) : status === 'recording' ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-center gap-2 text-rose-500 font-bold text-sm">
-                  <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse" />
-                  <span>{formatTimer(recordingSeconds)}</span>
-                </div>
+            ) : phase === 'processing' ? (
+              <p className="text-sm font-bold text-primary animate-pulse">
+                Жауап ойлануда...
+              </p>
+            ) : phase === 'speaking' ? (
+              <div className="space-y-0.5">
+                <p className="text-sm font-bold text-primary">
+                  AI жауап беріп жатыр...
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Сөйлеп болған соң өзі жібереді немесе қызыл түймені басыңыз
+                  (Сөйлей бастасаңыз, AI бірден тоқтап сізді тыңдайды)
                 </p>
               </div>
-            ) : status === 'processing' ? (
-              <p className="text-xs font-semibold text-primary animate-pulse">
-                Жауап дайындалуда...
-              </p>
-            ) : status === 'speaking' ? (
-              <div className="flex items-center justify-center gap-2 text-primary font-semibold text-xs">
-                <Volume2 size={16} className="animate-pulse" />
-                <span>Жауап оқылуда</span>
-              </div>
-            ) : status === 'paused' ? (
-              <p className="text-xs font-semibold text-muted-foreground">
-                Кідіртілді
-              </p>
-            ) : status === 'error' && errorMessage ? (
-              <div className="flex items-center justify-center gap-1.5 text-xs text-destructive">
+            ) : null}
+
+            {errorMessage ? (
+              <div className="flex items-center justify-center gap-1.5 text-xs text-destructive pt-1">
                 <AlertCircle size={13} />
                 <span>{errorMessage}</span>
               </div>
@@ -712,67 +598,60 @@ export default function VoiceAssistantWidget({
           </div>
         </div>
 
-        {/* Сұрақ пен жауап нәтижесі (Таза сұхбат карточкасы) */}
-        {lastResponse ? (
-          <div className="space-y-3 rounded-2xl bg-muted/40 p-4 transition-all sm:p-5">
-            {/* Пайдаланушы сұрағы */}
+        {/* Соңғы сұрақ пен жауап (Қарапайым, артық сөзсіз таза мәтін) */}
+        {lastExchange ? (
+          <div className="w-full space-y-2.5 rounded-2xl bg-muted/40 p-4 text-left transition-all">
             <div className="space-y-0.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                 Сіз
               </span>
               <p className="text-xs font-medium text-foreground sm:text-sm leading-relaxed">
-                {lastResponse.userTranscript}
+                {lastExchange.userText}
               </p>
             </div>
-
-            {/* AI жауабы */}
-            <div className="space-y-1 border-t border-border/40 pt-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
-                  AI
-                </span>
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleCopyText(lastResponse.aiReply, 0)}
-                    className="h-6 w-6 rounded-full text-muted-foreground hover:text-foreground"
-                    title="Көшіру"
-                  >
-                    {copiedIndex === 0 ? <Check size={12} /> : <Copy size={12} />}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => playAudio(lastResponse.audioUrl)}
-                    className="h-6 w-6 rounded-full text-muted-foreground hover:text-foreground"
-                    title="Қайта тыңдау"
-                  >
-                    <RotateCcw size={12} />
-                  </Button>
-                </div>
-              </div>
+            <div className="border-t border-border/40 pt-2 space-y-0.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+                AI
+              </span>
               <p className="text-xs text-foreground/90 sm:text-sm leading-relaxed">
-                {lastResponse.aiReply}
+                {lastExchange.aiText}
               </p>
             </div>
+          </div>
+        ) : null}
 
-            {/* Жаңа сұрақ қою батырмасы */}
-            <div className="pt-1 flex justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={startRecording}
-                disabled={status === 'recording' || status === 'processing'}
-                className="rounded-full text-xs font-semibold shadow-xs"
-              >
-                <Mic size={12} className="mr-1.5" />
-                Жаңа сұрақ
-              </Button>
-            </div>
+        {/* Сұхбатты басқару панелі (Тек сұхбат қосулы кезде шығады) */}
+        {isCallActive ? (
+          <div className="mt-6 flex items-center justify-center gap-4">
+            {/* Микрофонды уақытша өшіру (Mute) */}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={toggleMute}
+              className={cn(
+                'h-12 w-12 rounded-full border-border/60 transition-all',
+                isMuted
+                  ? 'bg-destructive/10 text-destructive border-destructive/30'
+                  : 'hover:bg-muted text-foreground',
+              )}
+              title={isMuted ? 'Микрофонды қосу' : 'Микрофонды өшіру'}
+            >
+              {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+            </Button>
+
+            {/* Сұхбатты тоқтату (Қызыл батырма) */}
+            <Button
+              type="button"
+              onClick={endCall}
+              className={cn(
+                'h-12 px-6 rounded-full font-semibold shadow-md transition-all',
+                'bg-rose-500 hover:bg-rose-600 text-white active:scale-95',
+              )}
+            >
+              <PhoneOff size={18} className="mr-2" />
+              Сұхбатты аяқтау
+            </Button>
           </div>
         ) : null}
       </CardContent>
