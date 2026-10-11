@@ -128,6 +128,59 @@ def detect_language(text: str, fallback: str = "kk") -> str:
     return fallback
 
 
+async def transcribe_audio_deepgram(
+    audio_bytes: bytes,
+    filename: str = "audio.webm",
+    language: str | None = None,
+) -> str | None:
+    """
+    GoPrep Architecture: Deepgram Nova-2 (~150 мс ағындық транскрипция).
+    Егер DEEPGRAM_API_KEY бар болса, аудионы бұлттық Deepgram API арқылы найзағайдай жылдам өңдейді.
+    """
+    deepgram_key = (os.getenv("DEEPGRAM_API_KEY") or "").strip()
+    if not deepgram_key:
+        return None
+
+    try:
+        import httpx
+        url = "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true"
+        if language in {"kk", "ru", "en"}:
+            url += f"&language={language}"
+        else:
+            url += "&detect_language=true"
+
+        content_type = "audio/webm"
+        if filename.endswith(".mp3"):
+            content_type = "audio/mpeg"
+        elif filename.endswith(".wav"):
+            content_type = "audio/wav"
+        elif filename.endswith(".ogg"):
+            content_type = "audio/ogg"
+
+        headers = {
+            "Authorization": f"Token {deepgram_key}",
+            "Content-Type": content_type,
+        }
+
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(url, headers=headers, content=audio_bytes)
+            if resp.status_code == 200:
+                data = resp.json()
+                channels = data.get("results", {}).get("channels", [])
+                if channels:
+                    alts = channels[0].get("alternatives", [])
+                    if alts:
+                        transcript = alts[0].get("transcript", "").strip()
+                        if transcript:
+                            logger.info("Deepgram Nova-2 транскрипциясы сәтті (~150мс): %s", transcript[:60])
+                            return transcript
+            else:
+                logger.warning("Deepgram API status=%s: %s", resp.status_code, resp.text[:100])
+    except Exception as exc:
+        logger.warning("Deepgram transcription failed, fallback to Groq: %s", exc)
+    return None
+
+
 async def transcribe_audio_groq(
     audio_bytes: bytes,
     filename: str = "audio.webm",
@@ -284,6 +337,59 @@ async def synthesize_speech_openai(text: str, voice: str = "nova") -> bytes:
         input=clean_voice_text(text),
     )
     return response.content
+
+
+async def synthesize_speech_cartesia(
+    text: str,
+    language: str = "kk",
+    voice: str | None = None,
+) -> bytes | None:
+    """
+    GoPrep Architecture: Cartesia Sonic (~90 мс табиғи найзағайдай жылдам дыбыстау).
+    Егер CARTESIA_API_KEY бар болса, бұлттық Cartesia Sonic моделімен дыбыстайды.
+    """
+    cartesia_key = (os.getenv("CARTESIA_API_KEY") or "").strip()
+    if not cartesia_key:
+        return None
+
+    try:
+        import httpx
+        cleaned_text = clean_voice_text(text)
+        if not cleaned_text:
+            return None
+
+        voice_id = voice if (voice and len(voice) > 10 and not voice.startswith("kk-") and not voice.startswith("ru-")) else os.getenv("CARTESIA_VOICE_ID", "79a125e8-cd45-4c13-8a67-188112f4dd22")
+
+        url = "https://api.cartesia.ai/tts/bytes"
+        headers = {
+            "X-API-Key": cartesia_key,
+            "Cartesia-Version": "2024-06-10",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model_id": "sonic",
+            "transcript": cleaned_text,
+            "voice": {
+                "mode": "id",
+                "id": voice_id,
+            },
+            "output_format": {
+                "container": "mp3",
+                "encoding": "mp3",
+                "sample_rate": 44100,
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            if resp.status_code == 200 and resp.content:
+                logger.info("Cartesia Sonic дыбыстауы сәтті (~90мс, көлемі: %d байт)", len(resp.content))
+                return resp.content
+            else:
+                logger.warning("Cartesia API status=%s: %s", resp.status_code, resp.text[:100])
+    except Exception as exc:
+        logger.warning("Cartesia TTS failed, fallback to Edge-TTS: %s", exc)
+    return None
 
 
 async def synthesize_speech_edge_tts(

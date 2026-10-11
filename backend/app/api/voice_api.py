@@ -16,7 +16,9 @@ from ..services.voice_service import (
     detect_language,
     generate_voice_llm_response,
     save_voice_chat_history_safe,
+    synthesize_speech_cartesia,
     synthesize_speech_edge_tts,
+    transcribe_audio_deepgram,
     transcribe_audio_groq,
 )
 
@@ -92,13 +94,19 @@ async def voice_assistant_endpoint(
     filename = audio.filename or "recording.webm"
     user_id = _try_get_user_id(authorization, x_user_id)
 
-    # 2. Распознавание речи через Groq Whisper
+    # 2. Распознавание речи: Deepgram Nova-2 (~150мс) с fallback на Groq Whisper
     try:
-        user_transcript = await transcribe_audio_groq(
+        user_transcript = await transcribe_audio_deepgram(
             audio_bytes=audio_bytes,
             filename=filename,
             language=language if language in {"kk", "ru", "en"} else None,
         )
+        if not user_transcript:
+            user_transcript = await transcribe_audio_groq(
+                audio_bytes=audio_bytes,
+                filename=filename,
+                language=language if language in {"kk", "ru", "en"} else None,
+            )
     except ValueError as val_err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(val_err))
     except Exception as exc:
@@ -148,13 +156,19 @@ async def voice_assistant_endpoint(
 
     active_lang = detect_language(ai_reply, fallback=language)
 
-    # 4. Синтез речи через edge-tts в MP3
+    # 4. Синтез речи: Cartesia Sonic (~90мс) с fallback на edge-tts в MP3
     try:
-        mp3_audio_bytes = await synthesize_speech_edge_tts(
+        mp3_audio_bytes = await synthesize_speech_cartesia(
             text=ai_reply,
             language=active_lang,
             voice=voice,
         )
+        if not mp3_audio_bytes:
+            mp3_audio_bytes = await synthesize_speech_edge_tts(
+                text=ai_reply,
+                language=active_lang,
+                voice=voice,
+            )
     except Exception as exc:
         logger.exception("TTS synthesis failed: %s", exc)
         raise HTTPException(

@@ -7,8 +7,3 @@ groq>=0.11.0
 edge-tts>=6.1.12
 python-multipart>=0.0.12
 pyjwt>=2.8.0
-livekit-agents>=0.8.0
-livekit-plugins-deepgram
-livekit-plugins-cartesia
-livekit-plugins-groq
-livekit-plugins-silero

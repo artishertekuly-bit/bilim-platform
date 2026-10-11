@@ -135,12 +135,16 @@ async def lifespan(app: FastAPI):
 
         if agent_script.exists():
             try:
-                logger.info("LiveKit WebRTC Worker (GoPrep) фонында іске қосылуда...")
-                _livekit_worker_process = subprocess.Popen(
-                    [sys.executable, str(agent_script), "start"],
-                    cwd=str(ROOT_DIR),
-                )
-                logger.info("LiveKit Worker сәтті басталды (PID: %s)", _livekit_worker_process.pid)
+                import importlib.util
+                if importlib.util.find_spec("livekit") is not None:
+                    logger.info("LiveKit WebRTC Worker (GoPrep) фонында іске қосылуда...")
+                    _livekit_worker_process = subprocess.Popen(
+                        [sys.executable, str(agent_script), "start"],
+                        cwd=str(ROOT_DIR),
+                    )
+                    logger.info("LiveKit Worker сәтті басталды (PID: %s)", _livekit_worker_process.pid)
+                else:
+                    logger.info("LiveKit кітапханасы жоқ, жүйе жедел бұлттық Deepgram + Cartesia режимінде жұмыс істейді.")
             except Exception as exc:
                 logger.warning("LiveKit Worker іске қосу қатесі: %s", exc)
 
