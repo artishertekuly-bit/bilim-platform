@@ -22,7 +22,14 @@ for env_file in ENV_FILES:
 logger = logging.getLogger("bilimcorp.ai.voice")
 
 GROQ_DEFAULT_WHISPER_MODEL = "whisper-large-v3"
-GROQ_DEFAULT_CHAT_MODEL = "llama-3.3-70b-versatile"
+GROQ_DEFAULT_CHAT_MODEL = "llama-3.1-8b-instant"
+GROQ_FALLBACK_MODELS = [
+    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",
+    "llama3-8b-8192",
+    "gemma2-9b-it",
+    "mixtral-8x7b-32768",
+]
 EDGE_TTS_DEFAULT_VOICE_KK = "kk-KZ-AigulNeural"
 EDGE_TTS_DEFAULT_VOICE_RU = "ru-RU-SvetlanaNeural"
 
@@ -127,7 +134,14 @@ async def generate_voice_llm_response(
         raise ValueError("Сұрақ мәтіні бос.")
 
     client = get_groq_client()
-    model = (os.getenv("GROQ_MODEL") or GROQ_DEFAULT_CHAT_MODEL).strip()
+    configured_model = (os.getenv("GROQ_MODEL") or "").strip()
+
+    candidate_models: list[str] = []
+    if configured_model:
+        candidate_models.append(configured_model)
+    for model_name in GROQ_FALLBACK_MODELS:
+        if model_name not in candidate_models:
+            candidate_models.append(model_name)
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT}
@@ -142,18 +156,29 @@ async def generate_voice_llm_response(
 
     messages.append({"role": "user", "content": user_text.strip()})
 
-    try:
-        completion = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.6,
-            max_tokens=500,
-        )
-        reply = completion.choices[0].message.content or ""
-        return reply.strip()
-    except Exception as exc:
-        logger.exception("Groq chat completion error: %s", exc)
-        raise RuntimeError(f"Жауапты генерациялау кезінде қате пайда болды (Groq LLM): {exc}") from exc
+    last_error: Exception | None = None
+    for model_to_use in candidate_models:
+        try:
+            completion = await client.chat.completions.create(
+                model=model_to_use,
+                messages=messages,
+                temperature=0.6,
+                max_tokens=500,
+            )
+            reply = completion.choices[0].message.content or ""
+            return reply.strip()
+        except Exception as exc:
+            err_msg = str(exc).lower()
+            if "model_not_found" in err_msg or "does not exist" in err_msg or "404" in err_msg or "access" in err_msg:
+                logger.warning("Groq model '%s' қолжетімсіз (404), келесі модельге көшудеміз: %s", model_to_use, exc)
+                last_error = exc
+                continue
+            logger.exception("Groq chat completion error on '%s': %s", model_to_use, exc)
+            raise RuntimeError(f"Жауапты генерациялау кезінде қате пайда болды (Groq LLM): {exc}") from exc
+
+    if last_error:
+        raise RuntimeError(f"Жауапты генерациялау кезінде қате пайда болды (Groq LLM): {last_error}")
+    raise RuntimeError("Қолжетімді Groq моделі табылмады.")
 
 
 async def synthesize_speech_edge_tts(
