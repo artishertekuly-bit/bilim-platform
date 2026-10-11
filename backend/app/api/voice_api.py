@@ -47,6 +47,7 @@ async def voice_assistant_endpoint(
     audio: UploadFile = File(..., description="Пайдаланушы жазған аудио файл (webm, mp3, wav, mp4, ogg)"),
     language: str = Form("kk", description="Сөйлеу тілі: 'kk' (қазақша) немесе 'ru' (орысша)"),
     system_prompt: str | None = Form(None, description="Қосымша жүйелік нұсқаулық"),
+    history_json: str | None = Form(None, description="Алдыңғы хабарламалар тарихы (JSON форматында)"),
     return_format: str = Form("audio", description="'audio' (MP3 файл) немесе 'json' (base64 + мәтіндер)"),
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
@@ -116,10 +117,26 @@ async def voice_assistant_endpoint(
     else:
         # 3. Определение языка и генерация ответа через Groq LLM
         active_lang = detect_language(user_transcript, fallback=language)
+        parsed_history: list[dict[str, str]] = []
+        if history_json:
+            try:
+                import json
+                raw_items = json.loads(history_json)
+                if isinstance(raw_items, list):
+                    for item in raw_items[-6:]:
+                        if isinstance(item, dict) and item.get("role") in {"user", "assistant"} and item.get("content"):
+                            parsed_history.append({
+                                "role": str(item["role"]),
+                                "content": str(item["content"]).strip(),
+                            })
+            except Exception as hist_err:
+                logger.warning("History JSON parsing error: %s", hist_err)
+
         try:
             ai_reply = await generate_voice_llm_response(
                 user_text=user_transcript,
                 system_prompt=system_prompt,
+                history=parsed_history,
             )
         except Exception as exc:
             logger.exception("LLM generation failed: %s", exc)

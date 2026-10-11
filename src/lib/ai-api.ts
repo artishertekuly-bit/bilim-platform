@@ -1719,6 +1719,7 @@ export interface VoiceAssistantOptions extends RequestOptions {
   language?: 'kk' | 'ru';
   systemPrompt?: string;
   returnFormat?: 'audio' | 'json';
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 export async function sendVoiceAssistantAudio(
@@ -1737,6 +1738,9 @@ export async function sendVoiceAssistantAudio(
   formData.append('return_format', options?.returnFormat || 'audio');
   if (options?.systemPrompt?.trim()) {
     formData.append('system_prompt', options.systemPrompt.trim());
+  }
+  if (options?.history && options.history.length > 0) {
+    formData.append('history_json', JSON.stringify(options.history));
   }
 
   const baseHeaders = buildHeaders(options);
