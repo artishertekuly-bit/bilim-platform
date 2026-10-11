@@ -8,6 +8,7 @@ import {
   FilePlus2,
   LayoutGrid,
   ListChecks,
+  Mic,
   Plus,
   Sparkles,
   UserRound,
@@ -61,6 +62,13 @@ const AUTHOR_ACTIONS: AuthorAction[] = [
     description: 'Авторлық курстарды басқару',
     path: '/my-courses',
     icon: BookOpen,
+  },
+  {
+    eyebrow: 'Дауыс AI',
+    title: 'Дауыстық көмекші',
+    description: 'Groq Whisper және сөйлесу',
+    path: '/ai-voice',
+    icon: Mic,
   },
   {
     eyebrow: 'Sana AI',

@@ -17,6 +17,7 @@ import {
   FileText,
   ListChecks,
   LogOut,
+  Mic,
   Monitor,
   Moon,
   Sparkles,
@@ -168,13 +169,21 @@ const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
 
 const STUDENT_AI_TOOLS: SanaLauncherTool[] = [
   {
+    id: 'voice-assistant',
+    title: 'Дауыстық көмекші',
+    description: 'Groq Whisper және AI дауыстық сұрақ-жауап',
+    path: '/ai-voice',
+    icon: Mic,
+    badge: 'Дауыс',
+    featured: true,
+  },
+  {
     id: 'tutor',
     title: 'AI Тьютор',
     description: 'Сұрақтар мен тақырыпты түсіндіру',
     path: '/ai-tutor',
     icon: Bot,
     badge: 'Тьютор',
-    featured: true,
   },
   {
     id: 'practice',
@@ -204,13 +213,21 @@ const STUDENT_AI_TOOLS: SanaLauncherTool[] = [
 
 const AUTHOR_AI_TOOLS: SanaLauncherTool[] = [
   {
+    id: 'voice-assistant',
+    title: 'Дауыстық көмекші',
+    description: 'Groq Whisper және AI дауыстық сұрақ-жауап',
+    path: '/ai-voice',
+    icon: Mic,
+    badge: 'Дауыс',
+    featured: true,
+  },
+  {
     id: 'assistant',
     title: 'Автор көмекшісі',
     description: 'Курс құрылымы мен мазмұны',
     path: '/ai-assistant',
     icon: Bot,
     badge: 'Ассистент',
-    featured: true,
   },
   {
     id: 'question-builder',
@@ -297,6 +314,7 @@ function getPageLabel(pathname: string): string {
 
   if (pathname === '/create-course') return 'Жаңа курс';
   if (pathname.includes('/edit') || pathname.startsWith('/edit-course')) return 'Курсты өңдеу';
+  if (pathname === '/ai-voice') return 'Дауыстық көмекші';
 
   if (
     pathname === '/ai' ||

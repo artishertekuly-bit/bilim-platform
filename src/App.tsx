@@ -60,6 +60,7 @@ const AiTrackerPage = lazy(() => import('./pages/AiTrackerPage'));
 const AiAssistantPage = lazy(() => import('./pages/AiAssistantPage'));
 const AiExamSessionPage = lazy(() => import('./pages/AiExamSessionPage'));
 const AiStudentExamsPage = lazy(() => import('./pages/AiStudentExamsPage'));
+const AiVoicePage = lazy(() => import('./pages/AiVoicePage'));
 
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
@@ -319,6 +320,11 @@ const commonProtectedRoutes: AppRouteConfig[] = [
   {
     path: '/chat',
     element: <ChatPage />,
+    allowedRoles: ALL_ROLES,
+  },
+  {
+    path: '/ai-voice',
+    element: <AiVoicePage />,
     allowedRoles: ALL_ROLES,
   },
 ];
