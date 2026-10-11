@@ -21,11 +21,9 @@ import {
 } from '@/hooks/use-platform-data';
 import { TeacherCourseBuilderSkeleton } from '@/components/course-builder/TeacherCourseBuilderSkeleton';
 import { CourseBasicCreateCard } from '@/components/course-builder/CourseBasicCreateCard';
-import { CourseManageList } from '@/components/course-builder/CourseManageList';
 import { useCourseBuilderForms } from '@/hooks/course-factor/useCourseBuilderForms';
 import { useCourseBuilderController } from '@/hooks/course-factor/useCourseBuilderController';
 import { useCourseBuilderCourseMutations } from '@/hooks/course-factor/useCourseBuilderCourseMutations';
-import type { CourseStatus } from '@/lib/course-creator/course-builder-utils';
 
 export default function TeacherCreateCoursePage() {
   const navigate = useNavigate();
@@ -92,12 +90,6 @@ export default function TeacherCreateCoursePage() {
 
   const subjectOptions = subjects || [];
 
-  const courseStatusLabels: Record<CourseStatus, string> = {
-    draft: t('course.status.draft'),
-    published: t('course.status.published'),
-    archived: t('course.status.archived'),
-  };
-
   const {
     createMutation,
     canCreateCourse,
@@ -126,12 +118,6 @@ export default function TeacherCreateCoursePage() {
     },
   });
 
-  const courseCount = workspace?.courses?.length || 0;
-
-  const handleSelectCourse = (courseId: string) => {
-    navigate(`/teacher/courses/${courseId}/edit`);
-  };
-
   const handleCreateCourse = () => {
     createMutation.mutate();
   };
@@ -158,7 +144,7 @@ export default function TeacherCreateCoursePage() {
             >
               <Link to="/my-courses">
                 <BookOpen size={13} className="mr-1.5" />
-                Курстарым ({courseCount})
+                Менің курстарым
               </Link>
             </Button>
           }
@@ -183,29 +169,16 @@ export default function TeacherCreateCoursePage() {
         ) : null}
 
         {!workspaceLoading && !workspaceError ? (
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-            {/* Left: Dedicated creation form */}
-            <div className="space-y-4">
-              <CourseBasicCreateCard
-                userId={user?.id || ''}
-                newCourse={newCourse}
-                setNewCourse={setNewCourse}
-                subjectOptions={subjectOptions}
-                canCreateCourse={canCreateCourse}
-                creating={createMutation.isPending}
-                onCreateCourse={handleCreateCourse}
-              />
-            </div>
-
-            {/* Right: Existing courses with direct edit triggers */}
-            <div className="space-y-4">
-              <CourseManageList
-                courses={workspace?.courses || []}
-                selectedCourseId={null}
-                courseStatusLabels={courseStatusLabels}
-                onSelectCourse={handleSelectCourse}
-              />
-            </div>
+          <div className="mx-auto max-w-4xl space-y-6">
+            <CourseBasicCreateCard
+              userId={user?.id || ''}
+              newCourse={newCourse}
+              setNewCourse={setNewCourse}
+              subjectOptions={subjectOptions}
+              canCreateCourse={canCreateCourse}
+              creating={createMutation.isPending}
+              onCreateCourse={handleCreateCourse}
+            />
           </div>
         ) : null}
       </div>

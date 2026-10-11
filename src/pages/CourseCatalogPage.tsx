@@ -279,7 +279,11 @@ function TeacherCourseCard({
         'hover:-translate-y-0.5 hover:shadow-sm',
       )}
     >
-      <div className="relative aspect-[16/9] overflow-hidden bg-muted">
+      <Link
+        to={editPath}
+        className="group/thumb relative block aspect-[16/9] overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+        aria-label={`${title} курсын өңдеу`}
+      >
         {showThumbnail ? (
           <img
             src={thumbnailUrl}
@@ -313,7 +317,7 @@ function TeacherCourseCard({
         <span className="absolute right-3 top-3 rounded-full bg-black/50 px-2.5 py-0.5 font-mono text-[10px] font-bold text-white backdrop-blur-xs">
           {courseNumber}
         </span>
-      </div>
+      </Link>
 
       <div className="p-5">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
