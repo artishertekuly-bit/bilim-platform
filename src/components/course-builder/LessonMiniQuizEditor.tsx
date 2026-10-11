@@ -614,9 +614,9 @@ export function LessonMiniQuizEditor({
                   </div>
 
                   {selectedMiniQuiz.questions.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-border/80 p-6 text-center space-y-3">
-                      <p className="text-sm font-medium text-muted-foreground">
-                        Бұл шағын тестте әлі сұрақтар жоқ.
+                    <div className="rounded-2xl bg-muted/20 p-6 text-center space-y-2.5">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Сұрақтар жоқ
                       </p>
                       <Button
                         type="button"
@@ -626,7 +626,7 @@ export function LessonMiniQuizEditor({
                         className="rounded-full shadow-xs text-xs font-semibold px-4"
                       >
                         <Plus size={14} className="mr-1.5" />
-                        Алғашқы сұрақты қосу
+                        Сұрақ қосу
                       </Button>
                     </div>
                   ) : (

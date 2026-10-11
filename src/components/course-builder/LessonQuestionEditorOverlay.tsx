@@ -205,7 +205,7 @@ export function LessonQuestionEditorOverlay({
 
           <div className="min-w-0">
             <h1 className="text-base sm:text-lg font-bold tracking-tight text-foreground truncate">
-              {isEditing ? 'Сұрақты өңдеу' : 'Жаңа сұрақ құрастыру'}
+              {isEditing ? 'Сұрақты өңдеу' : 'Жаңа сұрақ'}
             </h1>
             {lessonTitle ? (
               <p className="text-xs text-muted-foreground truncate">
@@ -241,18 +241,13 @@ export function LessonQuestionEditorOverlay({
 
       {/* Main Spacious Canvas */}
       <main className="flex-1 overflow-y-auto px-4 py-8 sm:px-8 sm:py-12">
-        <div className="mx-auto max-w-4xl space-y-10">
-          {/* Section 1: Сұрақ мазмұны */}
-          <section className="space-y-4">
+        <div className="mx-auto max-w-4xl space-y-8">
+          {/* Section 1: Сұрақ мәтіні */}
+          <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-bold tracking-tight text-foreground">
-                  1. Сұрақ мәтіні мен параметрлері
-                </h2>
-                <p className="text-xs text-muted-foreground">
-                  Сұрақты оқушыға анық әрі түсінікті етіп жазыңыз.
-                </p>
-              </div>
+              <h2 className="text-sm font-bold tracking-tight text-foreground">
+                Сұрақ мәтіні
+              </h2>
 
               <span className="text-[11px] text-muted-foreground">
                 {questionForm.questionText.length}/{MAX_QUESTION_TEXT_CHARS}
@@ -260,7 +255,7 @@ export function LessonQuestionEditorOverlay({
             </div>
 
             <Textarea
-              rows={4}
+              rows={3}
               value={questionForm.questionText}
               maxLength={MAX_QUESTION_TEXT_CHARS}
               onChange={(event) =>
@@ -269,70 +264,50 @@ export function LessonQuestionEditorOverlay({
                   sanitizeInputValue(event.target.value, MAX_QUESTION_TEXT_CHARS),
                 )
               }
-              placeholder="Сұрақтың толық мәтінін осында жазыңыз..."
+              placeholder="Сұрақ мәтіні"
               className="resize-none rounded-2xl bg-muted/40 p-5 text-base sm:text-lg font-medium border-0 shadow-xs focus:bg-card focus:ring-2 focus:ring-primary/20"
             />
 
-            <div className="grid gap-6 sm:grid-cols-2 pt-2">
+            <div className="grid gap-4 sm:grid-cols-2 pt-1">
               {/* Question Type Cards */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-foreground">
                   Сұрақ түрі
                 </Label>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => handleQuestionTypeChange('single_choice')}
                     className={cn(
-                      'flex flex-col items-start gap-1 p-3.5 rounded-2xl text-left transition-all shadow-xs',
+                      'flex items-center justify-center p-3 rounded-2xl text-center transition-all shadow-xs text-xs font-bold',
                       questionForm.questionType === 'single_choice'
                         ? 'bg-foreground text-background'
                         : 'bg-muted/40 text-foreground hover:bg-muted/60',
                     )}
                   >
-                    <span className="text-xs font-bold">Жалғыз таңдау</span>
-                    <span
-                      className={cn(
-                        'text-[10px] leading-relaxed',
-                        questionForm.questionType === 'single_choice'
-                          ? 'text-background/70'
-                          : 'text-muted-foreground',
-                      )}
-                    >
-                      Бір ғана дұрыс жауап
-                    </span>
+                    Жалғыз таңдау
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleQuestionTypeChange('multiple_choice')}
                     className={cn(
-                      'flex flex-col items-start gap-1 p-3.5 rounded-2xl text-left transition-all shadow-xs',
+                      'flex items-center justify-center p-3 rounded-2xl text-center transition-all shadow-xs text-xs font-bold',
                       questionForm.questionType === 'multiple_choice'
                         ? 'bg-foreground text-background'
                         : 'bg-muted/40 text-foreground hover:bg-muted/60',
                     )}
                   >
-                    <span className="text-xs font-bold">Көптік таңдау</span>
-                    <span
-                      className={cn(
-                        'text-[10px] leading-relaxed',
-                        questionForm.questionType === 'multiple_choice'
-                          ? 'text-background/70'
-                          : 'text-muted-foreground',
-                      )}
-                    >
-                      Бірнеше дұрыс жауап
-                    </span>
+                    Көптік таңдау
                   </button>
                 </div>
               </div>
 
               {/* Sort Order */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-foreground">
-                  Сұрақ реті (нөмірі)
+                  Реті
                 </Label>
 
                 <Input
@@ -346,27 +321,19 @@ export function LessonQuestionEditorOverlay({
                     )
                   }
                   placeholder="1"
-                  className="h-12 rounded-2xl bg-muted/40 border-0 px-4 text-sm shadow-xs focus:bg-card focus:ring-2 focus:ring-primary/20"
+                  className="h-11 rounded-2xl bg-muted/40 border-0 px-4 text-sm shadow-xs focus:bg-card focus:ring-2 focus:ring-primary/20"
                 />
-                <p className="text-[11px] text-muted-foreground">
-                  Сұрақтың тест ішіндегі орналасу реті
-                </p>
               </div>
             </div>
           </section>
 
           {/* Section 2: Жауап нұсқалары */}
-          <section className="space-y-4">
-            <div>
-              <h2 className="text-base font-bold tracking-tight text-foreground">
-                2. Жауап нұсқалары
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Дұрыс жауаптың тұсындағы түймені басып, белгілеңіз.
-              </p>
-            </div>
+          <section className="space-y-3">
+            <h2 className="text-sm font-bold tracking-tight text-foreground">
+              Жауап нұсқалары
+            </h2>
 
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {questionForm.options.map((option, optionIndex) => {
                 const checked = questionForm.correctAnswer.includes(optionIndex);
                 const canMarkCorrect = option.trim().length > 0;
@@ -375,7 +342,7 @@ export function LessonQuestionEditorOverlay({
                   <div
                     key={optionIndex}
                     className={cn(
-                      'flex items-center gap-3.5 rounded-2xl p-3 sm:p-4 transition-all shadow-xs',
+                      'flex items-center gap-3 rounded-2xl p-2.5 sm:p-3 transition-all shadow-xs',
                       checked
                         ? 'bg-success-soft/40'
                         : 'bg-muted/30 hover:bg-muted/50',
@@ -393,7 +360,7 @@ export function LessonQuestionEditorOverlay({
                           : 'bg-card text-muted-foreground hover:text-foreground shadow-xs',
                         !canMarkCorrect && 'opacity-40 cursor-not-allowed',
                       )}
-                      aria-label={checked ? 'Дұрыс жауаптан алып тастау' : 'Дұрыс жауап ретінде белгілеу'}
+                      aria-label="Дұрыс жауапты белгілеу"
                     >
                       {checked ? (
                         <Check size={15} strokeWidth={2.5} />
@@ -414,8 +381,8 @@ export function LessonQuestionEditorOverlay({
                       onChange={(event) =>
                         handleOptionChange(optionIndex, event.target.value)
                       }
-                      placeholder={`Жауап нұсқасы ${optionIndex + 1}`}
-                      className="h-11 flex-1 rounded-xl bg-card border-0 px-4 text-sm shadow-xs focus:ring-2 focus:ring-primary/20"
+                      placeholder={`Жауап ${optionIndex + 1}`}
+                      className="h-10 flex-1 rounded-xl bg-card border-0 px-3.5 text-sm shadow-xs focus:ring-2 focus:ring-primary/20"
                     />
 
                     {checked ? (
@@ -433,7 +400,7 @@ export function LessonQuestionEditorOverlay({
                         size="icon-sm"
                         onClick={() => handleRemoveOption(optionIndex)}
                         className="rounded-xl text-muted-foreground hover:bg-destructive-soft hover:text-destructive"
-                        aria-label="Жауап нұсқасын өшіру"
+                        aria-label="Өшіру"
                       >
                         <Trash2 size={15} />
                       </Button>
@@ -448,27 +415,22 @@ export function LessonQuestionEditorOverlay({
                 type="button"
                 variant="outline"
                 onClick={handleAddOption}
-                className="w-full rounded-2xl border-0 bg-muted/40 hover:bg-muted/65 py-3.5 h-auto text-xs font-semibold shadow-xs"
+                className="w-full rounded-2xl border-0 bg-muted/40 hover:bg-muted/65 py-3 h-auto text-xs font-semibold shadow-xs"
               >
-                <Plus size={15} className="mr-2" />
-                Жаңа жауап нұсқасын қосу ({questionForm.options.length}/{MAX_OPTIONS})
+                <Plus size={15} className="mr-1.5" />
+                Нұсқа қосу
               </Button>
             ) : null}
           </section>
 
           {/* Section 3: Түсіндірме */}
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-base font-bold tracking-tight text-foreground">
-                3. Түсіндірме (міндетті емес)
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Оқушы сұраққа жауап берген соң көрсетілетін қысқаша түсініктеме немесе шешу жолы.
-              </p>
-            </div>
+          <section className="space-y-2">
+            <h2 className="text-sm font-bold tracking-tight text-foreground">
+              Түсіндірме
+            </h2>
 
             <Textarea
-              rows={3}
+              rows={2}
               value={questionForm.explanation}
               maxLength={MAX_EXPLANATION_CHARS}
               onChange={(event) =>
@@ -477,7 +439,7 @@ export function LessonQuestionEditorOverlay({
                   sanitizeInputValue(event.target.value, MAX_EXPLANATION_CHARS),
                 )
               }
-              placeholder="Мысалы: Бұл ережені есте сақтау үшін..."
+              placeholder="Түсіндірме"
               className="resize-none rounded-2xl bg-muted/40 p-4 text-sm border-0 shadow-xs focus:bg-card focus:ring-2 focus:ring-primary/20"
             />
           </section>
@@ -489,20 +451,20 @@ export function LessonQuestionEditorOverlay({
         <div className="flex items-center gap-2">
           {!questionForm.questionText.trim() ? (
             <span className="text-xs text-muted-foreground">
-              Сұрақ мәтінін енгізіңіз
+              Сұрақ мәтінін жазыңыз
             </span>
           ) : validOptionsCount < 2 ? (
             <span className="text-xs text-muted-foreground">
-              Кемінде 2 жауап нұсқасын толтырыңыз
+              Кемінде 2 нұсқа
             </span>
           ) : correctCount === 0 ? (
             <span className="text-xs text-warning-foreground font-medium">
-              Кемінде бір дұрыс жауапты белгілеңіз
+              Дұрыс жауапты таңдаңыз
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-success">
               <CheckCircle2 size={14} />
-              Сұрақ сақтауға дайын
+              Дайын
             </span>
           )}
         </div>
