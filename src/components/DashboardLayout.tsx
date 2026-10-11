@@ -296,6 +296,7 @@ function getPageLabel(pathname: string): string {
   }
 
   if (pathname === '/create-course') return 'Жаңа курс';
+  if (pathname.includes('/edit') || pathname.startsWith('/edit-course')) return 'Курсты өңдеу';
 
   if (
     pathname === '/ai' ||

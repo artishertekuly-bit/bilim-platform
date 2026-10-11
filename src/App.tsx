@@ -37,6 +37,7 @@ const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
 
 const TeacherCreateCoursePage = lazy(() => import('./pages/TeacherCreateCoursePage'));
+const TeacherEditCoursePage = lazy(() => import('./pages/TeacherEditCoursePage'));
 const TeacherCreateTestPage = lazy(() => import('./pages/TeacherCreateTestPage'));
 const TeacherStudentsPage = lazy(() => import('./pages/TeacherStudentsPage'));
 
@@ -407,6 +408,21 @@ const authorRoutes: AppRouteConfig[] = [
   {
     path: '/create-course',
     element: <TeacherCreateCoursePage />,
+    allowedRoles: AUTHOR_ROLES,
+  },
+  {
+    path: '/teacher/courses/:courseId/edit',
+    element: <TeacherEditCoursePage />,
+    allowedRoles: AUTHOR_ROLES,
+  },
+  {
+    path: '/edit-course/:courseId',
+    element: <TeacherEditCoursePage />,
+    allowedRoles: AUTHOR_ROLES,
+  },
+  {
+    path: '/edit-course',
+    element: <TeacherEditCoursePage />,
     allowedRoles: AUTHOR_ROLES,
   },
   {

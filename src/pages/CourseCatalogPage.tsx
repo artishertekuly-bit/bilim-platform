@@ -170,7 +170,7 @@ function formatMetric(value: unknown): number {
 }
 
 function buildCourseEditPath(courseId: string) {
-  return `/create-course?courseId=${encodeURIComponent(cleanId(courseId))}`;
+  return `/teacher/courses/${encodeURIComponent(cleanId(courseId))}/edit`;
 }
 
 function normalizeCourseAccessType(course: CourseView): CourseAccessType {

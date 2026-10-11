@@ -218,13 +218,13 @@ export function CourseManageList({
                         </div>
 
                         <span
-                          className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition shadow-xs ${
                             selected
-                              ? 'border-primary-muted bg-card text-primary'
-                              : 'border-border bg-muted/45 text-muted-foreground'
+                              ? 'bg-foreground text-background'
+                              : 'bg-muted/50 text-foreground hover:bg-foreground hover:text-background'
                           }`}
                         >
-                          {selected ? 'Таңдалды' : 'Ашу'}
+                          Өңдеу
                         </span>
                       </div>
 

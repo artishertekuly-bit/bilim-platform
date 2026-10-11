@@ -76,7 +76,7 @@ function buildLessonPath(lessonId: unknown): string {
 }
 
 function buildCourseEditPath(courseId: unknown): string {
-  return `/create-course?courseId=${encodeURIComponent(cleanId(courseId))}`;
+  return `/teacher/courses/${encodeURIComponent(cleanId(courseId))}/edit`;
 }
 
 function formatNumber(value: unknown): number {

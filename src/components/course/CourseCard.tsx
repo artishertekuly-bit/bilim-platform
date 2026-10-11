@@ -89,7 +89,7 @@ function cleanInviteCode(value: unknown): string {
 }
 
 function buildCourseEditPath(courseId: string) {
-  return `/create-course?courseId=${encodeURIComponent(cleanId(courseId))}`;
+  return `/teacher/courses/${encodeURIComponent(cleanId(courseId))}/edit`;
 }
 
 function buildCourseDetailPath(courseId: string) {

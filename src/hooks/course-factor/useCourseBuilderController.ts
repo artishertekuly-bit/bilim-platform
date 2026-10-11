@@ -97,7 +97,8 @@ type CourseBuilderControllerInput = {
   workspace?: TeacherCourseWorkspace | null;
   queryClient: QueryClient;
 
-  setNewCourse: Dispatch<SetStateAction<NewCourseForm>>;
+  targetCourseId?: string;
+  setNewCourse?: Dispatch<SetStateAction<NewCourseForm>>;
   setCourseEdit: Dispatch<SetStateAction<CourseEditForm>>;
 
   setLessonForm: Dispatch<SetStateAction<LessonForm>>;
@@ -227,6 +228,7 @@ export function useCourseBuilderController({
   userId,
   workspace,
   queryClient,
+  targetCourseId,
   setNewCourse,
   setCourseEdit,
   setLessonForm,
@@ -239,21 +241,24 @@ export function useCourseBuilderController({
   setEditingAnnouncementId,
 }: CourseBuilderControllerInput) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const requestedCourseId = searchParams.get('courseId') || '';
+  const effectiveCourseId = targetCourseId || searchParams.get('courseId') || '';
 
-  const [selectedCourseId, setSelectedCourseId] = useState('');
+  const [selectedCourseId, setSelectedCourseId] = useState(targetCourseId || '');
   const lastSeededCourseId = useRef('');
 
   const courses = useMemo(() => getWorkspaceCourses(workspace), [workspace]);
 
   const selectedCourse = useMemo<CourseBuilderCourse | null>(() => {
-    return (
-      courses.find((course) => course.id === selectedCourseId) ??
-      courses.find((course) => course.id === requestedCourseId) ??
-      courses[0] ??
-      null
-    );
-  }, [courses, requestedCourseId, selectedCourseId]);
+    if (selectedCourseId) {
+      const match = courses.find((course) => course.id === selectedCourseId);
+      if (match) return match;
+    }
+    if (effectiveCourseId) {
+      const match = courses.find((course) => course.id === effectiveCourseId);
+      if (match) return match;
+    }
+    return targetCourseId ? null : (courses[0] ?? null);
+  }, [courses, effectiveCourseId, selectedCourseId, targetCourseId]);
 
   const selectedCourseModules = useMemo<CourseBuilderModuleView[]>(
     () => sortBySortOrder<CourseBuilderModuleView>(selectedCourse?.modules),
@@ -335,6 +340,7 @@ export function useCourseBuilderController({
   );
 
   const resetNewCourse = useCallback(() => {
+    if (!setNewCourse) return;
     setNewCourse({
       title: '',
       description: '',

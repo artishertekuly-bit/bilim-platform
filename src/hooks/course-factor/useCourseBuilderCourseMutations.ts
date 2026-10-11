@@ -118,6 +118,8 @@ type CourseBuilderCourseMutationsInput = {
   resetLessonForm: () => void;
   refetchWorkspace: () => Promise<void>;
   toast: ToastFn;
+  onCourseCreated?: (course: CourseBuilderCourse) => void;
+  onCourseDeleted?: (courseId: string) => void;
 };
 
 const DEFAULT_CURRENCY = 'KZT';
@@ -310,6 +312,8 @@ export function useCourseBuilderCourseMutations({
   resetLessonForm,
   refetchWorkspace,
   toast,
+  onCourseCreated,
+  onCourseDeleted,
 }: CourseBuilderCourseMutationsInput) {
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -382,6 +386,8 @@ export function useCourseBuilderCourseMutations({
         title: t('page.teacher_course_builder.toast.create_course_title'),
         description: t('page.teacher_course_builder.toast.create_course_text'),
       });
+
+      onCourseCreated?.(course);
     },
     onError: (error) =>
       toast({
@@ -486,6 +492,8 @@ export function useCourseBuilderCourseMutations({
       toast({
         title: t('page.teacher_course_builder.toast.delete_course_title'),
       });
+
+      onCourseDeleted?.(deletedCourseId);
     },
     onError: (error) =>
       toast({
