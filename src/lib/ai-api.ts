@@ -1717,6 +1717,7 @@ export interface VoiceAssistantResponse {
 
 export interface VoiceAssistantOptions extends RequestOptions {
   language?: 'kk' | 'ru';
+  voice?: string;
   systemPrompt?: string;
   returnFormat?: 'audio' | 'json';
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -1736,6 +1737,9 @@ export async function sendVoiceAssistantAudio(
   formData.append('audio', audioBlob, 'voice_recording.webm');
   formData.append('language', options?.language || 'kk');
   formData.append('return_format', options?.returnFormat || 'audio');
+  if (options?.voice?.trim()) {
+    formData.append('voice', options.voice.trim());
+  }
   if (options?.systemPrompt?.trim()) {
     formData.append('system_prompt', options.systemPrompt.trim());
   }

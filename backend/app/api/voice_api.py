@@ -47,6 +47,7 @@ async def voice_assistant_endpoint(
     audio: UploadFile = File(..., description="Пайдаланушы жазған аудио файл (webm, mp3, wav, mp4, ogg)"),
     language: str = Form("kk", description="Сөйлеу тілі: 'kk' (қазақша) немесе 'ru' (орысша)"),
     system_prompt: str | None = Form(None, description="Қосымша жүйелік нұсқаулық"),
+    voice: str | None = Form(None, description="Арнайы таңдалған дауыс моделі (мысалы 'kk-KZ-DauletNeural', 'openai:nova')"),
     history_json: str | None = Form(None, description="Алдыңғы хабарламалар тарихы (JSON форматында)"),
     return_format: str = Form("audio", description="'audio' (MP3 файл) немесе 'json' (base64 + мәтіндер)"),
     authorization: str | None = Header(default=None, alias="Authorization"),
@@ -152,6 +153,7 @@ async def voice_assistant_endpoint(
         mp3_audio_bytes = await synthesize_speech_edge_tts(
             text=ai_reply,
             language=active_lang,
+            voice=voice,
         )
     except Exception as exc:
         logger.exception("TTS synthesis failed: %s", exc)

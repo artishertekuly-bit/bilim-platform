@@ -63,16 +63,17 @@ DEPRECATED_MODELS_MAP = {
     "deepseek-r1-distill-qwen-32b": "qwen/qwen3.8-27b",
 }
 
-EDGE_TTS_DEFAULT_VOICE_KK = "kk-KZ-AigulNeural"
-EDGE_TTS_DEFAULT_VOICE_RU = "ru-RU-SvetlanaNeural"
+EDGE_TTS_DEFAULT_VOICE_KK = "kk-KZ-DauletNeural"
+EDGE_TTS_DEFAULT_VOICE_RU = "ru-RU-DmitryNeural"
 
 DEFAULT_SYSTEM_PROMPT = """Сен — Bilim Platform платформасының ақылды дауыстық көмекшісісің.
 Пайдаланушыға білім, сабақтар, ғылым және оқу тақырыптары бойынша көмектесесің.
 ЕРЕЖЕЛЕР:
-1. Жауабың дауыспен (TTS) оқылатындықтан, сөздеріңді тыңдауға ыңғайлы, табиғи және қарапайым етіп құра.
+1. Жауабың дауыспен (TTS) оқылатындықтан, сөздеріңді тыңдауға ыңғайлы, табиғи, жанды және адамша құра.
 2. Ешқандай markdown белгілерін, жұлдызшаларды (*), шаршы жақшаларды, кестелерді немесе кодты қолданба.
-3. Жауап көлемі шағын әрі нақты болсын (әдетте 2-4 сөйлем).
-4. Пайдаланушы қай тілде сұраса (қазақша немесе орысша), дәл сол тілде жауап бер."""
+3. Сөйлемдер арасына үтір мен нүктелерді дұрыс қой (бұл роботтық дыбысты жойып, адамша тыныс алуға көмектеседі).
+4. Жауап көлемі шағын әрі нақты болсын (әдетте 2-4 сөйлем).
+5. Пайдаланушы қай тілде сұраса (қазақша немесе орысша), дәл сол тілде жауап бер."""
 
 
 def get_groq_api_key() -> str:
@@ -104,8 +105,13 @@ def get_groq_client():
 
 
 def clean_voice_text(text: str) -> str:
-    """Удаляет markdown и спецсимволы, делая текст чистым для озвучки edge-tts."""
+    """Удаляет markdown и спецсимволы, оптимизируя паузы для естественного человеческого звучания."""
     cleaned = re.sub(r"[\*#_`~>\[\]\(\)]", "", text)
+    # Двоеточия, точки с запятой и длинные тире превращаем в естественные запятые с паузой
+    cleaned = re.sub(r"[:;]\s+", ", ", cleaned)
+    cleaned = re.sub(r"[—–]", ", ", cleaned)
+    # Убираем двойные знаки препинания
+    cleaned = re.sub(r",+", ",", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
@@ -264,15 +270,47 @@ async def generate_voice_llm_response(
     raise RuntimeError("Қолжетімді Groq моделі табылмады.")
 
 
+async def synthesize_speech_openai(text: str, voice: str = "nova") -> bytes:
+    """Синтезирует речь через студийный OpenAI TTS-1 (человеческое, эмоциональное звучание)."""
+    api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY орта айнымалысы табылмады.")
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key)
+    response = await client.audio.speech.create(
+        model="tts-1",
+        voice=voice,
+        input=clean_voice_text(text),
+    )
+    return response.content
+
+
 async def synthesize_speech_edge_tts(
     text: str,
     language: str = "kk",
     voice: str | None = None,
 ) -> bytes:
     """
-    Озвучивает текст через edge-tts без нагрузки на CPU/RAM сервера Render.
+    Озвучивает текст через edge-tts (с калибровкой темпа) либо OpenAI TTS.
     Генерирует MP3 поток напрямую в память.
     """
+    cleaned_text = clean_voice_text(text)
+    if not cleaned_text:
+        cleaned_text = "Сіздің сұрағыңызды түсінбедім, қайталап көріңізші."
+
+    # Егер OpenAI дауысы сұралса немесе voice OpenAI дауыстарынан болса
+    if voice and (
+        voice.startswith("openai:")
+        or voice in {"alloy", "nova", "echo", "shimmer", "fable", "onyx"}
+    ):
+        openai_voice_name = voice.replace("openai:", "")
+        try:
+            return await synthesize_speech_openai(cleaned_text, voice=openai_voice_name)
+        except Exception as oai_err:
+            logger.warning("OpenAI TTS орындалмады, Edge-TTS-ке көшеміз: %s", oai_err)
+            voice = None
+
     try:
         import edge_tts
     except ImportError as exc:
@@ -280,17 +318,14 @@ async def synthesize_speech_edge_tts(
             "edge-tts кітапханасы орнатылмаған. 'pip install edge-tts' орындаңыз."
         ) from exc
 
-    cleaned_text = clean_voice_text(text)
-    if not cleaned_text:
-        cleaned_text = "Сіздің сұрағыңызды түсінбедім, қайталап көріңізші."
-
     if not voice:
         voice_kk = os.getenv("EDGE_TTS_VOICE_KK", EDGE_TTS_DEFAULT_VOICE_KK).strip()
         voice_ru = os.getenv("EDGE_TTS_VOICE_RU", EDGE_TTS_DEFAULT_VOICE_RU).strip()
         voice = voice_ru if language == "ru" else voice_kk
 
     try:
-        communicate = edge_tts.Communicate(cleaned_text, voice)
+        # rate="-4%" сәл баяулатып, табиғи адамның сөйлеу жылдамдығы мен интонациясын қалыптастырады
+        communicate = edge_tts.Communicate(cleaned_text, voice, rate="-4%", pitch="+0Hz")
         buffer = io.BytesIO()
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":

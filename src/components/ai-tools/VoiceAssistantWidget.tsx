@@ -71,6 +71,9 @@ export default function VoiceAssistantWidget({
   const [mode, setMode] = useState<VoiceAssistantMode>('live');
   const [status, setStatus] = useState<VoiceAssistantStatus>('idle');
   const [language, setLanguage] = useState<'kk' | 'ru'>(defaultLanguage);
+  const [selectedVoice, setSelectedVoice] = useState<string>(
+    defaultLanguage === 'ru' ? 'ru-RU-DmitryNeural' : 'kk-KZ-DauletNeural',
+  );
   const [isLiveActive, setIsLiveActive] = useState<boolean>(false);
   const [audioLevel, setAudioLevel] = useState<number>(0);
   const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
@@ -226,6 +229,7 @@ export default function VoiceAssistantWidget({
 
       const response = await sendVoiceAssistantAudio(blob, {
         language,
+        voice: selectedVoice,
         systemPrompt,
         history: historyContext,
         accessToken: session?.access_token,
@@ -254,7 +258,7 @@ export default function VoiceAssistantWidget({
         variant: 'destructive',
       });
     }
-  }, [chatHistory, language, onResponse, playAudio, session?.access_token, systemPrompt, toast]);
+  }, [chatHistory, language, onResponse, playAudio, selectedVoice, session?.access_token, systemPrompt, toast]);
 
   // VAD циклі: микрофон дыбыс деңгейін талдау және автоматты сөйлесуді басқару
   const startLiveVadLoop = useCallback(() => {
@@ -691,34 +695,110 @@ export default function VoiceAssistantWidget({
             </button>
           </div>
 
-          {/* Тіл ауыстыру */}
-          <div className="flex items-center gap-1 rounded-full bg-muted/60 p-1">
-            <button
-              type="button"
-              onClick={() => setLanguage('kk')}
-              disabled={status === 'recording' || status === 'processing'}
-              className={cn(
-                'rounded-full px-3 py-1 text-xs font-semibold transition',
-                language === 'kk'
-                  ? 'bg-card text-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground',
+          {/* Оң жақ: Дауыс таңдау және Тіл ауыстыру */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Дауыс түрін таңдау */}
+            <div className="flex items-center gap-1 rounded-full bg-muted/50 p-1 text-xs">
+              {language === 'kk' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVoice('kk-KZ-DauletNeural')}
+                    disabled={status === 'recording' || status === 'processing'}
+                    className={cn(
+                      'rounded-full px-2.5 py-1 text-xs font-semibold transition',
+                      selectedVoice === 'kk-KZ-DauletNeural'
+                        ? 'bg-card text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    title="Дәулет — ер адамның жылы, табиғи дауысы"
+                  >
+                    👨 Дәулет
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVoice('kk-KZ-AigulNeural')}
+                    disabled={status === 'recording' || status === 'processing'}
+                    className={cn(
+                      'rounded-full px-2.5 py-1 text-xs font-semibold transition',
+                      selectedVoice === 'kk-KZ-AigulNeural'
+                        ? 'bg-card text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    title="Айгүл — әйел адамның дауысы"
+                  >
+                    👩 Айгүл
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVoice('ru-RU-DmitryNeural')}
+                    disabled={status === 'recording' || status === 'processing'}
+                    className={cn(
+                      'rounded-full px-2.5 py-1 text-xs font-semibold transition',
+                      selectedVoice === 'ru-RU-DmitryNeural'
+                        ? 'bg-card text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    title="Дмитрий — мужской голос"
+                  >
+                    👨 Дмитрий
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVoice('ru-RU-SvetlanaNeural')}
+                    disabled={status === 'recording' || status === 'processing'}
+                    className={cn(
+                      'rounded-full px-2.5 py-1 text-xs font-semibold transition',
+                      selectedVoice === 'ru-RU-SvetlanaNeural'
+                        ? 'bg-card text-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                    title="Светлана — женский голос"
+                  >
+                    👩 Светлана
+                  </button>
+                </>
               )}
-            >
-              ҚАЗ
-            </button>
-            <button
-              type="button"
-              onClick={() => setLanguage('ru')}
-              disabled={status === 'recording' || status === 'processing'}
-              className={cn(
-                'rounded-full px-3 py-1 text-xs font-semibold transition',
-                language === 'ru'
-                  ? 'bg-card text-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              РУС
-            </button>
+            </div>
+
+            {/* Тіл ауыстыру */}
+            <div className="flex items-center gap-1 rounded-full bg-muted/60 p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setLanguage('kk');
+                  setSelectedVoice('kk-KZ-DauletNeural');
+                }}
+                disabled={status === 'recording' || status === 'processing'}
+                className={cn(
+                  'rounded-full px-3 py-1 text-xs font-semibold transition',
+                  language === 'kk'
+                    ? 'bg-card text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                ҚАЗ
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLanguage('ru');
+                  setSelectedVoice('ru-RU-DmitryNeural');
+                }}
+                disabled={status === 'recording' || status === 'processing'}
+                className={cn(
+                  'rounded-full px-3 py-1 text-xs font-semibold transition',
+                  language === 'ru'
+                    ? 'bg-card text-foreground shadow-xs'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                РУС
+              </button>
+            </div>
           </div>
         </div>
 
