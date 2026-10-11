@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import logging
 import os
+import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -115,6 +118,43 @@ def _build_allow_origin_regex() -> str | None:
     return None
 
 
+_livekit_worker_process: subprocess.Popen | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _livekit_worker_process
+    livekit_url = os.getenv("LIVEKIT_URL", "").strip()
+    livekit_key = os.getenv("LIVEKIT_API_KEY", "").strip()
+    livekit_secret = os.getenv("LIVEKIT_API_SECRET", "").strip()
+
+    if livekit_url and livekit_key and livekit_secret:
+        agent_script = ROOT_DIR / "backend" / "livekit_agent.py"
+        if not agent_script.exists():
+            agent_script = BACKEND_DIR / "livekit_agent.py"
+
+        if agent_script.exists():
+            try:
+                logger.info("LiveKit WebRTC Worker (GoPrep) фонында іске қосылуда...")
+                _livekit_worker_process = subprocess.Popen(
+                    [sys.executable, str(agent_script), "start"],
+                    cwd=str(ROOT_DIR),
+                )
+                logger.info("LiveKit Worker сәтті басталды (PID: %s)", _livekit_worker_process.pid)
+            except Exception as exc:
+                logger.warning("LiveKit Worker іске қосу қатесі: %s", exc)
+
+    yield
+
+    if _livekit_worker_process:
+        try:
+            logger.info("LiveKit Worker тоқтатылуда...")
+            _livekit_worker_process.terminate()
+            _livekit_worker_process.wait(timeout=5)
+        except Exception:
+            pass
+
+
 app = FastAPI(
     title="Bilimcorp AI Bridge",
     version="1.6.1",
@@ -122,6 +162,7 @@ app = FastAPI(
         "AI bridge service for Bilimcorp. Provides legacy AI tools and "
         "scoped learning-analysis endpoints for AI Tracker and AI Assistant."
     ),
+    lifespan=lifespan,
 )
 
 app.add_middleware(

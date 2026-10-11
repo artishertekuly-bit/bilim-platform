@@ -66,9 +66,10 @@ def create_agent():
 
         # 3. LLM (Groq)
         groq_key = os.getenv("GROQ_API_KEY", "")
+        groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
         llm_plugin = groq.LLM(
             api_key=groq_key or None,
-            model="openai/gpt-oss-20b",
+            model=groq_model,
         )
 
         # 4. TTS (Cartesia Sonic)
@@ -89,6 +90,14 @@ def create_agent():
 
         assistant.start(ctx.room)
         logger.info(f"Дауыстық көмекші бөлмеде белсенді: {ctx.room.name}")
+
+        try:
+            await assistant.say(
+                "Сәлеметсіз бе! Мен Bilim көмекшісімін. Сұрағыңызды қоя беріңіз.",
+                allow_interruptions=True,
+            )
+        except Exception as say_err:
+            logger.warning(f"Бастапқы амандасу оқылмады: {say_err}")
 
     return WorkerOptions(entrypoint_fnc=entrypoint)
 

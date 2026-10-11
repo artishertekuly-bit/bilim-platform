@@ -11,18 +11,28 @@ import {
   Loader2,
   Mic,
   Pause,
+  PhoneOff,
   Play,
   RotateCcw,
   Send,
   Sparkles,
   Volume2,
+  Wifi,
   X,
 } from 'lucide-react';
+import {
+  Room,
+  RoomEvent,
+  Track,
+  type RemoteParticipant,
+  type RemoteTrackPublication,
+} from 'livekit-client';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import {
+  fetchLiveKitToken,
   sendVoiceAssistantAudio,
   type VoiceAssistantResponse,
 } from '@/lib/ai-api';
@@ -31,6 +41,7 @@ import { cn } from '@/lib/utils';
 
 export type VoiceAssistantStatus =
   | 'idle'
+  | 'listening'
   | 'recording'
   | 'processing'
   | 'speaking'
@@ -74,6 +85,12 @@ export default function VoiceAssistantWidget({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
+  // LiveKit WebRTC (GoPrep) күйлері
+  const [isLiveKitActive, setIsLiveKitActive] = useState<boolean>(false);
+  const [isLiveKitConnecting, setIsLiveKitConnecting] = useState<boolean>(false);
+  const liveKitRoomRef = useRef<Room | null>(null);
+  const liveKitAudioElRef = useRef<HTMLAudioElement | null>(null);
+
   // Рефтер
   const audioStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -89,6 +106,26 @@ export default function VoiceAssistantWidget({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const hasSpokenRef = useRef<boolean>(false);
+
+  // LiveKit байланысын үзу
+  const disconnectLiveKit = useCallback(() => {
+    if (liveKitRoomRef.current) {
+      try {
+        liveKitRoomRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+      liveKitRoomRef.current = null;
+    }
+    if (liveKitAudioElRef.current) {
+      liveKitAudioElRef.current.pause();
+      liveKitAudioElRef.current.remove();
+      liveKitAudioElRef.current = null;
+    }
+    setIsLiveKitActive(false);
+    setIsLiveKitConnecting(false);
+    setStatus('idle');
+  }, []);
 
   // Тазалау (cleanup)
   const cleanupRecording = useCallback(() => {
@@ -122,6 +159,7 @@ export default function VoiceAssistantWidget({
 
   useEffect(() => {
     return () => {
+      disconnectLiveKit();
       cleanupRecording();
       if (audioPlayerRef.current) {
         audioPlayerRef.current.pause();
@@ -131,7 +169,7 @@ export default function VoiceAssistantWidget({
         abortControllerRef.current.abort();
       }
     };
-  }, [cleanupRecording]);
+  }, [cleanupRecording, disconnectLiveKit]);
 
   const formatTimer = (totalSeconds: number): string => {
     const mins = Math.floor(totalSeconds / 60);
@@ -414,6 +452,74 @@ export default function VoiceAssistantWidget({
     }
   }, [cleanupRecording, sendAudioToBackend, stopRecordingAndSend, toast]);
 
+  // GoPrep шынайы уақыттағы WebRTC сұхбатын бастау
+  const startLiveKitSession = useCallback(async () => {
+    setIsLiveKitConnecting(true);
+    setErrorMessage(null);
+
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+    }
+
+    try {
+      const tokenData = await fetchLiveKitToken(undefined, {
+        accessToken: session?.access_token,
+      });
+
+      if (!tokenData.is_configured || !tokenData.token || !tokenData.url) {
+        setIsLiveKitConnecting(false);
+        await startRecording();
+        return;
+      }
+
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+      liveKitRoomRef.current = room;
+
+      room.on(
+        RoomEvent.TrackSubscribed,
+        (track: Track, _pub: RemoteTrackPublication, _participant: RemoteParticipant) => {
+          if (track.kind === Track.Kind.Audio) {
+            const el = track.attach();
+            liveKitAudioElRef.current = el;
+            setStatus('speaking');
+          }
+        },
+      );
+
+      room.on(RoomEvent.TrackUnsubscribed, (track: Track) => {
+        track.detach();
+        setStatus('listening');
+      });
+
+      room.on(RoomEvent.Disconnected, () => {
+        setIsLiveKitActive(false);
+        setIsLiveKitConnecting(false);
+        setStatus('idle');
+      });
+
+      await room.connect(tokenData.url, tokenData.token);
+      await room.localParticipant.setMicrophoneEnabled(true);
+
+      setIsLiveKitActive(true);
+      setIsLiveKitConnecting(false);
+      setStatus('listening');
+
+      toast({
+        title: 'GoPrep сұхбаты қосылды',
+        description: 'Нақты уақыттағы тікелей байланыс белсенді.',
+      });
+    } catch (err) {
+      console.warn('LiveKit қосылым қатесі, жедел режимге ауысты:', err);
+      setIsLiveKitConnecting(false);
+      setIsLiveKitActive(false);
+      await startRecording();
+    }
+  }, [session?.access_token, startRecording, toast]);
+
   const togglePlayPause = () => {
     if (!audioPlayerRef.current) {
       if (lastResponse?.audioUrl) {
@@ -557,6 +663,14 @@ export default function VoiceAssistantWidget({
         {/* Негізгі орталық интерактивті батырма (GoPrep / Clean UI) */}
         <div className="my-6 flex flex-col items-center justify-center text-center space-y-5">
           <div className="relative flex h-36 w-36 items-center justify-center sm:h-44 sm:w-44">
+            {/* Тікелей LiveKit қосулы кездегі немесе сөйлеген кездегі толқын */}
+            {isLiveKitActive || status === 'listening' || status === 'speaking' ? (
+              <>
+                <span className="absolute h-36 w-36 animate-pulse rounded-full bg-primary/20 sm:h-44 sm:w-44" />
+                <span className="absolute h-32 w-32 animate-ping rounded-full bg-primary/10 sm:h-40 sm:w-40" />
+              </>
+            ) : null}
+
             {/* Жазу кезіндегі динамикалық дыбыс толқыны */}
             {status === 'recording' ? (
               <>
@@ -577,19 +691,11 @@ export default function VoiceAssistantWidget({
               </>
             ) : null}
 
-            {/* Дыбыс ойналып жатқандағы пульсация */}
-            {status === 'speaking' ? (
-              <>
-                <span className="absolute h-36 w-36 animate-pulse rounded-full bg-primary/20 sm:h-44 sm:w-44" />
-                <span className="absolute h-32 w-32 animate-ping rounded-full bg-primary/10 sm:h-40 sm:w-40" />
-              </>
-            ) : null}
-
-            {/* БОС КҮЙ (IDLE): Микрофонды басып сөйлесу */}
-            {status === 'idle' || status === 'error' ? (
+            {/* БОС КҮЙ (IDLE): Батырманы басып GoPrep сұхбатын бастау */}
+            {!isLiveKitActive && !isLiveKitConnecting && (status === 'idle' || status === 'error') ? (
               <button
                 type="button"
-                onClick={startRecording}
+                onClick={startLiveKitSession}
                 className={cn(
                   'relative z-10 flex h-24 w-24 items-center justify-center rounded-full',
                   'bg-primary text-primary-foreground shadow-lg transition-all duration-300',
@@ -601,8 +707,41 @@ export default function VoiceAssistantWidget({
               </button>
             ) : null}
 
-            {/* ЖАЗУ КЕЗІНДЕ: Болдырмау (X) және Жіберу (Send) батырмалары */}
-            {status === 'recording' ? (
+            {/* ҚОСЫЛУ БАРЫСЫ (CONNECTING) */}
+            {isLiveKitConnecting ? (
+              <div
+                className={cn(
+                  'relative z-10 flex h-24 w-24 items-center justify-center rounded-full',
+                  'bg-primary/20 text-primary shadow-xs sm:h-28 sm:w-28',
+                )}
+              >
+                <Loader2 size={36} className="animate-spin text-primary" />
+              </div>
+            ) : null}
+
+            {/* ТІКЕЛЕЙ БАЙЛАНЫС (LIVEKIT ACTIVE) */}
+            {isLiveKitActive ? (
+              <button
+                type="button"
+                onClick={disconnectLiveKit}
+                className={cn(
+                  'relative z-10 flex h-24 w-24 items-center justify-center rounded-full',
+                  'bg-primary text-primary-foreground shadow-lg transition-all duration-300',
+                  'hover:scale-105 active:scale-95 sm:h-28 sm:w-28',
+                )}
+                title="Сұхбатты тоқтату"
+                aria-label="Сұхбатты тоқтату"
+              >
+                {status === 'speaking' ? (
+                  <Volume2 size={36} className="animate-pulse sm:size-10" />
+                ) : (
+                  <Mic size={36} className="animate-pulse sm:size-10" />
+                )}
+              </button>
+            ) : null}
+
+            {/* ЖАЗУ КЕЗІНДЕ (RECORDING FALLBACK): Болдырмау (X) және Жіберу (Send) батырмалары */}
+            {!isLiveKitActive && status === 'recording' ? (
               <div className="relative z-10 flex items-center gap-4 sm:gap-6">
                 <button
                   type="button"
@@ -635,7 +774,7 @@ export default function VoiceAssistantWidget({
             ) : null}
 
             {/* ӨҢДЕУ КЕЗІНДЕ (PROCESSING) */}
-            {status === 'processing' ? (
+            {!isLiveKitActive && status === 'processing' ? (
               <div
                 className={cn(
                   'relative z-10 flex h-24 w-24 items-center justify-center rounded-full',
@@ -646,8 +785,8 @@ export default function VoiceAssistantWidget({
               </div>
             ) : null}
 
-            {/* ДАУЫС ОЙНАЛЫП ЖАТҚАНДА (SPEAKING / PAUSED) */}
-            {status === 'speaking' || status === 'paused' ? (
+            {/* ДАУЫС ОЙНАЛЫП ЖАТҚАНДА (SPEAKING / PAUSED ТЕК ҚАРАПАЙЫМ РЕЖИМДЕ) */}
+            {!isLiveKitActive && (status === 'speaking' || status === 'paused') ? (
               <button
                 type="button"
                 onClick={togglePlayPause}
@@ -668,19 +807,49 @@ export default function VoiceAssistantWidget({
           </div>
 
           {/* Статустық нақты әрі қысқа мәтіндер */}
-          <div className="space-y-1.5">
-            {status === 'idle' ? (
+          <div className="space-y-2">
+            {isLiveKitConnecting ? (
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-foreground">
+                  GoPrep байланысы орнатылуда...
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Серверге қосылуда
+                </p>
+              </div>
+            ) : isLiveKitActive ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+                  <Wifi size={14} className="animate-pulse" />
+                  <span>
+                    {status === 'speaking'
+                      ? 'AI сөйлеп жатыр...'
+                      : 'Тікелей байланыс белсенді • Сөйлей беріңіз'}
+                  </span>
+                </div>
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={disconnectLiveKit}
+                    className="rounded-full text-xs font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive shadow-xs"
+                  >
+                    <PhoneOff size={13} className="mr-1.5" />
+                    Сұхбатты аяқтау
+                  </Button>
+                </div>
+              </div>
+            ) : status === 'idle' ? (
               <div className="space-y-1">
                 <p className="text-sm font-bold text-foreground">
                   Сөйлесу үшін басыңыз
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Сұрағыңызды қойыңыз, AI дауыстап жауап береді
+                  Сұрағыңызды қойыңыз, AI нақты уақытта жауап береді
                 </p>
               </div>
-            ) : null}
-
-            {status === 'recording' ? (
+            ) : status === 'recording' ? (
               <div className="space-y-1.5">
                 <div className="flex items-center justify-center gap-2 text-rose-500 font-bold text-sm">
                   <span className="h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse" />
@@ -690,28 +859,20 @@ export default function VoiceAssistantWidget({
                   Сөйлеп болған соң өзі жібереді немесе қызыл түймені басыңыз
                 </p>
               </div>
-            ) : null}
-
-            {status === 'processing' ? (
+            ) : status === 'processing' ? (
               <p className="text-xs font-semibold text-primary animate-pulse">
                 Жауап дайындалуда...
               </p>
-            ) : null}
-
-            {status === 'speaking' ? (
+            ) : status === 'speaking' ? (
               <div className="flex items-center justify-center gap-2 text-primary font-semibold text-xs">
                 <Volume2 size={16} className="animate-pulse" />
                 <span>Жауап оқылуда</span>
               </div>
-            ) : null}
-
-            {status === 'paused' ? (
+            ) : status === 'paused' ? (
               <p className="text-xs font-semibold text-muted-foreground">
                 Кідіртілді
               </p>
-            ) : null}
-
-            {status === 'error' && errorMessage ? (
+            ) : status === 'error' && errorMessage ? (
               <div className="flex items-center justify-center gap-1.5 text-xs text-destructive">
                 <AlertCircle size={13} />
                 <span>{errorMessage}</span>
