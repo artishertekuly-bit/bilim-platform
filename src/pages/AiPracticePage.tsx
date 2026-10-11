@@ -313,7 +313,7 @@ function SelectField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
-        className="h-11 w-full rounded-2xl border border-input bg-card px-4 text-sm text-foreground shadow-inner-soft outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-11 w-full rounded-2xl bg-muted/40 border-0 px-4 text-sm text-foreground outline-none transition-all duration-200 focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {children}
       </select>
@@ -329,7 +329,7 @@ function ProgressCell({
   value: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface-soft/60 p-4 shadow-inner-soft">
+    <div className="rounded-2xl bg-muted/40 p-4">
       <p className="text-xs text-muted-foreground">{cleanText(label, 120)}</p>
       <div className="mt-1 text-lg font-semibold text-foreground">{value}</div>
     </div>
@@ -722,8 +722,8 @@ export default function AiPracticePage() {
         {user && isStudent ? (
           <>
             <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-              <Card className="overflow-hidden">
-                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+              <Card className="overflow-hidden shadow-xs">
+                <CardHeader className="bg-card pb-2">
                   <CardTitle className="flex items-center gap-2 text-base font-semibold">
                     <Sparkles size={16} className="text-primary" />
                     Жаттығу параметрлері
@@ -864,8 +864,8 @@ export default function AiPracticePage() {
                 </CardContent>
               </Card>
 
-              <Card className="overflow-hidden">
-                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+              <Card className="overflow-hidden shadow-xs">
+                <CardHeader className="bg-card pb-2">
                   <CardTitle className="text-base font-semibold">Оқу барысы</CardTitle>
                 </CardHeader>
 
@@ -902,8 +902,8 @@ export default function AiPracticePage() {
                   const isAnyEvaluationPending = Boolean(evaluatingQuestionId);
 
                   return (
-                    <Card key={questionId || index} className="overflow-hidden">
-                      <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+                    <Card key={questionId || index} className="overflow-hidden shadow-xs">
+                      <CardHeader className="bg-card pb-2">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <CardTitle className="text-base font-semibold">
                             Сұрақ {index + 1}
@@ -934,16 +934,16 @@ export default function AiPracticePage() {
                                   onClick={() => handleAnswerChange(questionId, optionText)}
                                   disabled={isEvaluating}
                                   className={cn(
-                                    'flex w-full items-start gap-3 rounded-2xl border px-4 py-3 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70',
+                                    'flex w-full items-center gap-3 rounded-2xl p-3.5 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-70',
                                     checked
-                                      ? 'border-primary bg-primary/5'
-                                      : 'border-border bg-card hover:bg-accent',
+                                      ? 'bg-primary/10 text-primary font-medium'
+                                      : 'bg-muted/40 text-foreground hover:bg-muted/70',
                                   )}
                                 >
                                   <span
                                     className={cn(
-                                      'mt-0.5 inline-block h-4 w-4 rounded-full border',
-                                      checked ? 'border-primary bg-primary' : 'border-border',
+                                      'inline-block h-3.5 w-3.5 rounded-full',
+                                      checked ? 'bg-primary' : 'bg-muted-foreground/30',
                                     )}
                                   />
                                   <span>{optionText}</span>

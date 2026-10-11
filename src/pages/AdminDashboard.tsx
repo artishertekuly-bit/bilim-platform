@@ -347,47 +347,42 @@ function ActionCard({
     <Link
       to={href}
       className={cn(
-        'group relative min-h-56 overflow-hidden rounded-[2rem] border p-5',
-        'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
-        'hover:-translate-y-1 hover:shadow-soft-lg active:translate-y-0 active:scale-[0.99]',
+        'group relative min-h-36 overflow-hidden rounded-2xl p-5 shadow-xs',
+        'transition-all duration-200',
+        'hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.99]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
         featured
-          ? 'border-foreground bg-foreground text-background'
-          : 'border-border bg-card text-foreground hover:border-foreground/20',
+          ? 'bg-foreground text-background'
+          : 'bg-card text-foreground hover:bg-card/90',
       )}
     >
-      <div
-        aria-hidden="true"
-        className={cn(
-          'pointer-events-none absolute -right-16 -top-16 h-52 w-52 rounded-full blur-3xl',
-          featured ? 'bg-background/15' : 'bg-foreground/[0.04]',
-        )}
-      />
-
       <div className="relative flex h-full flex-col">
         <div className="flex items-start justify-between gap-3">
           <span
             className={cn(
-              'flex h-12 w-12 items-center justify-center rounded-full border',
+              'flex h-10 w-10 items-center justify-center rounded-xl',
               featured
-                ? 'border-background/20 bg-background/10'
-                : 'border-border bg-background',
+                ? 'bg-background/15 text-background'
+                : 'bg-muted/60 text-foreground',
             )}
           >
             {icon}
           </span>
 
           <ArrowRight
-            size={18}
-            className="transition-transform duration-200 group-hover:translate-x-1"
+            size={16}
+            className={cn(
+              'transition-transform duration-200 group-hover:translate-x-1',
+              featured ? 'text-background/60' : 'text-muted-foreground',
+            )}
           />
         </div>
 
-        <div className="mt-auto pt-10">
+        <div className="mt-auto pt-4">
           <p
             className={cn(
-              'text-[10px] font-semibold uppercase tracking-[0.18em]',
-              featured ? 'text-background/55' : 'text-muted-foreground',
+              'text-[10px] font-semibold uppercase tracking-wider',
+              featured ? 'text-background/50' : 'text-muted-foreground',
             )}
           >
             {cleanText(eyebrow, 80)}
@@ -395,7 +390,7 @@ function ActionCard({
 
           <h2
             className={cn(
-              'mt-2 text-2xl font-black tracking-[-0.045em]',
+              'mt-1 text-lg font-bold tracking-tight',
               featured ? 'text-background' : 'text-foreground',
             )}
           >
@@ -404,8 +399,8 @@ function ActionCard({
 
           <p
             className={cn(
-              'mt-3 max-w-md text-sm leading-6',
-              featured ? 'text-background/65' : 'text-muted-foreground',
+              'mt-0.5 text-xs leading-5',
+              featured ? 'text-background/70' : 'text-muted-foreground',
             )}
           >
             {cleanText(text)}
@@ -421,14 +416,14 @@ function MetricCard({ metric }: { metric: DashboardMetric }) {
     <Link
       to={metric.href}
       className={cn(
-        'group rounded-[1.5rem] border border-border bg-card p-4',
-        'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
-        'hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-soft-md',
+        'group rounded-2xl bg-card p-4 shadow-xs',
+        'transition-all duration-200',
+        'hover:-translate-y-0.5 hover:shadow-sm',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-muted-foreground">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted/60 text-muted-foreground">
           {metric.icon}
         </span>
 
@@ -438,10 +433,10 @@ function MetricCard({ metric }: { metric: DashboardMetric }) {
         />
       </div>
 
-      <p className="mt-5 text-3xl font-black tracking-[-0.045em]">
+      <p className="mt-4 text-2xl font-bold tracking-tight text-foreground">
         {metric.value.toLocaleString('kk-KZ')}
       </p>
-      <p className="mt-1 text-xs font-medium text-muted-foreground">
+      <p className="mt-0.5 text-xs font-medium text-muted-foreground">
         {metric.label}
       </p>
     </Link>
@@ -467,20 +462,20 @@ function AttentionCard({
     <Link
       to={href}
       className={cn(
-        'group flex items-center gap-4 rounded-[1.5rem] border p-4',
-        'transition-[transform,border-color,background-color] duration-200 ease-soft',
-        'hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
+        'group flex items-center gap-3.5 rounded-2xl p-4 shadow-xs',
+        'transition-all duration-200',
+        'hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
         urgent
-          ? 'border-warning-muted bg-warning-soft/55 hover:border-warning'
-          : 'border-border bg-card hover:border-foreground/20',
+          ? 'bg-warning-soft/60'
+          : 'bg-card hover:bg-card/90',
       )}
     >
       <span
         className={cn(
-          'flex h-11 w-11 shrink-0 items-center justify-center rounded-full border',
+          'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
           urgent
-            ? 'border-warning-muted bg-background text-warning-foreground'
-            : 'border-border bg-background text-muted-foreground',
+            ? 'bg-warning-soft text-warning-foreground'
+            : 'bg-muted/60 text-muted-foreground',
         )}
       >
         {icon}
@@ -488,17 +483,17 @@ function AttentionCard({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-bold">{title}</p>
-          <span className="rounded-full bg-foreground px-2 py-0.5 text-[10px] font-bold text-background">
+          <p className="truncate text-xs font-bold text-foreground">{title}</p>
+          <span className="rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-bold text-background">
             {value}
           </span>
         </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">{text}</p>
+        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{text}</p>
       </div>
 
       <ArrowRight
-        size={16}
-        className="shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-1"
+        size={14}
+        className="shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5"
       />
     </Link>
   );
@@ -511,7 +506,7 @@ function DashboardSkeleton() {
         {Array.from({ length: 4 }).map((_, index) => (
           <div
             key={index}
-            className="rounded-[1.5rem] border border-border bg-card p-4"
+            className="rounded-2xl bg-card p-4 shadow-xs"
           >
             <SkeletonBlock className="h-9 w-9 rounded-full" />
             <SkeletonBlock className="mt-5 h-8 w-20" />
@@ -521,8 +516,8 @@ function DashboardSkeleton() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <SkeletonBlock className="h-36 rounded-[2rem]" />
-        <SkeletonBlock className="h-36 rounded-[2rem]" />
+        <SkeletonBlock className="h-36 rounded-2xl" />
+        <SkeletonBlock className="h-36 rounded-2xl" />
       </div>
     </div>
   );
@@ -728,29 +723,21 @@ export default function AdminDashboard() {
   return (
     <DashboardLayout>
       <div className="animate-fade-in space-y-8">
-        <section className="relative overflow-hidden rounded-[2.5rem] border border-border bg-card px-5 py-7 shadow-soft sm:px-8 sm:py-10">
+        <section className="relative overflow-hidden rounded-3xl bg-card px-5 py-7 shadow-xs sm:px-8 sm:py-9">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute -right-28 -top-28 h-72 w-72 rounded-full bg-foreground/[0.045] blur-3xl"
           />
 
-          <div className="relative flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
+          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-2xl">
               <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                 Sana автор кеңістігі
               </p>
 
-              <h1 className="mt-3 text-4xl font-black tracking-[-0.055em] sm:text-5xl lg:text-6xl">
-                Сәлем, {firstName}.
-                <span className="block text-muted-foreground">
-                  Бүгін не жасаймыз?
-                </span>
+              <h1 className="mt-2 text-3xl font-black tracking-[-0.05em] sm:text-4xl lg:text-5xl">
+                Сәлем, {firstName}
               </h1>
-
-              <p className="mt-5 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
-                Курсты жалғастырыңыз, жаңа идеяны бастаңыз немесе ЖИ-мен
-                материалды тезірек дайындаңыз.
-              </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -780,8 +767,8 @@ export default function AdminDashboard() {
           <div className="lg:col-span-2">
             <ActionCard
               eyebrow="Бастау"
-              title="Жаңа курсқа алғашқы қадам"
-              text="Идеядан бастап модульдерге дейін курс құрылымын бір кеңістікте жинаңыз."
+              title="Жаңа курс құру"
+              text="Құрылымды жинақтау және модульдер қосу"
               href="/create-course"
               icon={<Plus size={20} />}
               featured
@@ -791,7 +778,7 @@ export default function AdminDashboard() {
           <ActionCard
             eyebrow="ЖИ"
             title="Автор көмекшісі"
-            text="Сабақ жоспарын ойлаңыз, мәтінді жинақтаңыз немесе жаңа бағыт табыңыз."
+            text="Сабақ жоспары мен мазмұн генерациясы"
             href="/ai-assistant"
             icon={<Bot size={20} />}
           />
@@ -801,15 +788,15 @@ export default function AdminDashboard() {
           <ActionCard
             eyebrow="Тест"
             title="Сұрақ генераторы"
-            text="Тақырыптан сұрақтар, жауап нұсқалары және түсіндірмелер дайындаңыз."
+            text="Сұрақтар мен жауап нұсқаларын дайындау"
             href="/ai-question-builder"
             icon={<ListChecks size={20} />}
           />
 
           <ActionCard
             eyebrow="Жұмыс"
-            title="Курстарды жалғастыру"
-            text="Барлық курсты ашып, мазмұнды өңдеңіз немесе жариялауға дайындаңыз."
+            title="Курстарды басқару"
+            text="Барлық курстар мен материалдар тізімі"
             href="/manage-courses"
             icon={<BookOpen size={20} />}
           />
@@ -861,7 +848,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                <div className="rounded-[2rem] border border-border bg-card p-5 shadow-soft sm:p-6">
+                <div className="rounded-3xl bg-card p-5 shadow-xs sm:p-6">
                   <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                       <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -869,10 +856,6 @@ export default function AdminDashboard() {
                       </p>
                       <p className="mt-2 text-4xl font-black tracking-[-0.05em]">
                         {publishedRatio}%
-                      </p>
-                      <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
-                        Материалдардың жарияланған бөлігі. Қалғаны черновикте
-                        немесе тексеруде.
                       </p>
                     </div>
 
@@ -907,8 +890,8 @@ export default function AdminDashboard() {
                     value={pendingReviewsCount}
                     text={
                       pendingReviewsCount > 0
-                        ? 'Материалдар шешім күтіп тұр.'
-                        : 'Кезек бос.'
+                        ? 'Шешім күтуде'
+                        : 'Кезек бос'
                     }
                     href="/moderation"
                     icon={<ShieldCheck size={18} />}
@@ -920,8 +903,8 @@ export default function AdminDashboard() {
                     value={pendingOrdersCount}
                     text={
                       pendingOrdersCount > 0
-                        ? 'Курсқа кіруді растау керек.'
-                        : 'Күтудегі сұраныс жоқ.'
+                        ? 'Растау күтуде'
+                        : 'Сұраныс жоқ'
                     }
                     href="#service-tools"
                     icon={<CircleDollarSign size={18} />}
@@ -935,7 +918,7 @@ export default function AdminDashboard() {
 
         <section
           id="service-tools"
-          className="scroll-mt-24 rounded-[2rem] border border-border bg-card shadow-soft"
+          className="scroll-mt-24 rounded-3xl bg-card shadow-xs"
         >
           <details className="group">
             <summary
@@ -944,14 +927,14 @@ export default function AdminDashboard() {
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/35',
               )}
             >
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted/60">
                 <KeyRound size={18} />
               </span>
 
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">Қызметтік құралдар</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Төлемді растау және курсқа қолмен қолжетімділік беру.
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Төлемдер мен қолжетімділік
                 </p>
               </div>
 
@@ -961,26 +944,19 @@ export default function AdminDashboard() {
               />
             </summary>
 
-            <div className="border-t border-border p-5 sm:p-6">
+            <div className="p-5 pt-0 sm:p-6 sm:pt-0">
               <div className="grid gap-6 xl:grid-cols-2">
                 <div className="space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-base font-bold">
-                          Төлемді растау
-                        </h3>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          Күтудегі тапсырысты растағаннан кейін курс ашылады.
-                        </p>
-                      </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-base font-bold">
+                      Төлемді растау
+                    </h3>
 
-                      <StatusBadge
-                        tone={pendingOrdersCount > 0 ? 'warning' : 'success'}
-                      >
-                        {pendingOrdersCount}
-                      </StatusBadge>
-                    </div>
+                    <StatusBadge
+                      tone={pendingOrdersCount > 0 ? 'warning' : 'success'}
+                    >
+                      {pendingOrdersCount}
+                    </StatusBadge>
                   </div>
 
                   {pendingOrdersLoading ? (
@@ -999,7 +975,7 @@ export default function AdminDashboard() {
                   sortedPendingOrders.length === 0 ? (
                     <EmptyState
                       title="Күтудегі төлем жоқ"
-                      text="Қазір растауды қажет ететін сұраныс жоқ."
+                      text="Растауды қажет ететін сұраныс жоқ."
                       compact
                     />
                   ) : null}
@@ -1011,7 +987,7 @@ export default function AdminDashboard() {
                       {sortedPendingOrders.map((order) => (
                         <div
                           key={order.id}
-                          className="rounded-[1.5rem] border border-border bg-background p-4"
+                          className="rounded-2xl bg-muted/40 p-4"
                         >
                           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0">
@@ -1052,11 +1028,8 @@ export default function AdminDashboard() {
                   ) : null}
                 </div>
 
-                <div className="rounded-[1.75rem] border border-border bg-background p-4 sm:p-5">
+                <div className="rounded-2xl bg-muted/40 p-4 sm:p-5">
                   <h3 className="text-base font-bold">Курсты қолмен ашу</h3>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    Оқушы мен курс ID арқылы тікелей қолжетімділік беріңіз.
-                  </p>
 
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
                     <div className="space-y-1.5">
@@ -1125,16 +1098,11 @@ export default function AdminDashboard() {
               </div>
 
               {pendingReviews.length > 0 ? (
-                <div className="mt-6 border-t border-border pt-6">
+                <div className="mt-6 pt-6">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-base font-bold">
-                        Соңғы тексеру кезегі
-                      </h3>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Алғашқы үш материал көрсетілді.
-                      </p>
-                    </div>
+                    <h3 className="text-base font-bold">
+                      Тексеру кезегі
+                    </h3>
 
                     <Button type="button" variant="ghost" size="sm" asChild>
                       <Link to="/moderation">
@@ -1149,7 +1117,7 @@ export default function AdminDashboard() {
                       <Link
                         key={review.id}
                         to="/moderation"
-                        className="rounded-[1.5rem] border border-border bg-background p-4 transition-colors hover:border-foreground/20"
+                        className="rounded-2xl bg-muted/40 p-4 transition-colors hover:bg-muted/70"
                       >
                         <p className="text-sm font-bold">
                           {getContentTypeLabel(review.content_type)}
@@ -1166,12 +1134,9 @@ export default function AdminDashboard() {
           </details>
         </section>
 
-        <section className="flex flex-col gap-4 rounded-[2rem] border border-border bg-muted/45 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+        <section className="flex flex-col gap-4 rounded-3xl bg-card p-5 shadow-xs sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div>
-            <p className="text-sm font-bold">Sana-ны басқару</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Қолданушылар, аналитика және ескі әкімшілік құралдар.
-            </p>
+            <p className="text-sm font-bold">Басқару құралдары</p>
           </div>
 
           <div className="flex flex-wrap gap-2">

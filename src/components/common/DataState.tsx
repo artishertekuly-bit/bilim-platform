@@ -41,24 +41,24 @@ function getToneClasses(tone: StateTone) {
     }
   > = {
     default: {
-      card: 'border-border bg-card text-card-foreground',
-      icon: 'border-border bg-muted text-muted-foreground',
+      card: 'bg-card text-card-foreground shadow-xs',
+      icon: 'bg-muted/60 text-muted-foreground',
     },
     success: {
-      card: 'border-success-muted bg-success-soft/55 text-success-foreground',
-      icon: 'border-success-muted bg-card text-success-foreground',
+      card: 'bg-success-soft/60 text-success-foreground shadow-xs',
+      icon: 'bg-card text-success-foreground shadow-xs',
     },
     warning: {
-      card: 'border-warning-muted bg-warning-soft/55 text-warning-foreground',
-      icon: 'border-warning-muted bg-card text-warning-foreground',
+      card: 'bg-warning-soft/60 text-warning-foreground shadow-xs',
+      icon: 'bg-card text-warning-foreground shadow-xs',
     },
     danger: {
-      card: 'border-destructive-muted bg-destructive-soft/55 text-destructive',
-      icon: 'border-destructive-muted bg-card text-destructive',
+      card: 'bg-destructive-soft/60 text-destructive shadow-xs',
+      icon: 'bg-card text-destructive shadow-xs',
     },
     ai: {
-      card: 'border-ai-border bg-ai-soft/55 text-ai-foreground',
-      icon: 'border-ai-border bg-card text-primary',
+      card: 'bg-ai-soft/60 text-ai-foreground shadow-xs',
+      icon: 'bg-card text-primary shadow-xs',
     },
   };
 
@@ -99,7 +99,7 @@ function StateCard({
       aria-live={role === 'alert' ? 'assertive' : role === 'status' ? 'polite' : undefined}
       aria-busy={ariaBusy || undefined}
       className={cn(
-        'rounded-3xl border',
+        'rounded-3xl',
         isSmall ? 'p-4' : 'p-5 sm:p-6',
         toneClasses.card,
         className,
@@ -114,7 +114,7 @@ function StateCard({
       >
         <div
           className={cn(
-            'flex shrink-0 items-center justify-center rounded-2xl border',
+            'flex shrink-0 items-center justify-center rounded-2xl',
             isSmall ? 'h-10 w-10' : 'h-11 w-11',
             toneClasses.icon,
           )}
@@ -146,7 +146,7 @@ function StateCard({
           ) : null}
 
           {safeHint ? (
-            <p className="mt-3 max-w-2xl rounded-2xl border border-border bg-card px-3 py-2 text-xs leading-5 text-muted-foreground">
+            <p className="mt-3 max-w-2xl rounded-2xl bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
               {safeHint}
             </p>
           ) : null}

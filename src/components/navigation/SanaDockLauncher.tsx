@@ -209,45 +209,35 @@ export default function SanaDockLauncher({
                     type="button"
                     onClick={() => selectTool(tool)}
                     className={cn(
-                      'group relative min-h-44 overflow-hidden rounded-[1.75rem] border p-5 text-left',
-                      'transition-[transform,background-color,border-color,box-shadow] duration-200',
-                      'hover:-translate-y-1 hover:shadow-xl active:translate-y-0 active:scale-[0.99]',
+                      'group relative min-h-36 overflow-hidden rounded-2xl p-4 text-left shadow-xs',
+                      'transition-all duration-200',
+                      'hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.99]',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
                       tool.featured
-                        ? 'border-foreground bg-foreground text-background'
-                        : 'border-border bg-card text-foreground hover:border-foreground/20 hover:bg-muted/45',
+                        ? 'bg-foreground text-background'
+                        : 'bg-muted/40 text-foreground hover:bg-muted/65',
                     )}
                   >
-                    <div
-                      aria-hidden="true"
-                      className={cn(
-                        'pointer-events-none absolute -right-12 -top-12 h-36 w-36 rounded-full blur-3xl',
-                        tool.featured
-                          ? 'bg-background/15'
-                          : 'bg-foreground/[0.045]',
-                      )}
-                    />
-
                     <div className="relative flex h-full flex-col">
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start justify-between gap-2">
                         <span
                           className={cn(
-                            'flex h-11 w-11 items-center justify-center rounded-full border',
+                            'flex h-10 w-10 items-center justify-center rounded-2xl',
                             tool.featured
-                              ? 'border-background/20 bg-background/10 text-background'
-                              : 'border-border bg-background text-foreground',
+                              ? 'bg-background/15 text-background'
+                              : 'bg-card text-foreground shadow-xs',
                           )}
                         >
-                          <Icon size={19} />
+                          <Icon size={18} />
                         </span>
 
                         {badge ? (
                           <span
                             className={cn(
-                              'rounded-full border px-2.5 py-1 text-[10px] font-semibold',
+                              'rounded-full px-2.5 py-0.5 text-[10px] font-medium',
                               tool.featured
-                                ? 'border-background/20 bg-background/10 text-background/75'
-                                : 'border-border bg-background text-muted-foreground',
+                                ? 'bg-background/15 text-background/80'
+                                : 'bg-card text-muted-foreground shadow-xs',
                             )}
                           >
                             {badge}
@@ -255,10 +245,10 @@ export default function SanaDockLauncher({
                         ) : null}
                       </div>
 
-                      <div className="mt-5 flex-1">
+                      <div className="mt-3 flex-1">
                         <h3
                           className={cn(
-                            'text-lg font-bold tracking-[-0.025em]',
+                            'text-base font-bold tracking-tight',
                             tool.featured
                               ? 'text-background'
                               : 'text-foreground',
@@ -269,9 +259,9 @@ export default function SanaDockLauncher({
 
                         <p
                           className={cn(
-                            'mt-2 text-sm leading-6',
+                            'mt-1 text-xs leading-5',
                             tool.featured
-                              ? 'text-background/65'
+                              ? 'text-background/70'
                               : 'text-muted-foreground',
                           )}
                         >

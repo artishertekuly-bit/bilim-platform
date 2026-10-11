@@ -49,50 +49,44 @@ const AUTHOR_ACTIONS: AuthorAction[] = [
   {
     eyebrow: 'Жаңа жоба',
     title: 'Курс құру',
-    description:
-      'Идеяны курсқа айналдырып, модульдер мен сабақтардың құрылымын бастаңыз.',
+    description: 'Жаңа оқу курсын бастау',
     path: '/create-course',
     icon: Plus,
     featured: true,
     wide: true,
   },
   {
-    eyebrow: 'Жұмыс кеңістігі',
+    eyebrow: 'Курстар',
     title: 'Курстарымды ашу',
-    description:
-      'Бұрын басталған курстарды өңдеңіз және мазмұнды жалғастырыңыз.',
+    description: 'Авторлық курстарды басқару',
     path: '/my-courses',
     icon: BookOpen,
   },
   {
-    eyebrow: 'Sana ЖИ',
+    eyebrow: 'Sana AI',
     title: 'Автор көмекшісі',
-    description:
-      'Сабақ жоспарын, мәтін құрылымын және жаңа идеяларды бірге дайындаңыз.',
+    description: 'Сабақ жоспары мен құрылымы',
     path: '/ai-assistant',
     icon: Bot,
   },
   {
     eyebrow: 'Бағалау',
     title: 'Сұрақ генераторы',
-    description:
-      'Тақырып бойынша сұрақтар мен жауап нұсқаларын жылдам құрастырыңыз.',
+    description: 'Сұрақтар мен нұсқалар құрастыру',
     path: '/ai-question-builder',
     icon: ListChecks,
   },
   {
     eyebrow: 'Тест',
     title: 'Жаңа тест',
-    description:
-      'Оқушы білімін тексеруге арналған тест пен тапсырмаларды дайындаңыз.',
+    description: 'Тест тапсырмаларын дайындау',
     path: '/create-test',
     icon: ClipboardCheck,
   },
   {
     eyebrow: 'Аудитория',
     title: 'Оқушылар',
-    description:
-      'Курстардағы оқушыларды және олардың оқу қозғалысын қараңыз.',
+    description: 'Оқушылар мен нәтижелер',
     path: '/students',
     icon: Users,
   },
@@ -109,54 +103,42 @@ function AuthorActionCard({
     <Link
       to={action.path}
       className={cn(
-        'group relative flex min-h-52 flex-col overflow-hidden rounded-[2rem] border p-5',
-        'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
-        'hover:-translate-y-1 hover:shadow-soft-lg active:translate-y-0 active:scale-[0.99]',
+        'group relative flex min-h-40 flex-col overflow-hidden rounded-2xl p-5 shadow-xs',
+        'transition-all duration-200',
+        'hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.99]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
         action.featured
-          ? 'border-foreground bg-foreground text-background'
-          : 'border-border bg-card text-foreground hover:border-foreground/25',
+          ? 'bg-foreground text-background'
+          : 'bg-card text-foreground hover:bg-card/90',
         action.wide && 'md:col-span-2',
       )}
     >
-      <div
-        aria-hidden="true"
-        className={cn(
-          'pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full blur-3xl',
-          action.featured ? 'bg-background/15' : 'bg-foreground/[0.045]',
-        )}
-      />
-
       <div className="relative flex items-start justify-between gap-4">
         <span
           className={cn(
-            'flex h-12 w-12 shrink-0 items-center justify-center rounded-full border',
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
             action.featured
-              ? 'border-background/20 bg-background/10'
-              : 'border-border bg-background',
+              ? 'bg-background/15 text-background'
+              : 'bg-muted/60 text-foreground',
           )}
         >
-          <Icon size={19} />
+          <Icon size={18} />
         </span>
 
         <ArrowRight
-          size={17}
+          size={16}
           className={cn(
-            'mt-1 shrink-0 transition-transform duration-200 group-hover:translate-x-1',
-            action.featured
-              ? 'text-background/60'
-              : 'text-muted-foreground',
+            'transition-transform duration-200 group-hover:translate-x-1',
+            action.featured ? 'text-background/60' : 'text-muted-foreground',
           )}
         />
       </div>
 
-      <div className="relative mt-auto pt-10">
+      <div className="relative mt-auto pt-6">
         <p
           className={cn(
-            'text-[10px] font-semibold uppercase tracking-[0.18em]',
-            action.featured
-              ? 'text-background/45'
-              : 'text-muted-foreground',
+            'text-[10px] font-semibold uppercase tracking-wider',
+            action.featured ? 'text-background/50' : 'text-muted-foreground',
           )}
         >
           {action.eyebrow}
@@ -164,7 +146,7 @@ function AuthorActionCard({
 
         <h2
           className={cn(
-            'mt-2 text-2xl font-black tracking-[-0.04em]',
+            'mt-1 text-xl font-bold tracking-tight',
             action.featured ? 'text-background' : 'text-foreground',
           )}
         >
@@ -173,10 +155,8 @@ function AuthorActionCard({
 
         <p
           className={cn(
-            'mt-3 max-w-xl text-sm leading-6',
-            action.featured
-              ? 'text-background/60'
-              : 'text-muted-foreground',
+            'mt-1 text-xs leading-5',
+            action.featured ? 'text-background/70' : 'text-muted-foreground',
           )}
         >
           {action.description}
@@ -201,20 +181,18 @@ function CompactLink({
     <Link
       to={path}
       className={cn(
-        'group flex items-center gap-4 rounded-[1.5rem] border border-border bg-card p-4',
-        'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
-        'hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-soft-md',
-        'active:translate-y-0 active:scale-[0.99]',
+        'group flex items-center gap-3.5 rounded-2xl bg-card p-4 shadow-xs',
+        'transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.99]',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
       )}
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-background">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted/60 text-foreground">
         <Icon size={16} />
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-bold">{title}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        <p className="text-sm font-bold text-foreground">{title}</p>
+        <p className="truncate text-xs text-muted-foreground">{description}</p>
       </div>
 
       <ArrowRight
@@ -232,39 +210,21 @@ export default function TeacherDashboard() {
   return (
     <DashboardLayout>
       <div className="mx-auto max-w-6xl animate-fade-in space-y-6">
-        <section className="relative overflow-hidden rounded-[2.5rem] border border-border bg-card px-5 py-7 shadow-soft sm:px-8 sm:py-10">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -right-28 -top-28 h-72 w-72 rounded-full bg-foreground/[0.045] blur-3xl"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute right-14 top-8 h-24 w-24 rounded-full border border-foreground/[0.07]"
-          />
-
-          <div className="relative flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
-                  <Sparkles size={12} />
-                  Sana автор кеңістігі
-                </span>
-
-                <span className="rounded-full border border-border bg-muted/45 px-3 py-1 text-[10px] font-semibold text-muted-foreground">
-                  Автор
+        <section className="relative overflow-hidden rounded-3xl bg-card px-5 py-6 shadow-xs sm:px-7 sm:py-8">
+          <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="max-w-2xl">
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-muted/70 px-2.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  Автор кеңістігі
                 </span>
               </div>
 
-              <h1 className="mt-5 text-4xl font-black tracking-[-0.055em] sm:text-5xl lg:text-6xl">
-                Сәлем, {firstName}.
-                <span className="block text-muted-foreground">
-                  Идеядан курсқа дейін.
-                </span>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                Сәлем, {firstName}
               </h1>
 
-              <p className="mt-5 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
-                Курсты құрыңыз, материалды дайындаңыз және оқушымен жұмысты
-                бір кеңістіктен басқарыңыз.
+              <p className="mt-1 text-xs text-muted-foreground sm:text-sm">
+                Курстар, бағалау тесттері және оқушылар үлгерімі.
               </p>
             </div>
 
@@ -272,18 +232,19 @@ export default function TeacherDashboard() {
               <Button
                 type="button"
                 variant="outline"
-                className="rounded-full"
+                size="sm"
+                className="rounded-xl"
                 asChild
               >
                 <Link to="/my-courses">
-                  <LayoutGrid size={15} className="mr-2" />
+                  <LayoutGrid size={14} className="mr-1.5" />
                   Курстарым
                 </Link>
               </Button>
 
-              <Button type="button" className="rounded-full" asChild>
+              <Button type="button" size="sm" className="rounded-xl" asChild>
                 <Link to="/create-course">
-                  <FilePlus2 size={15} className="mr-2" />
+                  <FilePlus2 size={14} className="mr-1.5" />
                   Жаңа курс
                 </Link>
               </Button>
@@ -291,17 +252,12 @@ export default function TeacherDashboard() {
           </div>
         </section>
 
-        <section>
-          <div className="mb-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Автор құралдары
-            </p>
-            <h2 className="mt-1 text-2xl font-black tracking-[-0.04em]">
-              Қай жерден жалғастырамыз?
-            </h2>
-          </div>
+        <section className="space-y-3">
+          <h2 className="text-base font-bold text-foreground">
+            Құралдар
+          </h2>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-3.5 md:grid-cols-2 lg:grid-cols-3">
             {AUTHOR_ACTIONS.map((action) => (
               <AuthorActionCard key={action.path} action={action} />
             ))}
@@ -311,19 +267,18 @@ export default function TeacherDashboard() {
         <section className="grid gap-3 sm:grid-cols-2">
           <CompactLink
             title="Аналитика"
-            description="Курстар мен оқушылардың жалпы көрінісі"
+            description="Курстар мен оқушылар нәтижелері"
             path="/analytics"
             icon={BarChart3}
           />
 
           <CompactLink
             title="Профиль"
-            description="Авторлық бейнеңіз бен аккаунт баптаулары"
+            description="Аккаунт баптаулары"
             path="/profile"
             icon={UserRound}
           />
         </section>
-
       </div>
     </DashboardLayout>
   );

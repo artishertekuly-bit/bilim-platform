@@ -223,16 +223,16 @@ function getDockControlClassName(
   emphasis = false,
 ): string {
   return cn(
-    'group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border outline-none',
-    'transition-[transform,background-color,color,border-color,box-shadow] duration-200 ease-out',
-    'hover:-translate-y-1 hover:scale-110 focus-visible:-translate-y-1 focus-visible:scale-110',
-    'focus-visible:ring-2 focus-visible:ring-black/25 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent',
+    'group relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full outline-none',
+    'transition-[transform,background-color,color,box-shadow] duration-200 ease-out',
+    'hover:-translate-y-1 hover:scale-105 focus-visible:-translate-y-1 focus-visible:scale-105',
+    'focus-visible:ring-2 focus-visible:ring-primary/25',
     'motion-reduce:transform-none motion-reduce:transition-none sm:h-12 sm:w-12',
     active
-      ? 'border-black bg-black text-white shadow-lg dark:border-white dark:bg-white dark:text-black'
+      ? 'bg-foreground text-background shadow-xs'
       : emphasis
-        ? 'border-black bg-black text-white shadow-md hover:shadow-lg dark:border-white dark:bg-white dark:text-black'
-        : 'border-black/10 bg-white/90 text-black shadow-sm hover:border-black/20 hover:bg-white hover:shadow-md dark:border-white/15 dark:bg-black/85 dark:text-white dark:hover:border-white/30 dark:hover:bg-black',
+        ? 'bg-foreground text-background shadow-xs hover:shadow-sm'
+        : 'bg-background/80 text-foreground shadow-xs hover:bg-background hover:shadow-sm',
   );
 }
 
@@ -526,14 +526,13 @@ export default function SanaDock({
               : 'Негізгі навигация'
           }
           className={cn(
-            'pointer-events-auto relative max-w-full rounded-full border border-black/10 bg-white/80 p-1.5',
-            'shadow-[0_12px_40px_rgba(0,0,0,0.16)] backdrop-blur-2xl',
-            'dark:border-white/15 dark:bg-black/75 dark:shadow-[0_16px_48px_rgba(0,0,0,0.5)]',
+            'pointer-events-auto relative max-w-full rounded-full bg-background/85 p-1.5',
+            'shadow-lg backdrop-blur-2xl',
           )}
         >
           {resolvedMode === 'course' && normalizedProgress !== null ? (
             <div
-              className="absolute inset-x-5 top-0 h-px overflow-hidden rounded-full bg-black/10 dark:bg-white/15"
+              className="absolute inset-x-5 top-0 h-0.5 overflow-hidden rounded-full bg-muted/40"
               aria-label={`Курс прогресі: ${normalizedProgress}%`}
               role="progressbar"
               aria-valuemin={0}
@@ -541,7 +540,7 @@ export default function SanaDock({
               aria-valuenow={normalizedProgress}
             >
               <div
-                className="h-full rounded-full bg-black transition-[width] duration-500 ease-out dark:bg-white"
+                className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
                 style={{ width: `${normalizedProgress}%` }}
               />
             </div>
@@ -591,13 +590,11 @@ export default function SanaDock({
 
       <SanaDockLauncher
         open={openLauncher === 'courses'}
-        eyebrow="Sana оқу кеңістігі"
-        title="Қай бөлімді ашамыз?"
-        description="Курстар, сабақтар және тексеру құралдарының бірін таңдаңыз."
+        title="Оқу бөлімдері"
         icon={BookOpen}
         tools={courseTools}
         emptyTitle="Курс бөлімі қолжетімсіз"
-        emptyText="Бұл аккаунт үшін оқу бөлімдері әлі қосылмаған."
+        emptyText="Оқу бөлімдері әлі қосылмаған."
         onOpenChange={(open) =>
           setOpenLauncher(open ? 'courses' : null)
         }
@@ -605,13 +602,11 @@ export default function SanaDock({
 
       <SanaDockLauncher
         open={openLauncher === 'ai'}
-        eyebrow="Sana ЖИ"
-        title="Қазір не жасағыңыз келеді?"
-        description="Бір құралды таңдаңыз. Әр кеңістік нақты бір жұмысқа арналған."
+        title="ЖИ құралдары"
         icon={Bot}
         tools={aiTools}
         emptyTitle="Қолжетімді ЖИ құралы жоқ"
-        emptyText="Бұл аккаунт үшін құралдар кейін қосылады."
+        emptyText="Құралдар кейін қосылады."
         onOpenChange={(open) =>
           setOpenLauncher(open ? 'ai' : null)
         }

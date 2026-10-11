@@ -236,10 +236,10 @@ function MetricItem({
   return (
     <span
       className={cn(
-        'inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none',
+        'inline-flex min-w-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium leading-none',
         emphasized
-          ? 'border-accent-muted bg-accent-soft text-accent-foreground'
-          : 'border-border bg-muted/55 text-muted-foreground',
+          ? 'bg-accent-soft text-accent-foreground font-semibold'
+          : 'bg-muted/60 text-muted-foreground',
       )}
     >
       <span className="shrink-0">{icon}</span>
@@ -256,7 +256,6 @@ function CourseBody({
   accessType: CourseAccessType;
 }) {
   const title = cleanText(course.title) || 'Курс';
-  const description = cleanMultilineText(course.description, MAX_DESCRIPTION_CHARS);
   const subjectName = cleanText(course.subjectName, MAX_SUBJECT_CHARS) || 'Жалпы курс';
   const teacherId = cleanId(course.teacherId);
   const teacherName = cleanText(course.teacherName, MAX_TEACHER_NAME_CHARS);
@@ -265,13 +264,13 @@ function CourseBody({
 
   return (
     <>
-      <div className="border-b border-border bg-muted/25 p-4">
+      <div className="p-4 pb-0">
         <div className="flex items-start justify-between gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-inner-soft">
-            <BookOpen size={20} />
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <BookOpen size={18} />
           </span>
 
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-1.5">
             <CourseAccessBadge accessType={accessType} />
 
             {course.access?.pendingOrderId ? (
@@ -281,24 +280,18 @@ function CourseBody({
         </div>
       </div>
 
-      <CardContent className="space-y-4 p-4">
+      <CardContent className="space-y-3 p-4">
         <div>
-          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <span className="inline-flex max-w-full items-center rounded-full bg-muted/60 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             <span className="truncate">{subjectName}</span>
           </span>
 
-          <h3 className="mt-2 line-clamp-2 text-sm font-semibold leading-5 text-foreground">
+          <h3 className="mt-1.5 line-clamp-2 text-sm font-bold leading-5 text-foreground">
             {title}
           </h3>
-
-          {description ? (
-            <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted-foreground">
-              {description}
-            </p>
-          ) : null}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <MetricItem
             icon={<Users size={11} />}
             label={formatNumber(course.students)}
@@ -317,7 +310,7 @@ function CourseBody({
         </div>
 
         {course.access?.accessState === 'enrollment_closed' ? (
-          <div className="flex items-center gap-2 rounded-2xl border border-warning-muted bg-warning-soft/55 px-3 py-2 text-[11px] font-medium text-warning-foreground">
+          <div className="flex items-center gap-2 rounded-2xl bg-warning-soft/60 px-3 py-1.5 text-[11px] font-medium text-warning-foreground">
             <Lock size={12} />
             Жазылу жабық
           </div>
@@ -376,7 +369,7 @@ export default function CourseCard({
   const courseBody = <CourseBody course={course} accessType={accessType} />;
 
   return (
-    <Card className="overflow-hidden border-border bg-card transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-md">
+    <Card className="overflow-hidden bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm">
       <div className="relative">
         {isStudentView && canOpenCourseDetail(course) ? (
           <Link to={courseDetailPath} className="block">
@@ -395,10 +388,10 @@ export default function CourseCard({
             type="button"
             disabled={safePendingBookmarkCourseId === courseId}
             className={cn(
-              'absolute right-3 top-3 z-10 rounded-2xl border p-2 transition-colors disabled:pointer-events-none disabled:opacity-60',
+              'absolute right-3 top-3 z-10 rounded-2xl p-2 transition-colors disabled:pointer-events-none disabled:opacity-60',
               course.bookmarked
-                ? 'border-primary-muted bg-primary text-primary-foreground'
-                : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+                ? 'bg-primary text-primary-foreground shadow-xs'
+                : 'bg-card/85 text-muted-foreground shadow-xs backdrop-blur-xs hover:bg-card hover:text-primary',
             )}
             onClick={(event) => {
               event.preventDefault();
@@ -420,7 +413,7 @@ export default function CourseCard({
 
         <div className="space-y-3 px-4 pb-4">
           {isStudentView && course.enrolled ? (
-            <div className="space-y-3 rounded-3xl border border-border bg-muted/35 p-3">
+            <div className="space-y-2.5 rounded-2xl bg-muted/40 p-3">
               <ProgressBar
                 value={formatNumber(course.progress)}
                 size="sm"

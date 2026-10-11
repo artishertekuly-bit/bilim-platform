@@ -127,11 +127,11 @@ export default function TestCard({
   };
 
   return (
-    <Card className="group overflow-hidden transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:shadow-md">
-      <CardContent className="space-y-4 p-4">
+    <Card className="group overflow-hidden bg-card shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm">
+      <CardContent className="space-y-3.5 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
               <StatusBadge tone="info">{subjectName}</StatusBadge>
 
               {hasAttempt ? (
@@ -146,19 +146,19 @@ export default function TestCard({
               )}
             </div>
 
-            <h3 className="mt-3 line-clamp-2 text-sm font-semibold leading-6 text-foreground">
+            <h3 className="mt-2.5 line-clamp-2 text-sm font-bold leading-5 text-foreground">
               {title}
             </h3>
 
             {topic ? (
-              <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+              <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
                 {topic}
               </p>
             ) : null}
           </div>
 
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border bg-surface-soft text-muted-foreground shadow-inner-soft">
-            <ClipboardList size={17} />
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground">
+            <ClipboardList size={18} />
           </span>
         </div>
 
@@ -175,7 +175,7 @@ export default function TestCard({
         </div>
 
         {hasAttempt ? (
-          <div className="space-y-2 rounded-2xl border border-border bg-surface-soft/60 p-3">
+          <div className="space-y-2 rounded-2xl bg-muted/40 p-3">
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="text-muted-foreground">
                 {attempts} {t('page.tests.attempts_label')}
@@ -189,8 +189,8 @@ export default function TestCard({
             <ScoreBar value={bestScore} />
           </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-border bg-surface-soft/50 px-3 py-2 text-xs text-muted-foreground">
-            Бұл тест әлі тапсырылмаған.
+          <div className="rounded-2xl bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            Тапсырылмаған
           </div>
         )}
 
@@ -215,7 +215,7 @@ export default function TestCard({
             )}
           </Button>
         ) : (
-          <div className="rounded-2xl border border-border bg-surface-soft/50 px-3 py-2 text-xs text-muted-foreground">
+          <div className="rounded-2xl bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             {t('page.tests.published_status')}
           </div>
         )}

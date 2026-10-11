@@ -651,7 +651,7 @@ export default function AiAssistantPage() {
                     value={selectedCourseId}
                     onChange={(event) => handleCourseChange(event.target.value)}
                     disabled={workspaceFetching}
-                    className="h-11 w-full rounded-2xl border border-input bg-card px-4 text-sm text-foreground shadow-inner-soft outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="h-11 w-full rounded-2xl border-0 bg-muted/40 px-4 text-sm text-foreground shadow-xs outline-none transition-all duration-200 focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <option value="">Жаңа курс идеясы</option>
 
@@ -673,7 +673,7 @@ export default function AiAssistantPage() {
                     value={selectedStudentId}
                     onChange={(event) => handleStudentChange(event.target.value)}
                     disabled={!selectedCourseId || students.length === 0 || studentsFetching}
-                    className="h-11 w-full rounded-2xl border border-input bg-card px-4 text-sm text-foreground shadow-inner-soft outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="h-11 w-full rounded-2xl border-0 bg-muted/40 px-4 text-sm text-foreground shadow-xs outline-none transition-all duration-200 focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <option value="">
                       {selectedCourseId

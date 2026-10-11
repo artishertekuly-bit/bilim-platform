@@ -111,10 +111,10 @@ function AuthAlert({
     <div
       role="alert"
       className={cn(
-        'mb-4 flex items-start gap-3 rounded-[1.25rem] border px-4 py-3 text-sm leading-5',
+        'mb-4 flex items-start gap-3 rounded-2xl px-4 py-3 text-sm leading-5 shadow-xs',
         isDanger
-          ? 'border-destructive-muted bg-destructive-soft text-destructive'
-          : 'border-warning-muted bg-warning-soft text-warning-foreground',
+          ? 'bg-destructive-soft text-destructive'
+          : 'bg-warning-soft text-warning-foreground',
       )}
     >
       {isDanger ? (
@@ -245,8 +245,8 @@ export default function LoginPage() {
         className="pointer-events-none absolute -bottom-40 -right-24 h-[30rem] w-[30rem] rounded-full bg-foreground/[0.035] blur-3xl"
       />
 
-      <div className="relative mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2.5rem] border border-border bg-card shadow-soft-lg lg:grid-cols-[1.02fr_0.98fr]">
-        <section className="relative overflow-hidden bg-foreground p-6 text-background sm:p-9 lg:flex lg:min-h-[43rem] lg:flex-col lg:justify-between lg:p-12">
+      <div className="relative mx-auto grid w-full max-w-5xl overflow-hidden rounded-3xl bg-card shadow-sm lg:grid-cols-[1fr_1fr]">
+        <section className="relative overflow-hidden bg-foreground p-6 text-background sm:p-9 lg:flex lg:min-h-[40rem] lg:flex-col lg:justify-between lg:p-12">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute -right-28 -top-28 h-72 w-72 rounded-full bg-background/10 blur-3xl"
@@ -258,64 +258,59 @@ export default function LoginPage() {
               aria-label="Sana басты беті"
               className="inline-flex items-center gap-3 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-background/40"
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-full border border-background/20 bg-background/10">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-background/10">
                 <Sparkles size={17} />
               </span>
-              <span className="text-sm font-black lowercase tracking-[-0.05em] text-background">
+              <span className="text-sm font-black lowercase tracking-tight text-background">
                 sana
               </span>
             </Link>
 
             <div className="mt-12 max-w-xl lg:mt-20">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-background/50">
-                Оқу және авторлық кеңістік
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-background/50">
+                Оқу кеңістігі
               </p>
 
-              <h1 className="mt-4 text-4xl font-black tracking-[-0.055em] text-background sm:text-5xl lg:text-6xl">
-                Оқу мен идеяға қайта оралыңыз.
+              <h1 className="mt-4 text-3xl font-black tracking-tight text-background sm:text-4xl lg:text-5xl">
+                Қайта оралу
               </h1>
 
-              <p className="mt-5 max-w-lg text-sm leading-6 text-background/65 sm:text-base">
-                Курстарыңыз, сабақтарыңыз және Sana ЖИ құралдары бір
-                аккаунтта сақталады.
+              <p className="mt-4 max-w-lg text-xs leading-relaxed text-background/70 sm:text-sm">
+                Курстарыңыз, сабақтарыңыз және Sana ЖИ құралдары бір жерде сақталады.
               </p>
             </div>
           </div>
 
-          <div className="relative mt-10 rounded-[1.5rem] border border-background/15 bg-background/[0.06] p-5 lg:mt-16">
-            <ShieldCheck size={18} className="text-background/75" />
-            <p className="mt-5 text-sm font-bold text-background">
+          <div className="relative mt-8 rounded-2xl bg-background/[0.06] p-4 lg:mt-12">
+            <ShieldCheck size={16} className="text-background/75" />
+            <p className="mt-3 text-xs font-bold text-background">
               Қауіпсіз кіру
             </p>
-            <p className="mt-2 text-xs leading-5 text-background/55">
-              Email және Google арқылы кіру қолжетімді.
+            <p className="mt-1 text-[11px] text-background/60">
+              Email және Google арқылы жылдам авторизация.
             </p>
           </div>
         </section>
 
-        <section className="p-5 sm:p-8 lg:flex lg:flex-col lg:justify-center lg:p-12">
+        <section className="p-6 sm:p-8 lg:flex lg:flex-col lg:justify-center lg:p-12">
           <div className="mx-auto w-full max-w-md">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/45 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+            <div className="inline-flex items-center gap-2 rounded-full bg-muted/50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
               <ShieldCheck size={12} />
               Sana аккаунты
             </div>
 
-            <h2 className="mt-4 text-3xl font-black tracking-[-0.045em]">
-              Қайта келдіңіз
+            <h2 className="mt-3 text-2xl font-bold tracking-tight">
+              Кіру
             </h2>
 
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Аккаунтыңызға кіріп, жұмысыңызды жалғастырыңыз.
-            </p>
-
-            <div className="mt-7">
+            <div className="mt-6">
               {error ? <AuthAlert tone="danger">{error}</AuthAlert> : null}
               {info ? <AuthAlert tone="warning">{info}</AuthAlert> : null}
 
               <Button
                 type="button"
                 variant="outline"
-                className="h-11 w-full rounded-2xl"
+                className="h-11 w-full rounded-2xl border-0 bg-muted/40 shadow-xs hover:bg-muted/60"
                 onClick={handleGoogleLogin}
                 disabled={authBusy}
               >
@@ -332,12 +327,12 @@ export default function LoginPage() {
                 )}
               </Button>
 
-              <div className="my-6 flex items-center gap-3">
-                <div className="h-px flex-1 bg-border" />
+              <div className="my-5 flex items-center gap-3">
+                <div className="h-px flex-1 bg-muted/40" />
                 <span className="text-[11px] text-muted-foreground">
                   немесе email
                 </span>
-                <div className="h-px flex-1 bg-border" />
+                <div className="h-px flex-1 bg-muted/40" />
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">

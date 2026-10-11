@@ -1523,13 +1523,13 @@ export default function TeacherCreateTestPage() {
                             onClick={() => seedEditFromTest(testId)}
                             aria-pressed={cleanId(selectedTest?.id) === testId}
                             className={cn(
-                              'w-full rounded-3xl border p-4 text-left transition-colors active:scale-[0.99]',
+                              'w-full rounded-2xl p-4 text-left transition-colors active:scale-[0.99]',
                               cleanId(selectedTest?.id) === testId
-                                ? 'border-primary-muted bg-primary-soft'
-                                : 'border-border bg-card hover:border-primary-muted hover:bg-primary-soft/40',
+                                ? 'bg-primary/10 text-primary font-medium'
+                                : 'bg-muted/40 text-foreground hover:bg-muted/70',
                             )}
                           >
-                            <p className="truncate text-sm font-semibold text-foreground">
+                            <p className="truncate text-sm font-semibold">
                               {cleanText(test.title, MAX_TEST_TITLE_CHARS) || 'Тест'}
                             </p>
 
@@ -1695,21 +1695,21 @@ export default function TeacherCreateTestPage() {
                       </CardHeader>
 
                       <CardContent className="space-y-2 p-4 text-sm">
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-3 py-2">
                           <span className="text-muted-foreground">Сұрақтар</span>
                           <span className="font-medium">
                             {Math.max(0, Number(selectedTest.questionCount) || 0)}
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-3 py-2">
                           <span className="text-muted-foreground">Пән</span>
                           <span className="font-medium">
                             {cleanText(selectedTest.subjectName, 180) || '—'}
                           </span>
                         </div>
 
-                        <div className="flex items-center justify-between gap-3 rounded-2xl border px-3 py-2">
+                        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 px-3 py-2">
                           <span className="text-muted-foreground">Статус</span>
                           <span className="font-medium">
                             {statusLabels[normalizeTestStatus(selectedTest.status)]}
@@ -1718,8 +1718,8 @@ export default function TeacherCreateTestPage() {
                       </CardContent>
                     </Card>
 
-                    <Card className="overflow-hidden border-destructive/30">
-                      <CardHeader className="border-b border-destructive/20 bg-card pb-3">
+                    <Card className="overflow-hidden">
+                      <CardHeader className="bg-card pb-3">
                         <CardTitle className="text-sm font-semibold text-destructive">
                           Өшіру
                         </CardTitle>
@@ -1761,9 +1761,9 @@ export default function TeacherCreateTestPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-6 border-t pt-6 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                  <Card className="overflow-hidden">
-                    <CardHeader className="border-b border-border/70 bg-card pb-4">
+                <div className="grid gap-6 pt-2 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                  <Card className="overflow-hidden shadow-xs">
+                    <CardHeader className="bg-card pb-3">
                       <div className="flex items-center justify-between gap-3">
                         <CardTitle className="text-base font-semibold">
                           {t('page.teacher_test_builder.section.questions')}
@@ -1790,7 +1790,7 @@ export default function TeacherCreateTestPage() {
                           return (
                             <div
                               key={questionId}
-                              className="rounded-3xl border border-border bg-card p-4"
+                              className="rounded-2xl bg-muted/40 p-4"
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <button

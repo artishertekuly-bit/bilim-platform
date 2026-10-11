@@ -52,21 +52,21 @@ function getLessonIcon(lesson: LessonView) {
 
 function getIconToneClassName(lesson: LessonView) {
   if (lesson.isCompleted) {
-    return 'border-success-muted bg-success-soft text-success-foreground';
+    return 'bg-success-soft text-success-foreground';
   }
 
   if (lesson.isLocked) {
-    return 'border-border bg-muted text-muted-foreground';
+    return 'bg-muted text-muted-foreground';
   }
 
-  return 'border-primary-muted bg-primary-soft text-primary';
+  return 'bg-primary-soft text-primary';
 }
 
 function getOpenButtonLabel(lesson: LessonView) {
-  if (lesson.isCompleted) return 'Қайта қарау';
+  if (lesson.isCompleted) return 'Қайталау';
   if (lesson.isLocked) return 'Жабық';
 
-  return 'Сабақты ашу';
+  return 'Ашу';
 }
 
 function getLessonMeta(lesson: LessonView) {
@@ -124,10 +124,10 @@ export default function LessonCard({
   return (
     <div
       className={cn(
-        'rounded-3xl border p-4 transition-colors',
+        'rounded-3xl p-4 transition-all duration-200',
         canOpen
-          ? 'cursor-pointer border-border bg-card hover:border-primary-muted hover:bg-primary-soft/25 active:scale-[0.995]'
-          : 'border-border bg-muted/35 opacity-80',
+          ? 'cursor-pointer bg-card shadow-xs hover:shadow-sm active:scale-[0.995]'
+          : 'bg-muted/40 opacity-75',
       )}
       onClick={handleOpen}
       role={canOpen ? 'button' : undefined}
@@ -143,10 +143,10 @@ export default function LessonCard({
         }
       }}
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+      <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center">
         <div
           className={cn(
-            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl',
             getIconToneClassName(lesson),
           )}
         >

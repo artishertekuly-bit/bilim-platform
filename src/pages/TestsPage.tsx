@@ -24,6 +24,7 @@ import TestCard, { type TestCardData } from '@/components/test/TestCard';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { platformKeys, useTests } from '@/hooks/use-platform-data';
 import {
   getTestAttemptBreakdown,
@@ -731,10 +732,10 @@ export default function TestsPage() {
                               )
                             }
                             className={cn(
-                              'w-full rounded-2xl border p-3.5 text-left text-sm transition-all duration-200 ease-soft',
+                              'w-full rounded-2xl p-3.5 text-left text-sm transition-all duration-200',
                               selected
-                                ? 'border-primary bg-primary text-primary-foreground shadow-soft'
-                                : 'border-border bg-card text-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
+                                ? 'bg-primary text-primary-foreground shadow-xs'
+                                : 'bg-muted/40 text-foreground hover:bg-muted/70',
                             )}
                           >
                             <span className="mr-2 font-semibold">
@@ -822,7 +823,7 @@ export default function TestsPage() {
                   </p>
                 </div>
 
-                <div className="flex h-24 w-24 items-center justify-center rounded-full border border-border bg-card text-2xl font-bold shadow-inner-soft">
+                <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-muted/60 text-2xl font-bold">
                   {formatPercent(result.score)}
                 </div>
               </div>
@@ -854,11 +855,6 @@ export default function TestsPage() {
               return (
                 <Card
                   key={questionId}
-                  className={
-                    item.isCorrect
-                      ? 'border-success-muted'
-                      : 'border-destructive-muted'
-                  }
                 >
                   <CardContent className="space-y-3 p-4">
                     <div className="flex items-start gap-3">
@@ -886,14 +882,14 @@ export default function TestsPage() {
                         </div>
 
                         <div className="grid gap-2 text-xs md:grid-cols-2">
-                          <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
+                          <div className="rounded-2xl bg-muted/40 p-3">
                             <span className="font-medium">
                               {t('page.tests.your_answer')}:
                             </span>{' '}
                             {formatAnswer(options, selectedAnswer)}
                           </div>
 
-                          <div className="rounded-2xl border border-border bg-surface-soft/60 p-3">
+                          <div className="rounded-2xl bg-muted/40 p-3">
                             <span className="font-medium">
                               {t('page.tests.correct_answer')}:
                             </span>{' '}
@@ -902,7 +898,7 @@ export default function TestsPage() {
                         </div>
 
                         {explanation ? (
-                          <div className="rounded-2xl border border-ai-border bg-ai-soft p-3 text-xs text-muted-foreground">
+                          <div className="rounded-2xl bg-muted/40 p-3 text-xs text-muted-foreground">
                             <span className="font-medium text-foreground">
                               {t('page.tests.explanation')}:
                             </span>{' '}
@@ -1059,81 +1055,76 @@ export default function TestsPage() {
 
         {!isLoading && !error ? (
           <>
-            <Card>
-              <CardContent className="space-y-4 pt-5">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="relative w-full lg:max-w-md">
-                    <Search
-                      size={16}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    />
+            <div className="rounded-3xl bg-card p-4 sm:p-5 shadow-xs space-y-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="relative w-full lg:max-w-md">
+                  <Search
+                    size={16}
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
 
-                    <Input
-                      value={search}
-                      maxLength={MAX_SEARCH_CHARS}
-                      onChange={(event) =>
-                        setSearch(normalizeSearchInput(event.target.value))
-                      }
-                      placeholder="Тест, тақырып немесе пән"
-                      className="pl-9"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {(['all', 'not_started', 'completed'] as TestStatusFilter[]).map(
-                      (status) => (
-                        <Button
-                          key={status}
-                          type="button"
-                          size="sm"
-                          variant={activeStatus === status ? 'default' : 'outline'}
-                          onClick={() => setActiveStatus(status)}
-                        >
-                          {getStatusFilterLabel(status)}
-                        </Button>
-                      ),
-                    )}
-
-                    {hasActiveFilters ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={resetFilters}
-                      >
-                        <RotateCcw size={14} className="mr-1.5" />
-                        Тазалау
-                      </Button>
-                    ) : null}
-                  </div>
+                  <Input
+                    value={search}
+                    maxLength={MAX_SEARCH_CHARS}
+                    onChange={(event) =>
+                      setSearch(normalizeSearchInput(event.target.value))
+                    }
+                    placeholder="Тест немесе пән бойынша іздеу"
+                    className="pl-9 h-11 rounded-full bg-muted/40 border-0"
+                  />
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                  <StatusBadge tone="muted">Барлығы: {stats.total}</StatusBadge>
-                  <StatusBadge tone="success">Тапсырылған: {stats.completed}</StatusBadge>
-                  <StatusBadge tone="warning">Қалғаны: {stats.notStarted}</StatusBadge>
-                  <StatusBadge tone="info">Орташа: {stats.average}%</StatusBadge>
-                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Tabs
+                    value={activeStatus}
+                    onValueChange={(val) => setActiveStatus(val as TestStatusFilter)}
+                  >
+                    <TabsList>
+                      <TabsTrigger value="all">Барлығы</TabsTrigger>
+                      <TabsTrigger value="not_started">Басталмаған</TabsTrigger>
+                      <TabsTrigger value="completed">Тапсырылған</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
 
-                <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-                  {subjects.map((subject) => (
-                    <button
-                      key={subject}
+                  {hasActiveFilters ? (
+                    <Button
                       type="button"
-                      onClick={() => setActiveSubject(subject)}
-                      className={cn(
-                        'shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-all duration-200 ease-soft',
-                        activeSubject === subject
-                          ? 'border-primary bg-primary text-primary-foreground shadow-soft'
-                          : 'border-border bg-card text-muted-foreground hover:border-primary-muted hover:bg-primary-soft hover:text-primary',
-                      )}
+                      size="sm"
+                      variant="ghost"
+                      onClick={resetFilters}
                     >
-                      {subject === 'all' ? t('common.all') : subject}
-                    </button>
-                  ))}
+                      <RotateCcw size={14} className="mr-1.5" />
+                      Тазалау
+                    </Button>
+                  ) : null}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge tone="muted">Барлығы: {stats.total}</StatusBadge>
+                <StatusBadge tone="success">Тапсырылған: {stats.completed}</StatusBadge>
+                <StatusBadge tone="warning">Қалғаны: {stats.notStarted}</StatusBadge>
+                <StatusBadge tone="info">Орташа: {stats.average}%</StatusBadge>
+              </div>
+
+              <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {subjects.map((subject) => (
+                  <button
+                    key={subject}
+                    type="button"
+                    onClick={() => setActiveSubject(subject)}
+                    className={cn(
+                      'shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
+                      activeSubject === subject
+                        ? 'bg-foreground text-background'
+                        : 'bg-muted/60 text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {subject === 'all' ? t('common.all') : subject}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {tests.length === 0 ? (
               <EmptyState

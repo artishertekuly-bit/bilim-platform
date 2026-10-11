@@ -87,52 +87,50 @@ export default function PageHeader({
   className,
 }: PageHeaderProps) {
   return (
-    <section className={cn('space-y-4', className)}>
+    <section className={cn('space-y-3 pb-2', className)}>
       {backAction ? <BackActionButton action={backAction} /> : null}
 
-      <div className="rounded-3xl border border-border bg-card px-4 py-4 sm:px-5 sm:py-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div className="min-w-0 space-y-3">
-            {eyebrow ? (
-              <div className="inline-flex w-fit items-center gap-2 rounded-full border border-border bg-muted/45 px-3 py-1 text-xs font-semibold text-muted-foreground">
-                {eyebrow}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          {eyebrow ? (
+            <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-muted/70 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {eyebrow}
+            </div>
+          ) : null}
+
+          <div className="flex min-w-0 items-center gap-3">
+            {icon ? (
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                {icon}
               </div>
             ) : null}
 
-            <div className="flex min-w-0 items-start gap-3">
-              {icon ? (
-                <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary">
-                  {icon}
-                </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+                {title}
+              </h1>
+
+              {description ? (
+                <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                  {description}
+                </p>
               ) : null}
-
-              <div className="min-w-0">
-                <h1 className="text-balance text-xl font-bold tracking-tight text-foreground md:text-2xl">
-                  {title}
-                </h1>
-
-                {description ? (
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                    {description}
-                  </p>
-                ) : null}
-              </div>
             </div>
           </div>
-
-          {actions ? (
-            <div className="flex shrink-0 flex-wrap items-center gap-2 md:justify-end">
-              {actions}
-            </div>
-          ) : null}
         </div>
 
-        {children ? (
-          <div className="mt-4 rounded-3xl border border-border bg-muted/25 p-3">
-            {children}
+        {actions ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
+            {actions}
           </div>
         ) : null}
       </div>
+
+      {children ? (
+        <div className="mt-3 rounded-2xl bg-muted/40 p-3">
+          {children}
+        </div>
+      ) : null}
     </section>
   );
 }

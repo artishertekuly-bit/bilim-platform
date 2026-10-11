@@ -503,8 +503,8 @@ export default function AiTutorPage() {
 
         {user && isStudent ? (
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <Card className="overflow-hidden">
-              <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+            <Card className="overflow-hidden shadow-xs">
+              <CardHeader className="bg-card pb-2">
                 <CardTitle className="text-base font-semibold">
                   Параметрлер
                 </CardTitle>
@@ -558,34 +558,25 @@ export default function AiTutorPage() {
                       setContext(event.target.value.slice(0, MAX_CONTEXT_CHARS));
                       clearError();
                     }}
-                    placeholder="Қай жерде қиналып тұрғаныңызды немесе қай бөлікті түсіндіру керек екенін жазыңыз."
-                    rows={6}
+                    placeholder="Қосымша түсіндірме немесе контекст"
+                    rows={5}
                   />
                 </div>
 
                 {tutorSession ? (
-                  <div className="rounded-2xl border border-primary-muted bg-primary-soft/70 px-4 py-3">
+                  <div className="rounded-2xl bg-primary/10 px-4 py-3">
                     <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                       <CheckCircle2 size={14} className="text-primary" />
                       Диалог белсенді
                     </div>
-
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Пән, тақырып немесе қосымша мәтін өзгерсе, ол келесі хабарға
-                      қолданылады.
-                    </p>
                   </div>
-                ) : (
-                  <div className="rounded-2xl border border-border bg-surface-soft/60 px-4 py-3 text-xs leading-5 text-muted-foreground">
-                    Бірінші хабар жіберілгенде диалог автоматты ашылады.
-                  </div>
-                )}
+                ) : null}
               </CardContent>
             </Card>
 
             <div className="space-y-5">
-              <Card className="min-h-[420px] overflow-hidden">
-                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+              <Card className="min-h-[420px] overflow-hidden shadow-xs">
+                <CardHeader className="bg-card pb-2">
                   <div className="flex items-center justify-between gap-3">
                     <CardTitle className="text-base font-semibold">
                       Диалог
@@ -607,7 +598,7 @@ export default function AiTutorPage() {
                   {isAuthMissing && !isCreatingSession ? (
                     <EmptyState
                       title="Авторизация қажет"
-                      text="AI тәлімгерді пайдалану үшін белсенді сессия қажет."
+                      text="Белсенді сессия қажет."
                       tone="ai"
                       compact
                     />
@@ -630,10 +621,10 @@ export default function AiTutorPage() {
                         return (
                           <div
                             key={message.id}
-                            className={`rounded-2xl border p-4 text-sm ${
+                            className={`rounded-2xl p-4 text-sm ${
                               isAssistant
-                                ? 'border-primary-muted bg-primary-soft/65'
-                                : 'border-border bg-card'
+                                ? 'bg-muted/40 text-foreground'
+                                : 'bg-primary text-primary-foreground shadow-xs'
                             }`}
                           >
                             <div className="mb-2 flex items-center gap-2">
@@ -642,16 +633,16 @@ export default function AiTutorPage() {
                               ) : (
                                 <MessageSquare
                                   size={15}
-                                  className="text-muted-foreground"
+                                  className="text-primary-foreground/80"
                                 />
                               )}
 
-                              <span className="text-xs font-medium text-foreground">
+                              <span className="text-xs font-semibold">
                                 {isAssistant ? 'AI тәлімгер' : 'Сіз'}
                               </span>
                             </div>
 
-                            <p className="whitespace-pre-wrap leading-7 text-muted-foreground">
+                            <p className="whitespace-pre-wrap leading-relaxed">
                               {message.content}
                             </p>
                           </div>
@@ -666,8 +657,8 @@ export default function AiTutorPage() {
                 </CardContent>
               </Card>
 
-              <Card className="overflow-hidden">
-                <CardHeader className="border-b border-border/70 bg-card/80 pb-4">
+              <Card className="overflow-hidden shadow-xs">
+                <CardHeader className="bg-card pb-2">
                   <CardTitle className="text-base font-semibold">
                     Хабар жіберу
                   </CardTitle>
@@ -675,13 +666,6 @@ export default function AiTutorPage() {
 
                 <CardContent className="space-y-4 p-4 sm:p-5">
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <Label htmlFor="tutor-message">Хабар</Label>
-                      <span className="text-[11px] text-muted-foreground">
-                        {normalizedMessage.length}/{MAX_MESSAGE_CHARS}
-                      </span>
-                    </div>
-
                     <Textarea
                       id="tutor-message"
                       value={messageInput}
@@ -692,14 +676,14 @@ export default function AiTutorPage() {
                         clearError();
                       }}
                       onKeyDown={handleMessageKeyDown}
-                      placeholder="Сұрағыңызды жазыңыз. Мысалы: осы тақырыпты қарапайым тілмен түсіндір."
-                      rows={5}
+                      placeholder="Сұрағыңызды жазыңыз..."
+                      rows={4}
                     />
                   </div>
 
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Жылдам жіберу: Ctrl/⌘ + Enter.
+                    <p className="text-xs text-muted-foreground">
+                      Ctrl/⌘ + Enter
                     </p>
 
                     <Button onClick={handleSendMessage} disabled={!canSendMessage}>

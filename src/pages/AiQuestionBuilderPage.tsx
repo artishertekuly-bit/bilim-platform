@@ -324,10 +324,10 @@ function OptionButton({
       onClick={() => onSelect(value)}
       disabled={disabled}
       className={cn(
-        'rounded-2xl border px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+        'rounded-xl px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 shadow-xs',
         active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border bg-card hover:bg-accent',
+          ? 'bg-primary text-primary-foreground'
+          : 'bg-muted/50 hover:bg-muted',
       )}
     >
       {cleanText(label, 80)}
@@ -347,7 +347,7 @@ function AiQuestionSkeleton() {
 
       <CardContent className="space-y-3">
         {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="rounded-2xl border p-4">
+          <div key={index} className="rounded-2xl bg-muted/30 p-4 shadow-xs">
             <SkeletonBlock className="h-3 w-20" />
             <SkeletonBlock className="mt-3 h-4 w-4/5" />
             <SkeletonBlock className="mt-2 h-4 w-2/3" />
@@ -379,7 +379,7 @@ function QuestionPreviewCard({
   const options = question.options || [];
 
   return (
-    <div className="rounded-2xl border p-4 transition-colors hover:bg-accent/30">
+    <div className="rounded-2xl bg-muted/30 p-4 shadow-xs transition-colors hover:bg-muted/40">
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">Сұрақ {index + 1}</p>
@@ -408,14 +408,14 @@ function QuestionPreviewCard({
               <div
                 key={optionId}
                 className={cn(
-                  'flex items-start gap-2 rounded-xl border px-3 py-2 text-sm',
-                  option.isCorrect ? 'border-primary/40 bg-primary/5' : 'bg-card',
+                  'flex items-start gap-2 rounded-xl px-3 py-2 text-sm shadow-xs',
+                  option.isCorrect ? 'bg-primary/10 text-primary font-medium' : 'bg-card',
                 )}
               >
                 {option.isCorrect ? (
                   <Check size={14} className="mt-0.5 shrink-0 text-primary" />
                 ) : (
-                  <span className="mt-[2px] inline-block h-3.5 w-3.5 shrink-0 rounded-full border" />
+                  <span className="mt-[3px] inline-block h-3 w-3 shrink-0 rounded-full bg-muted-foreground/30" />
                 )}
 
                 <span>{optionText}</span>
@@ -424,29 +424,29 @@ function QuestionPreviewCard({
           })}
         </div>
       ) : correctAnswer ? (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+        <div className="rounded-xl bg-primary/10 px-3 py-2 text-sm shadow-xs">
           <span className="text-muted-foreground">Дұрыс жауап: </span>
           <span className="font-medium">{correctAnswer}</span>
         </div>
       ) : null}
 
       {explanation ? (
-        <div className="mt-3 whitespace-pre-line rounded-xl border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+        <div className="mt-3 whitespace-pre-line rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground shadow-xs">
           <span className="font-medium text-foreground">Түсіндірме: </span>
           {explanation}
         </div>
       ) : null}
 
       {topic || difficulty ? (
-        <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+        <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
           {topic ? (
-            <span className="rounded-full border px-2 py-1">
+            <span className="rounded-full bg-muted/50 px-2.5 py-1">
               {topic}
             </span>
           ) : null}
 
           {difficulty ? (
-            <span className="rounded-full border px-2 py-1">
+            <span className="rounded-full bg-muted/50 px-2.5 py-1">
               {difficulty}
             </span>
           ) : null}
@@ -696,7 +696,7 @@ export default function AiQuestionBuilderPage() {
         <div className="grid gap-6 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
           <div className="space-y-6">
             <Card>
-              <CardHeader className="border-b border-border/70 bg-card pb-4">
+              <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base font-semibold">
                   <Sparkles size={16} />
                   Параметрлер
@@ -802,10 +802,10 @@ export default function AiQuestionBuilderPage() {
                         onClick={() => setCount(value)}
                         disabled={isGenerating}
                         className={cn(
-                          'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                          'rounded-full px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 shadow-xs',
                           safeCount === value
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border hover:bg-accent',
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted/50 hover:bg-muted',
                         )}
                       >
                         {value}
@@ -821,7 +821,7 @@ export default function AiQuestionBuilderPage() {
                 </div>
 
                 {!accessToken ? (
-                  <div className="flex items-start gap-2 rounded-2xl border border-warning-muted bg-warning-soft p-3 text-sm text-warning-foreground">
+                  <div className="flex items-start gap-2 rounded-2xl bg-warning-soft p-3 text-sm text-warning-foreground shadow-xs">
                     <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                     <span>{user ? 'Белсенді сессия қажет.' : 'Жүйеге кіріңіз.'}</span>
                   </div>
@@ -874,7 +874,7 @@ export default function AiQuestionBuilderPage() {
 
             {!isGenerating && hasGeneratedQuestions ? (
               <Card>
-                <CardHeader className="border-b border-border/70 bg-card pb-4">
+                <CardHeader className="pb-3">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <CardTitle className="text-base font-semibold">
                       Нәтиже
@@ -896,8 +896,8 @@ export default function AiQuestionBuilderPage() {
                 </CardHeader>
 
                 {safeKind !== 'multiple_choice' && skippedCount > 0 ? (
-                  <CardContent className="border-b border-border/70 p-4 sm:p-5">
-                    <div className="flex items-start gap-2 rounded-2xl border border-warning-muted bg-warning-soft p-3 text-sm text-warning-foreground">
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="flex items-start gap-2 rounded-2xl bg-warning-soft p-3 text-sm text-warning-foreground shadow-xs">
                       <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                       <span>Тестке тек жауап нұсқалары бар сұрақ өтеді.</span>
                     </div>

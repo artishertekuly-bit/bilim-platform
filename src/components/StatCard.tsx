@@ -24,28 +24,28 @@ function getToneClassName(tone: StatCardTone) {
     }
   > = {
     primary: {
-      icon: 'border-primary-muted bg-primary-soft text-primary',
-      trend: 'border-primary-muted bg-primary-soft text-primary',
+      icon: 'bg-primary-soft text-primary',
+      trend: 'bg-primary-soft text-primary',
     },
     secondary: {
-      icon: 'border-secondary-muted bg-secondary-soft text-secondary-foreground',
-      trend: 'border-secondary-muted bg-secondary-soft text-secondary-foreground',
+      icon: 'bg-secondary-soft text-secondary-foreground',
+      trend: 'bg-secondary-soft text-secondary-foreground',
     },
     accent: {
-      icon: 'border-accent-muted bg-accent-soft text-accent-foreground',
-      trend: 'border-accent-muted bg-accent-soft text-accent-foreground',
+      icon: 'bg-accent-soft text-accent-foreground',
+      trend: 'bg-accent-soft text-accent-foreground',
     },
     success: {
-      icon: 'border-success-muted bg-success-soft text-success-foreground',
-      trend: 'border-success-muted bg-success-soft text-success-foreground',
+      icon: 'bg-success-soft text-success-foreground',
+      trend: 'bg-success-soft text-success-foreground',
     },
     warning: {
-      icon: 'border-warning-muted bg-warning-soft text-warning-foreground',
-      trend: 'border-warning-muted bg-warning-soft text-warning-foreground',
+      icon: 'bg-warning-soft text-warning-foreground',
+      trend: 'bg-warning-soft text-warning-foreground',
     },
     ai: {
-      icon: 'border-ai-border bg-ai-soft text-primary',
-      trend: 'border-ai-border bg-ai-soft text-primary',
+      icon: 'bg-ai-soft text-primary',
+      trend: 'bg-ai-soft text-primary',
     },
   };
 
@@ -56,7 +56,6 @@ export default function StatCard({
   label,
   value,
   icon,
-  subtitle,
   trend,
   tone = 'primary',
   className,
@@ -66,13 +65,13 @@ export default function StatCard({
   return (
     <Card
       interactive
-      className={cn('overflow-hidden border-border bg-card', className)}
+      className={cn('overflow-hidden shadow-xs hover:shadow-sm bg-card', className)}
     >
       <CardContent className="p-4 sm:p-5">
-        <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="mb-3 flex items-start justify-between gap-2">
           <div
             className={cn(
-              'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border shadow-inner-soft',
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl',
               toneClassName.icon
             )}
           >
@@ -82,7 +81,7 @@ export default function StatCard({
           {trend ? (
             <span
               className={cn(
-                'inline-flex max-w-[120px] items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold leading-none',
+                'inline-flex max-w-[120px] items-center rounded-full px-2 py-0.5 text-[10px] font-semibold leading-none',
                 toneClassName.trend
               )}
             >
@@ -96,15 +95,9 @@ export default function StatCard({
             {value}
           </p>
 
-          <p className="mt-1 text-xs font-medium leading-5 text-muted-foreground">
+          <p className="mt-1 truncate text-xs font-medium text-muted-foreground">
             {label}
           </p>
-
-          {subtitle ? (
-            <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
-              {subtitle}
-            </p>
-          ) : null}
         </div>
       </CardContent>
     </Card>

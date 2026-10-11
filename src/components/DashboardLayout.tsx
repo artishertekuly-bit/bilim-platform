@@ -62,8 +62,7 @@ const STUDENT_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'course-catalog',
     title: 'Курс таңдау',
-    description:
-      'Қолжетімді курстарды қарап, өзіңізге қызық оқу бағытын бастаңыз.',
+    description: 'Қолжетімді курстар каталогы',
     path: '/courses',
     icon: BookOpen,
     badge: 'Каталог',
@@ -72,8 +71,7 @@ const STUDENT_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'student-lessons',
     title: 'Барлық сабақтар',
-    description:
-      'Оқу материалдарын бір жерден қарап, керек сабаққа бірден өтіңіз.',
+    description: 'Оқу сабақтары мен тақырыптар',
     path: '/lessons',
     icon: FileText,
     badge: 'Сабақтар',
@@ -81,17 +79,15 @@ const STUDENT_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'saved-lessons',
     title: 'Сақталған сабақтар',
-    description:
-      'Кейін қайта қарау үшін белгілеген материалдарыңызды ашыңыз.',
+    description: 'Таңдаулы оқу материалдары',
     path: '/saved-lessons',
     icon: Bookmark,
-    badge: 'Жеке жинақ',
+    badge: 'Жинақ',
   },
   {
     id: 'student-tests',
     title: 'Тесттер',
-    description:
-      'Өтілген тақырыптарды тексеріп, нәтижеңізді көріңіз.',
+    description: 'Бекіту және бақылау тапсырмалары',
     path: '/tests',
     icon: ClipboardList,
     badge: 'Тексеру',
@@ -102,8 +98,7 @@ const TEACHER_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'teacher-courses',
     title: 'Менің курстарым',
-    description:
-      'Өзіңіз дайындаған курстарды қарап, мазмұнын жалғастырыңыз.',
+    description: 'Авторлық курстар тізімі',
     path: '/my-courses',
     icon: BookOpen,
     badge: 'Курстар',
@@ -112,8 +107,7 @@ const TEACHER_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'teacher-create-course',
     title: 'Жаңа курс',
-    description:
-      'Жаңа оқу бағытын ашып, модульдер мен сабақтарды құрастырыңыз.',
+    description: 'Модульдер мен сабақтар құру',
     path: '/create-course',
     icon: Sparkles,
     badge: 'Құрастыру',
@@ -121,8 +115,7 @@ const TEACHER_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'teacher-create-test',
     title: 'Жаңа тест',
-    description:
-      'Курсқа арналған сұрақтар мен бағалау тапсырмаларын дайындаңыз.',
+    description: 'Бағалау сұрақтарын әзірлеу',
     path: '/create-test',
     icon: ClipboardList,
     badge: 'Бағалау',
@@ -130,8 +123,7 @@ const TEACHER_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'teacher-students',
     title: 'Оқушылар',
-    description:
-      'Курстарыңыздағы оқушылар мен олардың оқу барысын қараңыз.',
+    description: 'Студенттер тізімі мен оқу үлгерімі',
     path: '/students',
     icon: UserRound,
     badge: 'Аудитория',
@@ -142,18 +134,16 @@ const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'admin-courses',
     title: 'Курстарды басқару',
-    description:
-      'Барлық курстарды қарап, өңдеп және жариялау күйін басқарыңыз.',
+    description: 'Барлық курстар каталогы',
     path: '/manage-courses',
     icon: BookOpen,
-    badge: 'Барлық курс',
+    badge: 'Курстар',
     featured: true,
   },
   {
     id: 'admin-create-course',
     title: 'Жаңа курс',
-    description:
-      'Авторлық курстың құрылымын нөлден бастап дайындаңыз.',
+    description: 'Жүйелік курс қосу',
     path: '/create-course',
     icon: Sparkles,
     badge: 'Құрастыру',
@@ -161,8 +151,7 @@ const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'admin-lessons',
     title: 'Сабақтарды басқару',
-    description:
-      'Сабақтарды қарап, курс мазмұнын реттеңіз.',
+    description: 'Сабақ материалдары',
     path: '/manage-lessons',
     icon: FileText,
     badge: 'Сабақтар',
@@ -170,8 +159,7 @@ const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'admin-tests',
     title: 'Тесттерді басқару',
-    description:
-      'Тест материалдарын және тексеру тапсырмаларын ашыңыз.',
+    description: 'Тест қоры мен сұрақтары',
     path: '/manage-tests',
     icon: ClipboardList,
     badge: 'Тесттер',
@@ -181,37 +169,33 @@ const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
 const STUDENT_AI_TOOLS: SanaLauncherTool[] = [
   {
     id: 'tutor',
-    title: 'Тақырыпты бірге түсіну',
-    description:
-      'Сұрақ қойыңыз, күрделі ойды қарапайым тілмен талдап, өз мысалыңызбен бекітіңіз.',
+    title: 'AI Тьютор',
+    description: 'Сұрақтар мен тақырыпты түсіндіру',
     path: '/ai-tutor',
     icon: Bot,
-    badge: 'Сұрақ пен түсіндіру',
+    badge: 'Тьютор',
     featured: true,
   },
   {
     id: 'practice',
-    title: 'Жаттығу жасау',
-    description:
-      'Өзіңізге лайық тапсырмалар алып, қателерді бірден талдап көріңіз.',
+    title: 'AI Практика',
+    description: 'Жеке жаттығулар мен есептер',
     path: '/ai-practice',
     icon: WandSparkles,
     badge: 'Практика',
   },
   {
     id: 'tracker',
-    title: 'Оқу ізін көру',
-    description:
-      'Қай тақырып жақсы жүріп жатқанын және қай жерге қайта оралу керегін байқаңыз.',
+    title: 'AI Оқу ізі',
+    description: 'Оқу талдауы мен ұсыныстар',
     path: '/ai-tracker',
     icon: BrainCircuit,
     badge: 'Талдау',
   },
   {
     id: 'student-exams',
-    title: 'ЖИ емтихандары',
-    description:
-      'Қолжетімді емтихандарды ашып, нақты уақыттағы сынақтан өтіңіз.',
+    title: 'AI Емтихандар',
+    description: 'Ашық емтихан сынақтары',
     path: '/ai-exams-open',
     icon: ClipboardCheck,
     badge: 'Сынақ',
@@ -222,27 +206,24 @@ const AUTHOR_AI_TOOLS: SanaLauncherTool[] = [
   {
     id: 'assistant',
     title: 'Автор көмекшісі',
-    description:
-      'Курс идеясын дамыту, сабақ құрылымын ойлау және материалды жинақтау үшін.',
+    description: 'Курс құрылымы мен мазмұны',
     path: '/ai-assistant',
     icon: Bot,
-    badge: 'Идея мен құрылым',
+    badge: 'Ассистент',
     featured: true,
   },
   {
     id: 'question-builder',
     title: 'Сұрақ генераторы',
-    description:
-      'Тақырыптан тест сұрақтарын, жауап нұсқаларын және түсіндірмелерді дайындаңыз.',
+    description: 'Тест сұрақтарын құрастыру',
     path: '/ai-question-builder',
     icon: ListChecks,
-    badge: 'Тест құрастыру',
+    badge: 'Генератор',
   },
   {
     id: 'ai-exams',
-    title: 'ЖИ емтихандары',
-    description:
-      'Емтихан сценарийін құрып, тапсырмалар мен өткізу тәртібін басқарыңыз.',
+    title: 'AI Емтихандар',
+    description: 'Емтихандарды басқару',
     path: '/ai-exams',
     icon: ClipboardCheck,
     badge: 'Емтихан',

@@ -473,11 +473,11 @@ export default function AiPromptShell({
   };
 
   return (
-    <Card className="ai-soft-panel overflow-hidden">
-      <CardHeader className="border-b border-ai-border/70 bg-card/70 px-4 py-4 backdrop-blur sm:px-5">
+    <Card className="overflow-hidden shadow-xs">
+      <CardHeader className="bg-card/70 px-4 py-4 backdrop-blur sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-soft">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
               <Bot size={18} />
             </span>
 
@@ -499,10 +499,10 @@ export default function AiPromptShell({
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
-                'inline-flex w-fit items-center rounded-full border px-3 py-1 text-[11px] font-semibold',
+                'inline-flex w-fit items-center rounded-full px-3 py-1 text-[11px] font-semibold',
                 endpointReady && !disabled
-                  ? 'border-ai-border bg-ai-soft text-ai-foreground'
-                  : 'border-border bg-muted text-muted-foreground',
+                  ? 'bg-primary/10 text-primary'
+                  : 'bg-muted/60 text-muted-foreground',
               )}
             >
               {endpointReady && !disabled ? 'Дайын' : 'Қолжетімсіз'}
@@ -527,9 +527,9 @@ export default function AiPromptShell({
 
       <CardContent className="p-0">
         <form onSubmit={handleSubmit} className="flex min-h-[620px] flex-col">
-          <div className="flex-1 space-y-4 overflow-y-auto bg-surface-soft/40 px-4 py-5 sm:px-5">
+          <div className="flex-1 space-y-4 overflow-y-auto bg-muted/20 px-4 py-5 sm:px-5">
             {hasMeta ? (
-              <div className="rounded-3xl border border-border bg-card/85 p-4 shadow-soft">
+              <div className="rounded-3xl bg-card p-4 shadow-xs">
                 <div className="min-w-0 space-y-3">
                   {normalizedContextSummary ? (
                     <p className="text-xs leading-5 text-muted-foreground">
@@ -542,7 +542,7 @@ export default function AiPromptShell({
                       {normalizedWarnings.map((warning, index) => (
                         <p
                           key={`${warning}-${index}`}
-                          className="rounded-2xl border border-warning-muted bg-warning-soft/65 px-3 py-2 text-xs leading-5 text-muted-foreground"
+                          className="rounded-2xl bg-warning-soft/65 px-3 py-2 text-xs leading-5 text-muted-foreground"
                         >
                           {warning}
                         </p>
@@ -558,7 +558,7 @@ export default function AiPromptShell({
                           type="button"
                           disabled={effectiveDisabled || isSubmitting}
                           onClick={() => void submitPrompt(followUpPrompt, null)}
-                          className="rounded-full border border-primary-muted bg-primary-soft px-3 py-1.5 text-[11px] font-medium text-primary transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-card disabled:pointer-events-none disabled:opacity-60"
+                          className="rounded-full bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-60"
                         >
                           {followUpPrompt}
                         </button>
@@ -571,7 +571,7 @@ export default function AiPromptShell({
 
             {!hasConversation && !visibleError && !isSubmitting ? (
               <div className="flex min-h-[320px] items-center justify-center">
-                <div className="max-w-md rounded-3xl border border-dashed border-ai-border bg-card/80 px-6 py-7 text-center shadow-soft backdrop-blur">
+                <div className="max-w-md rounded-3xl bg-card px-6 py-7 text-center shadow-xs">
                   <p className="text-sm font-semibold text-foreground">
                     Сұрақ жазыңыз
                   </p>
@@ -592,7 +592,7 @@ export default function AiPromptShell({
                           onClick={() =>
                             void submitPrompt(suggestion.prompt, suggestion.id)
                           }
-                          className="rounded-full border border-primary-muted bg-primary-soft px-3 py-1.5 text-[11px] font-medium text-primary transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-card disabled:pointer-events-none disabled:opacity-60"
+                          className="rounded-full bg-muted/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-60"
                         >
                           {suggestion.label}
                         </button>
@@ -610,13 +610,13 @@ export default function AiPromptShell({
                     key={message.id}
                     className="flex items-start justify-end gap-3 animate-fade-in-soft"
                   >
-                    <div className="max-w-3xl rounded-[1.35rem] rounded-tr-md bg-primary px-4 py-3 text-primary-foreground shadow-soft">
+                    <div className="max-w-3xl rounded-2xl rounded-tr-xs bg-primary px-4 py-3 text-primary-foreground shadow-xs">
                       <p className="whitespace-pre-wrap text-sm leading-6">
                         {message.content}
                       </p>
                     </div>
 
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-card text-primary shadow-soft">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                       <UserRound size={15} />
                     </div>
                   </div>
@@ -630,12 +630,12 @@ export default function AiPromptShell({
                   key={message.id}
                   className="flex items-start gap-3 animate-fade-in-soft"
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-soft">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                     <Bot size={15} />
                   </div>
 
-                  <div className="group w-full max-w-4xl overflow-hidden rounded-3xl border border-border bg-card/95 shadow-soft">
-                    <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-card/80 px-4 py-3">
+                  <div className="group w-full max-w-4xl overflow-hidden rounded-2xl bg-card shadow-xs">
+                    <div className="flex items-center justify-between gap-3 px-4 py-3">
                       <p className="text-sm font-semibold text-foreground">
                         {message.title || normalizedAnswerTitle}
                       </p>
@@ -656,7 +656,7 @@ export default function AiPromptShell({
                       </Button>
                     </div>
 
-                    <div className="space-y-2 px-4 py-4">
+                    <div className="space-y-2 px-4 pb-4">
                       {renderStructuredAnswer(message.content)}
                     </div>
                   </div>
@@ -666,11 +666,11 @@ export default function AiPromptShell({
 
             {visibleError ? (
               <div className="flex items-start gap-3 animate-fade-in-soft">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-destructive-muted bg-destructive-soft text-destructive shadow-soft">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-destructive-soft text-destructive">
                   <AlertTriangle size={15} />
                 </div>
 
-                <div className="max-w-3xl rounded-3xl border border-destructive-muted bg-destructive-soft px-4 py-3 shadow-soft">
+                <div className="max-w-3xl rounded-2xl bg-destructive-soft px-4 py-3">
                   <p className="text-sm font-semibold text-destructive">
                     Жауап алу мүмкін болмады
                   </p>
@@ -684,11 +684,11 @@ export default function AiPromptShell({
 
             {isSubmitting ? (
               <div className="flex items-start gap-3 animate-fade-in-soft">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-ai-soft text-primary shadow-soft">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                   <Loader2 size={15} className="animate-spin" />
                 </div>
 
-                <div className="w-full max-w-3xl rounded-3xl border border-border bg-card/90 px-4 py-4 shadow-soft">
+                <div className="w-full max-w-3xl rounded-2xl bg-card p-4 shadow-xs">
                   <div className="space-y-3 animate-pulse">
                     <div className="h-3 w-2/3 rounded-full bg-muted" />
                     <div className="h-3 w-full rounded-full bg-muted" />
@@ -701,16 +701,16 @@ export default function AiPromptShell({
             <div ref={scrollAnchorRef} />
           </div>
 
-          <div className="border-t border-ai-border/70 bg-card/80 p-4 backdrop-blur sm:p-5">
+          <div className="bg-card p-4 sm:p-5">
             {effectiveDisabled ? (
-              <div className="mb-3 rounded-2xl border border-warning-muted bg-warning-soft/70 px-4 py-3">
+              <div className="mb-3 rounded-2xl bg-warning-soft/70 px-4 py-3">
                 <p className="text-xs leading-5 text-muted-foreground">
                   {visibleDisabledReason}
                 </p>
               </div>
             ) : null}
 
-            <div className="rounded-3xl border border-border bg-card px-3 py-3 shadow-inner-soft transition-all duration-200 ease-soft focus-within:border-primary-muted focus-within:ring-2 focus-within:ring-ring/25">
+            <div className="rounded-3xl bg-muted/40 p-3.5 transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/20">
               <textarea
                 value={prompt}
                 onChange={(event) => handlePromptChange(event.target.value)}
@@ -722,13 +722,13 @@ export default function AiPromptShell({
                 className="min-h-[88px] w-full resize-none border-0 bg-transparent px-1 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
               />
 
-              <div className="mt-3 flex flex-col gap-3 border-t border-border/70 pt-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-3 flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
                     onClick={clearPrompt}
                     disabled={!hasPrompt || isSubmitting}
-                    className="inline-flex items-center gap-1.5 rounded-xl px-2 py-1 text-xs font-medium text-muted-foreground transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:bg-primary-soft hover:text-primary disabled:pointer-events-none disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-xl px-2 py-1 text-xs font-medium text-muted-foreground transition-all duration-200 hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
                   >
                     <Eraser size={13} />
                     Тазалау

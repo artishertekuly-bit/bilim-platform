@@ -233,18 +233,18 @@ function TeacherMetric({
   icon: typeof BookOpen;
 }) {
   return (
-    <div className="flex min-h-[148px] flex-col justify-between rounded-[1.75rem] border border-border bg-card p-5 shadow-soft">
+    <div className="flex min-h-[130px] flex-col justify-between rounded-2xl bg-card p-5 shadow-xs">
       <div className="flex items-start justify-between gap-4">
-        <span className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-background">
-          <Icon size={17} />
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted/60 text-muted-foreground">
+          <Icon size={18} />
         </span>
 
-        <span className="text-4xl font-black tracking-[-0.055em] sm:text-5xl">
+        <span className="text-3xl font-black tracking-[-0.05em] sm:text-4xl">
           {value}
         </span>
       </div>
 
-      <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
+      <p className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
     </div>
@@ -262,7 +262,6 @@ function TeacherCourseCard({
 
   const courseId = cleanId(course.id);
   const title = cleanText(course.title) || 'Атаусыз курс';
-  const description = cleanText(course.description, MAX_TEXT_CHARS);
   const subjectName =
     cleanText(course.subjectName, MAX_SUBJECT_CHARS) || 'Жалпы';
   const editPath = buildCourseEditPath(courseId);
@@ -275,36 +274,27 @@ function TeacherCourseCard({
   return (
     <article
       className={cn(
-        'group overflow-hidden rounded-[1.9rem] border border-border bg-card',
-        'transition-[transform,border-color,box-shadow] duration-200 ease-soft',
-        'hover:-translate-y-1 hover:border-foreground/20 hover:shadow-soft-lg',
+        'group overflow-hidden rounded-2xl bg-card shadow-xs',
+        'transition-all duration-200 ease-soft',
+        'hover:-translate-y-0.5 hover:shadow-sm',
       )}
     >
-      <div className="relative aspect-[16/9] overflow-hidden border-b border-border bg-muted">
+      <div className="relative aspect-[16/9] overflow-hidden bg-muted">
         {showThumbnail ? (
           <img
             src={thumbnailUrl}
             alt={`${title} курсының мұқабасы`}
             loading="lazy"
             onError={() => setThumbnailFailed(true)}
-            className="h-full w-full object-cover transition-transform duration-500 ease-soft group-hover:scale-[1.035]"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
-          <div className="relative flex h-full items-center justify-center overflow-hidden bg-muted">
-            <div
-              aria-hidden="true"
-              className="absolute -right-12 -top-12 h-40 w-40 rounded-full border border-foreground/10"
-            />
-            <div
-              aria-hidden="true"
-              className="absolute -bottom-16 -left-10 h-44 w-44 rounded-full border border-foreground/[0.07]"
-            />
-
+          <div className="relative flex h-full items-center justify-center bg-muted">
             <div className="relative text-center">
-              <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-border bg-card shadow-soft">
-                <BookOpen size={21} />
+              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-card text-muted-foreground shadow-xs">
+                <BookOpen size={20} />
               </span>
-              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <p className="mt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {subjectName}
               </p>
             </div>
@@ -312,59 +302,55 @@ function TeacherCourseCard({
         )}
 
         <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
-          <span className="rounded-full border border-white/45 bg-black/55 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-md">
+          <span className="rounded-full bg-black/60 px-2.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-xs">
             {getTeacherCourseStatusLabel(course.status)}
           </span>
-          <span className="rounded-full border border-white/45 bg-white/85 px-2.5 py-1 text-[10px] font-semibold text-black backdrop-blur-md">
+          <span className="rounded-full bg-white/85 px-2.5 py-0.5 text-[10px] font-semibold text-black backdrop-blur-xs">
             {getTeacherAccessLabel(accessType)}
           </span>
         </div>
 
-        <span className="absolute right-3 top-3 rounded-full border border-white/35 bg-black/45 px-2.5 py-1 font-mono text-[10px] font-bold text-white backdrop-blur-md">
+        <span className="absolute right-3 top-3 rounded-full bg-black/50 px-2.5 py-0.5 font-mono text-[10px] font-bold text-white backdrop-blur-xs">
           {courseNumber}
         </span>
       </div>
 
       <div className="p-5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.17em] text-muted-foreground">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
           {subjectName}
         </p>
 
         <Link
           to={editPath}
-          className="mt-2 block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
+          className="mt-1.5 block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
         >
-          <h3 className="line-clamp-2 text-2xl font-black tracking-[-0.04em] text-foreground">
+          <h3 className="line-clamp-1 text-lg font-bold tracking-tight text-foreground transition-colors group-hover:text-primary">
             {title}
           </h3>
         </Link>
 
-        <p className="mt-3 line-clamp-2 min-h-10 text-sm leading-5 text-muted-foreground">
-          {description || 'Курс сипаттамасы әлі толтырылмаған.'}
-        </p>
-
-        <div className="mt-5 grid grid-cols-3 divide-x divide-border rounded-[1.25rem] border border-border bg-background">
-          <div className="px-3 py-3 text-center">
-            <p className="text-base font-black">
+        <div className="mt-4 grid grid-cols-3 rounded-xl bg-muted/40 p-2.5">
+          <div className="text-center">
+            <p className="text-sm font-bold">
               {formatMetric(course.lessons)}
             </p>
-            <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
               Сабақ
             </p>
           </div>
-          <div className="px-3 py-3 text-center">
-            <p className="text-base font-black">
+          <div className="text-center">
+            <p className="text-sm font-bold">
               {formatMetric(course.students)}
             </p>
-            <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
               Оқушы
             </p>
           </div>
-          <div className="px-3 py-3 text-center">
-            <p className="text-base font-black">
+          <div className="text-center">
+            <p className="text-sm font-bold">
               {formatMetric(course.courseAssetsCount)}
             </p>
-            <p className="mt-1 text-[9px] uppercase tracking-[0.12em] text-muted-foreground">
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
               Файл
             </p>
           </div>
@@ -382,7 +368,7 @@ function TeacherCourseCard({
             type="button"
             variant="outline"
             size="icon"
-            className="h-10 w-10 rounded-full"
+            className="h-9 w-9 rounded-full"
             asChild
           >
             <Link to={detailPath} aria-label={`${title} курсын көру`}>
@@ -838,14 +824,14 @@ export default function CourseCatalogPage() {
       <div className="mx-auto max-w-7xl animate-fade-in space-y-6">
         {isTeacherView ? (
           <div className="space-y-4">
-            <section className="relative overflow-hidden rounded-[2rem] border border-border bg-card px-5 py-6 shadow-soft sm:px-7">
+            <section className="relative overflow-hidden rounded-3xl bg-card px-5 py-6 shadow-xs sm:px-7">
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute -right-20 -top-24 h-60 w-60 rounded-full bg-foreground/[0.045] blur-3xl"
               />
 
               <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-                <h1 className="text-4xl font-black tracking-[-0.055em] sm:text-5xl">
+                <h1 className="text-3xl font-black tracking-[-0.05em] sm:text-4xl">
                   Курстарым
                 </h1>
 
@@ -942,11 +928,10 @@ export default function CourseCatalogPage() {
         {user && !isLoading && !error ? (
           <section
             className={cn(
-              'overflow-hidden rounded-[2rem] border border-border bg-card',
-              isTeacherView && 'shadow-soft',
+              'rounded-3xl bg-card p-4 sm:p-5 shadow-xs',
             )}
           >
-            <div className="space-y-4 p-4 sm:p-5">
+            <div className="space-y-4">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-center">
                   <div className="relative w-full lg:max-w-md">
@@ -957,13 +942,13 @@ export default function CourseCatalogPage() {
                     <Input
                       placeholder={
                         isTeacherView
-                          ? 'Курс атауы немесе пән бойынша іздеу'
+                          ? 'Курс немесе пән бойынша іздеу'
                           : t('page.course_catalog.search_placeholder')
                       }
                       value={search}
                       maxLength={MAX_SEARCH_CHARS}
                       onChange={(event) => handleSearchChange(event.target.value)}
-                      className="h-11 rounded-full pl-10"
+                      className="h-11 rounded-full pl-10 bg-muted/40 border-0"
                     />
                   </div>
 
@@ -1022,7 +1007,7 @@ export default function CourseCatalogPage() {
               </div>
 
               {isTeacherView ? (
-                <div className="flex flex-wrap gap-2 border-t border-border/75 pt-4">
+                <div className="flex flex-wrap gap-1.5 pt-1">
                   {TEACHER_STATUS_FILTERS.map((status) => {
                     const active = activeTeacherStatus === status.value;
                     return (
@@ -1031,10 +1016,10 @@ export default function CourseCatalogPage() {
                         type="button"
                         onClick={() => setActiveTeacherStatus(status.value)}
                         className={cn(
-                          'rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors',
+                          'rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
                           active
-                            ? 'border-foreground bg-foreground text-background'
-                            : 'border-border bg-background text-muted-foreground hover:text-foreground',
+                            ? 'bg-foreground text-background'
+                            : 'bg-muted/60 text-muted-foreground hover:text-foreground',
                         )}
                       >
                         {status.label}
@@ -1054,10 +1039,10 @@ export default function CourseCatalogPage() {
                       onClick={() => handleSubjectChange(subject.value)}
                       aria-pressed={active}
                       className={cn(
-                        'shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-colors active:scale-[0.99]',
+                        'shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors active:scale-[0.99]',
                         active
-                          ? 'border-foreground bg-foreground text-background'
-                          : 'border-border bg-card text-muted-foreground hover:border-foreground/25 hover:text-foreground',
+                          ? 'bg-foreground text-background'
+                          : 'bg-muted/60 text-muted-foreground hover:text-foreground',
                       )}
                     >
                       {subject.label}
@@ -1071,17 +1056,13 @@ export default function CourseCatalogPage() {
 
         {user && !isLoading && !error && data && data.length === 0 ? (
           isTeacherView ? (
-            <section className="relative overflow-hidden rounded-[2.25rem] border border-dashed border-foreground/25 bg-card p-8 text-center sm:p-12">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-border bg-background">
-                <BookOpen size={21} />
+            <section className="relative overflow-hidden rounded-3xl bg-card p-8 text-center shadow-xs sm:p-12">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/60 text-muted-foreground">
+                <BookOpen size={22} />
               </div>
-              <h2 className="mt-6 text-2xl font-black tracking-[-0.04em]">
-                Алғашқы курсыңызды бастаңыз
+              <h2 className="mt-5 text-2xl font-black tracking-[-0.04em]">
+                Курс табылмады
               </h2>
-              <p className="mx-auto mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
-                Курс идеясы, сабақ құрылымы және материалдар бір жұмыс
-                кеңістігінде жиналады.
-              </p>
               <div className="mt-6 flex flex-wrap justify-center gap-2">
                 <Button type="button" className="rounded-full" asChild>
                   <Link to="/create-course">
