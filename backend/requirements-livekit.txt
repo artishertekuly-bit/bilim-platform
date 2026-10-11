@@ -1,7 +1,0 @@
-# LiveKit GoPrep Architecture Dependencies (Realtime WebRTC + Deepgram + Groq + Cartesia)
-livekit-agents>=0.8.0
-livekit-plugins-deepgram
-livekit-plugins-cartesia
-livekit-plugins-groq
-livekit-plugins-silero
-pyjwt>=2.8.0

@@ -36,7 +36,6 @@ from .ai_storage import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from .api.learning_analysis_api import router as learning_analysis_router
-from .api.voice_api import router as voice_router
 from .dependencies.auth import get_current_user_id, require_author_role
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -118,45 +117,9 @@ def _build_allow_origin_regex() -> str | None:
     return None
 
 
-_livekit_worker_process: subprocess.Popen | None = None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _livekit_worker_process
-    livekit_url = os.getenv("LIVEKIT_URL", "").strip()
-    livekit_key = os.getenv("LIVEKIT_API_KEY", "").strip()
-    livekit_secret = os.getenv("LIVEKIT_API_SECRET", "").strip()
-
-    if livekit_url and livekit_key and livekit_secret:
-        agent_script = ROOT_DIR / "backend" / "livekit_agent.py"
-        if not agent_script.exists():
-            agent_script = BACKEND_DIR / "livekit_agent.py"
-
-        if agent_script.exists():
-            try:
-                import importlib.util
-                if importlib.util.find_spec("livekit") is not None:
-                    logger.info("LiveKit WebRTC Worker (GoPrep) фонында іске қосылуда...")
-                    _livekit_worker_process = subprocess.Popen(
-                        [sys.executable, str(agent_script), "start"],
-                        cwd=str(ROOT_DIR),
-                    )
-                    logger.info("LiveKit Worker сәтті басталды (PID: %s)", _livekit_worker_process.pid)
-                else:
-                    logger.info("LiveKit кітапханасы жоқ, жүйе жедел бұлттық Deepgram + Cartesia режимінде жұмыс істейді.")
-            except Exception as exc:
-                logger.warning("LiveKit Worker іске қосу қатесі: %s", exc)
-
     yield
-
-    if _livekit_worker_process:
-        try:
-            logger.info("LiveKit Worker тоқтатылуда...")
-            _livekit_worker_process.terminate()
-            _livekit_worker_process.wait(timeout=5)
-        except Exception:
-            pass
 
 
 app = FastAPI(
@@ -176,11 +139,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["X-User-Transcript", "X-Ai-Reply", "X-Reply-Language", "Content-Disposition"],
+    expose_headers=["Content-Disposition"],
 )
 
 app.include_router(learning_analysis_router)
-app.include_router(voice_router)
 
 
 def _utc_iso() -> str:
