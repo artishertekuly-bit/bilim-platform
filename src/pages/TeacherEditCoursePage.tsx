@@ -246,7 +246,9 @@ export default function TeacherEditCoursePage() {
   } = useCourseBuilderSidePanels({
     user,
     selectedCourse: activeCourse,
-    editingLessonId,
+    selectedEditingLesson,
+    courseAssets,
+    lessonAttachments,
     announcementForm,
     setAnnouncementForm,
     editingAnnouncementId,
@@ -600,8 +602,8 @@ export default function TeacherEditCoursePage() {
                         handleEditMiniQuizQuestion={handleEditMiniQuizQuestion}
                         handleDeleteMiniQuizQuestion={handleDeleteMiniQuizQuestion}
                         handleMoveMiniQuizQuestion={handleMoveMiniQuizQuestion}
-                        deleteMiniQuizQuestionPending={deleteMiniQuizQuestionPending}
-                        reorderMiniQuizQuestionsPending={reorderMiniQuizQuestionsPending}
+                        deleteMiniQuizQuestionPending={deleteMiniQuizQuestionMutation.isPending}
+                        reorderMiniQuizQuestionsPending={reorderMiniQuizQuestionsMutation.isPending}
                       />
 
                       <LessonAttachmentPanel

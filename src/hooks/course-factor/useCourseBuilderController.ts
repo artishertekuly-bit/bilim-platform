@@ -241,7 +241,7 @@ export function useCourseBuilderController({
   setEditingAnnouncementId,
 }: CourseBuilderControllerInput) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const effectiveCourseId = targetCourseId || searchParams.get('courseId') || '';
+  const requestedCourseId = targetCourseId || searchParams.get('courseId') || '';
 
   const [selectedCourseId, setSelectedCourseId] = useState(targetCourseId || '');
   const lastSeededCourseId = useRef('');
@@ -253,12 +253,12 @@ export function useCourseBuilderController({
       const match = courses.find((course) => course.id === selectedCourseId);
       if (match) return match;
     }
-    if (effectiveCourseId) {
-      const match = courses.find((course) => course.id === effectiveCourseId);
+    if (requestedCourseId) {
+      const match = courses.find((course) => course.id === requestedCourseId);
       if (match) return match;
     }
     return targetCourseId ? null : (courses[0] ?? null);
-  }, [courses, effectiveCourseId, selectedCourseId, targetCourseId]);
+  }, [courses, requestedCourseId, selectedCourseId, targetCourseId]);
 
   const selectedCourseModules = useMemo<CourseBuilderModuleView[]>(
     () => sortBySortOrder<CourseBuilderModuleView>(selectedCourse?.modules),

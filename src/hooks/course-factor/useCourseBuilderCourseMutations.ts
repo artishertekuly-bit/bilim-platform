@@ -118,7 +118,7 @@ type CourseBuilderCourseMutationsInput = {
   resetLessonForm: () => void;
   refetchWorkspace: () => Promise<void>;
   toast: ToastFn;
-  onCourseCreated?: (course: CourseBuilderCourse) => void;
+  onCourseCreated?: (course: { id: string }) => void;
   onCourseDeleted?: (courseId: string) => void;
 };
 
