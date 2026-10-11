@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Loader2,
   MessageSquare,
+  Mic,
   RefreshCcw,
   Send,
   Sparkles,
@@ -31,6 +32,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import VoiceAssistantWidget from '@/components/ai-tools/VoiceAssistantWidget';
 import { useToast } from '@/hooks/use-toast';
 import {
   createTutorSession,
@@ -502,12 +505,39 @@ export default function AiTutorPage() {
         ) : null}
 
         {user && isStudent ? (
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-            <Card className="overflow-hidden shadow-xs">
-              <CardHeader className="bg-card pb-2">
-                <CardTitle className="text-base font-semibold">
-                  Параметрлер
-                </CardTitle>
+          <Tabs defaultValue="voice" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <TabsList className="rounded-full bg-muted/60 p-1">
+                <TabsTrigger
+                  value="voice"
+                  className="rounded-full px-4 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:shadow-xs"
+                >
+                  <Mic size={14} className="mr-1.5 text-primary" />
+                  Дауыстық көмекші
+                </TabsTrigger>
+                <TabsTrigger
+                  value="text"
+                  className="rounded-full px-4 py-1.5 text-xs font-semibold data-[state=active]:bg-card data-[state=active]:shadow-xs"
+                >
+                  <MessageSquare size={14} className="mr-1.5" />
+                  Мәтіндік чат
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="voice" className="mt-0 focus-visible:outline-none">
+              <div className="mx-auto max-w-2xl">
+                <VoiceAssistantWidget defaultLanguage="kk" />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="text" className="mt-0 focus-visible:outline-none">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <Card className="overflow-hidden shadow-xs">
+                  <CardHeader className="bg-card pb-2">
+                    <CardTitle className="text-base font-semibold">
+                      Параметрлер
+                    </CardTitle>
               </CardHeader>
 
               <CardContent className="space-y-4 p-4 sm:p-5">
@@ -699,7 +729,9 @@ export default function AiTutorPage() {
               </Card>
             </div>
           </div>
-        ) : null}
+        </TabsContent>
+      </Tabs>
+    ) : null}
       </div>
     </DashboardLayout>
   );

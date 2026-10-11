@@ -1706,3 +1706,89 @@ export async function createLearningAnalysis(
 
   return normalizeLearningAnalysisResponse(payload, input.mode);
 }
+
+export interface VoiceAssistantResponse {
+  audioBlob: Blob;
+  audioUrl: string;
+  userTranscript: string;
+  aiReply: string;
+  language: string;
+}
+
+export interface VoiceAssistantOptions extends RequestOptions {
+  language?: 'kk' | 'ru';
+  systemPrompt?: string;
+  returnFormat?: 'audio' | 'json';
+}
+
+export async function sendVoiceAssistantAudio(
+  audioBlob: Blob,
+  options?: VoiceAssistantOptions,
+): Promise<VoiceAssistantResponse> {
+  const url = `${getAiApiBaseUrl()}/api/voice/assistant`;
+  const { signal, cleanup } = createAbortControllerWithTimeout(
+    options?.signal,
+    options?.timeoutMs ?? 60_000,
+  );
+
+  const formData = new FormData();
+  formData.append('audio', audioBlob, 'voice_recording.webm');
+  formData.append('language', options?.language || 'kk');
+  formData.append('return_format', options?.returnFormat || 'audio');
+  if (options?.systemPrompt?.trim()) {
+    formData.append('system_prompt', options.systemPrompt.trim());
+  }
+
+  const baseHeaders = buildHeaders(options);
+  const headers = new Headers(baseHeaders);
+  headers.delete('Content-Type');
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers,
+      signal,
+    });
+
+    if (!response.ok) {
+      const body = await parseResponseBody(response);
+      throw new AiApiError(
+        extractErrorMessage(body, response.status),
+        response.status,
+        body,
+      );
+    }
+
+    const rawTranscript = response.headers.get('x-user-transcript') || '';
+    const rawReply = response.headers.get('x-ai-reply') || '';
+    const userTranscript = decodeURIComponent(rawTranscript).replace(/\+/g, ' ');
+    const aiReply = decodeURIComponent(rawReply).replace(/\+/g, ' ');
+    const language = response.headers.get('x-reply-language') || options?.language || 'kk';
+
+    const blob = await response.blob();
+    const audioUrl = URL.createObjectURL(blob);
+
+    return {
+      audioBlob: blob,
+      audioUrl,
+      userTranscript: userTranscript || 'Дауыс қабылданды',
+      aiReply: aiReply || 'Жауап дайын',
+      language,
+    };
+  } catch (error) {
+    if (error instanceof AiApiError) {
+      throw error;
+    }
+
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new AiApiError('Дауыстық сұраныс уақыты өтіп кетті немесе тоқтатылды.');
+    }
+
+    throw new AiApiError(
+      error instanceof Error ? error.message : 'Дауыстық көмекшіге қосылу кезінде белгісіз қате пайда болды.',
+    );
+  } finally {
+    cleanup();
+  }
+}
