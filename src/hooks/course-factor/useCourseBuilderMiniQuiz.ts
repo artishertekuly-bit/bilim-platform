@@ -464,12 +464,14 @@ export function useCourseBuilderMiniQuiz({
 
       resetMiniQuizQuestionForm();
       await refetchWorkspace();
+      return true;
     } catch (error) {
       toast({
         title: 'Шағын тест сұрағын сақтау мүмкін болмады',
         description: getErrorMessage(error),
         variant: 'destructive',
       });
+      return false;
     }
   };
 
