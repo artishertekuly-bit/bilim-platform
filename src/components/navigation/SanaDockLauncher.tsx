@@ -31,9 +31,9 @@ export type SanaLauncherTool = {
 
 export type SanaDockLauncherProps = {
   open: boolean;
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
-  description: string;
+  description?: string;
   icon: LucideIcon;
   tools: SanaLauncherTool[];
   emptyTitle?: string;
@@ -136,44 +136,48 @@ export default function SanaDockLauncher({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={descriptionId}
+        aria-describedby={description ? descriptionId : undefined}
         className={cn(
-          'relative max-h-[92dvh] w-full overflow-y-auto border border-border bg-background',
-          'rounded-t-[2.25rem] p-4 shadow-[0_30px_100px_rgba(0,0,0,0.35)]',
-          'animate-slide-up sm:max-w-4xl sm:rounded-[2.5rem] sm:p-7 sm:animate-scale-in',
+          'relative max-h-[92dvh] w-full overflow-y-auto bg-background',
+          'rounded-t-3xl p-4 shadow-2xl',
+          'animate-slide-up sm:max-w-4xl sm:rounded-3xl sm:p-7 sm:animate-scale-in',
         )}
       >
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 h-44 rounded-t-[inherit] bg-gradient-to-b from-muted/80 to-transparent"
+          className="pointer-events-none absolute inset-x-0 top-0 h-44 rounded-t-[inherit] bg-gradient-to-b from-muted/60 to-transparent"
         />
 
         <div className="relative">
           <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-foreground/15 sm:hidden" />
 
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-foreground text-background shadow-xs">
               <HeaderIcon size={20} strokeWidth={2.2} />
             </div>
 
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                {cleanText(eyebrow, MAX_BADGE_CHARS)}
-              </p>
+              {eyebrow ? (
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                  {cleanText(eyebrow, MAX_BADGE_CHARS)}
+                </p>
+              ) : null}
 
               <h2
                 id={titleId}
-                className="mt-1 text-2xl font-black tracking-[-0.04em] text-foreground sm:text-3xl"
+                className="mt-1 text-2xl font-black tracking-tight text-foreground sm:text-3xl"
               >
                 {cleanText(title, MAX_TITLE_CHARS)}
               </h2>
 
-              <p
-                id={descriptionId}
-                className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground"
-              >
-                {cleanText(description, MAX_DESCRIPTION_CHARS)}
-              </p>
+              {description ? (
+                <p
+                  id={descriptionId}
+                  className="mt-1.5 max-w-2xl text-xs leading-5 text-muted-foreground"
+                >
+                  {cleanText(description, MAX_DESCRIPTION_CHARS)}
+                </p>
+              ) : null}
             </div>
 
             <button
@@ -181,9 +185,9 @@ export default function SanaDockLauncher({
               onClick={() => onOpenChange(false)}
               aria-label="Жабу"
               className={cn(
-                'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-card',
-                'text-muted-foreground transition-all duration-200',
-                'hover:rotate-3 hover:border-foreground/20 hover:bg-muted hover:text-foreground',
+                'flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted/50',
+                'text-muted-foreground shadow-xs transition-all duration-200',
+                'hover:bg-muted hover:text-foreground',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35',
               )}
             >

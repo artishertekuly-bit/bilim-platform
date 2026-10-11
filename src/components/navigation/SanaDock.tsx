@@ -590,7 +590,9 @@ export default function SanaDock({
 
       <SanaDockLauncher
         open={openLauncher === 'courses'}
+        eyebrow="Sana"
         title="Оқу бөлімдері"
+        description="Курстар мен сабақтар"
         icon={BookOpen}
         tools={courseTools}
         emptyTitle="Курс бөлімі қолжетімсіз"
@@ -602,7 +604,9 @@ export default function SanaDock({
 
       <SanaDockLauncher
         open={openLauncher === 'ai'}
+        eyebrow="Sana ЖИ"
         title="ЖИ құралдары"
+        description="Оқу және көмекші құралдар"
         icon={Bot}
         tools={aiTools}
         emptyTitle="Қолжетімді ЖИ құралы жоқ"
