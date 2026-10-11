@@ -6,18 +6,17 @@ import {
 } from 'react';
 import {
   AlertCircle,
-  Copy,
   Check,
-  Languages,
+  Copy,
   Loader2,
   Mic,
   Pause,
   Play,
   RotateCcw,
+  Send,
   Sparkles,
-  Square,
   Volume2,
-  VolumeX,
+  X,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -59,8 +58,10 @@ export default function VoiceAssistantWidget({
   const [copied, setCopied] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
+  const isCancelledRef = useRef<boolean>(false);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -75,7 +76,11 @@ export default function VoiceAssistantWidget({
         audioPlayerRef.current = null;
       }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        isCancelledRef.current = true;
         mediaRecorderRef.current.stop();
+      }
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((track) => track.stop());
       }
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -89,11 +94,12 @@ export default function VoiceAssistantWidget({
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  // Старт записи голоса через MediaRecorder
+  // Старт записи голоса
   const startRecording = useCallback(async () => {
     setErrorMessage(null);
+    isCancelledRef.current = false;
 
-    // Останавливаем предыдущее аудио, если играло
+    // Тоқтатамыз алдыңғы аудионы
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
       audioPlayerRef.current = null;
@@ -112,7 +118,8 @@ export default function VoiceAssistantWidget({
         },
       });
 
-      // Определяем поддерживаемый MIME-тип
+      audioStreamRef.current = stream;
+
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/webm')
@@ -134,8 +141,20 @@ export default function VoiceAssistantWidget({
       };
 
       mediaRecorder.onstop = () => {
-        // Останавливаем дорожки микрофона
-        stream.getTracks().forEach((track) => track.stop());
+        // Микрофон трассасын тоқтату
+        if (audioStreamRef.current) {
+          audioStreamRef.current.getTracks().forEach((track) => track.stop());
+          audioStreamRef.current = null;
+        }
+
+        // Егер пайдаланушы жазбаны болдырмаса (Отмена)
+        if (isCancelledRef.current) {
+          isCancelledRef.current = false;
+          audioChunksRef.current = [];
+          setStatus('idle');
+          setRecordingSeconds(0);
+          return;
+        }
 
         const audioBlob = new Blob(audioChunksRef.current, {
           type: mimeType || 'audio/webm',
@@ -148,14 +167,13 @@ export default function VoiceAssistantWidget({
         }
       };
 
-      mediaRecorder.start(250); // собираем чанки каждые 250 мс
+      mediaRecorder.start(250);
       setStatus('recording');
       setRecordingSeconds(0);
 
       timerRef.current = window.setInterval(() => {
         setRecordingSeconds((prev) => {
           if (prev >= 60) {
-            // Лимит в 1 минуту на один голосовой вопрос
             stopRecording();
             return 60;
           }
@@ -166,7 +184,7 @@ export default function VoiceAssistantWidget({
       const msg =
         err instanceof Error
           ? err.message
-          : 'Микрофонға рұқсат берілмеді немесе құрылғы қосылмаған.';
+          : 'Микрофонға рұқсат берілмеді.';
       setErrorMessage(msg);
       setStatus('error');
       toast({
@@ -177,7 +195,7 @@ export default function VoiceAssistantWidget({
     }
   }, [toast]);
 
-  // Остановка записи
+  // Жазбаны тоқтатып, жіберу (Завершить и отправить)
   const stopRecording = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -192,7 +210,38 @@ export default function VoiceAssistantWidget({
     }
   }, []);
 
-  // Отправка аудио на бэкенд (Groq Whisper -> Groq LLM -> Edge-TTS)
+  // Жазбаны болдырмау және жою (Отменить запись без отправки)
+  const cancelRecording = useCallback(() => {
+    isCancelledRef.current = true;
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !== 'inactive'
+    ) {
+      mediaRecorderRef.current.stop();
+    }
+
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
+    }
+
+    audioChunksRef.current = [];
+    setStatus('idle');
+    setRecordingSeconds(0);
+
+    toast({
+      title: 'Жазба тоқтатылды',
+      description: 'Аудио өшірілді, сұраныс жіберілген жоқ.',
+    });
+  }, [toast]);
+
+  // Аудионы бэкендке жіберу
   const handleSendAudio = async (blob: Blob) => {
     setStatus('processing');
     abortControllerRef.current = new AbortController();
@@ -208,7 +257,6 @@ export default function VoiceAssistantWidget({
       setLastResponse(response);
       onResponse?.(response);
 
-      // Автоматическое воспроизведение ответа
       playAudio(response.audioUrl);
     } catch (err) {
       const msg =
@@ -223,7 +271,7 @@ export default function VoiceAssistantWidget({
     }
   };
 
-  // Воспроизведение аудио
+  // Аудио ойнату
   const playAudio = useCallback((audioUrl: string) => {
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
@@ -248,17 +296,12 @@ export default function VoiceAssistantWidget({
 
     audio.onerror = () => {
       setStatus('idle');
-      toast({
-        title: 'Аудио ойнату қатесі',
-        description: 'Дыбысты шығару сәтсіз аяқталды.',
-        variant: 'destructive',
-      });
     };
 
     audio.play().catch(() => {
       setStatus('idle');
     });
-  }, [toast]);
+  }, []);
 
   const togglePlayPause = () => {
     if (!audioPlayerRef.current) {
@@ -286,34 +329,27 @@ export default function VoiceAssistantWidget({
   return (
     <Card
       className={cn(
-        'relative overflow-hidden border-border/40 bg-card/95 shadow-sm backdrop-blur-sm transition-all',
+        'relative overflow-hidden border-none bg-card/95 shadow-xs backdrop-blur-xs transition-all',
         className,
       )}
     >
-      <CardContent className="p-6 sm:p-8">
-        {/* Верхняя панель: Заголовок и выбор языка */}
+      <CardContent className="p-6 sm:p-8 space-y-6">
+        {/* Жоғарғы қатар: Тақырып және тіл таңдау */}
         <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10 text-primary shadow-xs">
-              <Sparkles size={18} />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold tracking-tight text-foreground sm:text-base">
-                Дауыстық ИИ көмекші
-              </h3>
-              <p className="text-[11px] text-muted-foreground">
-                Groq Whisper + LLM + Edge-TTS
-              </p>
-            </div>
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} className="text-primary" />
+            <h3 className="text-sm font-bold tracking-tight text-foreground sm:text-base">
+              Дауыстық көмекші
+            </h3>
           </div>
 
-          <div className="flex items-center gap-1 rounded-full bg-muted/60 p-1">
+          <div className="flex items-center gap-1 rounded-full bg-muted/50 p-1">
             <button
               type="button"
               onClick={() => setLanguage('kk')}
               disabled={status === 'recording' || status === 'processing'}
               className={cn(
-                'rounded-full px-2.5 py-1 text-xs font-semibold transition',
+                'rounded-full px-3 py-1 text-xs font-semibold transition',
                 language === 'kk'
                   ? 'bg-card text-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground',
@@ -326,7 +362,7 @@ export default function VoiceAssistantWidget({
               onClick={() => setLanguage('ru')}
               disabled={status === 'recording' || status === 'processing'}
               className={cn(
-                'rounded-full px-2.5 py-1 text-xs font-semibold transition',
+                'rounded-full px-3 py-1 text-xs font-semibold transition',
                 language === 'ru'
                   ? 'bg-card text-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground',
@@ -337,10 +373,10 @@ export default function VoiceAssistantWidget({
           </div>
         </div>
 
-        {/* Главная интерактивная кнопка микрофона и анимации */}
-        <div className="my-8 flex flex-col items-center justify-center text-center">
+        {/* Негізгі интерактивті батырма */}
+        <div className="my-6 flex flex-col items-center justify-center text-center">
           <div className="relative flex items-center justify-center">
-            {/* Пульсирующие волны при записи */}
+            {/* Жазу кезіндегі анимация */}
             {status === 'recording' ? (
               <>
                 <span className="absolute h-28 w-28 animate-ping rounded-full bg-rose-500/20 sm:h-32 sm:w-32" />
@@ -348,12 +384,12 @@ export default function VoiceAssistantWidget({
               </>
             ) : null}
 
-            {/* Пульсирующие волны при воспроизведении */}
+            {/* Дыбыс ойналып жатқандағы анимация */}
             {status === 'speaking' ? (
               <span className="absolute h-24 w-24 animate-pulse rounded-full bg-primary/20 sm:h-28 sm:w-28" />
             ) : null}
 
-            {/* Основная кнопка */}
+            {/* Бос күй (Микрофон) */}
             {status === 'idle' || status === 'error' ? (
               <button
                 type="button"
@@ -361,8 +397,7 @@ export default function VoiceAssistantWidget({
                 className={cn(
                   'relative z-10 flex h-20 w-20 items-center justify-center rounded-full',
                   'bg-primary text-primary-foreground shadow-md transition-all duration-300',
-                  'hover:scale-105 hover:shadow-lg active:scale-95',
-                  'sm:h-24 sm:w-24',
+                  'hover:scale-105 active:scale-95 sm:h-24 sm:w-24',
                 )}
                 aria-label="Сөйлеу үшін басыңыз"
               >
@@ -370,21 +405,42 @@ export default function VoiceAssistantWidget({
               </button>
             ) : null}
 
+            {/* Жазу үдерісі: Болдырмау (X) және Жіберу (Send) батырмалары */}
             {status === 'recording' ? (
-              <button
-                type="button"
-                onClick={stopRecording}
-                className={cn(
-                  'relative z-10 flex h-20 w-20 items-center justify-center rounded-full',
-                  'bg-rose-500 text-white shadow-md transition-all duration-300',
-                  'hover:scale-105 active:scale-95 sm:h-24 sm:w-24',
-                )}
-                aria-label="Жазбаны тоқтату"
-              >
-                <Square size={26} className="fill-current" />
-              </button>
+              <div className="relative z-10 flex items-center gap-4 sm:gap-6">
+                {/* Болдырмау батырмасы */}
+                <button
+                  type="button"
+                  onClick={cancelRecording}
+                  className={cn(
+                    'flex h-12 w-12 items-center justify-center rounded-full',
+                    'bg-muted/80 text-muted-foreground shadow-xs transition-all duration-200',
+                    'hover:bg-destructive/15 hover:text-destructive active:scale-90',
+                  )}
+                  title="Жазбаны болдырмау"
+                  aria-label="Жазбаны болдырмау"
+                >
+                  <X size={22} />
+                </button>
+
+                {/* Жіберу / Аяқтау батырмасы */}
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  className={cn(
+                    'flex h-20 w-20 items-center justify-center rounded-full',
+                    'bg-rose-500 text-white shadow-md transition-all duration-300',
+                    'hover:scale-105 active:scale-95 sm:h-24 sm:w-24',
+                  )}
+                  title="Аяқтау және жіберу"
+                  aria-label="Жазбаны аяқтау және жіберу"
+                >
+                  <Send size={28} className="translate-x-0.5" />
+                </button>
+              </div>
             ) : null}
 
+            {/* Өңдеу индикаторы */}
             {status === 'processing' ? (
               <div
                 className={cn(
@@ -392,10 +448,11 @@ export default function VoiceAssistantWidget({
                   'bg-muted text-primary shadow-xs sm:h-24 sm:w-24',
                 )}
               >
-                <Loader2 size={34} className="animate-spin text-primary" />
+                <Loader2 size={32} className="animate-spin text-primary" />
               </div>
             ) : null}
 
+            {/* Ойнату / Кідірту */}
             {status === 'speaking' || status === 'paused' ? (
               <button
                 type="button"
@@ -416,35 +473,41 @@ export default function VoiceAssistantWidget({
             ) : null}
           </div>
 
-          {/* Статусные подписи и индикаторы */}
-          <div className="mt-5 space-y-1.5">
+          {/* Қарапайым әрі қысқа статустық мәтіндер */}
+          <div className="mt-4 space-y-1">
             {status === 'idle' ? (
-              <p className="text-xs font-semibold text-muted-foreground sm:text-sm">
-                Сұрақ қою үшін басып, сөйлеңіз
+              <p className="text-xs font-semibold text-muted-foreground">
+                Сұрақ қою үшін басыңыз
               </p>
             ) : null}
 
             {status === 'recording' ? (
-              <div className="flex items-center justify-center gap-2 text-rose-500">
-                <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
-                <span className="font-mono text-sm font-bold">
-                  {formatTimer(recordingSeconds)}
-                </span>
-                <span className="text-xs font-medium">Жазылуда...</span>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-center gap-2 text-rose-500">
+                  <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+                  <span className="font-mono text-sm font-bold">
+                    {formatTimer(recordingSeconds)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-center gap-3 text-[11px] text-muted-foreground">
+                  <span className="text-destructive font-medium">Крестик — болдырмау</span>
+                  <span>•</span>
+                  <span className="text-foreground font-medium">Қызыл — жіберу</span>
+                </div>
               </div>
             ) : null}
 
             {status === 'processing' ? (
-              <p className="text-xs font-semibold text-primary sm:text-sm animate-pulse">
-                Дауысты танып, жауап дайындаудамын...
+              <p className="text-xs font-semibold text-primary animate-pulse">
+                Жауап дайындалуда...
               </p>
             ) : null}
 
             {status === 'speaking' ? (
               <div className="flex items-center justify-center gap-2 text-primary">
-                <Volume2 size={16} className="animate-pulse" />
-                <span className="text-xs font-semibold">Жауапты оқудамын</span>
-                <div className="flex items-end gap-1 h-3.5">
+                <Volume2 size={15} className="animate-pulse" />
+                <span className="text-xs font-semibold">Жауап оқылуда</span>
+                <div className="flex items-end gap-1 h-3">
                   <span className="w-1 bg-primary rounded-full animate-bounce [animation-delay:0ms] h-full" />
                   <span className="w-1 bg-primary rounded-full animate-bounce [animation-delay:150ms] h-2/3" />
                   <span className="w-1 bg-primary rounded-full animate-bounce [animation-delay:300ms] h-full" />
@@ -454,7 +517,7 @@ export default function VoiceAssistantWidget({
 
             {status === 'paused' ? (
               <p className="text-xs font-semibold text-muted-foreground">
-                Кідіртілді (жалғастыру үшін басыңыз)
+                Кідіртілді
               </p>
             ) : null}
 
@@ -467,25 +530,24 @@ export default function VoiceAssistantWidget({
           </div>
         </div>
 
-        {/* Блок с историей текущего вопроса и ответа */}
+        {/* Сұрақ-жауап нәтижесі */}
         {lastResponse ? (
-          <div className="space-y-3.5 rounded-2xl bg-muted/40 p-4 transition-all sm:p-5">
-            {/* Сұрақ */}
-            <div className="space-y-1">
+          <div className="space-y-3 rounded-2xl bg-muted/40 p-4 transition-all sm:p-5">
+            {/* Пайдаланушы сұрағы */}
+            <div className="space-y-0.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                Сіздің сұрағыңыз:
+                Сіз
               </span>
               <p className="text-xs font-medium text-foreground sm:text-sm leading-relaxed">
-                "{lastResponse.userTranscript}"
+                {lastResponse.userTranscript}
               </p>
             </div>
 
-            {/* Жауап */}
-            <div className="space-y-1.5 border-t border-border/40 pt-3">
+            {/* AI жауабы */}
+            <div className="space-y-1 border-t border-border/40 pt-2.5">
               <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary">
-                  <Sparkles size={12} />
-                  AI Көмекші:
+                <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+                  AI
                 </span>
                 <div className="flex items-center gap-1">
                   <Button
@@ -493,8 +555,8 @@ export default function VoiceAssistantWidget({
                     variant="ghost"
                     size="icon"
                     onClick={handleCopyText}
-                    className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
-                    title="Мәтінді көшіру"
+                    className="h-6 w-6 rounded-full text-muted-foreground hover:text-foreground"
+                    title="Көшіру"
                   >
                     {copied ? <Check size={12} /> : <Copy size={12} />}
                   </Button>
@@ -503,7 +565,7 @@ export default function VoiceAssistantWidget({
                     variant="ghost"
                     size="icon"
                     onClick={() => playAudio(lastResponse.audioUrl)}
-                    className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
+                    className="h-6 w-6 rounded-full text-muted-foreground hover:text-foreground"
                     title="Қайта тыңдау"
                   >
                     <RotateCcw size={12} />
@@ -515,7 +577,7 @@ export default function VoiceAssistantWidget({
               </p>
             </div>
 
-            {/* Батырмалар: жаңа сұрақ қою */}
+            {/* Жаңа сұрақ қою батырмасы */}
             <div className="pt-1 flex justify-end">
               <Button
                 type="button"
@@ -526,7 +588,7 @@ export default function VoiceAssistantWidget({
                 className="rounded-full text-xs font-semibold shadow-xs"
               >
                 <Mic size={12} className="mr-1.5" />
-                Жаңа сұрақ қою
+                Жаңа сұрақ
               </Button>
             </div>
           </div>

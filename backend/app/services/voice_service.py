@@ -22,20 +22,45 @@ for env_file in ENV_FILES:
 logger = logging.getLogger("bilimcorp.ai.voice")
 
 GROQ_DEFAULT_WHISPER_MODEL = "whisper-large-v3"
-GROQ_DEFAULT_CHAT_MODEL = "llama-3.1-8b-instant"
+GROQ_DEFAULT_CHAT_MODEL = "openai/gpt-oss-20b"
 GROQ_FALLBACK_MODELS = [
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
     "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
-    "gemma2-9b-it",
 ]
 
-# Ескірген/өшірілген модель атауларын қазіргі белсенді баламасына автоматты түрде бағыттау
+# Ескірген/өшірілген модель атауларын қазіргі белсенді өндірістік баламасына автоматты түрде бағыттау
 DEPRECATED_MODELS_MAP = {
-    "llama3-8b-8192": "llama-3.1-8b-instant",
-    "llama3-70b-8192": "llama-3.3-70b-versatile",
-    "llama-3-8b-8192": "llama-3.1-8b-instant",
-    "llama-3-70b-8192": "llama-3.3-70b-versatile",
-    "mixtral-8x7b-32768": "llama-3.1-8b-instant",
+    # Gemma (өшірілген) -> openai/gpt-oss-20b
+    "gemma2-9b-it": "openai/gpt-oss-20b",
+    "gemma-7b-it": "openai/gpt-oss-20b",
+    # Llama 3 (өшірілген) -> openai/gpt-oss-20b
+    "llama3-8b-8192": "openai/gpt-oss-20b",
+    "llama3-70b-8192": "openai/gpt-oss-120b",
+    "llama-3-8b-8192": "openai/gpt-oss-20b",
+    "llama-3-70b-8192": "openai/gpt-oss-120b",
+    # Llama 3.1 & 3.3 (өшірілген) -> openai/gpt-oss-20b / 120b
+    "llama-3.1-8b-instant": "openai/gpt-oss-20b",
+    "llama-3.3-70b-versatile": "openai/gpt-oss-120b",
+    "llama-3.1-70b-versatile": "openai/gpt-oss-120b",
+    "llama-3.2-1b-preview": "openai/gpt-oss-20b",
+    "llama-3.2-3b-preview": "openai/gpt-oss-20b",
+    "llama-3.2-11b-vision-preview": "openai/gpt-oss-120b",
+    "llama-3.2-90b-vision-preview": "openai/gpt-oss-120b",
+    # Mixtral & Mistral
+    "mixtral-8x7b-32768": "openai/gpt-oss-20b",
+    "mistral-saba-24b": "qwen/qwen3.8-27b",
+    # Qwen ескі нұсқалары
+    "qwen/qwen3.6-27b": "qwen/qwen3.8-27b",
+    "qwen/qwen3-32b": "openai/gpt-oss-120b",
+    "qwen-qwq-32b": "qwen/qwen3.8-27b",
+    "qwen-2.5-32b": "qwen/qwen3.8-27b",
+    "qwen-2.5-coder-32b": "openai/gpt-oss-120b",
+    # DeepSeek
+    "deepseek-r1-distill-llama-70b": "openai/gpt-oss-120b",
+    "deepseek-r1-distill-qwen-32b": "qwen/qwen3.8-27b",
 }
 
 EDGE_TTS_DEFAULT_VOICE_KK = "kk-KZ-AigulNeural"
@@ -103,31 +128,65 @@ async def transcribe_audio_groq(
     language: str | None = None,
 ) -> str:
     """
-    Транскрибирует аудио через Groq API Whisper-large (быстро и бесплатно).
+    Транскрибирует аудио через Groq API Whisper (быстро и бесплатно).
     """
     if not audio_bytes:
         raise ValueError("Аудиофайл бос болмауы керек.")
 
     client = get_groq_client()
-    whisper_model = (os.getenv("GROQ_WHISPER_MODEL") or GROQ_DEFAULT_WHISPER_MODEL).strip()
+    whisper_candidates = [
+        (os.getenv("GROQ_WHISPER_MODEL") or "").strip(),
+        GROQ_DEFAULT_WHISPER_MODEL,
+        "whisper-large-v3-turbo",
+        "whisper-large-v3",
+    ]
+    seen_whisper: set[str] = set()
+    whisper_models: list[str] = []
+    for m in whisper_candidates:
+        if m and m not in seen_whisper:
+            seen_whisper.add(m)
+            whisper_models.append(m)
 
-    # Whisper в Groq принимает кортеж (имя файла, байты, MIME-тип)
     file_tuple = (filename, audio_bytes)
-    kwargs: dict[str, Any] = {
-        "file": file_tuple,
-        "model": whisper_model,
-        "response_format": "json",
-    }
-    if language in {"kk", "ru", "en"}:
-        kwargs["language"] = language
+    last_whisper_err: Exception | None = None
 
-    try:
-        transcription = await client.audio.transcriptions.create(**kwargs)
-        text = getattr(transcription, "text", "") or ""
-        return text.strip()
-    except Exception as exc:
-        logger.exception("Groq whisper transcription error: %s", exc)
-        raise RuntimeError(f"Дауысты тану кезінде қате пайда болды (Groq Whisper): {exc}") from exc
+    for model_name in whisper_models:
+        kwargs: dict[str, Any] = {
+            "file": file_tuple,
+            "model": model_name,
+            "response_format": "json",
+        }
+        if language in {"kk", "ru", "en"}:
+            kwargs["language"] = language
+
+        try:
+            transcription = await client.audio.transcriptions.create(**kwargs)
+            text = getattr(transcription, "text", "") or ""
+            return text.strip()
+        except Exception as exc:
+            err_msg = str(exc).lower()
+            if (
+                "model_not_found" in err_msg
+                or "model_decommissioned" in err_msg
+                or "decommissioned" in err_msg
+                or "does not exist" in err_msg
+                or "no longer supported" in err_msg
+                or "404" in err_msg
+                or "400" in err_msg
+            ):
+                logger.warning(
+                    "Groq whisper '%s' қолжетімсіз, келесі нұсқаға көшудеміз: %s",
+                    model_name,
+                    exc,
+                )
+                last_whisper_err = exc
+                continue
+            logger.exception("Groq whisper transcription error: %s", exc)
+            raise RuntimeError(f"Дауысты тану кезінде қате пайда болды (Groq Whisper): {exc}") from exc
+
+    if last_whisper_err:
+        raise RuntimeError(f"Дауысты тану кезінде қате пайда болды (Groq Whisper): {last_whisper_err}")
+    raise RuntimeError("Қолжетімді Groq Whisper моделі табылмады.")
 
 
 async def generate_voice_llm_response(
