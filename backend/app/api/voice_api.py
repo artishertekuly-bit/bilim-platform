@@ -257,3 +257,71 @@ async def get_voice_history_endpoint(
     except Exception as exc:
         logger.warning("Failed to fetch voice history: %s", exc)
         return {"items": [], "warning": "Тарих кестесі әлі дайындалмаған немесе қолжетімсіз."}
+
+
+@router.post("/livekit/token")
+@router.get("/livekit/token")
+async def get_livekit_token_endpoint(
+    room_name: str | None = Query(None),
+    participant_name: str | None = Query(None),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    """
+    LiveKit WebRTC бөлмесіне қосылу үшін JWT кілтін береді (GoPrep әдісі).
+    Браузер LiveKit WebRTC серверіне тікелей қосылып, микрофонды ағынмен береді.
+    """
+    import os
+    import time
+    import uuid
+
+    livekit_url = (os.getenv("LIVEKIT_URL") or "").strip()
+    api_key = (os.getenv("LIVEKIT_API_KEY") or "").strip()
+    api_secret = (os.getenv("LIVEKIT_API_SECRET") or "").strip()
+
+    if not livekit_url or not api_key or not api_secret:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "is_configured": False,
+                "message": (
+                    "LiveKit WebRTC бапталмаған. Бұл әдісті іске қосу үшін .env файлына "
+                    "LIVEKIT_URL, LIVEKIT_API_KEY және LIVEKIT_API_SECRET мәндерін енгізіңіз "
+                    "(cloud.livekit.io сайтынан тегін алуға болады)."
+                ),
+            },
+        )
+
+    user_id = _try_get_user_id(authorization, x_user_id) or f"user_{uuid.uuid4().hex[:8]}"
+    room = room_name or f"bilim_room_{user_id[:8]}"
+    name = participant_name or f"User {user_id[:6]}"
+
+    try:
+        import jwt
+        now = int(time.time())
+        payload = {
+            "exp": now + 7200,
+            "nbf": now - 5,
+            "iss": api_key,
+            "sub": user_id,
+            "name": name,
+            "video": {
+                "room": room,
+                "roomJoin": True,
+                "canPublish": True,
+                "canSubscribe": True,
+                "canPublishData": True,
+            },
+        }
+        token = jwt.encode(payload, api_secret, algorithm="HS256")
+        return {
+            "token": token,
+            "url": livekit_url,
+            "room": room,
+            "participant_id": user_id,
+            "is_configured": True,
+        }
+    except Exception as exc:
+        logger.exception("Failed to generate LiveKit token: %s", exc)
+        raise HTTPException(status_code=500, detail=f"LiveKit токенін жасау қатесі: {exc}")
+

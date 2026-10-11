@@ -1799,4 +1799,34 @@ export async function sendVoiceAssistantAudio(
   } finally {
     cleanup();
   }
+}
+
+export interface LiveKitTokenResponse {
+  is_configured: boolean;
+  token?: string;
+  url?: string;
+  room?: string;
+  participant_id?: string;
+  message?: string;
+}
+
+export async function fetchLiveKitToken(
+  roomName?: string,
+  options?: RequestOptions,
+): Promise<LiveKitTokenResponse> {
+  const query = roomName ? `?room_name=${encodeURIComponent(roomName)}` : '';
+  const url = `${getAiApiBaseUrl()}/api/voice/livekit/token${query}`;
+  const baseHeaders = buildHeaders(options);
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: baseHeaders,
+  });
+
+  if (!response.ok) {
+    const body = await parseResponseBody(response);
+    throw new AiApiError(extractErrorMessage(body, response.status), response.status);
+  }
+
+  return response.json();
 }

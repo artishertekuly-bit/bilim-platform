@@ -8,7 +8,10 @@ import {
   AlertCircle,
   Check,
   Copy,
+  ExternalLink,
+  Flame,
   Headphones,
+  Info,
   Loader2,
   Mic,
   MicOff,
@@ -17,21 +20,26 @@ import {
   Radio,
   RotateCcw,
   Send,
-  Sparkles,
   Trash2,
   Volume2,
+  Wifi,
   X,
   Zap,
 } from 'lucide-react';
+import { Room, RoomEvent, Track, type RemoteParticipant, type RemoteTrackPublication } from 'livekit-client';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { sendVoiceAssistantAudio, type VoiceAssistantResponse } from '@/lib/ai-api';
+import {
+  fetchLiveKitToken,
+  sendVoiceAssistantAudio,
+  type VoiceAssistantResponse,
+} from '@/lib/ai-api';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 
-export type VoiceAssistantMode = 'live' | 'manual';
+export type VoiceAssistantMode = 'livekit' | 'live' | 'manual';
 
 export type VoiceAssistantStatus =
   | 'idle'
@@ -55,9 +63,9 @@ interface VoiceAssistantWidgetProps {
   onResponse?: (response: VoiceAssistantResponse) => void;
 }
 
-const SILENCE_THRESHOLD_VOLUME = 16; // Дыбыс деңгейінің шегі (0-100)
-const SILENCE_DURATION_MS = 1300; // Сөйлеп болған соң күту уақыты (1.3 сек)
-const MIN_SPEECH_DURATION_MS = 600; // Кездейсоқ шуды жібермеу үшін ең аз сөйлеу уақыты
+const SILENCE_THRESHOLD_VOLUME = 16;
+const SILENCE_DURATION_MS = 1300;
+const MIN_SPEECH_DURATION_MS = 600;
 
 export default function VoiceAssistantWidget({
   className,
@@ -68,12 +76,20 @@ export default function VoiceAssistantWidget({
   const { session } = useAuth();
   const { toast } = useToast();
 
-  const [mode, setMode] = useState<VoiceAssistantMode>('live');
+  const [mode, setMode] = useState<VoiceAssistantMode>('livekit');
   const [status, setStatus] = useState<VoiceAssistantStatus>('idle');
   const [language, setLanguage] = useState<'kk' | 'ru'>(defaultLanguage);
   const [selectedVoice, setSelectedVoice] = useState<string>(
     defaultLanguage === 'ru' ? 'ru-RU-DmitryNeural' : 'kk-KZ-DauletNeural',
   );
+
+  // LiveKit WebRTC күйлері
+  const [isLiveKitConnected, setIsLiveKitConnected] = useState<boolean>(false);
+  const [isLiveKitConnecting, setIsLiveKitConnecting] = useState<boolean>(false);
+  const [liveKitUnconfigured, setLiveKitUnconfigured] = useState<boolean>(false);
+  const [liveKitRoomName, setLiveKitRoomName] = useState<string | null>(null);
+
+  // Браузерлік Live және Manual күйлері
   const [isLiveActive, setIsLiveActive] = useState<boolean>(false);
   const [audioLevel, setAudioLevel] = useState<number>(0);
   const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
@@ -83,6 +99,8 @@ export default function VoiceAssistantWidget({
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   // Рефтер
+  const liveKitRoomRef = useRef<Room | null>(null);
+  const liveKitAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -91,7 +109,7 @@ export default function VoiceAssistantWidget({
   const isCancelledRef = useRef<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // VAD және Web Audio API рефтері
+  // VAD рефтері
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -101,7 +119,6 @@ export default function VoiceAssistantWidget({
   const statusRef = useRef<VoiceAssistantStatus>('idle');
   const isLiveActiveRef = useRef<boolean>(false);
 
-  // status пен isLiveActive рефтерін синхрондау
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
@@ -156,20 +173,120 @@ export default function VoiceAssistantWidget({
     setAudioLevel(0);
   }, []);
 
+  // LiveKit тазалау
+  const disconnectLiveKit = useCallback(() => {
+    if (liveKitRoomRef.current) {
+      liveKitRoomRef.current.disconnect();
+      liveKitRoomRef.current = null;
+    }
+    if (liveKitAudioElementRef.current) {
+      liveKitAudioElementRef.current.pause();
+      liveKitAudioElementRef.current.remove();
+      liveKitAudioElementRef.current = null;
+    }
+    setIsLiveKitConnected(false);
+    setIsLiveKitConnecting(false);
+    setStatus('idle');
+  }, []);
+
   useEffect(() => {
     return () => {
       cleanupAudio();
+      disconnectLiveKit();
     };
-  }, [cleanupAudio]);
+  }, [cleanupAudio, disconnectLiveKit]);
 
+  // --------------------------------------------------------------------------
+  // LIVEKIT WEBRTC СЕССИЯСЫН БАСҚАРУ (100% GOPREP ARCHITECTURE)
+  // --------------------------------------------------------------------------
+  const startLiveKitSession = useCallback(async () => {
+    setIsLiveKitConnecting(true);
+    setErrorMessage(null);
+    setLiveKitUnconfigured(false);
+
+    try {
+      // 1. Бэкендтен LiveKit JWT токенін сұрау
+      const tokenData = await fetchLiveKitToken(undefined, {
+        accessToken: session?.access_token,
+      });
+
+      if (!tokenData.is_configured || !tokenData.token || !tokenData.url) {
+        setLiveKitUnconfigured(true);
+        setIsLiveKitConnecting(false);
+        return;
+      }
+
+      // 2. LiveKit Room құру
+      const room = new Room({
+        adaptiveStream: true,
+        dynacast: true,
+      });
+
+      liveKitRoomRef.current = room;
+      setLiveKitRoomName(tokenData.room || 'LiveKit Room');
+
+      // Келген дыбыс трегін тыңдау
+      room.on(
+        RoomEvent.TrackSubscribed,
+        (track: Track, _publication: RemoteTrackPublication, _participant: RemoteParticipant) => {
+          if (track.kind === Track.Kind.Audio) {
+            const audioElement = track.attach();
+            liveKitAudioElementRef.current = audioElement;
+            setStatus('speaking');
+          }
+        },
+      );
+
+      room.on(RoomEvent.TrackUnsubscribed, (track: Track) => {
+        track.detach();
+        setStatus('listening');
+      });
+
+      // Байланыс үзілгенде
+      room.on(RoomEvent.Disconnected, () => {
+        setIsLiveKitConnected(false);
+        setIsLiveKitConnecting(false);
+        setStatus('idle');
+      });
+
+      // 3. WebRTC серверге қосылу
+      await room.connect(tokenData.url, tokenData.token);
+
+      // 4. Микрофонды тікелей WebRTC арқылы ағынға шығару
+      await room.localParticipant.setMicrophoneEnabled(true);
+
+      setIsLiveKitConnected(true);
+      setIsLiveKitConnecting(false);
+      setStatus('listening');
+
+      toast({
+        title: 'GoPrep (LiveKit) қосылды!',
+        description: 'WebRTC арқылы ~500 мс жылдамдықтағы тірі байланыс орнатылды.',
+      });
+    } catch (err) {
+      console.error('LiveKit connection error:', err);
+      const msg = err instanceof Error ? err.message : 'LiveKit WebRTC серверіне қосылу сәтсіз аяқталды.';
+      setErrorMessage(msg);
+      setIsLiveKitConnecting(false);
+      setIsLiveKitConnected(false);
+      toast({
+        title: 'LiveKit қатесі',
+        description: msg,
+        variant: 'destructive',
+      });
+    }
+  }, [session?.access_token, toast]);
+
+  // --------------------------------------------------------------------------
+  // БРАУЗЕРЛІК VAD & СӨЗ ЖАЗУ ЛОГИКАСЫ (FALLBACK LIVE MODE)
+  // --------------------------------------------------------------------------
   const formatTimer = (totalSeconds: number): string => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  // Аудио ойнату
-  const playAudio = useCallback((audioUrl: string, onEndedCallback?: () => void) => {
+  const playAudio = useCallback((audioUrl: string) => {
     if (audioPlayerRef.current) {
       audioPlayerRef.current.pause();
     }
@@ -189,9 +306,7 @@ export default function VoiceAssistantWidget({
 
     audio.onended = () => {
       if (isLiveActiveRef.current) {
-        // Live режимде AI сөйлеп болған соң қайтадан тыңдауға көшеді
         setStatus('listening');
-        onEndedCallback?.();
       } else {
         setStatus('idle');
       }
@@ -214,125 +329,51 @@ export default function VoiceAssistantWidget({
     });
   }, []);
 
-  // Аудионы бэкендке жіберу және жауап алу
-  const sendAudioToBackend = useCallback(async (blob: Blob) => {
-    setStatus('processing');
-    setErrorMessage(null);
-    abortControllerRef.current = new AbortController();
+  const sendAudioToBackend = useCallback(
+    async (blob: Blob) => {
+      setStatus('processing');
+      setErrorMessage(null);
+      abortControllerRef.current = new AbortController();
 
-    try {
-      // Соңғы 6 хабарламаны контекст ретінде жібереміз
-      const historyContext = chatHistory.slice(-6).map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+      try {
+        const historyContext = chatHistory.slice(-6).map((msg) => ({
+          role: msg.role,
+          content: msg.content,
+        }));
 
-      const response = await sendVoiceAssistantAudio(blob, {
-        language,
-        voice: selectedVoice,
-        systemPrompt,
-        history: historyContext,
-        accessToken: session?.access_token,
-        signal: abortControllerRef.current.signal,
-      });
+        const response = await sendVoiceAssistantAudio(blob, {
+          language,
+          voice: selectedVoice,
+          systemPrompt,
+          history: historyContext,
+          accessToken: session?.access_token,
+          signal: abortControllerRef.current.signal,
+        });
 
-      setLastResponse(response);
-      onResponse?.(response);
+        setLastResponse(response);
+        onResponse?.(response);
 
-      // Тарихқа қосу
-      setChatHistory((prev) => [
-        ...prev,
-        { role: 'user', content: response.userTranscript },
-        { role: 'assistant', content: response.aiReply, audioUrl: response.audioUrl },
-      ]);
+        setChatHistory((prev) => [
+          ...prev,
+          { role: 'user', content: response.userTranscript },
+          { role: 'assistant', content: response.aiReply, audioUrl: response.audioUrl },
+        ]);
 
-      // Жауапты автоматты түрде ойнату
-      playAudio(response.audioUrl);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Дауысты өңдеу сәтсіз аяқталды.';
-      setErrorMessage(msg);
-      setStatus(isLiveActiveRef.current ? 'listening' : 'error');
-      toast({
-        title: 'Қате орын алды',
-        description: msg,
-        variant: 'destructive',
-      });
-    }
-  }, [chatHistory, language, onResponse, playAudio, selectedVoice, session?.access_token, systemPrompt, toast]);
-
-  // VAD циклі: микрофон дыбыс деңгейін талдау және автоматты сөйлесуді басқару
-  const startLiveVadLoop = useCallback(() => {
-    if (!analyserRef.current) return;
-
-    const analyser = analyserRef.current;
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-    const checkVolume = () => {
-      if (!isLiveActiveRef.current) return;
-
-      analyser.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i];
+        playAudio(response.audioUrl);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Дауысты өңдеу сәтсіз аяқталды.';
+        setErrorMessage(msg);
+        setStatus(isLiveActiveRef.current ? 'listening' : 'error');
+        toast({
+          title: 'Қате орын алды',
+          description: msg,
+          variant: 'destructive',
+        });
       }
-      const rawAvg = sum / dataArray.length;
-      const normalizedVolume = Math.min(100, Math.round((rawAvg / 128) * 100));
-      setAudioLevel(normalizedVolume);
+    },
+    [chatHistory, language, onResponse, playAudio, selectedVoice, session?.access_token, systemPrompt, toast],
+  );
 
-      const currentStatus = statusRef.current;
-
-      // 1. СӨЗДІ БӨЛУ (BARGE-IN / INTERRUPTION):
-      // Егер AI сөйлеп жатқанда немесе паузада пайдаланушы сөйлей бастаса (volume > threshold)
-      if (
-        (currentStatus === 'speaking' || currentStatus === 'paused') &&
-        normalizedVolume > SILENCE_THRESHOLD_VOLUME
-      ) {
-        if (audioPlayerRef.current) {
-          audioPlayerRef.current.pause();
-          audioPlayerRef.current = null;
-        }
-        // AI дауысын тоқтатып, пайдаланушының жаңа сөзін тыңдауға көшеміз
-        setStatus('recording');
-        startLiveSpeechChunk();
-      }
-
-      // 2. СӨЙЛЕУДІ БАСТАУ (Адам сөйлей бастаған сәт)
-      if (
-        currentStatus === 'listening' &&
-        normalizedVolume > SILENCE_THRESHOLD_VOLUME &&
-        !isSpeakingNowRef.current
-      ) {
-        isSpeakingNowRef.current = true;
-        speechStartTimeRef.current = Date.now();
-        setStatus('recording');
-        startLiveSpeechChunk();
-      }
-
-      // 3. СӨЙЛЕП ЖАТҚАН КЕЗДЕ
-      if (isSpeakingNowRef.current) {
-        if (normalizedVolume > SILENCE_THRESHOLD_VOLUME) {
-          // Пайдаланушы әлі сөйлеп жатыр, үнсіздік таймерін өшіреміз
-          if (silenceTimerRef.current) {
-            clearTimeout(silenceTimerRef.current);
-            silenceTimerRef.current = null;
-          }
-        } else {
-          // Пайдаланушы үнсіз қалды, үнсіздік санағышын бастаймыз
-          if (!silenceTimerRef.current) {
-            silenceTimerRef.current = window.setTimeout(() => {
-              finishLiveSpeechChunk();
-            }, SILENCE_DURATION_MS);
-          }
-        }
-      }
-
-      animFrameRef.current = requestAnimationFrame(checkVolume);
-    };
-
-    animFrameRef.current = requestAnimationFrame(checkVolume);
-  }, []);
-
-  // Live режимде адамның жаңа аудио үзіндісін жазуды бастау
   const startLiveSpeechChunk = useCallback(() => {
     if (!audioStreamRef.current) return;
 
@@ -372,7 +413,6 @@ export default function VoiceAssistantWidget({
         });
 
         const duration = Date.now() - (speechStartTimeRef.current || 0);
-        // Егер адам тым аз уақыт сөйлесе (мысалы 0.6 секундтан аз шу болса), елемейміз
         if (audioBlob.size > 1000 && duration >= MIN_SPEECH_DURATION_MS) {
           sendAudioToBackend(audioBlob);
         } else {
@@ -386,7 +426,6 @@ export default function VoiceAssistantWidget({
     }
   }, [sendAudioToBackend]);
 
-  // Үнсіздік анықталған соң жазбаны аяқтап, жіберу
   const finishLiveSpeechChunk = useCallback(() => {
     isSpeakingNowRef.current = false;
     if (silenceTimerRef.current) {
@@ -406,7 +445,73 @@ export default function VoiceAssistantWidget({
     }
   }, []);
 
-  // LIVE (GoPrep стилі) СҰХБАТТЫ БАСТАУ
+  const startLiveVadLoop = useCallback(() => {
+    if (!analyserRef.current) return;
+
+    const analyser = analyserRef.current;
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    const checkVolume = () => {
+      if (!isLiveActiveRef.current) return;
+
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i];
+      }
+      const rawAvg = sum / dataArray.length;
+      const normalizedVolume = Math.min(100, Math.round((rawAvg / 128) * 100));
+      setAudioLevel(normalizedVolume);
+
+      const currentStatus = statusRef.current;
+
+      // Barge-in (Сөзді бөлу)
+      if (
+        (currentStatus === 'speaking' || currentStatus === 'paused') &&
+        normalizedVolume > SILENCE_THRESHOLD_VOLUME
+      ) {
+        if (audioPlayerRef.current) {
+          audioPlayerRef.current.pause();
+          audioPlayerRef.current = null;
+        }
+        setStatus('recording');
+        startLiveSpeechChunk();
+      }
+
+      // Сөйлей бастаған сәт
+      if (
+        currentStatus === 'listening' &&
+        normalizedVolume > SILENCE_THRESHOLD_VOLUME &&
+        !isSpeakingNowRef.current
+      ) {
+        isSpeakingNowRef.current = true;
+        speechStartTimeRef.current = Date.now();
+        setStatus('recording');
+        startLiveSpeechChunk();
+      }
+
+      // Сөйлеп жатқан кезде
+      if (isSpeakingNowRef.current) {
+        if (normalizedVolume > SILENCE_THRESHOLD_VOLUME) {
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
+        } else {
+          if (!silenceTimerRef.current) {
+            silenceTimerRef.current = window.setTimeout(() => {
+              finishLiveSpeechChunk();
+            }, SILENCE_DURATION_MS);
+          }
+        }
+      }
+
+      animFrameRef.current = requestAnimationFrame(checkVolume);
+    };
+
+    animFrameRef.current = requestAnimationFrame(checkVolume);
+  }, [finishLiveSpeechChunk, startLiveSpeechChunk]);
+
   const startLiveConversation = useCallback(async () => {
     cleanupAudio();
     setErrorMessage(null);
@@ -426,7 +531,6 @@ export default function VoiceAssistantWidget({
 
       audioStreamRef.current = stream;
 
-      // Web Audio API инициализациясы
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const audioCtx = new AudioCtx();
       audioContextRef.current = audioCtx;
@@ -445,7 +549,6 @@ export default function VoiceAssistantWidget({
       isLiveActiveRef.current = true;
       setStatus('listening');
 
-      // VAD циклін іске қосу
       startLiveVadLoop();
 
       toast({
@@ -466,19 +569,14 @@ export default function VoiceAssistantWidget({
     }
   }, [cleanupAudio, startLiveVadLoop, toast]);
 
-  // LIVE СҰХБАТТЫ ТОҚТАТУ
   const stopLiveConversation = useCallback(() => {
     cleanupAudio();
     setIsLiveActive(false);
     isLiveActiveRef.current = false;
     setStatus('idle');
-    toast({
-      title: 'Тірі сұхбат тоқтатылды',
-      description: 'Микрофон өшірілді.',
-    });
-  }, [cleanupAudio, toast]);
+  }, [cleanupAudio]);
 
-  // ҚОЛМЕН ЖАЗУ (MANUAL PUSH-TO-TALK) СТАРТЫ
+  // Қолмен жазу
   const startManualRecording = useCallback(async () => {
     cleanupAudio();
     setErrorMessage(null);
@@ -608,12 +706,7 @@ export default function VoiceAssistantWidget({
     audioChunksRef.current = [];
     setStatus('idle');
     setRecordingSeconds(0);
-
-    toast({
-      title: 'Жазба тоқтатылды',
-      description: 'Аудио өшірілді, сұраныс жіберілген жоқ.',
-    });
-  }, [toast]);
+  }, []);
 
   const togglePlayPause = () => {
     if (!audioPlayerRef.current) {
@@ -639,16 +732,13 @@ export default function VoiceAssistantWidget({
   const clearChatHistory = () => {
     setChatHistory([]);
     setLastResponse(null);
-    toast({
-      title: 'Тарих тазартылды',
-      description: 'Диалог тарихы өшірілді.',
-    });
   };
 
   // Режимді ауыстыру
   const handleModeChange = (newMode: VoiceAssistantMode) => {
     if (newMode === mode) return;
     cleanupAudio();
+    disconnectLiveKit();
     setIsLiveActive(false);
     isLiveActiveRef.current = false;
     setStatus('idle');
@@ -663,10 +753,24 @@ export default function VoiceAssistantWidget({
       )}
     >
       <CardContent className="p-6 sm:p-8 space-y-6">
-        {/* Жоғарғы қатар: Режимдерді таңдау және Тіл ауыстыру */}
+        {/* Жоғарғы қатар: Режимдерді таңдау және Тіл / Дауыс ауыстыру */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-4">
-          {/* Режим таңдау: Live (GoPrep) немесе Manual */}
+          {/* Режим таңдау: LiveKit (GoPrep), Тірі сұхбат немесе Қолмен */}
           <div className="flex items-center gap-1 rounded-full bg-muted/60 p-1">
+            <button
+              type="button"
+              onClick={() => handleModeChange('livekit')}
+              className={cn(
+                'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all',
+                mode === 'livekit'
+                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Flame size={13} className={mode === 'livekit' ? 'fill-current' : ''} />
+              <span>GoPrep WebRTC</span>
+            </button>
+
             <button
               type="button"
               onClick={() => handleModeChange('live')}
@@ -678,8 +782,9 @@ export default function VoiceAssistantWidget({
               )}
             >
               <Zap size={13} className={mode === 'live' ? 'fill-current' : ''} />
-              <span>Тірі сұхбат (Live)</span>
+              <span>Тірі сұхбат (VAD)</span>
             </button>
+
             <button
               type="button"
               onClick={() => handleModeChange('manual')}
@@ -711,7 +816,7 @@ export default function VoiceAssistantWidget({
                         ? 'bg-card text-foreground shadow-xs'
                         : 'text-muted-foreground hover:text-foreground',
                     )}
-                    title="Дәулет — ер адамның жылы, табиғи дауысы"
+                    title="Дәулет — жылы әрі табиғи ер адам дауысы"
                   >
                     👨 Дәулет
                   </button>
@@ -803,13 +908,129 @@ export default function VoiceAssistantWidget({
         </div>
 
         {/* ---------------------------------------------------- */}
-        {/* РЕЖИМ 1: ТІРІ СҰХБАТ (LIVE CONVERSATION / GOPREP STYLE) */}
+        {/* РЕЖИМ 1: GOPREP WEBRTC (LIVEKIT + DEEPGRAM + CARTESIA) */}
         {/* ---------------------------------------------------- */}
-        {mode === 'live' ? (
+        {mode === 'livekit' ? (
           <div className="my-6 flex flex-col items-center justify-center text-center space-y-6">
-            {/* Интерактивті орталық visualizer */}
+            {liveKitUnconfigured ? (
+              /* Егер LiveKit кілттері әлі қосылмаған болса, нұсқаулық картасы */
+              <div className="w-full max-w-lg rounded-2xl border border-primary/20 bg-primary/5 p-5 text-left space-y-4">
+                <div className="flex items-center gap-2 text-primary font-bold text-sm">
+                  <Info size={18} />
+                  <span>GoPrep WebRTC (LiveKit + Deepgram + Cartesia) баптауы</span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  GoPrep сияқты ~500 мс нақты уақыттағы WebRTC дауысын іске қосу үшін сервердің <code>.env</code> файлына мына кілттерді қосу қажет:
+                </p>
+                <div className="space-y-1.5 text-[11px] font-mono bg-background/80 p-3 rounded-lg border border-border/50 overflow-x-auto">
+                  <p>LIVEKIT_URL=wss://your-project.livekit.cloud</p>
+                  <p>LIVEKIT_API_KEY=your-api-key</p>
+                  <p>LIVEKIT_API_SECRET=your-api-secret</p>
+                  <p>DEEPGRAM_API_KEY=your-deepgram-key</p>
+                  <p>CARTESIA_API_KEY=your-cartesia-key</p>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+                  <a
+                    href="https://cloud.livekit.io"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 text-primary hover:underline font-medium"
+                  >
+                    <span>cloud.livekit.io (Тегін)</span>
+                    <ExternalLink size={12} />
+                  </a>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleModeChange('live')}
+                    className="rounded-full text-xs font-semibold"
+                  >
+                    <Zap size={13} className="mr-1" />
+                    Кірістірілген Тірі сұхбатқа көшу
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Visualizer Orb */}
+                <div className="relative flex h-36 w-36 items-center justify-center sm:h-44 sm:w-44">
+                  {isLiveKitConnected ? (
+                    <>
+                      <span className="absolute h-36 w-36 animate-ping rounded-full bg-primary/15 sm:h-44 sm:w-44" />
+                      <span className="absolute h-32 w-32 animate-pulse rounded-full bg-primary/20 sm:h-40 sm:w-40" />
+                    </>
+                  ) : null}
+
+                  {!isLiveKitConnected ? (
+                    <button
+                      type="button"
+                      onClick={startLiveKitSession}
+                      disabled={isLiveKitConnecting}
+                      className={cn(
+                        'relative z-10 flex h-24 w-24 items-center justify-center rounded-full',
+                        'bg-primary text-primary-foreground shadow-lg transition-all duration-300',
+                        'hover:scale-105 active:scale-95 sm:h-28 sm:w-28',
+                      )}
+                      aria-label="GoPrep WebRTC сұхбатын бастау"
+                    >
+                      {isLiveKitConnecting ? (
+                        <Loader2 size={36} className="animate-spin" />
+                      ) : (
+                        <Radio size={36} className="animate-pulse" />
+                      )}
+                    </button>
+                  ) : (
+                    <div className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg sm:h-28 sm:w-28">
+                      <Headphones size={36} className="animate-pulse" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Статустар */}
+                <div className="space-y-2">
+                  {!isLiveKitConnected ? (
+                    <div className="space-y-1">
+                      <p className="text-sm font-bold text-foreground">
+                        {isLiveKitConnecting ? 'WebRTC серверіне қосылуда...' : 'GoPrep WebRTC сұхбатын бастау'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        LiveKit WebRTC + Deepgram + Groq + Cartesia (~500 мс кідіріс)
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+                        <Wifi size={14} className="animate-pulse" />
+                        <span>GoPrep бөлмесі белсенді ({liveKitRoomName})</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Микрофон тікелей WebRTC арқылы ағылуда. AI дауысы да кідіріссіз келеді.
+                      </p>
+                      <div className="pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={disconnectLiveKit}
+                          className="rounded-full text-xs font-medium text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <MicOff size={13} className="mr-1.5" />
+                          Сұхбатты тоқтату
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        ) : mode === 'live' ? (
+          /* ---------------------------------------------------- */
+          /* РЕЖИМ 2: ТІРІ СҰХБАТ (BROWSER VAD + STREAMING)       */
+          /* ---------------------------------------------------- */
+          <div className="my-6 flex flex-col items-center justify-center text-center space-y-6">
             <div className="relative flex h-36 w-36 items-center justify-center sm:h-44 sm:w-44">
-              {/* Сыртқы импульсті толқындар */}
               {isLiveActive && status === 'listening' ? (
                 <>
                   <span
@@ -855,7 +1076,6 @@ export default function VoiceAssistantWidget({
                 </>
               ) : null}
 
-              {/* Негізгі кнопка */}
               {!isLiveActive ? (
                 <button
                   type="button"
@@ -895,7 +1115,7 @@ export default function VoiceAssistantWidget({
               )}
             </div>
 
-            {/* Дыбыс толқындары (Visualizer Waveform) */}
+            {/* Waveform */}
             {isLiveActive ? (
               <div className="flex items-center justify-center gap-1.5 h-8">
                 {[0.4, 0.7, 1.0, 0.8, 0.5, 0.9, 0.6].map((multiplier, idx) => {
@@ -924,7 +1144,6 @@ export default function VoiceAssistantWidget({
               </div>
             ) : null}
 
-            {/* Статустар және нұсқаулықтар */}
             <div className="space-y-2">
               {!isLiveActive ? (
                 <div className="space-y-1">
@@ -971,7 +1190,6 @@ export default function VoiceAssistantWidget({
                     </div>
                   ) : null}
 
-                  {/* Сұхбатты тоқтату батырмасы */}
                   <div className="pt-2">
                     <Button
                       type="button"
@@ -990,7 +1208,7 @@ export default function VoiceAssistantWidget({
           </div>
         ) : (
           /* ---------------------------------------------------- */
-          /* РЕЖИМ 2: ҚОЛМЕН БАСУ (MANUAL PUSH-TO-TALK)           */
+          /* РЕЖИМ 3: ҚОЛМЕН БАСУ (MANUAL PUSH-TO-TALK)           */
           /* ---------------------------------------------------- */
           <div className="my-6 flex flex-col items-center justify-center text-center">
             <div className="relative flex items-center justify-center">
@@ -1005,7 +1223,6 @@ export default function VoiceAssistantWidget({
                 <span className="absolute h-24 w-24 animate-pulse rounded-full bg-primary/20 sm:h-28 sm:w-28" />
               ) : null}
 
-              {/* Бос күй (Микрофон) */}
               {status === 'idle' || status === 'error' ? (
                 <button
                   type="button"
@@ -1021,7 +1238,6 @@ export default function VoiceAssistantWidget({
                 </button>
               ) : null}
 
-              {/* Жазу үдерісі: Болдырмау (X) және Жіберу (Send) */}
               {status === 'recording' ? (
                 <div className="relative z-10 flex items-center gap-4 sm:gap-6">
                   <button
@@ -1054,7 +1270,6 @@ export default function VoiceAssistantWidget({
                 </div>
               ) : null}
 
-              {/* Өңдеу индикаторы */}
               {status === 'processing' ? (
                 <div
                   className={cn(
@@ -1066,7 +1281,6 @@ export default function VoiceAssistantWidget({
                 </div>
               ) : null}
 
-              {/* Ойнату / Кідірту */}
               {status === 'speaking' || status === 'paused' ? (
                 <button
                   type="button"
@@ -1087,7 +1301,6 @@ export default function VoiceAssistantWidget({
               ) : null}
             </div>
 
-            {/* Мәтіндер */}
             <div className="mt-4 space-y-1">
               {status === 'idle' ? (
                 <p className="text-xs font-semibold text-muted-foreground">
@@ -1134,9 +1347,7 @@ export default function VoiceAssistantWidget({
           </div>
         )}
 
-        {/* ---------------------------------------------------- */}
-        {/* ДИАЛОГ ТАРИХЫ (Транскрипт карточкалары)              */}
-        {/* ---------------------------------------------------- */}
+        {/* ДИАЛОГ ТАРИХЫ */}
         {chatHistory.length > 0 ? (
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between px-1">
