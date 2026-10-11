@@ -23,9 +23,12 @@ except Exception:  # pragma: no cover
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-ENV_FILE = ROOT_DIR / ".env"
-if ENV_FILE.exists():
-    load_dotenv(ENV_FILE)
+BACKEND_DIR = ROOT_DIR / "backend"
+ENV_FILES = [ROOT_DIR / ".env", BACKEND_DIR / ".env"]
+
+for env_file in ENV_FILES:
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
 
 logger = logging.getLogger("bilimcorp.ai.storage")
 
@@ -61,7 +64,8 @@ def _utc_iso() -> str:
 
 
 def _app_env() -> str:
-    return (os.getenv("APP_ENV") or os.getenv("ENV") or "development").strip().lower()
+    inferred = "production" if any(os.getenv(k) for k in ("RENDER", "VERCEL", "FLY_ALLOC_ID", "KUBERNETES_SERVICE_HOST")) else "development"
+    return (os.getenv("APP_ENV") or os.getenv("ENV") or inferred).strip().lower()
 
 
 def _is_local_like_env() -> bool:
@@ -75,6 +79,14 @@ def _is_truthy(value: str | None) -> bool:
 def _clean_text(value: Any, limit: int | None = None) -> str:
     text = " ".join(str(value or "").replace("\x00", " ").split()).strip()
     return text[:limit] if limit else text
+
+
+def _clean_multiline_text(value: Any, limit: int | None = None) -> str:
+    text = str(value or "").replace("\x00", " ").strip()
+    if limit:
+        text = text[:limit]
+    lines = [" ".join(line.split()).strip() for line in text.splitlines()]
+    return "\n".join(line for line in lines if line).strip()
 
 
 def _is_uuid(value: Any) -> bool:
@@ -365,12 +377,48 @@ def _exam_summary_from_row(row: dict[str, Any], *, include_owner: bool = True) -
     return payload
 
 
-def _clone_exam_record_from_row(row: dict[str, Any], *, include_owner: bool = True) -> dict[str, Any]:
+def _sanitize_exam_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for q in questions:
+        if not isinstance(q, dict):
+            continue
+        item = _deep_clone(q)
+        item.pop("correctAnswer", None)
+        item.pop("correct_answer", None)
+        item.pop("explanation", None)
+        item.pop("referenceAnswer", None)
+        item.pop("reference_answer", None)
+
+        if isinstance(item.get("options"), list):
+            sanitized_options = []
+            for opt in item["options"]:
+                if isinstance(opt, dict):
+                    opt_copy = dict(opt)
+                    opt_copy.pop("isCorrect", None)
+                    opt_copy.pop("is_correct", None)
+                    sanitized_options.append(opt_copy)
+                else:
+                    sanitized_options.append(opt)
+            item["options"] = sanitized_options
+
+        sanitized.append(item)
+    return sanitized
+
+
+def _clone_exam_record_from_row(
+    row: dict[str, Any],
+    *,
+    include_owner: bool = True,
+    sanitize_questions: bool = False,
+) -> dict[str, Any]:
+    raw_questions = _deep_clone(row.get("questions") or [])
+    questions = _sanitize_exam_questions(raw_questions) if sanitize_questions else raw_questions
+
     return {
         "exam": _deep_clone(_exam_summary_from_row(row, include_owner=include_owner)),
-        "questions": _deep_clone(row.get("questions") or []),
-        "test_import_payload": _deep_clone(row.get("test_import_payload") or {}),
-        "meta": _deep_clone(row.get("meta") or {}),
+        "questions": questions,
+        "test_import_payload": {} if sanitize_questions else _deep_clone(row.get("test_import_payload") or {}),
+        "meta": {} if sanitize_questions else _deep_clone(row.get("meta") or {}),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
@@ -486,10 +534,10 @@ def get_ai_exam_for_user(
         return None
 
     if row.get("owner_id") == clean_user_id:
-        return _clone_exam_record_from_row(row, include_owner=True)
+        return _clone_exam_record_from_row(row, include_owner=True, sanitize_questions=False)
 
     if allow_published_read and row.get("status") in PUBLIC_AI_EXAM_STATUSES:
-        return _clone_exam_record_from_row(row, include_owner=False)
+        return _clone_exam_record_from_row(row, include_owner=False, sanitize_questions=True)
 
     return None
 
@@ -822,7 +870,7 @@ def append_tutor_message(
     clean_session_id = _clean_text(session_id, 120)
     clean_user_id = _require_uuid(user_id, "user_id")
     clean_role = _clean_text(role, 20).lower()
-    message_content = _clean_text(content, MAX_TUTOR_MESSAGE_CHARS)
+    message_content = _clean_multiline_text(content, MAX_TUTOR_MESSAGE_CHARS)
 
     if not clean_session_id:
         raise ValueError("session_id қажет")
@@ -899,7 +947,7 @@ def append_tutor_message_batch(
             continue
 
         clean_role = _clean_text(row.get("role", "user"), 20).lower()
-        clean_content = _clean_text(row.get("content", ""), MAX_TUTOR_MESSAGE_CHARS)
+        clean_content = _clean_multiline_text(row.get("content", ""), MAX_TUTOR_MESSAGE_CHARS)
 
         if clean_role not in VALID_TUTOR_ROLES or not clean_content:
             continue

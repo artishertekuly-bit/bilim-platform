@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.dependencies.auth import get_current_user_id
+from app.dependencies.auth import get_current_user_with_role
 from app.schemas.learning_analysis import LearningAiMode, LearningAiRequest, LearningAiResponse
 from app.services.learning_analysis_service import create_learning_analysis
 
@@ -90,8 +90,16 @@ def _validate_learning_analysis_request(payload: LearningAiRequest) -> None:
 )
 async def learning_analysis(
     payload: LearningAiRequest,
-    user_id: str = Depends(get_current_user_id),
+    user_with_role: tuple[str, str] = Depends(get_current_user_with_role),
 ) -> LearningAiResponse:
+    user_id, actual_role = user_with_role
+
+    if payload.role.value == "teacher" and actual_role not in {"teacher", "admin"}:
+        raise _http_error(
+            "Мұғалім режиміндегі талдау үшін 'teacher' немесе 'admin' рөлі қажет.",
+            status.HTTP_403_FORBIDDEN,
+        )
+
     _validate_learning_analysis_request(payload)
 
     try:

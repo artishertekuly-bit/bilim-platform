@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections import defaultdict
@@ -13,12 +14,14 @@ from supabase import Client, create_client
 from app.schemas.learning_analysis import LearningAiMode, LearningAiRequest
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
-ENV_FILE = ROOT_DIR / ".env"
+BACKEND_DIR = ROOT_DIR / "backend"
+ENV_FILES = [ROOT_DIR / ".env", BACKEND_DIR / ".env"]
 
 logger = logging.getLogger("bilimcorp.learning_analysis.context")
 
-if ENV_FILE.exists():
-    load_dotenv(ENV_FILE)
+for env_file in ENV_FILES:
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
@@ -1973,12 +1976,14 @@ async def collect_learning_analysis_context(
     scope = payload.scope
 
     if payload.mode == LearningAiMode.student_tracker:
-        return collect_student_learning_context(
+        return await asyncio.to_thread(
+            collect_student_learning_context,
             current_user_id=current_user_id,
         )
 
     if payload.mode == LearningAiMode.student_course_advisor:
-        return collect_student_course_advisor_context(
+        return await asyncio.to_thread(
+            collect_student_course_advisor_context,
             current_user_id=current_user_id,
         )
 
@@ -1986,20 +1991,23 @@ async def collect_learning_analysis_context(
         if not scope or not scope.course_id:
             raise _http_error("courseId қажет.", 400)
 
-        return collect_course_learning_context(
+        return await asyncio.to_thread(
+            collect_course_learning_context,
             course_id=scope.course_id,
             current_user_id=current_user_id,
         )
 
     if payload.mode == LearningAiMode.teacher_course_creator_advisor:
-        return collect_teacher_course_creator_context(
+        return await asyncio.to_thread(
+            collect_teacher_course_creator_context,
             current_user_id=current_user_id,
         )
 
     if not scope or not scope.course_id or not scope.student_id:
         raise _http_error("courseId және studentId қажет.", 400)
 
-    return collect_teacher_student_learning_context(
+    return await asyncio.to_thread(
+        collect_teacher_student_learning_context,
         course_id=scope.course_id,
         student_id=scope.student_id,
         current_user_id=current_user_id,

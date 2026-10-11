@@ -13,7 +13,10 @@ from typing import Any
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT_DIR / ".env")
+BACKEND_DIR = ROOT_DIR / "backend"
+for env_file in (ROOT_DIR / ".env", BACKEND_DIR / ".env"):
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
 
 logger = logging.getLogger("bilimcorp.ai.engine")
 
@@ -264,6 +267,15 @@ UNT_SUBJECT_PROFILES: dict[str, dict[str, Any]] = {
 
 def _clean_text(text: Any) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _clean_multiline_text(text: Any, limit: int | None = None) -> str:
+    raw = str(text or "").replace("\x00", " ").strip()
+    if limit:
+        raw = raw[:limit]
+    lines = [" ".join(line.split()).strip() for line in raw.splitlines()]
+    return "\n".join(line for line in lines if line).strip()
+
 
 
 def _truncate(text: Any, limit: int) -> str:
@@ -1967,7 +1979,7 @@ class AITutorService:
                             {"role": "user", "content": self._build_user_prompt(user_message, context, history)},
                         ],
                     )
-                    text = _clean_text(_response_output_text(response))
+                    text = _clean_multiline_text(_response_output_text(response))
                 except Exception:
                     response = _create_chat_completion(
                         client,
@@ -1977,7 +1989,7 @@ class AITutorService:
                             {"role": "user", "content": self._build_user_prompt(user_message, context, history)},
                         ],
                     )
-                    text = _clean_text(response.choices[0].message.content)
+                    text = _clean_multiline_text(response.choices[0].message.content)
                 if text:
                     return {"answer": text, "used_model": model_name, "fallback": False}
             except Exception:

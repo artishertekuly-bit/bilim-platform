@@ -8,14 +8,17 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+BACKEND_DIR = BASE_DIR / "backend"
 DIST_DIR = BASE_DIR / "dist"
 ASSETS_DIR = DIST_DIR / "assets"
 INDEX_FILE = DIST_DIR / "index.html"
-ENV_FILE = BASE_DIR / ".env"
+ENV_FILES = [BASE_DIR / ".env", BACKEND_DIR / ".env"]
 
-load_dotenv(ENV_FILE)
+for env_file in ENV_FILES:
+    if env_file.exists():
+        load_dotenv(env_file, override=False)
 
-app = FastAPI(title="Bilim Platform Local Server", version="1.3.0")
+app = FastAPI(title="Bilim Platform Local Server", version="1.3.1")
 
 allowed_origins = [
     origin.strip()
@@ -38,13 +41,14 @@ if ASSETS_DIR.exists() and ASSETS_DIR.is_dir():
 
 @app.get("/api/health")
 def health():
+    env_present = any(ef.exists() for ef in ENV_FILES)
     return {
         "status": "ok",
         "project_root": str(BASE_DIR),
         "frontend_dist_present": DIST_DIR.exists(),
         "frontend_index_present": INDEX_FILE.exists(),
         "frontend_assets_present": ASSETS_DIR.exists(),
-        "env_file_present": ENV_FILE.exists(),
+        "env_file_present": env_present,
         "supabase_url_present": bool(os.getenv("VITE_SUPABASE_URL")),
         "supabase_key_present": bool(os.getenv("VITE_SUPABASE_PUBLISHABLE_KEY")),
         "ai_api_base_url_present": bool(os.getenv("VITE_AI_API_BASE_URL")),
@@ -54,8 +58,9 @@ def health():
 @app.get("/api/config-check")
 def config_check():
     missing = []
+    env_present = any(ef.exists() for ef in ENV_FILES)
 
-    if not ENV_FILE.exists():
+    if not env_present:
         missing.append(".env")
     if not os.getenv("VITE_SUPABASE_URL"):
         missing.append("VITE_SUPABASE_URL")
@@ -73,7 +78,7 @@ def config_check():
             "project_root": str(BASE_DIR),
             "dist_dir": str(DIST_DIR),
             "assets_dir": str(ASSETS_DIR),
-            "env_file": str(ENV_FILE),
+            "env_files_checked": [str(ef) for ef in ENV_FILES],
             "missing": missing,
         }
     )
@@ -107,9 +112,18 @@ def spa(full_path: str):
             detail="Frontend build табылмады. Алдымен npm run build орындаңыз.",
         )
 
-    target = DIST_DIR / full_path
-    if full_path and target.exists() and target.is_file():
-        return FileResponse(target)
+    if full_path:
+        try:
+            resolved_dist = DIST_DIR.resolve()
+            resolved_target = (DIST_DIR / full_path).resolve()
+            if (
+                resolved_target.is_relative_to(resolved_dist)
+                and resolved_target.exists()
+                and resolved_target.is_file()
+            ):
+                return FileResponse(resolved_target)
+        except (ValueError, RuntimeError):
+            pass
 
     if not INDEX_FILE.exists():
         raise HTTPException(

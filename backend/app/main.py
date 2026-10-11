@@ -31,11 +31,13 @@ from .ai_storage import (
     list_tutor_messages,
     update_ai_exam_status,
 )
+from concurrent.futures import ThreadPoolExecutor
 from .api.learning_analysis_api import router as learning_analysis_router
-from .dependencies.auth import get_current_user_id
+from .dependencies.auth import get_current_user_id, require_author_role
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-ENV_FILE = ROOT_DIR / ".env"
+BACKEND_DIR = ROOT_DIR / "backend"
+ENV_FILES = [ROOT_DIR / ".env", BACKEND_DIR / ".env"]
 
 logger = logging.getLogger("bilimcorp.ai.bridge")
 logging.basicConfig(level=logging.INFO)
@@ -44,8 +46,9 @@ AI_EXAM_STATUSES = {"draft", "published", "archived"}
 
 
 def _load_environment() -> None:
-    if ENV_FILE.exists():
-        load_dotenv(ENV_FILE)
+    for env_file in ENV_FILES:
+        if env_file.exists():
+            load_dotenv(env_file, override=False)
 
 
 def _is_truthy(value: str | None) -> bool:
@@ -56,7 +59,10 @@ _load_environment()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
-APP_ENV = os.getenv("APP_ENV", os.getenv("ENV", "development")).strip().lower()
+
+# Infer production environment when running on cloud platforms without explicit APP_ENV
+_inferred_env = "production" if any(os.getenv(k) for k in ("RENDER", "VERCEL", "FLY_ALLOC_ID", "KUBERNETES_SERVICE_HOST")) else "development"
+APP_ENV = os.getenv("APP_ENV", os.getenv("ENV", _inferred_env)).strip().lower()
 ALLOW_DEBUG_USER_ID_FALLBACK = _is_truthy(
     os.getenv("ALLOW_DEBUG_USER_ID_FALLBACK", "false")
 )
@@ -81,6 +87,8 @@ def _build_allowed_origins() -> list[str]:
 
     if _is_development_env():
         return [
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
             "http://localhost:5173",
             "http://127.0.0.1:5173",
             "http://localhost:4173",
@@ -134,6 +142,14 @@ def _utc_iso() -> str:
 def _clean_text(value: Any, limit: int | None = None) -> str:
     text = " ".join(str(value or "").replace("\x00", " ").split()).strip()
     return text[:limit] if limit else text
+
+
+def _clean_multiline_text(value: Any, limit: int | None = None) -> str:
+    text = str(value or "").replace("\x00", " ").strip()
+    if limit:
+        text = text[:limit]
+    lines = [" ".join(line.split()).strip() for line in text.splitlines()]
+    return "\n".join(line for line in lines if line).strip()
 
 
 def _http_error(message: str, status_code: int = 400) -> HTTPException:
@@ -363,7 +379,7 @@ def api_tutor_chat(
         )
 
         reply = tutor_result.get("reply") or {}
-        reply_content = _clean_text(reply.get("content"), 12000)
+        reply_content = _clean_multiline_text(reply.get("content"), 12000)
         if not reply_content:
             raise _http_error("Tutor бос жауап қайтарды", 502)
 
@@ -402,7 +418,7 @@ def api_tutor_chat(
 @app.post("/api/ai/exams")
 def api_create_ai_exam(
     payload: dict[str, Any],
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_author_role),
 ):
     mapped_payload = {
         "title": payload.get("title"),
@@ -443,7 +459,7 @@ def api_create_ai_exam(
 
 @app.get("/api/ai/exams")
 def api_list_ai_exams(
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_author_role),
 ):
     try:
         exams = list_ai_exams_for_user(user_id)
@@ -539,7 +555,7 @@ def api_list_ai_exam_attempts(
 def api_update_ai_exam_status(
     exam_id: str,
     payload: dict[str, Any],
-    user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(require_author_role),
 ):
     status_value = _clean_text(payload.get("status"), 20).lower()
     if status_value not in AI_EXAM_STATUSES:
@@ -594,12 +610,7 @@ def api_submit_ai_exam(
     if not isinstance(raw_answers, list) or not raw_answers:
         raise _http_error("Кемінде бір жауап жіберілуі керек", 400)
 
-    breakdown: list[dict[str, Any]] = []
-    total_score = 0.0
-    max_score = 0.0
-    processed_count = 0
-    normalized_answers: list[dict[str, Any]] = []
-
+    valid_items: list[tuple[str, str, dict[str, Any]]] = []
     for answer_row in raw_answers:
         if not isinstance(answer_row, dict):
             continue
@@ -615,40 +626,68 @@ def api_submit_ai_exam(
         if not user_answer:
             continue
 
-        question = question_map[question_id]
+        valid_items.append((question_id, user_answer, question_map[question_id]))
+
+    if not valid_items:
+        raise _http_error("Тексеруге жарамды жауаптар жоқ", 400)
+
+    context_topic = exam.get("topic") or exam.get("title")
+
+    def _eval_one(item: tuple[str, str, dict[str, Any]]) -> dict[str, Any]:
+        q_id, ans, q = item
         options = [
             option.get("text", "")
-            for option in (question.get("options") or [])
+            for option in (q.get("options") or [])
             if isinstance(option, dict)
         ]
-        expected_answer = _clean_text(question.get("correctAnswer"), 500)
-        explanation = _clean_text(question.get("explanation"), 2000)
-        answer_format = "mcq" if question.get("type") == "multiple_choice" else "text"
+        expected_answer = _clean_text(q.get("correctAnswer"), 500)
+        explanation = _clean_text(q.get("explanation"), 2000)
+        answer_format = "mcq" if q.get("type") == "multiple_choice" else "text"
 
-        try:
-            evaluation = evaluate_answer_for_bilimcorp(
-                {
-                    "question": question.get("question"),
-                    "student_answer": user_answer,
-                    "expected_answer": expected_answer,
-                    "reference_answer": explanation,
-                    "options": options,
-                    "answer_format": answer_format,
-                    "context": exam.get("topic") or exam.get("title"),
-                }
-            )
-        except ValueError as exc:
-            raise _http_error(str(exc), 400)
-        except Exception:
-            logger.exception("submit_ai_exam evaluation failed")
-            raise _http_error("Жауаптарды тексеруде серверлік қате пайда болды", 500)
+        eval_res = evaluate_answer_for_bilimcorp(
+            {
+                "question": q.get("question"),
+                "student_answer": ans,
+                "expected_answer": expected_answer,
+                "reference_answer": explanation,
+                "options": options,
+                "answer_format": answer_format,
+                "context": context_topic,
+            }
+        )
+        return {
+            "question_id": q_id,
+            "answer": ans,
+            "evaluation": eval_res,
+        }
+
+    workers = min(len(valid_items), 8)
+    try:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            evaluated_items = list(executor.map(_eval_one, valid_items))
+    except ValueError as exc:
+        raise _http_error(str(exc), 400)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("submit_ai_exam evaluation failed")
+        raise _http_error("Жауаптарды тексеруде серверлік қате пайда болды", 500)
+
+    breakdown: list[dict[str, Any]] = []
+    total_score = 0.0
+    max_score = 0.0
+    normalized_answers: list[dict[str, Any]] = []
+
+    for item in evaluated_items:
+        question_id = item["question_id"]
+        user_answer = item["answer"]
+        evaluation = item["evaluation"]
 
         score = float(evaluation.get("score", 0))
         max_part = float(evaluation.get("max_score", 10))
 
         total_score += score
         max_score += max_part
-        processed_count += 1
 
         normalized_answers.append(
             {
@@ -667,7 +706,7 @@ def api_submit_ai_exam(
             }
         )
 
-    if processed_count == 0 or max_score <= 0:
+    if max_score <= 0:
         raise _http_error("Тексеруге жарамды жауаптар жоқ", 400)
 
     percentage = round((total_score / max_score) * 100, 1)
