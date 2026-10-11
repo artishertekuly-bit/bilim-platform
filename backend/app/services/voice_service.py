@@ -26,10 +26,18 @@ GROQ_DEFAULT_CHAT_MODEL = "llama-3.1-8b-instant"
 GROQ_FALLBACK_MODELS = [
     "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
-    "llama3-8b-8192",
     "gemma2-9b-it",
-    "mixtral-8x7b-32768",
 ]
+
+# Ескірген/өшірілген модель атауларын қазіргі белсенді баламасына автоматты түрде бағыттау
+DEPRECATED_MODELS_MAP = {
+    "llama3-8b-8192": "llama-3.1-8b-instant",
+    "llama3-70b-8192": "llama-3.3-70b-versatile",
+    "llama-3-8b-8192": "llama-3.1-8b-instant",
+    "llama-3-70b-8192": "llama-3.3-70b-versatile",
+    "mixtral-8x7b-32768": "llama-3.1-8b-instant",
+}
+
 EDGE_TTS_DEFAULT_VOICE_KK = "kk-KZ-AigulNeural"
 EDGE_TTS_DEFAULT_VOICE_RU = "ru-RU-SvetlanaNeural"
 
@@ -134,14 +142,16 @@ async def generate_voice_llm_response(
         raise ValueError("Сұрақ мәтіні бос.")
 
     client = get_groq_client()
-    configured_model = (os.getenv("GROQ_MODEL") or "").strip()
+    raw_configured_model = (os.getenv("GROQ_MODEL") or "").strip()
+    configured_model = DEPRECATED_MODELS_MAP.get(raw_configured_model, raw_configured_model)
 
     candidate_models: list[str] = []
     if configured_model:
         candidate_models.append(configured_model)
     for model_name in GROQ_FALLBACK_MODELS:
-        if model_name not in candidate_models:
-            candidate_models.append(model_name)
+        active_name = DEPRECATED_MODELS_MAP.get(model_name, model_name)
+        if active_name not in candidate_models:
+            candidate_models.append(active_name)
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_prompt or DEFAULT_SYSTEM_PROMPT}
@@ -169,8 +179,22 @@ async def generate_voice_llm_response(
             return reply.strip()
         except Exception as exc:
             err_msg = str(exc).lower()
-            if "model_not_found" in err_msg or "does not exist" in err_msg or "404" in err_msg or "access" in err_msg:
-                logger.warning("Groq model '%s' қолжетімсіз (404), келесі модельге көшудеміз: %s", model_to_use, exc)
+            if (
+                "model_not_found" in err_msg
+                or "model_decommissioned" in err_msg
+                or "decommissioned" in err_msg
+                or "does not exist" in err_msg
+                or "no longer supported" in err_msg
+                or "deprecated" in err_msg
+                or "404" in err_msg
+                or "400" in err_msg
+                or "access" in err_msg
+            ):
+                logger.warning(
+                    "Groq model '%s' қолжетімсіз немесе ескірген, келесі модельге көшудеміз: %s",
+                    model_to_use,
+                    exc,
+                )
                 last_error = exc
                 continue
             logger.exception("Groq chat completion error on '%s': %s", model_to_use, exc)
