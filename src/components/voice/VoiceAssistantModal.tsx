@@ -391,60 +391,41 @@ export default function VoiceAssistantModal({
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const offerSdp = (offer.sdp || pc.localDescription?.sdp || '').trim();
-      if (!offerSdp) {
+      const rawSdp = (offer.sdp || pc.localDescription?.sdp || '');
+      if (!rawSdp) {
         throw new Error('Браузер микрофонынан SDP offer жасалмады.');
       }
 
-      const targetModel = sessionInfo.model || 'gpt-4o-realtime-preview-2024-12-17';
+      // RFC 4566 стандарты: әрбір жол және соңғы жол міндетті түрде CRLF (\r\n) болуы шарт (Pion SDP parser үшін)
+      const cleanSdp = rawSdp
+        .replace(/\r\n/g, '\n')
+        .replace(/\n/g, '\r\n')
+        .trim() + '\r\n';
+
       const clientSecret = (sessionInfo.client_secret || '').trim();
-      console.log('[OpenAI WebRTC] Sending SDP offer via FormData to /v1/realtime/calls...');
+      console.log('[OpenAI WebRTC] Sending SDP offer to https://api.openai.com/v1/realtime/calls...');
 
-      const sessionConfig = JSON.stringify({
-        type: 'realtime',
-        model: targetModel,
-        instructions: `Сен — "Bilim Platform" қазақша оқу платформасының зиялы, мейірімді, заманауи жасанды интеллект көмекшісісің.
-Оқушымен таза, табиғи, қазіргі жастарға сай әдемі ауызекі қазақ тілінде сөйлес.
-Барлық сандарды міндетті түрде қазақша сөзбен айт (мысалы 5 емес бес, 10 емес он).
-Жауаптарыңды қысқа (1-3 сөйлем), түсінікті және нақты қайтар.
-Ешқандай жұлдызша, эмодзи немесе арнайы таңбаларды қолданба.`,
-        audio: {
-          output: {
-            voice: sessionInfo.voice || 'coral',
-          },
-        },
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 600,
-        },
-      });
-
-      // 1-тәсіл: sdp мәтіндік өріс + session JSON жолы (строка ретінде, Blob-сыз)
-      const formData = new FormData();
-      formData.set('sdp', offerSdp);
-      formData.set('session', sessionConfig);
-
+      // 1-тәсіл (GA ресми стандарты): application/sdp тақырыбымен тікелей SDP мәтіні
       let sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${clientSecret}`,
+          'Content-Type': 'application/sdp',
         },
-        body: formData,
+        body: cleanSdp,
       });
 
-      // 2-тәсіл: егер session қабылданбаса, тек sdp өрісі бар қарапайым FormData
+      // 2-тәсіл (сақтық): егер application/sdp сәйкес келмесе, multipart/form-data арқылы сынау
       if (!sdpResponse.ok) {
-        console.warn(`[OpenAI WebRTC] FormData with session returned ${sdpResponse.status}, retrying with plain sdp field...`);
-        const simpleFormData = new FormData();
-        simpleFormData.set('sdp', offerSdp);
+        console.warn(`[OpenAI WebRTC] application/sdp returned ${sdpResponse.status}, retrying with multipart form-data...`);
+        const fd = new FormData();
+        fd.set('sdp', cleanSdp);
         const fallbackResp = await fetch('https://api.openai.com/v1/realtime/calls', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${clientSecret}`,
           },
-          body: simpleFormData,
+          body: fd,
         });
         if (fallbackResp.ok) {
           sdpResponse = fallbackResp;
