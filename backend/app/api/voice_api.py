@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import time
 from typing import Any
 
 import httpx
@@ -44,6 +45,8 @@ MAX_AUDIO_SIZE = 15 * 1024 * 1024  # 15 MB
 REALTIME_CANDIDATE_MODELS = [
     "gpt-4o-realtime-preview-2024-12-17",
     "gpt-4o-realtime-preview",
+    "gpt-realtime",
+    "gpt-realtime-2.1",
     "gpt-4o-mini-realtime-preview-2024-12-17",
     "gpt-4o-mini-realtime-preview",
 ]
@@ -78,9 +81,8 @@ async def create_openai_realtime_session(
 ):
     """
     OpenAI Realtime API WebRTC сессиясы үшін уақытша (ephemeral) кілтті генерациялайды.
-    Фронтенд браузері осы кілтпен OpenAI WebRTC серверіне тікелей қосылып,
-    ChatGPT Advanced Voice Mode сияқты лезде (суб-секундтық кідіріспен), автоматты
-    server_vad арқылы толыққанды екі жақты сұхбат жүргізеді.
+    Жаңа OpenAI GA талаптарына сәйкес /v1/realtime/client_secrets эндпоинтын қолданады
+    (ескі /v1/realtime/sessions ресми түрде жабылған).
     """
     openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
     if not openai_key:
@@ -106,52 +108,114 @@ async def create_openai_realtime_session(
         "Content-Type": "application/json",
     }
 
-    url = "https://api.openai.com/v1/realtime/sessions"
+    # 1. OpenAI GA client_secrets (жаңа стандарт)
+    # 2. Резервтік ескі /sessions
+    endpoints_to_try = [
+        "https://api.openai.com/v1/realtime/client_secrets",
+        "https://api.openai.com/v1/realtime/sessions",
+    ]
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         last_error_detail = ""
-        for model_name in candidate_models:
-            payload = {
-                "model": model_name,
-                "voice": voice,
-                "modalities": ["audio", "text"],
-                "instructions": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
-                "input_audio_transcription": {
-                    "model": "whisper-1",
-                },
-                "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 600,
-                    "create_response": True,
-                },
-            }
-
-            try:
-                logger.info("Requesting OpenAI Realtime session for model: %s (voice=%s)", model_name, voice)
-                resp = await client.post(url, headers=headers, json=payload)
-
-                if resp.status_code in {200, 201}:
-                    data = resp.json()
-                    client_secret = data.get("client_secret", {}).get("value")
-                    session_id = data.get("id")
-
-                    if client_secret:
-                        logger.info("OpenAI Realtime session created successfully: session_id=%s, model=%s", session_id, model_name)
-                        return {
-                            "status": "success",
-                            "client_secret": client_secret,
-                            "session_id": session_id,
+        for url in endpoints_to_try:
+            for model_name in candidate_models:
+                # Әр түрлі OpenAI нұсқалары үшін payload нұсқалары
+                payload_variants = [
+                    # A) GA стандартты формат: expires_after + session нысаны
+                    {
+                        "expires_after": {
+                            "anchor": "created_at",
+                            "seconds": 600,
+                        },
+                        "session": {
+                            "type": "realtime",
+                            "model": model_name,
+                            "instructions": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
+                            "voice": voice,
+                            "modalities": ["audio", "text"],
+                            "input_audio_transcription": {
+                                "model": "whisper-1",
+                            },
+                            "turn_detection": {
+                                "type": "server_vad",
+                                "threshold": 0.5,
+                                "prefix_padding_ms": 300,
+                                "silence_duration_ms": 600,
+                                "create_response": True,
+                            },
+                        },
+                    },
+                    # B) Жеңілдетілген session нысаны
+                    {
+                        "session": {
                             "model": model_name,
                             "voice": voice,
-                        }
-                else:
-                    last_error_detail = resp.text
-                    logger.warning("OpenAI session request for %s returned %d: %s", model_name, resp.status_code, resp.text[:140])
-            except Exception as exc:
-                last_error_detail = str(exc)
-                logger.warning("OpenAI session request error for %s: %s", model_name, exc)
+                            "modalities": ["audio", "text"],
+                        },
+                    },
+                    # C) Жай (flat) формат (ескі бета немесе proxy үшін)
+                    {
+                        "model": model_name,
+                        "voice": voice,
+                        "modalities": ["audio", "text"],
+                        "instructions": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
+                    },
+                ]
+
+                endpoint_not_found = False
+                for payload in payload_variants:
+                    try:
+                        logger.info("Requesting OpenAI Realtime token from %s (model=%s, voice=%s)", url, model_name, voice)
+                        resp = await client.post(url, headers=headers, json=payload)
+
+                        if resp.status_code in {200, 201}:
+                            data = resp.json()
+                            client_secret = (
+                                data.get("value")
+                                or (data.get("client_secret") or {}).get("value")
+                                or (data.get("client_secret") if isinstance(data.get("client_secret"), str) else None)
+                                or data.get("key")
+                            )
+                            session_id = (
+                                (data.get("session") or {}).get("id")
+                                or data.get("id")
+                                or f"sess_{int(time.time())}"
+                            )
+
+                            if client_secret:
+                                logger.info(
+                                    "OpenAI Realtime session created: endpoint=%s, model=%s, session_id=%s",
+                                    url,
+                                    model_name,
+                                    session_id,
+                                )
+                                return {
+                                    "status": "success",
+                                    "client_secret": client_secret,
+                                    "session_id": session_id,
+                                    "model": model_name,
+                                    "voice": voice,
+                                }
+                        elif resp.status_code == 404:
+                            # Бұл URL мүлдем жоқ (мысалы /sessions), келесі URL-ге өту
+                            last_error_detail = resp.text
+                            endpoint_not_found = True
+                            break
+                        else:
+                            last_error_detail = resp.text
+                            logger.warning(
+                                "OpenAI Realtime %s returned %d for %s: %s",
+                                url,
+                                resp.status_code,
+                                model_name,
+                                resp.text[:140],
+                            )
+                    except Exception as exc:
+                        last_error_detail = str(exc)
+                        logger.warning("OpenAI session error for %s on %s: %s", model_name, url, exc)
+
+                if endpoint_not_found:
+                    break
 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

@@ -345,6 +345,34 @@ export default function VoiceAssistantModal({
 
       dc.onopen = () => {
         console.log('[OpenAI WebRTC] DataChannel connected and ready!');
+        try {
+          const sessionUpdate = {
+            type: 'session.update',
+            session: {
+              modalities: ['audio', 'text'],
+              voice: sessionInfo.voice || 'coral',
+              instructions: `Сен — "Bilim Platform" қазақша оқу платформасының зиялы, мейірімді, заманауи жасанды интеллект көмекшісісің.
+Оқушымен таза, табиғи, қазіргі жастарға сай әдемі ауызекі қазақ тілінде сөйлес.
+Барлық сандарды міндетті түрде қазақша сөзбен айт (мысалы 5 емес бес, 10 емес он).
+Жауаптарыңды қысқа (1-3 сөйлем), түсінікті және нақты қайтар.
+Ешқандай жұлдызша, эмодзи немесе арнайы таңбаларды қолданба.`,
+              input_audio_transcription: {
+                model: 'whisper-1',
+              },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 600,
+                create_response: true,
+              },
+            },
+          };
+          dc.send(JSON.stringify(sessionUpdate));
+          console.log('[OpenAI WebRTC] session.update sent successfully');
+        } catch (e) {
+          console.warn('[OpenAI WebRTC] Could not send initial session.update:', e);
+        }
         setState('listening');
         setEmotion('happy');
       };
@@ -364,7 +392,7 @@ export default function VoiceAssistantModal({
       await pc.setLocalDescription(offer);
 
       const targetModel = sessionInfo.model || 'gpt-4o-realtime-preview-2024-12-17';
-      const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${targetModel}`, {
+      let sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(targetModel)}`, {
         method: 'POST',
         body: offer.sdp,
         headers: {
@@ -372,6 +400,21 @@ export default function VoiceAssistantModal({
           'Content-Type': 'application/sdp',
         },
       });
+
+      if (!sdpResponse.ok) {
+        console.warn(`[OpenAI WebRTC] First SDP exchange status: ${sdpResponse.status}, retrying base endpoint...`);
+        const fallbackResp = await fetch('https://api.openai.com/v1/realtime', {
+          method: 'POST',
+          body: offer.sdp,
+          headers: {
+            Authorization: `Bearer ${sessionInfo.client_secret}`,
+            'Content-Type': 'application/sdp',
+          },
+        });
+        if (fallbackResp.ok) {
+          sdpResponse = fallbackResp;
+        }
+      }
 
       if (!sdpResponse.ok) {
         const errText = await sdpResponse.text();
