@@ -19,20 +19,28 @@ export default function SanaTaqiyaAvatar({
   className,
   onClick,
 }: SanaTaqiyaAvatarProps) {
-  // Автоматты жыпылықтау (Natural Blinking)
+  // Автоматты көз жыпылықтату (Natural Blinking)
   const [isBlinking, setIsBlinking] = useState(false);
 
   useEffect(() => {
     const blinkInterval = setInterval(() => {
       setIsBlinking(true);
-      setTimeout(() => setIsBlinking(false), 160);
-    }, 3600 + Math.random() * 2000);
+      setTimeout(() => setIsBlinking(false), 150);
+    }, 3500 + Math.random() * 2000);
 
     return () => clearInterval(blinkInterval);
   }, []);
 
   // Аудио деңгейіне қарай жеңіл серпілу
-  const scaleFromAudio = 1 + (state === 'listening' && !isMuted ? (audioLevel / 100) * 0.08 : 0);
+  const activeAudioScale =
+    (state === 'listening' || state === 'speaking') && !isMuted
+      ? (audioLevel / 100) * 0.06
+      : 0;
+  const scaleFromAudio = 1 + activeAudioScale;
+
+  // Ойлану кезінде көздің жоғары-оңға қарауы
+  const eyeOffsetX = state === 'thinking' ? 5 : 0;
+  const eyeOffsetY = state === 'thinking' ? -6 : 0;
 
   return (
     <div
@@ -41,277 +49,170 @@ export default function SanaTaqiyaAvatar({
         'relative flex items-center justify-center select-none cursor-pointer group',
         className,
       )}
-      style={{
-        transform: `scale(${scaleFromAudio})`,
-        transition: 'transform 0.08s ease-out',
-      }}
-      title={state === 'listening' ? 'Сөйлеп болсаңыз, басып бірден жіберіңіз' : undefined}
     >
-      {/* 
-        Минималистік дизайн: 
-        Пайдаланушы өтініші бойынша шетіндегі жасыл сақиналар мен ауралар алынып тасталды.
-        Тек көмекшінің таза, жалпақ әрі сүйкімді өзі ғана көрсетіледі.
-      */}
+      <style>{`
+        @keyframes taqiya-float {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-6px); }
+        }
+        @keyframes taqiya-tilt {
+          0%, 100% { transform: rotate(0deg) translateY(0px); }
+          35% { transform: rotate(-6deg) translateY(-4px); }
+          70% { transform: rotate(5deg) translateY(-2px); }
+        }
+        @keyframes taqiya-speak-bob {
+          0%, 100% { transform: translateY(0px) scale(1); }
+          50% { transform: translateY(-4px) scale(1.02, 0.98); }
+        }
+        @keyframes taqiya-mouth-talk {
+          0%, 100% { transform: scaleY(0.85); }
+          25% { transform: scaleY(1.65); }
+          50% { transform: scaleY(0.6); }
+          75% { transform: scaleY(1.45); }
+        }
+        .animate-taqiya-idle {
+          animation: taqiya-float 3.4s ease-in-out infinite;
+        }
+        .animate-taqiya-thinking {
+          animation: taqiya-tilt 2.6s ease-in-out infinite;
+        }
+        .animate-taqiya-speaking {
+          animation: taqiya-speak-bob 0.45s ease-in-out infinite;
+        }
+        .animate-taqiya-mouth {
+          transform-origin: 200px 252px;
+          animation: taqiya-mouth-talk 0.36s ease-in-out infinite;
+        }
+      `}</style>
 
-      {/* Негізгі Тақиялы Қазақ Көмекшісі (Жалпақ сүйкімді моти/бауырсақ пішіні) */}
       <div
+        style={{
+          transform: `scale(${scaleFromAudio})`,
+          transition: 'transform 100ms ease-out',
+        }}
         className={cn(
-          'relative z-10 transition-transform duration-300 ease-out',
-          state === 'listening'
-            ? 'animate-taqiya-breathe'
-            : state === 'thinking'
-            ? 'animate-taqiya-tilt'
-            : state === 'speaking'
-            ? 'animate-taqiya-talk-bob'
-            : 'animate-taqiya-float',
+          'w-full h-full flex items-center justify-center transition-transform duration-300',
+          state === 'idle' && 'animate-taqiya-idle',
+          state === 'listening' && 'animate-taqiya-idle',
+          state === 'thinking' && 'animate-taqiya-thinking',
+          state === 'speaking' && 'animate-taqiya-speaking',
         )}
       >
         <svg
-          viewBox="0 0 280 200"
-          className="w-48 h-36 sm:w-56 sm:h-42 drop-shadow-md"
+          viewBox="0 0 400 360"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
+          className="w-full h-full max-w-[260px] max-h-[260px] drop-shadow-sm"
         >
-          {/* Сүйкімді нәзік көлеңке (Төменгі жер көлеңкесі) */}
-          <ellipse
-            cx="140"
-            cy="186"
-            rx="82"
-            ry="10"
-            fill="currentColor"
-            className="text-foreground/8"
-          />
-
-          {/* ==================== БАС ЖӘНЕ ДЕНЕ (Wide Chubby Dumpling / Mochi Head) ==================== */}
-          {/* 
-            Ені кең (224px), бойы сәл жалпақтау (~90px),
-            тура пайдаланушы жіберген суреттегідей chubby сүйкімді силуэт
-          */}
+          {/* 1. ТАҚИЯНЫҢ ЖОҒАРҒЫ КҮМБЕЗІ (Ақ іші + қара контур және тігіс сызықтары) */}
           <path
-            d="M 82,78 C 42,94 24,116 28,134 C 34,158 64,166 140,166 C 216,166 246,158 252,134 C 256,116 238,94 198,78 Z"
+            d="M 92 132 C 116 74, 160 52, 200 52 C 240 52, 284 74, 308 132 Z"
             fill="#FFFFFF"
-            stroke="#111827"
-            strokeWidth="11"
-            strokeLinejoin="round"
+            stroke="#000000"
+            strokeWidth="10"
             strokeLinecap="round"
+            strokeLinejoin="round"
           />
-
-          {/* ==================== БЕТТІҢ ҚЫЗҒЫЛТ РУМЯНЕЦІ (Soft Kawaii Blush) ==================== */}
-          <ellipse
-            cx="62"
-            cy="140"
-            rx="12"
-            ry="7"
-            className={cn(
-              'transition-all duration-300',
-              emotion === 'happy' || state === 'speaking'
-                ? 'fill-rose-400/55'
-                : 'fill-rose-300/30',
-            )}
-          />
-          <ellipse
-            cx="218"
-            cy="140"
-            rx="12"
-            ry="7"
-            className={cn(
-              'transition-all duration-300',
-              emotion === 'happy' || state === 'speaking'
-                ? 'fill-rose-400/55'
-                : 'fill-rose-300/30',
-            )}
-          />
-
-          {/* ==================== КӨЗДЕР (Wide Separated Expressive Eyes) ==================== */}
-          <g
-            className={cn(
-              'transition-transform duration-100 origin-[140px_128px]',
-              isBlinking ? 'scale-y-[0.08]' : 'scale-y-100',
-            )}
-          >
-            {/* ҚУАНУ КЕЗІНДЕГІ АРКА КӨЗДЕР (^ ^) */}
-            {emotion === 'happy' && state !== 'thinking' ? (
-              <>
-                <path
-                  d="M 88,132 Q 102,114 116,132"
-                  stroke="#111827"
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-                <path
-                  d="M 164,132 Q 178,114 192,132"
-                  stroke="#111827"
-                  strokeWidth="8"
-                  strokeLinecap="round"
-                  fill="none"
-                />
-              </>
-            ) : isMuted ? (
-              /* МИКРОФОН ӨШІРУЛІ (- -) */
-              <>
-                <line
-                  x1="90"
-                  y1="128"
-                  x2="114"
-                  y2="128"
-                  stroke="#111827"
-                  strokeWidth="7"
-                  strokeLinecap="round"
-                />
-                <line
-                  x1="166"
-                  y1="128"
-                  x2="190"
-                  y2="128"
-                  stroke="#111827"
-                  strokeWidth="7"
-                  strokeLinecap="round"
-                />
-              </>
-            ) : state === 'thinking' ? (
-              /* ОЙЛАНУ КЕЗІНДЕГІ ЖОҒАРЫ ҚАРАҒАН КӨЗДЕР */
-              <>
-                <ellipse cx="102" cy="122" rx="10" ry="14" fill="#111827" />
-                <circle cx="100" cy="117" r="3.5" fill="#FFFFFF" />
-                <ellipse cx="178" cy="122" rx="10" ry="14" fill="#111827" />
-                <circle cx="176" cy="117" r="3.5" fill="#FFFFFF" />
-              </>
-            ) : (
-              /* 
-                ҚАЛЫПТЫ СОПАҚ ҚАРА КӨЗДЕР 
-                Тура суреттегідей арақашықтығы кең (76px аралық)
-              */
-              <>
-                <ellipse cx="102" cy="128" rx="11" ry="16" fill="#111827" />
-                <circle cx="98" cy="122" r="3.5" fill="#FFFFFF" />
-
-                <ellipse cx="178" cy="128" rx="11" ry="16" fill="#111827" />
-                <circle cx="174" cy="122" r="3.5" fill="#FFFFFF" />
-              </>
-            )}
-          </g>
-
-          {/* ==================== АУЫЗ (Mouth with Live Speech Animation) ==================== */}
-          <g className="origin-[140px_138px]">
-            {state === 'speaking' ? (
-              /* СӨЙЛЕУ КЕЗІНДЕГІ ТІРІ СӨЗ ҚОЗҒАЛЫСЫ */
-              <path
-                d="M 131,130 Q 140,146 149,130 Z"
-                fill="#111827"
-                stroke="#111827"
-                strokeWidth="2"
-                className="animate-taqiya-mouth"
-              />
-            ) : emotion === 'happy' ? (
-              /* ҚУАНУ КЕЗІНДЕГІ АШЫҚ КҮЛКІ */
-              <g>
-                <path
-                  d="M 129,130 Q 140,148 151,130 Z"
-                  fill="#111827"
-                  stroke="#111827"
-                  strokeWidth="2"
-                />
-                <path
-                  d="M 134,138 Q 140,148 146,138 Z"
-                  fill="#FB7185"
-                />
-              </g>
-            ) : state === 'thinking' ? (
-              /* ОЙЛАНУ КЕЗІНДЕГІ КІШКЕНТАЙ АУЫЗ */
-              <ellipse cx="140" cy="134" rx="4.5" ry="4.5" fill="#111827" />
-            ) : (
-              /* 
-                ҚАЛЫПТЫ ЖАРТЫ АЙ КҮЛКІ 
-                Тура пайдаланушы жіберген суреттегідей
-              */
-              <path
-                d="M 132,130 Q 140,140 148,130 Z"
-                fill="#111827"
-                stroke="#111827"
-                strokeWidth="1.5"
-              />
-            )}
-          </g>
-
-          {/* ==================== ТАҚИЯ (Wide Traditional Kazakh Cap) ==================== */}
-          {/* 1. Тақияның жоғарғы күмбезі (Dome top) */}
+          {/* Тақия күмбезінің ішкі екі сызығы */}
           <path
-            d="M 82,58 C 82,28 104,20 140,20 C 176,20 198,28 198,58 Z"
-            fill="#FFFFFF"
-            stroke="#111827"
+            d="M 198 53 C 174 74, 155 100, 144 130"
+            stroke="#000000"
             strokeWidth="9"
+            strokeLinecap="round"
+          />
+          <path
+            d="M 202 53 C 226 74, 245 100, 256 130"
+            stroke="#000000"
+            strokeWidth="9"
+            strokeLinecap="round"
+          />
+
+          {/* 2. КЕЙІПКЕРДІҢ ЖАЛПАҚ БАСЫ / ДЕНЕСІ (Қалың қара контурлы моти/бауырсақ пішіні) */}
+          <path
+            d="M 92 160 C 56 178, 50 220, 55 252 C 60 288, 92 310, 142 310 L 258 310 C 308 310, 340 288, 345 252 C 350 220, 344 178, 308 160 Z"
+            fill="#FFFFFF"
+            stroke="#000000"
+            strokeWidth="22"
+            strokeLinecap="round"
             strokeLinejoin="round"
           />
 
-          {/* 2. Тақияның сегменттік сызықтары (Meeting at apex) */}
+          {/* 3. ТАҚИЯНЫҢ ТӨМЕНГІ ҚАРА ЖИЕГІ (Біртұтас қанық қара жолақ) */}
           <path
-            d="M 140,20 L 140,58"
-            stroke="#111827"
-            strokeWidth="6"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 140,20 Q 106,34 98,58"
-            stroke="#111827"
-            strokeWidth="5"
-            strokeLinecap="round"
-          />
-          <path
-            d="M 140,20 Q 174,34 182,58"
-            stroke="#111827"
-            strokeWidth="5"
-            strokeLinecap="round"
+            d="M 86 120 Q 200 128 314 120 C 324 120, 327 128, 326 145 C 325 162, 320 168, 308 169 Q 200 178 92 169 C 80 168, 75 162, 74 145 C 73 128, 76 120, 86 120 Z"
+            fill="#000000"
           />
 
-          {/* 3. Тақияның қалың қара жиегі (Thick Curved Black Rim) */}
-          <path
-            d="M 72,60 C 100,54 180,54 208,60 C 212,60 214,76 208,80 C 180,84 100,84 72,80 C 66,76 68,60 72,60 Z"
-            fill="#111827"
-          />
+          {/* 4. КӨЗДЕРІ */}
+          <g
+            style={{
+              transform: `translate(${eyeOffsetX}px, ${eyeOffsetY}px)`,
+              transition: 'transform 250ms ease-out',
+            }}
+          >
+            {isBlinking ? (
+              /* Көзді жыпылықтатқан кездегі сызық */
+              <>
+                <path
+                  d="M 132 232 Q 150 240 168 232"
+                  stroke="#000000"
+                  strokeWidth="10"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M 232 232 Q 250 240 268 232"
+                  stroke="#000000"
+                  strokeWidth="10"
+                  strokeLinecap="round"
+                />
+              </>
+            ) : emotion === 'happy' ? (
+              /* Қуанған кездегі күлімдеген көздер (^ ^) */
+              <>
+                <path
+                  d="M 132 238 Q 150 212 168 238"
+                  stroke="#000000"
+                  strokeWidth="12"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+                <path
+                  d="M 232 238 Q 250 212 268 238"
+                  stroke="#000000"
+                  strokeWidth="12"
+                  strokeLinecap="round"
+                  fill="none"
+                />
+              </>
+            ) : (
+              /* Суреттегідей стандартты қара сопақша көздер */
+              <>
+                <ellipse cx="150" cy="232" rx="18" ry="28" fill="#000000" />
+                <ellipse cx="250" cy="232" rx="18" ry="28" fill="#000000" />
+              </>
+            )}
+          </g>
+
+          {/* 5. АУЗЫ (Күйге байланысты өзгереді) */}
+          {state === 'thinking' ? (
+            /* Ойланғанда кішкентай дөңгелек ауыз */
+            <ellipse cx="200" cy="256" rx="10" ry="8" fill="#000000" />
+          ) : state === 'speaking' ? (
+            /* Сөйлегенде ашылып-жабылатын ауыз (Lip-sync) */
+            <path
+              d="M 180 248 Q 180 272 200 272 Q 220 272 220 248 Z"
+              fill="#000000"
+              className="animate-taqiya-mouth"
+            />
+          ) : (
+            /* Суреттегідей жарты ай тәрізді сүйкімді қара күлкі */
+            <path
+              d="M 181 249 Q 181 269 200 269 Q 219 269 219 249 Z"
+              fill="#000000"
+            />
+          )}
         </svg>
       </div>
-
-      {/* Әсем CSS анимациялар стильдері */}
-      <style>{`
-        @keyframes taqiyaBreathe {
-          0%, 100% { transform: translateY(0) scale(1, 1); }
-          50% { transform: translateY(-3px) scale(1.02, 0.98); }
-        }
-        @keyframes taqiyaFloat {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-5px); }
-        }
-        @keyframes taqiyaTilt {
-          0%, 100% { transform: rotate(0deg) translateY(0); }
-          25% { transform: rotate(-5deg) translateY(-2px); }
-          75% { transform: rotate(4deg) translateY(-2px); }
-        }
-        @keyframes taqiyaTalkBob {
-          0%, 100% { transform: translateY(0) scale(1, 1); }
-          30% { transform: translateY(-3px) scale(0.99, 1.02); }
-          70% { transform: translateY(1px) scale(1.01, 0.99); }
-        }
-        @keyframes taqiyaMouth {
-          0%, 100% { transform: scaleY(0.65) translateY(0); }
-          50% { transform: scaleY(1.35) translateY(1px); }
-        }
-        .animate-taqiya-breathe {
-          animation: taqiyaBreathe 2.4s ease-in-out infinite;
-        }
-        .animate-taqiya-float {
-          animation: taqiyaFloat 3.2s ease-in-out infinite;
-        }
-        .animate-taqiya-tilt {
-          animation: taqiyaTilt 2s ease-in-out infinite;
-        }
-        .animate-taqiya-talk-bob {
-          animation: taqiyaTalkBob 0.38s ease-in-out infinite;
-        }
-        .animate-taqiya-mouth {
-          animation: taqiyaMouth 0.22s ease-in-out infinite;
-        }
-      `}</style>
     </div>
   );
 }
