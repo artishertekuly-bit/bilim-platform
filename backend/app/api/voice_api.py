@@ -22,7 +22,7 @@ from ..dependencies.auth import (
 )
 from ..services.voice_service import (
     process_voice_with_gemini,
-    synthesize_speech_elevenlabs,
+    synthesize_speech_openai,
 )
 from ..services.voice_storage import (
     get_user_voice_history,
@@ -97,12 +97,12 @@ async def voice_interact_gemini(
             ai_reply = "Сәлем, достым! Сені толық түсінбей қалдым, қайталап айтып жібересің бе?"
             emotion = "happy"
 
-        # 2. ElevenLabs / Edge-TTS қазақша дауыстау
+        # 2. OpenAI Audio Speech TTS (gpt-4o-mini-tts / coral / nova)
         try:
-            mp3_bytes = await synthesize_speech_elevenlabs(ai_reply)
+            mp3_bytes = await synthesize_speech_openai(ai_reply)
             mp3_b64 = base64.b64encode(mp3_bytes).decode("ascii")
         except Exception as tts_err:
-            logger.warning("TTS generation error: %s", tts_err)
+            logger.warning("OpenAI TTS generation error: %s", tts_err)
             mp3_b64 = ""
 
         # 3. Supabase RLS арқылы тарихқа сақтау
