@@ -29,6 +29,7 @@ import UserAvatar from '@/components/UserAvatar';
 import SanaDock from '@/components/navigation/SanaDock';
 import type { SanaLauncherTool } from '@/components/navigation/SanaDockLauncher';
 import { useTheme } from '@/components/theme/ThemeProvider';
+import VoiceAssistantFloatingTrigger from '@/components/voice/VoiceAssistantFloatingTrigger';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
@@ -741,6 +742,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           coursePaths={dockConfig.coursePaths}
         />
       ) : null}
+
+      <VoiceAssistantFloatingTrigger />
     </div>
   );
 }

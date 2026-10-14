@@ -36,6 +36,7 @@ from .ai_storage import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from .api.learning_analysis_api import router as learning_analysis_router
+from .api.voice_api import router as voice_router
 from .dependencies.auth import get_current_user_id, require_author_role
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -143,6 +144,7 @@ app.add_middleware(
 )
 
 app.include_router(learning_analysis_router)
+app.include_router(voice_router)
 
 
 def _utc_iso() -> str:
