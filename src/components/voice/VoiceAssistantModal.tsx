@@ -402,11 +402,12 @@ export default function VoiceAssistantModal({
         .replace(/\n/g, '\r\n')
         .trim() + '\r\n';
 
+      const targetModel = (sessionInfo.model || 'gpt-4o-realtime-preview-2024-12-17').trim();
       const clientSecret = (sessionInfo.client_secret || '').trim();
-      console.log('[OpenAI WebRTC] Sending SDP offer to https://api.openai.com/v1/realtime/calls...');
+      const callsUrl = `https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(targetModel)}`;
+      console.log(`[OpenAI WebRTC] Sending SDP offer to ${callsUrl}...`);
 
-      // 1-тәсіл (GA ресми стандарты): application/sdp тақырыбымен тікелей SDP мәтіні
-      let sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
+      let sdpResponse = await fetch(callsUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${clientSecret}`,
@@ -415,20 +416,30 @@ export default function VoiceAssistantModal({
         body: cleanSdp,
       });
 
-      // 2-тәсіл (сақтық): егер application/sdp сәйкес келмесе, multipart/form-data арқылы сынау
-      if (!sdpResponse.ok) {
-        console.warn(`[OpenAI WebRTC] application/sdp returned ${sdpResponse.status}, retrying with multipart form-data...`);
-        const fd = new FormData();
-        fd.set('sdp', cleanSdp);
-        const fallbackResp = await fetch('https://api.openai.com/v1/realtime/calls', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${clientSecret}`,
-          },
-          body: fd,
-        });
-        if (fallbackResp.ok) {
-          sdpResponse = fallbackResp;
+      // Егер таңдалған модель қабылданбаса, баламалы моделдермен сынау
+      if (!sdpResponse.ok && (sdpResponse.status === 400 || sdpResponse.status === 404)) {
+        const fallbackModels = [
+          'gpt-4o-realtime-preview',
+          'gpt-realtime',
+          'gpt-realtime-1.5',
+          'gpt-4o-mini-realtime-preview',
+        ];
+        for (const fbModel of fallbackModels) {
+          if (fbModel === targetModel) continue;
+          console.warn(`[OpenAI WebRTC] Retrying with model ${fbModel}...`);
+          const fbUrl = `https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(fbModel)}`;
+          const fbResp = await fetch(fbUrl, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${clientSecret}`,
+              'Content-Type': 'application/sdp',
+            },
+            body: cleanSdp,
+          });
+          if (fbResp.ok) {
+            sdpResponse = fbResp;
+            break;
+          }
         }
       }
 
