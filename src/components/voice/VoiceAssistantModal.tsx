@@ -391,65 +391,58 @@ export default function VoiceAssistantModal({
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      const targetModel = sessionInfo.model || 'gpt-4o-realtime-preview-2024-12-17';
-      console.log('[OpenAI WebRTC] Sending SDP offer via GA multipart/form-data to /v1/realtime/calls...');
+      const offerSdp = (offer.sdp || pc.localDescription?.sdp || '').trim();
+      if (!offerSdp) {
+        throw new Error('Браузер микрофонынан SDP offer жасалмады.');
+      }
 
-      // OpenAI GA API талабы: multipart/form-data ішінде 'sdp' және 'session' Blob болуы шарт
-      const formData = new FormData();
-      formData.append(
-        'sdp',
-        new Blob([offer.sdp || ''], { type: 'application/sdp' }),
-      );
-      formData.append(
-        'session',
-        new Blob(
-          [
-            JSON.stringify({
-              type: 'realtime',
-              model: targetModel,
-              instructions: `Сен — "Bilim Platform" қазақша оқу платформасының зиялы, мейірімді, заманауи жасанды интеллект көмекшісісің.
+      const targetModel = sessionInfo.model || 'gpt-4o-realtime-preview-2024-12-17';
+      const clientSecret = (sessionInfo.client_secret || '').trim();
+      console.log('[OpenAI WebRTC] Sending SDP offer via FormData to /v1/realtime/calls...');
+
+      const sessionConfig = JSON.stringify({
+        type: 'realtime',
+        model: targetModel,
+        instructions: `Сен — "Bilim Platform" қазақша оқу платформасының зиялы, мейірімді, заманауи жасанды интеллект көмекшісісің.
 Оқушымен таза, табиғи, қазіргі жастарға сай әдемі ауызекі қазақ тілінде сөйлес.
 Барлық сандарды міндетті түрде қазақша сөзбен айт (мысалы 5 емес бес, 10 емес он).
 Жауаптарыңды қысқа (1-3 сөйлем), түсінікті және нақты қайтар.
 Ешқандай жұлдызша, эмодзи немесе арнайы таңбаларды қолданба.`,
-              audio: {
-                output: {
-                  voice: sessionInfo.voice || 'coral',
-                },
-              },
-              turn_detection: {
-                type: 'server_vad',
-                threshold: 0.5,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 600,
-              },
-            }),
-          ],
-          { type: 'application/json' },
-        ),
-      );
+        audio: {
+          output: {
+            voice: sessionInfo.voice || 'coral',
+          },
+        },
+        turn_detection: {
+          type: 'server_vad',
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 600,
+        },
+      });
 
-      // Маңызды: FormData қолданғанда Content-Type тақырыбын ҚОЛМЕН БЕРМЕУ керек (браузер multipart boundary-ді автоматты жасайды)
+      // 1-тәсіл: sdp мәтіндік өріс + session JSON жолы (строка ретінде, Blob-сыз)
+      const formData = new FormData();
+      formData.set('sdp', offerSdp);
+      formData.set('session', sessionConfig);
+
       let sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${sessionInfo.client_secret}`,
+          Authorization: `Bearer ${clientSecret}`,
         },
         body: formData,
       });
 
-      // Сақтық нұсқа: егер толық session қабылданбаса, тек sdp бар қарапайым FormData-мен сынау
+      // 2-тәсіл: егер session қабылданбаса, тек sdp өрісі бар қарапайым FormData
       if (!sdpResponse.ok) {
-        console.warn(`[OpenAI WebRTC] Full form-data returned ${sdpResponse.status}, retrying with minimal sdp form-data...`);
+        console.warn(`[OpenAI WebRTC] FormData with session returned ${sdpResponse.status}, retrying with plain sdp field...`);
         const simpleFormData = new FormData();
-        simpleFormData.append(
-          'sdp',
-          new Blob([offer.sdp || ''], { type: 'application/sdp' }),
-        );
+        simpleFormData.set('sdp', offerSdp);
         const fallbackResp = await fetch('https://api.openai.com/v1/realtime/calls', {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${sessionInfo.client_secret}`,
+            Authorization: `Bearer ${clientSecret}`,
           },
           body: simpleFormData,
         });
