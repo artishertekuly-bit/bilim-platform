@@ -130,7 +130,7 @@ async def voice_realtime_websocket(websocket: WebSocket):
                     logger.warning("STT transcription error: %s", stt_err)
                     await websocket.send_json({
                         "type": "error",
-                        "message": "Дауысты тану кезінде қате орын алды. Қайта сөйлеп көріңізші.",
+                        "message": f"Дауысты тану қатесі: {stt_err}",
                     })
                     await websocket.send_json({"type": "status", "state": "listening"})
                     continue
