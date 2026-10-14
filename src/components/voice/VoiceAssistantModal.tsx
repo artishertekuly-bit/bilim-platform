@@ -349,15 +349,20 @@ export default function VoiceAssistantModal({
           const sessionUpdate = {
             type: 'session.update',
             session: {
+              type: 'realtime',
               modalities: ['audio', 'text'],
               voice: sessionInfo.voice || 'coral',
-              instructions: `Сен — "Bilim Platform" қазақша оқу платформасының зиялы, мейірімді, заманауи жасанды интеллект көмекшісісің.
-Оқушымен таза, табиғи, қазіргі жастарға сай әдемі ауызекі қазақ тілінде сөйлес.
-Барлық сандарды міндетті түрде қазақша сөзбен айт (мысалы 5 емес бес, 10 емес он).
-Жауаптарыңды қысқа (1-3 сөйлем), түсінікті және нақты қайтар.
-Ешқандай жұлдызша, эмодзи немесе арнайы таңбаларды қолданба.`,
+              instructions: `Сен — "Bilim Platform" қазақша оқу платформасының оқушыларға арналған ақылды әрі мейірімді AI дауыстық көмекшісісің.
+ҚАТАҢ ТАЛАП ЖӘНЕ БАСТЫ ҚАҒИДА: ТЕК ҚАНА ТАЗА ҚАЗАҚ ТІЛІНДЕ СӨЙЛЕ ЖӘНЕ ЖАУАП БЕР!
+ЕШҚАШАН өзбекше, қырғызша немесе орысша сөздерді араластырма. Сен тек қазақ тілінде сөйлейтін қазақстандық көмекшісің.
+Қазақ тілінің төл дыбыстарын (ә, ө, ү, ұ, қ, ғ, ң, і) таза әрі анық сақта.
+Оқушымен дәл ChatGPT сияқты жанды, жылы, жастарға жақын ауызекі қазақ тілінде сөйлес.
+Барлық сандарды міндетті түрде қазақша сөзбен айт (мысалы 5 емес бес, 10 емес он, 2026 емес екі мың жиырма алты).
+Жауаптарыңды қысқа (1-2 сөйлем), түсінікті әрі нақты қайтар.
+Ешқандай жұлдызша, эмодзи немесе арнайы таңба қолданба.`,
               input_audio_transcription: {
                 model: 'whisper-1',
+                language: 'kk',
               },
               turn_detection: {
                 type: 'server_vad',
@@ -369,7 +374,7 @@ export default function VoiceAssistantModal({
             },
           };
           dc.send(JSON.stringify(sessionUpdate));
-          console.log('[OpenAI WebRTC] session.update sent successfully');
+          console.log('[OpenAI WebRTC] session.update sent successfully with type: realtime and language: kk');
         } catch (e) {
           console.warn('[OpenAI WebRTC] Could not send initial session.update:', e);
         }

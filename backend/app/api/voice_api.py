@@ -27,6 +27,7 @@ from ..dependencies.auth import (
 )
 from ..services.voice_service import (
     CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
+    OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
     process_voice_with_gemini,
     synthesize_speech_openai,
 )
@@ -120,9 +121,13 @@ async def create_openai_realtime_session(
                     "session": {
                         "type": "realtime",
                         "model": model_name,
-                        "instructions": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
+                        "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                         "voice": voice,
                         "modalities": ["audio", "text"],
+                        "input_audio_transcription": {
+                            "model": "whisper-1",
+                            "language": "kk",
+                        },
                         "turn_detection": {
                             "type": "server_vad",
                             "threshold": 0.5,
