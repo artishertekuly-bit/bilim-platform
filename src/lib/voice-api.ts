@@ -15,48 +15,27 @@ export interface VoiceDialogRecord {
   createdAt?: string;
 }
 
-export function getVoiceWsUrl(): string {
-  try {
-    const httpBase = getAiApiBaseUrl();
-    if (httpBase.startsWith('https://')) {
-      return httpBase.replace('https://', 'wss://') + '/api/voice/ws';
-    }
-    if (httpBase.startsWith('http://')) {
-      return httpBase.replace('http://', 'ws://') + '/api/voice/ws';
-    }
-  } catch {
-    // ignore
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/api/voice/ws`;
-}
-
-export async function sendVoiceInteractRest(
+export async function sendVoiceInteractHttp(
   audioBlob: Blob,
   options?: {
     accessToken?: string;
     sessionId?: string;
-    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   },
 ): Promise<{
   userTranscript: string;
   aiResponse: string;
   emotion: VoiceEmotion;
-  audioBlob: Blob;
-  audioUrl: string;
+  audioBlob: Blob | null;
+  audioUrl: string | null;
   recordId?: string;
 }> {
   const baseUrl = getAiApiBaseUrl();
   const url = `${baseUrl}/api/voice/interact`;
 
   const formData = new FormData();
-  formData.append('audio', audioBlob, 'voice_recording.webm');
+  formData.append('audio', audioBlob, 'recording.webm');
   if (options?.sessionId) {
     formData.append('session_id', options.sessionId);
-  }
-  if (options?.history && options.history.length > 0) {
-    formData.append('history_json', JSON.stringify(options.history));
   }
 
   const headers: Record<string, string> = {};
@@ -72,19 +51,35 @@ export async function sendVoiceInteractRest(
 
   if (!res.ok) {
     const errorText = await res.text();
-    throw new Error(`Аудио өңдеу қатесі: ${errorText || res.statusText}`);
+    let detail = '';
+    try {
+      const errJson = JSON.parse(errorText);
+      detail = errJson.detail || errJson.message || '';
+    } catch {
+      detail = errorText;
+    }
+    throw new Error(detail || `Сервер қатесі: ${res.status}`);
   }
 
   const data = await res.json();
   const rawBase64 = data.audio_base64 || '';
-  const byteChars = atob(rawBase64);
-  const byteNumbers = new Array(byteChars.length);
-  for (let i = 0; i < byteChars.length; i++) {
-    byteNumbers[i] = byteChars.charCodeAt(i);
+  let audioBlobResult: Blob | null = null;
+  let audioUrl: string | null = null;
+
+  if (rawBase64) {
+    try {
+      const byteChars = atob(rawBase64);
+      const byteNumbers = new Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteNumbers[i] = byteChars.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      audioBlobResult = new Blob([byteArray], { type: 'audio/mpeg' });
+      audioUrl = URL.createObjectURL(audioBlobResult);
+    } catch (decodeErr) {
+      console.warn('Audio base64 decode failed:', decodeErr);
+    }
   }
-  const byteArray = new Uint8Array(byteNumbers);
-  const audioBlobResult = new Blob([byteArray], { type: 'audio/mpeg' });
-  const audioUrl = URL.createObjectURL(audioBlobResult);
 
   return {
     userTranscript: data.user_transcript || '',
@@ -95,6 +90,9 @@ export async function sendVoiceInteractRest(
     recordId: data.record_id,
   };
 }
+
+// Backward compatibility alias
+export const sendVoiceInteractRest = sendVoiceInteractHttp;
 
 export async function fetchVoiceHistory(
   accessToken?: string,

@@ -31,55 +31,52 @@ export default function VoiceAssistantFloatingTrigger({
           aria-label="Дауыстық көмекшіні ашу"
           title="Sana Voice AI — Тақиялы ақылды көмекші"
         >
-          {/* Subtle pulse wave */}
-          <span className="absolute -inset-1 rounded-full bg-gradient-to-tr from-emerald-500 via-teal-400 to-cyan-500 opacity-40 blur-xs transition-opacity duration-300 group-hover:opacity-80 animate-pulse" />
-
           {/* Sparkle icon */}
           <Sparkles
             size={14}
             className="absolute -top-1 -right-1 text-amber-400 animate-bounce z-20"
           />
 
-          {/* Mini Taqiya Mascot */}
+          {/* Mini Wide Taqiya Mascot */}
           <svg
-            viewBox="0 0 200 230"
-            className="w-11 h-11 relative z-10 group-hover:scale-105 transition-transform"
+            viewBox="0 0 280 200"
+            className="w-13 h-10 relative z-10 group-hover:scale-105 transition-transform"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            {/* Бас және Дене */}
+            {/* Бас және Дене (Жалпақ сүйкімді моти) */}
             <path
-              d="M 52,92 C 26,112 22,156 46,182 C 66,204 134,204 154,182 C 178,156 174,112 148,92 C 126,92 74,92 52,92 Z"
+              d="M 82,78 C 42,94 24,116 28,134 C 34,158 64,166 140,166 C 216,166 246,158 252,134 C 256,116 238,94 198,78 Z"
               fill="#FFFFFF"
               stroke="#111827"
-              strokeWidth="9"
+              strokeWidth="12"
               strokeLinejoin="round"
             />
-            {/* Беттің қызғылт ұшқыны */}
-            <ellipse cx="50" cy="154" rx="10" ry="6" fill="#FB7185" opacity="0.45" />
-            <ellipse cx="150" cy="154" rx="10" ry="6" fill="#FB7185" opacity="0.45" />
+            {/* Беттің қызғылт румянеці */}
+            <ellipse cx="62" cy="140" rx="12" ry="7" fill="#FB7185" opacity="0.45" />
+            <ellipse cx="218" cy="140" rx="12" ry="7" fill="#FB7185" opacity="0.45" />
             {/* Көздер */}
-            <ellipse cx="74" cy="144" rx="9" ry="14" fill="#111827" />
-            <circle cx="71" cy="139" r="3" fill="#FFFFFF" />
-            <ellipse cx="126" cy="144" rx="9" ry="14" fill="#111827" />
-            <circle cx="123" cy="139" r="3" fill="#FFFFFF" />
+            <ellipse cx="102" cy="128" rx="11" ry="16" fill="#111827" />
+            <circle cx="98" cy="122" r="3.5" fill="#FFFFFF" />
+            <ellipse cx="178" cy="128" rx="11" ry="16" fill="#111827" />
+            <circle cx="174" cy="122" r="3.5" fill="#FFFFFF" />
             {/* Күлкі */}
-            <path d="M 91,150 Q 100,161 109,150 Z" fill="#111827" />
+            <path d="M 132,130 Q 140,140 148,130 Z" fill="#111827" />
             {/* Тақия күмбезі */}
             <path
-              d="M 52,78 C 52,42 74,28 100,28 C 126,28 148,42 148,78 Z"
+              d="M 82,58 C 82,28 104,20 140,20 C 176,20 198,28 198,58 Z"
               fill="#FFFFFF"
               stroke="#111827"
-              strokeWidth="8"
+              strokeWidth="10"
               strokeLinejoin="round"
             />
             {/* Сегменттер */}
-            <path d="M 100,28 L 100,78" stroke="#111827" strokeWidth="5" />
-            <path d="M 100,28 Q 72,48 64,78" stroke="#111827" strokeWidth="4.5" />
-            <path d="M 100,28 Q 128,48 136,78" stroke="#111827" strokeWidth="4.5" />
-            {/* Қалың жиек */}
+            <path d="M 140,20 L 140,58" stroke="#111827" strokeWidth="7" />
+            <path d="M 140,20 Q 106,34 98,58" stroke="#111827" strokeWidth="6" />
+            <path d="M 140,20 Q 174,34 182,58" stroke="#111827" strokeWidth="6" />
+            {/* Тақияның қалың қара жиегі */}
             <path
-              d="M 44,76 C 44,70 156,70 156,76 L 156,92 C 156,98 44,98 44,92 Z"
+              d="M 72,60 C 100,54 180,54 208,60 C 212,60 214,76 208,80 C 180,84 100,84 72,80 C 66,76 68,60 72,60 Z"
               fill="#111827"
             />
           </svg>
