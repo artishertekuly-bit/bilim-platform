@@ -260,7 +260,12 @@ export default function VoiceAssistantModal({
         setEmotion('happy');
       }
 
-      // 8. Қате орын алса
+      // 8. OpenAI Realtime сессиясы сәтті жаңартылды
+      else if (type === 'session.updated') {
+        console.log('[OpenAI Realtime] Session updated successfully with Kazakh instructions & settings:', event);
+      }
+
+      // 9. Қате орын алса
       else if (type === 'error') {
         console.warn('[OpenAI Realtime] Server error event:', event);
         const errMsg = event.error?.message || 'OpenAI байланыс қатесі';
@@ -350,15 +355,16 @@ export default function VoiceAssistantModal({
             type: 'session.update',
             session: {
               type: 'realtime',
-              modalities: ['audio', 'text'],
               voice: sessionInfo.voice || 'coral',
-              instructions: `Сен — "Bilim Platform" қазақша оқу платформасының оқушыларға арналған ақылды әрі мейірімді AI дауыстық көмекшісісің.
-ҚАТАҢ ТАЛАП ЖӘНЕ БАСТЫ ҚАҒИДА: ТЕК ҚАНА ТАЗА ҚАЗАҚ ТІЛІНДЕ СӨЙЛЕ ЖӘНЕ ЖАУАП БЕР!
-ЕШҚАШАН өзбекше, қырғызша немесе орысша сөздерді араластырма. Сен тек қазақ тілінде сөйлейтін қазақстандық көмекшісің.
-Қазақ тілінің төл дыбыстарын (ә, ө, ү, ұ, қ, ғ, ң, і) таза әрі анық сақта.
-Оқушымен дәл ChatGPT сияқты жанды, жылы, жастарға жақын ауызекі қазақ тілінде сөйлес.
+              instructions: `Сен — "Bilim Platform" қазақша оқу платформасының мектеп оқушыларына арналған ақылды әрі мейірімді AI дауыстық көмекшісісің.
+ҚАТАҢ БАСТЫ ТАЛАП: ТЕК ҚАНА ТАЗА ӘРІ ӘДЕМІ ҚАЗАҚ ТІЛІНДЕ СӨЙЛЕ ЖӘНЕ ЖАУАП БЕР!
+ЕШҚАШАН ӨЗБЕКШЕ, ҚЫРҒЫЗША НЕ ОРЫСША СӨЗДЕРДІ АЙТПА!
+Өзбек тіліндегі «salom», «qandaysiz», «yaxshi», «rahmat» деген сөздерге ҚАТАҢ ТЫЙЫМ САЛЫНАДЫ.
+Оның орнына тек таза қазақша: «Сәлем!», «Қалың қалай?», «Жақсы», «Керемет!», «Рақмет!» деп сөйле.
+Сен Қазақстанның оқушыларымен сөйлесіп тұрсың. Қазақ тілінің төл дыбыстарын (ә, ө, ү, ұ, қ, ғ, ң, і) анық сақта.
+Оқушымен дәл ChatGPT Advanced Voice Mode сияқты жанды, жылы, жастарға жақын ауызекі қазақ тілінде сөйлес.
 Барлық сандарды міндетті түрде қазақша сөзбен айт (мысалы 5 емес бес, 10 емес он, 2026 емес екі мың жиырма алты).
-Жауаптарыңды қысқа (1-2 сөйлем), түсінікті әрі нақты қайтар.
+Жауаптарыңды өте қысқа (1-2 сөйлем), түсінікті әрі нақты қайтар.
 Ешқандай жұлдызша, эмодзи немесе арнайы таңба қолданба.`,
               input_audio_transcription: {
                 model: 'whisper-1',
@@ -374,7 +380,7 @@ export default function VoiceAssistantModal({
             },
           };
           dc.send(JSON.stringify(sessionUpdate));
-          console.log('[OpenAI WebRTC] session.update sent successfully with type: realtime and language: kk');
+          console.log('[OpenAI WebRTC] session.update sent successfully without deprecated modalities');
         } catch (e) {
           console.warn('[OpenAI WebRTC] Could not send initial session.update:', e);
         }

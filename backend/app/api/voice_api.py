@@ -116,14 +116,13 @@ async def create_openai_realtime_session(
         for model_name in candidate_models:
             # Түрлі нұсқадағы payload түрлері
             payload_variants = [
-                # 1. GA стандартты session нысаны
+                # 1. GA стандартты session нысаны (modalities жоқ)
                 {
                     "session": {
                         "type": "realtime",
                         "model": model_name,
                         "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                         "voice": voice,
-                        "modalities": ["audio", "text"],
                         "input_audio_transcription": {
                             "model": "whisper-1",
                             "language": "kk",
@@ -136,20 +135,30 @@ async def create_openai_realtime_session(
                         },
                     },
                 },
-                # 2. Жеңілдетілген session нысаны
+                # 2. Тек instructions және voice қамтитын realtime session
                 {
                     "session": {
+                        "type": "realtime",
                         "model": model_name,
+                        "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                         "voice": voice,
                     },
                 },
-                # 3. Тек модель көрсетілген session
+                # 3. Жеңілдетілген session нысаны (instructions сақталған)
+                {
+                    "session": {
+                        "model": model_name,
+                        "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
+                        "voice": voice,
+                    },
+                },
+                # 4. Тек модель көрсетілген session
                 {
                     "session": {
                         "model": model_name,
                     },
                 },
-                # 4. Тікелей модель
+                # 5. Тікелей модель
                 {
                     "model": model_name,
                 },
