@@ -386,31 +386,72 @@ export default function VoiceAssistantModal({
         }
       };
 
-      // 8. Локалды SDP Offer жасап, OpenAI Realtime WebRTC эндпоинтына жіберу
+      // 8. Локалды SDP Offer жасап, OpenAI Realtime WebRTC GA эндпоинтына жіберу
       console.log('[OpenAI WebRTC] Creating SDP offer...');
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
       const targetModel = sessionInfo.model || 'gpt-4o-realtime-preview-2024-12-17';
-      console.log('[OpenAI WebRTC] Sending SDP offer to GA endpoint /v1/realtime/calls...');
+      console.log('[OpenAI WebRTC] Sending SDP offer via GA multipart/form-data to /v1/realtime/calls...');
+
+      // OpenAI GA API талабы: multipart/form-data ішінде 'sdp' және 'session' Blob болуы шарт
+      const formData = new FormData();
+      formData.append(
+        'sdp',
+        new Blob([offer.sdp || ''], { type: 'application/sdp' }),
+      );
+      formData.append(
+        'session',
+        new Blob(
+          [
+            JSON.stringify({
+              type: 'realtime',
+              model: targetModel,
+              instructions: `Сен — "Bilim Platform" қазақша оқу платформасының зиялы, мейірімді, заманауи жасанды интеллект көмекшісісің.
+Оқушымен таза, табиғи, қазіргі жастарға сай әдемі ауызекі қазақ тілінде сөйлес.
+Барлық сандарды міндетті түрде қазақша сөзбен айт (мысалы 5 емес бес, 10 емес он).
+Жауаптарыңды қысқа (1-3 сөйлем), түсінікті және нақты қайтар.
+Ешқандай жұлдызша, эмодзи немесе арнайы таңбаларды қолданба.`,
+              audio: {
+                output: {
+                  voice: sessionInfo.voice || 'coral',
+                },
+              },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 600,
+              },
+            }),
+          ],
+          { type: 'application/json' },
+        ),
+      );
+
+      // Маңызды: FormData қолданғанда Content-Type тақырыбын ҚОЛМЕН БЕРМЕУ керек (браузер multipart boundary-ді автоматты жасайды)
       let sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
-        body: offer.sdp,
         headers: {
           Authorization: `Bearer ${sessionInfo.client_secret}`,
-          'Content-Type': 'application/sdp',
         },
+        body: formData,
       });
 
-      if (!sdpResponse.ok && targetModel) {
-        console.warn(`[OpenAI WebRTC] /v1/realtime/calls returned ${sdpResponse.status}, retrying with model query param...`);
-        const fallbackResp = await fetch(`https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(targetModel)}`, {
+      // Сақтық нұсқа: егер толық session қабылданбаса, тек sdp бар қарапайым FormData-мен сынау
+      if (!sdpResponse.ok) {
+        console.warn(`[OpenAI WebRTC] Full form-data returned ${sdpResponse.status}, retrying with minimal sdp form-data...`);
+        const simpleFormData = new FormData();
+        simpleFormData.append(
+          'sdp',
+          new Blob([offer.sdp || ''], { type: 'application/sdp' }),
+        );
+        const fallbackResp = await fetch('https://api.openai.com/v1/realtime/calls', {
           method: 'POST',
-          body: offer.sdp,
           headers: {
             Authorization: `Bearer ${sessionInfo.client_secret}`,
-            'Content-Type': 'application/sdp',
           },
+          body: simpleFormData,
         });
         if (fallbackResp.ok) {
           sdpResponse = fallbackResp;
@@ -422,7 +463,16 @@ export default function VoiceAssistantModal({
         throw new Error(`OpenAI WebRTC байланыс қатесі: ${errText || sdpResponse.statusText}`);
       }
 
-      const answerSdp = await sdpResponse.text();
+      let answerSdp = await sdpResponse.text();
+      try {
+        const parsed = JSON.parse(answerSdp);
+        if (parsed.sdp) {
+          answerSdp = parsed.sdp;
+        }
+      } catch {
+        // Қалыпты plain text SDP
+      }
+
       await pc.setRemoteDescription({
         type: 'answer',
         sdp: answerSdp,
