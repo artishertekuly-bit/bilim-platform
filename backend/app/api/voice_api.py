@@ -108,114 +108,122 @@ async def create_openai_realtime_session(
         "Content-Type": "application/json",
     }
 
-    # 1. OpenAI GA client_secrets (жаңа стандарт)
-    # 2. Резервтік ескі /sessions
-    endpoints_to_try = [
-        "https://api.openai.com/v1/realtime/client_secrets",
-        "https://api.openai.com/v1/realtime/sessions",
-    ]
+    url = "https://api.openai.com/v1/realtime/client_secrets"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         last_error_detail = ""
-        for url in endpoints_to_try:
-            for model_name in candidate_models:
-                # Әр түрлі OpenAI нұсқалары үшін payload нұсқалары
-                payload_variants = [
-                    # A) GA стандартты формат: expires_after + session нысаны
-                    {
-                        "expires_after": {
-                            "anchor": "created_at",
-                            "seconds": 600,
-                        },
-                        "session": {
-                            "type": "realtime",
-                            "model": model_name,
-                            "instructions": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
-                            "voice": voice,
-                            "modalities": ["audio", "text"],
-                            "input_audio_transcription": {
-                                "model": "whisper-1",
-                            },
-                            "turn_detection": {
-                                "type": "server_vad",
-                                "threshold": 0.5,
-                                "prefix_padding_ms": 300,
-                                "silence_duration_ms": 600,
-                                "create_response": True,
-                            },
-                        },
-                    },
-                    # B) Жеңілдетілген session нысаны
-                    {
-                        "session": {
-                            "model": model_name,
-                            "voice": voice,
-                            "modalities": ["audio", "text"],
-                        },
-                    },
-                    # C) Жай (flat) формат (ескі бета немесе proxy үшін)
-                    {
+        for model_name in candidate_models:
+            # Түрлі нұсқадағы payload түрлері
+            payload_variants = [
+                # 1. GA стандартты session нысаны
+                {
+                    "session": {
+                        "type": "realtime",
                         "model": model_name,
+                        "instructions": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
                         "voice": voice,
                         "modalities": ["audio", "text"],
-                        "instructions": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "prefix_padding_ms": 300,
+                            "silence_duration_ms": 600,
+                        },
                     },
-                ]
+                },
+                # 2. Жеңілдетілген session нысаны
+                {
+                    "session": {
+                        "model": model_name,
+                        "voice": voice,
+                    },
+                },
+                # 3. Тек модель көрсетілген session
+                {
+                    "session": {
+                        "model": model_name,
+                    },
+                },
+                # 4. Тікелей модель
+                {
+                    "model": model_name,
+                },
+            ]
 
-                endpoint_not_found = False
-                for payload in payload_variants:
-                    try:
-                        logger.info("Requesting OpenAI Realtime token from %s (model=%s, voice=%s)", url, model_name, voice)
-                        resp = await client.post(url, headers=headers, json=payload)
+            for payload in payload_variants:
+                try:
+                    logger.info("Requesting OpenAI Realtime token from %s (model=%s)", url, model_name)
+                    resp = await client.post(url, headers=headers, json=payload)
 
-                        if resp.status_code in {200, 201}:
-                            data = resp.json()
-                            client_secret = (
-                                data.get("value")
-                                or (data.get("client_secret") or {}).get("value")
-                                or (data.get("client_secret") if isinstance(data.get("client_secret"), str) else None)
-                                or data.get("key")
-                            )
-                            session_id = (
-                                (data.get("session") or {}).get("id")
-                                or data.get("id")
-                                or f"sess_{int(time.time())}"
-                            )
+                    if resp.status_code in {200, 201}:
+                        data = resp.json()
+                        client_secret = (
+                            data.get("value")
+                            or (data.get("client_secret") or {}).get("value")
+                            or (data.get("client_secret") if isinstance(data.get("client_secret"), str) else None)
+                            or data.get("key")
+                        )
+                        session_id = (
+                            (data.get("session") or {}).get("id")
+                            or data.get("id")
+                            or f"sess_{int(time.time())}"
+                        )
 
-                            if client_secret:
-                                logger.info(
-                                    "OpenAI Realtime session created: endpoint=%s, model=%s, session_id=%s",
-                                    url,
-                                    model_name,
-                                    session_id,
-                                )
-                                return {
-                                    "status": "success",
-                                    "client_secret": client_secret,
-                                    "session_id": session_id,
-                                    "model": model_name,
-                                    "voice": voice,
-                                }
-                        elif resp.status_code == 404:
-                            # Бұл URL мүлдем жоқ (мысалы /sessions), келесі URL-ге өту
-                            last_error_detail = resp.text
-                            endpoint_not_found = True
-                            break
-                        else:
-                            last_error_detail = resp.text
-                            logger.warning(
-                                "OpenAI Realtime %s returned %d for %s: %s",
-                                url,
-                                resp.status_code,
+                        if client_secret:
+                            logger.info(
+                                "OpenAI Realtime session created: model=%s, session_id=%s",
                                 model_name,
-                                resp.text[:140],
+                                session_id,
                             )
-                    except Exception as exc:
-                        last_error_detail = str(exc)
-                        logger.warning("OpenAI session error for %s on %s: %s", model_name, url, exc)
+                            return {
+                                "status": "success",
+                                "client_secret": client_secret,
+                                "session_id": session_id,
+                                "model": model_name,
+                                "voice": voice,
+                            }
+                    else:
+                        last_error_detail = resp.text
+                        logger.warning(
+                            "OpenAI client_secrets returned %d for %s: %s",
+                            resp.status_code,
+                            model_name,
+                            resp.text[:160],
+                        )
+                except Exception as exc:
+                    last_error_detail = str(exc)
+                    logger.warning("OpenAI client_secrets exception for %s: %s", model_name, exc)
 
-                if endpoint_not_found:
-                    break
+        # Соңғы сақтық: ешбір қосымша параметрсіз бос {} сұраныс жасап көру
+        try:
+            logger.info("Trying minimal empty client_secrets request...")
+            resp = await client.post(url, headers=headers, json={})
+            if resp.status_code in {200, 201}:
+                data = resp.json()
+                client_secret = (
+                    data.get("value")
+                    or (data.get("client_secret") or {}).get("value")
+                    or (data.get("client_secret") if isinstance(data.get("client_secret"), str) else None)
+                    or data.get("key")
+                )
+                session_id = (
+                    (data.get("session") or {}).get("id")
+                    or data.get("id")
+                    or f"sess_{int(time.time())}"
+                )
+                if client_secret:
+                    logger.info("OpenAI Realtime session created with default payload: %s", session_id)
+                    return {
+                        "status": "success",
+                        "client_secret": client_secret,
+                        "session_id": session_id,
+                        "model": candidate_models[0],
+                        "voice": voice,
+                    }
+            else:
+                last_error_detail = resp.text
+        except Exception as exc:
+            last_error_detail = str(exc)
 
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
