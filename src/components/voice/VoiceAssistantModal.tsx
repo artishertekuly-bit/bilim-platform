@@ -392,7 +392,8 @@ export default function VoiceAssistantModal({
       await pc.setLocalDescription(offer);
 
       const targetModel = sessionInfo.model || 'gpt-4o-realtime-preview-2024-12-17';
-      let sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(targetModel)}`, {
+      console.log('[OpenAI WebRTC] Sending SDP offer to GA endpoint /v1/realtime/calls...');
+      let sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
         body: offer.sdp,
         headers: {
@@ -401,9 +402,9 @@ export default function VoiceAssistantModal({
         },
       });
 
-      if (!sdpResponse.ok) {
-        console.warn(`[OpenAI WebRTC] First SDP exchange status: ${sdpResponse.status}, retrying base endpoint...`);
-        const fallbackResp = await fetch('https://api.openai.com/v1/realtime', {
+      if (!sdpResponse.ok && targetModel) {
+        console.warn(`[OpenAI WebRTC] /v1/realtime/calls returned ${sdpResponse.status}, retrying with model query param...`);
+        const fallbackResp = await fetch(`https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(targetModel)}`, {
           method: 'POST',
           body: offer.sdp,
           headers: {
