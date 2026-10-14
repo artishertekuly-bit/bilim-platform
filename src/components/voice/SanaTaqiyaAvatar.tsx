@@ -198,11 +198,16 @@ export default function SanaTaqiyaAvatar({
             /* Ойланғанда кішкентай дөңгелек ауыз */
             <ellipse cx="200" cy="256" rx="10" ry="8" fill="#000000" />
           ) : state === 'speaking' ? (
-            /* Сөйлегенде ашылып-жабылатын ауыз (Lip-sync) */
-            <path
-              d="M 180 248 Q 180 272 200 272 Q 220 272 220 248 Z"
+            /* Сөйлегенде нақты уақыттағы WebRTC аудио деңгейіне қарай тірі Lip-sync */
+            <ellipse
+              cx="200"
+              cy={254 + Math.min(6, (audioLevel / 100) * 8)}
+              rx={16 + Math.min(6, (audioLevel / 100) * 8)}
+              ry={8 + Math.min(18, (audioLevel / 100) * 22)}
               fill="#000000"
-              className="animate-taqiya-mouth"
+              style={{
+                transition: 'ry 0.06s ease-out, rx 0.06s ease-out, cy 0.06s ease-out',
+              }}
             />
           ) : (
             /* Суреттегідей жарты ай тәрізді сүйкімді қара күлкі */

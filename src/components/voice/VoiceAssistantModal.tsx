@@ -10,7 +10,8 @@ import {
   Mic,
   MicOff,
   PhoneOff,
-  Send,
+  Radio,
+  Sparkles,
 } from 'lucide-react';
 
 import {
@@ -23,8 +24,9 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import {
+  createRealtimeSession,
   fetchVoiceHistory,
-  sendVoiceInteractHttp,
+  saveVoiceTurn,
   type VoiceDialogRecord,
   type VoiceEmotion,
   type VoiceState,
@@ -35,10 +37,6 @@ interface VoiceAssistantModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-// Адам дауысының сезгіштік шегі
-const VOICE_THRESHOLD = 7;
-const SILENCE_DURATION_MS = 1200; // 1.2 секунд үнсіздіктен соң автоматты жіберу
 
 export default function VoiceAssistantModal({
   open,
@@ -58,20 +56,24 @@ export default function VoiceAssistantModal({
   // Сұхбат мәтіндері
   const [currentTranscript, setCurrentTranscript] = useState<string>('');
   const [currentAiResponse, setCurrentAiResponse] = useState<string>('');
-  const [sessionId] = useState<string>(() => `sess_${Date.now()}`);
 
   // Рефтер
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animFrameRef = useRef<number | null>(null);
-  const silenceTimerRef = useRef<number | null>(null);
-  const hasSpokenRef = useRef<boolean>(false);
+  const remoteAudioElRef = useRef<HTMLAudioElement | null>(null);
 
-  // Синхрондау рефтері
+  const localAudioContextRef = useRef<AudioContext | null>(null);
+  const localAnalyserRef = useRef<AnalyserNode | null>(null);
+  const remoteAudioContextRef = useRef<AudioContext | null>(null);
+  const remoteAnalyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+
+  // Диалог жазбасын сақтау үшін соңғы айтылған сөздерді бақылау
+  const lastUserTranscriptRef = useRef<string>('');
+  const lastAiResponseRef = useRef<string>('');
+  const activeSessionIdRef = useRef<string>('');
+
   const stateRef = useRef<VoiceState>('idle');
   const isMutedRef = useRef<boolean>(false);
   const isOpenRef = useRef<boolean>(open);
@@ -80,295 +82,208 @@ export default function VoiceAssistantModal({
   isMutedRef.current = isMuted;
   isOpenRef.current = open;
 
-  // AI дыбысын тоқтату
-  const stopAudioPlayback = useCallback(() => {
-    if (audioPlayerRef.current) {
-      try {
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current.currentTime = 0;
-      } catch {
-        // ignore
-      }
-      audioPlayerRef.current = null;
-    }
-  }, []);
-
-  // Барлық аудио ресурстарды тазарту
-  const cleanupAudio = useCallback(() => {
+  // Барлық байланыс пен аудио ресурстарды тазарту
+  const cleanupConnection = useCallback(() => {
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    stopAudioPlayback();
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+    if (dataChannelRef.current) {
       try {
-        mediaRecorderRef.current.stop();
+        dataChannelRef.current.close();
       } catch {
         // ignore
       }
-      mediaRecorderRef.current = null;
+      dataChannelRef.current = null;
     }
-    audioChunksRef.current = [];
 
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+    if (peerConnectionRef.current) {
       try {
-        audioContextRef.current.close();
+        peerConnectionRef.current.close();
       } catch {
         // ignore
       }
-      audioContextRef.current = null;
+      peerConnectionRef.current = null;
+    }
+
+    if (remoteAudioElRef.current) {
+      try {
+        remoteAudioElRef.current.pause();
+        remoteAudioElRef.current.srcObject = null;
+      } catch {
+        // ignore
+      }
+      remoteAudioElRef.current = null;
+    }
+
+    if (localAudioContextRef.current && localAudioContextRef.current.state !== 'closed') {
+      try {
+        localAudioContextRef.current.close();
+      } catch {
+        // ignore
+      }
+      localAudioContextRef.current = null;
+    }
+
+    if (remoteAudioContextRef.current && remoteAudioContextRef.current.state !== 'closed') {
+      try {
+        remoteAudioContextRef.current.close();
+      } catch {
+        // ignore
+      }
+      remoteAudioContextRef.current = null;
     }
 
     if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current.getTracks().forEach((track) => track.stop());
       audioStreamRef.current = null;
     }
 
     setAudioLevel(0);
-    hasSpokenRef.current = false;
-  }, [stopAudioPlayback]);
-
-  // Аудио файлды тікелей Gemini 2.5 Flash HTTP POST арқылы жіберу
-  const submitAudioToGemini = useCallback(
-    async (blob: Blob) => {
-      if (!isOpenRef.current || blob.size < 500) {
-        if (stateRef.current !== 'speaking') {
-          setState('listening');
-          startRecordingSession();
-        }
-        return;
-      }
-
-      console.log('[Sana Gemini Voice] Sending audio blob to Gemini 2.5 Flash:', blob.size, 'bytes');
-      setErrorMessage(null);
-      setState('thinking');
-      setEmotion('thinking');
-
-      try {
-        const result = await sendVoiceInteractHttp(blob, {
-          accessToken: session?.access_token,
-          sessionId,
-        });
-
-        if (!isOpenRef.current) return;
-
-        console.log('[Sana Gemini Voice] Received result:', result);
-        setCurrentTranscript(result.userTranscript);
-        setCurrentAiResponse(result.aiResponse);
-        setEmotion(result.emotion);
-
-        // Егер дайын MP3 аудио келсе -> ойнату
-        if (result.audioUrl) {
-          setState('speaking');
-          stopAudioPlayback();
-
-          const audio = new Audio(result.audioUrl);
-          audioPlayerRef.current = audio;
-
-          audio.onended = () => {
-            if (isOpenRef.current) {
-              setState('listening');
-              setEmotion('happy');
-              startRecordingSession();
-            }
-          };
-
-          audio.onerror = () => {
-            if (isOpenRef.current) {
-              setState('listening');
-              startRecordingSession();
-            }
-          };
-
-          await audio.play();
-        } else {
-          // Дыбыс болмаса, тек мәтін көрсетіп қайта тыңдау
-          setState('listening');
-          startRecordingSession();
-        }
-      } catch (err: any) {
-        if (!isOpenRef.current) return;
-        console.error('[Sana Gemini Voice] Error:', err);
-        const errText = err?.message || 'Дыбысты өңдеу кезінде қате орын алды.';
-        setErrorMessage(errText);
-        setState('listening');
-        startRecordingSession();
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sessionId, session?.access_token, stopAudioPlayback]
-  );
-
-  // Жаңа MediaRecorder сессиясын бастау
-  const startRecordingSession = useCallback(() => {
-    if (!audioStreamRef.current || !isOpenRef.current) return;
-
-    audioChunksRef.current = [];
-    hasSpokenRef.current = false;
-
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
-    try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        try {
-          mediaRecorderRef.current.stop();
-        } catch {
-          // ignore
-        }
-      }
-
-      let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
-      }
-
-      const recorder = mimeType
-        ? new MediaRecorder(audioStreamRef.current, { mimeType })
-        : new MediaRecorder(audioStreamRef.current);
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: mimeType || 'audio/webm',
-        });
-        audioChunksRef.current = [];
-
-        if (hasSpokenRef.current && isOpenRef.current) {
-          submitAudioToGemini(audioBlob);
-        } else if (isOpenRef.current && stateRef.current === 'listening') {
-          startRecordingSession();
-        }
-      };
-
-      recorder.start(200); // 200мс сайын бөліп жинау
-      mediaRecorderRef.current = recorder;
-    } catch (err) {
-      console.warn('[Sana Gemini Voice] MediaRecorder init error:', err);
-    }
-  }, [submitAudioToGemini]);
-
-  // Қолмен «Сөйлеп болдым (Жіберу)» батырмасын басу
-  const finishSpeakingAndSubmit = useCallback(() => {
-    if (stateRef.current !== 'listening') return;
-
-    hasSpokenRef.current = true;
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (err) {
-        console.warn('Error stopping recorder:', err);
-      }
-    }
   }, []);
 
-  // Аудио бақылау (Дыбыс деңгейі және VAD)
-  const startAudioMonitoring = useCallback(
-    (stream: MediaStream) => {
-      try {
-        const AudioContextClass =
-          window.AudioContext ||
-          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        const ctx = new AudioContextClass();
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.2;
+  // Нақты уақыттағы WebRTC аудио деңгейін (Мұғалім және Оқушы) бақылау
+  const startAudioAnimationLoop = useCallback(() => {
+    const checkAudio = () => {
+      if (!isOpenRef.current) return;
 
-        const source = ctx.createMediaStreamSource(stream);
-        source.connect(analyser);
+      let calculatedLevel = 0;
 
-        audioContextRef.current = ctx;
-        analyserRef.current = analyser;
+      // 1. Егер AI сөйлеп жатса (Speaking) -> қашықтағы OpenAI WebRTC ағынының дыбысын алу
+      if (stateRef.current === 'speaking' && remoteAnalyserRef.current) {
+        const dataArray = new Uint8Array(remoteAnalyserRef.current.frequencyBinCount);
+        remoteAnalyserRef.current.getByteFrequencyData(dataArray);
 
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        let sum = 0;
+        const bins = Math.min(40, dataArray.length);
+        for (let i = 2; i < bins; i++) {
+          sum += dataArray[i];
+        }
+        calculatedLevel = Math.min(100, Math.round((sum / (bins - 2)) * 1.8));
+      }
+      // 2. Егер оқушы сөйлеп жатса (Listening) -> микрофонның дыбысын алу
+      else if (stateRef.current === 'listening' && localAnalyserRef.current && !isMutedRef.current) {
+        const dataArray = new Uint8Array(localAnalyserRef.current.frequencyBinCount);
+        localAnalyserRef.current.getByteFrequencyData(dataArray);
 
-        const checkAudio = () => {
-          if (!isOpenRef.current) return;
+        let sum = 0;
+        const bins = Math.min(40, dataArray.length);
+        for (let i = 2; i < bins; i++) {
+          sum += dataArray[i];
+        }
+        calculatedLevel = Math.min(100, Math.round((sum / (bins - 2)) * 1.6));
+      }
 
-          analyser.getByteFrequencyData(dataArray);
+      setAudioLevel(calculatedLevel);
+      animFrameRef.current = requestAnimationFrame(checkAudio);
+    };
 
-          // Адам дауысының жиіліктері: 150Гц - 3000Гц
-          const voiceBinsCount = 30;
-          let voiceSum = 0;
-          for (let i = 2; i < 2 + voiceBinsCount; i++) {
-            voiceSum += dataArray[i];
+    animFrameRef.current = requestAnimationFrame(checkAudio);
+  }, []);
+
+  // OpenAI Realtime оқиғаларын өңдеу (Server Events)
+  const handleRealtimeEvent = useCallback(
+    (event: any) => {
+      const type = event.type || '';
+
+      // 1. Оқушы сөйлей бастады (Automatic Server VAD)
+      if (type === 'input_audio_buffer.speech_started') {
+        console.log('[OpenAI Realtime] User started speaking');
+        setState('listening');
+        setEmotion('happy');
+      }
+
+      // 2. Оқушы сөйлеуін аяқтады
+      else if (type === 'input_audio_buffer.speech_stopped') {
+        console.log('[OpenAI Realtime] User stopped speaking');
+        setState('thinking');
+        setEmotion('thinking');
+      }
+
+      // 3. Оқушының даусын мәтінге айналдыру аяқталды (Whisper transcription)
+      else if (type === 'conversation.item.input_audio_transcription.completed') {
+        const transcript = (event.transcript || '').trim();
+        if (transcript) {
+          console.log('[OpenAI Realtime] User transcript:', transcript);
+          setCurrentTranscript(transcript);
+          lastUserTranscriptRef.current = transcript;
+        }
+      }
+
+      // 4. AI жауап бере бастады (Audio / Text delta)
+      else if (type === 'response.audio_transcript.delta') {
+        setState('speaking');
+        setEmotion('happy');
+        setCurrentAiResponse((prev) => prev + (event.delta || ''));
+      }
+
+      // 5. AI жауабының мәтіні толық аяқталды
+      else if (type === 'response.audio_transcript.done') {
+        const aiText = (event.transcript || '').trim();
+        if (aiText) {
+          setCurrentAiResponse(aiText);
+          lastAiResponseRef.current = aiText;
+        }
+      }
+
+      // 6. Жауаптың дыбыстық бөлігі аяқталды
+      else if (type === 'response.audio.done') {
+        // Дыбыс аяқталған соң тыңдау күйіне қайту
+        setTimeout(() => {
+          if (isOpenRef.current) {
+            setState('listening');
+            setEmotion('happy');
           }
-          const vocalAvg = voiceSum / voiceBinsCount;
-          const normalized = Math.min(100, Math.round(vocalAvg * 1.6));
+        }, 300);
+      }
 
-          if (isMutedRef.current) {
-            setAudioLevel(0);
-          } else {
-            setAudioLevel(normalized);
+      // 7. Сұрақ-жауап кезеңі толық аяқталды -> Supabase-ке сақтау
+      else if (type === 'response.done') {
+        console.log('[OpenAI Realtime] Turn completed, saving to Supabase');
+        const userT = lastUserTranscriptRef.current;
+        const aiT = lastAiResponseRef.current;
 
-            // 1. Сөйлеп жатқанда оқушы сөйлесе -> AI дыбысын тоқтату (Barge-in)
-            if (normalized > VOICE_THRESHOLD && stateRef.current === 'speaking') {
-              stopAudioPlayback();
-              setState('listening');
-              setEmotion('listening');
-              startRecordingSession();
-            }
+        if (userT && aiT) {
+          saveVoiceTurn(
+            {
+              userTranscript: userT,
+              aiResponse: aiT,
+              sessionId: activeSessionIdRef.current,
+              emotion: 'happy',
+            },
+            session?.access_token,
+          );
+        }
 
-            // 2. Тыңдау кезінде сөйлеу мен үнсіздікті автоматты сезу
-            if (stateRef.current === 'listening') {
-              if (normalized > VOICE_THRESHOLD) {
-                hasSpokenRef.current = true;
-                if (silenceTimerRef.current) {
-                  clearTimeout(silenceTimerRef.current);
-                  silenceTimerRef.current = null;
-                }
-              } else if (hasSpokenRef.current) {
-                // Сөйлеу бітті, үнсіздік таймері
-                if (!silenceTimerRef.current) {
-                  silenceTimerRef.current = window.setTimeout(() => {
-                    silenceTimerRef.current = null;
-                    if (
-                      mediaRecorderRef.current &&
-                      mediaRecorderRef.current.state === 'recording'
-                    ) {
-                      mediaRecorderRef.current.stop();
-                    }
-                  }, SILENCE_DURATION_MS);
-                }
-              }
-            }
-          }
+        setState('listening');
+        setEmotion('happy');
+      }
 
-          animFrameRef.current = requestAnimationFrame(checkAudio);
-        };
-
-        checkAudio();
-      } catch (err) {
-        console.warn('AudioContext monitoring setup error:', err);
+      // 8. Қате орын алса
+      else if (type === 'error') {
+        console.warn('[OpenAI Realtime] Server error event:', event);
+        const errMsg = event.error?.message || 'OpenAI байланыс қатесі';
+        setErrorMessage(errMsg);
       }
     },
-    [startRecordingSession, stopAudioPlayback]
+    [session?.access_token],
   );
 
-  // Сұхбатты бастау
-  const startConversation = useCallback(async () => {
+  // OpenAI Realtime WebRTC байланысын орнату (ChatGPT Advanced Voice Mode)
+  const startRealtimeCall = useCallback(async () => {
     setErrorMessage(null);
-    setState('listening');
-    setEmotion('happy');
+    setState('thinking');
+    setEmotion('thinking');
 
     try {
+      // 1. Бэкендтен уақытша (ephemeral) кілт алу
+      console.log('[OpenAI WebRTC] Requesting ephemeral session from backend...');
+      const sessionInfo = await createRealtimeSession(session?.access_token);
+      activeSessionIdRef.current = sessionInfo.session_id;
+
+      // 2. Оқушының микрофонын қосу
+      console.log('[OpenAI WebRTC] Requesting microphone access...');
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -376,32 +291,110 @@ export default function VoiceAssistantModal({
           autoGainControl: true,
         },
       });
-
       audioStreamRef.current = stream;
-      setIsMuted(false);
-      isMutedRef.current = false;
 
-      startAudioMonitoring(stream);
-      startRecordingSession();
-    } catch (micErr: any) {
-      console.error('[Sana Gemini Voice] Mic permission error:', micErr);
-      setErrorMessage(
-        micErr?.name === 'NotAllowedError'
-          ? 'Микрофонға рұқсат берілмеді. Браузер баптауынан рұқсат етіңіз.'
-          : 'Микрофон табылмады немесе басқа бағдарламамен бос емес.'
-      );
+      // 3. Микрофонның дыбыс талдаушысын баптау (Local Analyser)
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const localCtx = new AudioCtx();
+      const localSource = localCtx.createMediaStreamSource(stream);
+      const localAnalyser = localCtx.createAnalyser();
+      localAnalyser.fftSize = 256;
+      localAnalyser.smoothingTimeConstant = 0.2;
+      localSource.connect(localAnalyser);
+      localAnalyserRef.current = localAnalyser;
+      localAudioContextRef.current = localCtx;
+
+      // 4. WebRTC PeerConnection құру
+      const pc = new RTCPeerConnection();
+      peerConnectionRef.current = pc;
+
+      // 5. Микрофон трегін PeerConnection-ге қосу
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+      });
+
+      // 6. OpenAI-дан келетін қашықтағы аудио трегін қабылдау (Remote Audio)
+      const remoteAudio = new Audio();
+      remoteAudio.autoplay = true;
+      remoteAudioElRef.current = remoteAudio;
+
+      pc.ontrack = (event) => {
+        console.log('[OpenAI WebRTC] Remote audio track received!');
+        remoteAudio.srcObject = event.streams[0];
+
+        // Қашықтағы аудионың дыбыс талдаушысын қосу (Mascot Lip-Sync үшін)
+        try {
+          const remoteCtx = new AudioCtx();
+          const remoteSource = remoteCtx.createMediaStreamSource(event.streams[0]);
+          const remoteAnalyser = remoteCtx.createAnalyser();
+          remoteAnalyser.fftSize = 256;
+          remoteAnalyser.smoothingTimeConstant = 0.15;
+          remoteSource.connect(remoteAnalyser);
+          remoteAnalyserRef.current = remoteAnalyser;
+          remoteAudioContextRef.current = remoteCtx;
+        } catch (e) {
+          console.warn('Remote audio analyser setup warning:', e);
+        }
+      };
+
+      // 7. Оқиғаларға арналған DataChannel ("oai-events")
+      const dc = pc.createDataChannel('oai-events');
+      dataChannelRef.current = dc;
+
+      dc.onopen = () => {
+        console.log('[OpenAI WebRTC] DataChannel connected and ready!');
+        setState('listening');
+        setEmotion('happy');
+      };
+
+      dc.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleRealtimeEvent(msg);
+        } catch (err) {
+          console.warn('Realtime event parse warning:', err);
+        }
+      };
+
+      // 8. Локалды SDP Offer жасап, OpenAI Realtime WebRTC эндпоинтына жіберу
+      console.log('[OpenAI WebRTC] Creating SDP offer...');
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const targetModel = sessionInfo.model || 'gpt-4o-realtime-preview-2024-12-17';
+      const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${targetModel}`, {
+        method: 'POST',
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${sessionInfo.client_secret}`,
+          'Content-Type': 'application/sdp',
+        },
+      });
+
+      if (!sdpResponse.ok) {
+        const errText = await sdpResponse.text();
+        throw new Error(`OpenAI WebRTC байланыс қатесі: ${errText || sdpResponse.statusText}`);
+      }
+
+      const answerSdp = await sdpResponse.text();
+      await pc.setRemoteDescription({
+        type: 'answer',
+        sdp: answerSdp,
+      });
+
+      console.log('[OpenAI WebRTC] Realtime connection fully established!');
+      startAudioAnimationLoop();
+    } catch (err: any) {
+      console.error('[OpenAI WebRTC] Connection failed:', err);
+      const msg = err?.message || 'OpenAI Realtime байланысын орнату сәтсіз аяқталды.';
+      setErrorMessage(msg);
       setState('error');
     }
-  }, [startAudioMonitoring, startRecordingSession]);
+  }, [handleRealtimeEvent, session?.access_token, startAudioAnimationLoop]);
 
-  // Сұхбатты аяқтау
-  const stopConversation = useCallback(() => {
-    setState('idle');
-    setEmotion('happy');
-    cleanupAudio();
-  }, [cleanupAudio]);
-
-  // Микрофонды уақытша өшіру (Mute)
+  // Микрофонды қосу / өшіру (Mute)
   const toggleMute = useCallback(() => {
     if (!audioStreamRef.current) return;
     const nextMute = !isMuted;
@@ -419,18 +412,22 @@ export default function VoiceAssistantModal({
     setShowHistory(true);
   }, [session?.access_token]);
 
-  // Ашылу / жабылу
+  // Модаль ашылғанда қосылу, жабылғанда толық өшіру
   useEffect(() => {
     if (open) {
-      startConversation();
+      setCurrentTranscript('');
+      setCurrentAiResponse('');
+      lastUserTranscriptRef.current = '';
+      lastAiResponseRef.current = '';
+      startRealtimeCall();
     } else {
-      stopConversation();
+      cleanupConnection();
       setShowHistory(false);
     }
     return () => {
-      cleanupAudio();
+      cleanupConnection();
     };
-  }, [cleanupAudio, open, startConversation, stopConversation]);
+  }, [cleanupConnection, open, startRealtimeCall]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -458,8 +455,9 @@ export default function VoiceAssistantModal({
             />
             <DialogTitle className="text-sm sm:text-base font-bold tracking-tight text-foreground flex items-center gap-2">
               <span>Sana Voice AI</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
-                Gemini 2.5 Flash
+              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-500/20 flex items-center gap-1">
+                <Radio size={10} className="animate-pulse" />
+                ChatGPT Realtime
               </span>
             </DialogTitle>
           </div>
@@ -478,12 +476,12 @@ export default function VoiceAssistantModal({
           </div>
         </DialogHeader>
 
-        {/* 1. Сұхбат тарихы */}
+        {/* 1. Сұхбат тарихы панелі */}
         {showHistory ? (
           <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-left my-3">
             <div className="flex items-center justify-between pb-1">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Соңғы сұрақ-жауаптар
+                Диалог тарихы
               </span>
               <button
                 type="button"
@@ -514,71 +512,70 @@ export default function VoiceAssistantModal({
             )}
           </div>
         ) : (
-          /* 2. Негізгі таза, минималистік интерфейс */
+          /* 2. Нақты уақыттағы ChatGPT Realtime интерфейсі */
           <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col items-center justify-between text-center pt-2 pb-1 space-y-4">
-            {/* Орталық Жалпақ Тақиялы Қазақ Көмекшісі (Шетінде артық шеңберлерсіз) */}
-            <div className="relative flex items-center justify-center my-1 select-none">
+            {/* Ақ-қара тақиялы сүйкімді аватар (Дыбыс ағынымен нақты уақытта үндеседі) */}
+            <div className="relative flex items-center justify-center my-2 select-none">
               <SanaTaqiyaAvatar
                 state={state}
                 emotion={emotion}
                 audioLevel={audioLevel}
                 isMuted={isMuted}
-                onClick={state === 'listening' ? finishSpeakingAndSubmit : undefined}
               />
             </div>
 
-            {/* Микрофон деңгейінің нәзік индикаторы */}
-            {state === 'listening' && !isMuted ? (
-              <div className="flex items-center justify-center gap-1.5 h-3">
-                {[1, 2, 3, 4, 5, 6].map((bar) => {
-                  const active = audioLevel > bar * 8;
-                  return (
-                    <span
-                      key={bar}
-                      className={cn(
-                        'w-1 rounded-full transition-all duration-75',
-                        active
-                          ? 'bg-emerald-500 h-3'
-                          : 'bg-muted-foreground/25 h-1',
-                      )}
-                    />
-                  );
-                })}
-              </div>
-            ) : null}
+            {/* Тірі дыбыс деңгейінің бағаналары (Voice Spectrum) */}
+            <div className="flex items-center justify-center gap-1.5 h-3">
+              {[1, 2, 3, 4, 5, 6].map((bar) => {
+                const active = audioLevel > bar * 9;
+                return (
+                  <span
+                    key={bar}
+                    className={cn(
+                      'w-1.5 rounded-full transition-all duration-75',
+                      active
+                        ? state === 'speaking'
+                          ? 'bg-cyan-500 h-3.5'
+                          : 'bg-emerald-500 h-3.5'
+                        : 'bg-muted-foreground/20 h-1',
+                    )}
+                  />
+                );
+              })}
+            </div>
 
             {/* Статус мәтіні */}
             <div className="space-y-1 px-2">
               {state === 'listening' ? (
                 <div className="space-y-0.5">
                   <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                    {isMuted ? 'Микрофон өшірулі' : 'Тыңдап тұрмын, сөйлей бер...'}
+                    {isMuted ? 'Микрофон өшірулі' : 'Тыңдап тұрмын, сөйлей беріңіз...'}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    Сөйлеп болған соң өзі автоматты түрде жауап береді
+                    ChatGPT Advanced Voice: сөзіңізді тоқтатқанда автоматты түрде жауап береді
                   </p>
                 </div>
               ) : state === 'thinking' ? (
                 <div className="space-y-0.5">
                   <p className="text-sm font-bold text-purple-600 dark:text-purple-400 animate-pulse">
-                    Сұрағыңды ойланып жатырмын...
+                    ChatGPT ойланып жатыр...
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    Gemini 2.5 Flash өңдеуде
+                    Нақты уақытта жауап дайындауда
                   </p>
                 </div>
               ) : state === 'speaking' ? (
                 <div className="space-y-0.5">
                   <p className="text-sm font-bold text-cyan-600 dark:text-cyan-400">
-                    Sana жауап беруде...
+                    ChatGPT жауап беруде (coral дауысы)...
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    (Сөйлей бастасаң, AI бірден тоқтап сені тыңдайды)
+                    (Сөйлей бастасаңыз, көмекші бірден тоқтап сізді тыңдайды)
                   </p>
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Сөйлесуді бастау үшін микрофонды қосыңыз
+                  Байланыс орнатылуда...
                 </p>
               )}
 
@@ -591,7 +588,7 @@ export default function VoiceAssistantModal({
               ) : null}
             </div>
 
-            {/* Сұхбат нәтижесі (Bubble) */}
+            {/* Нақты уақыттағы сұхбат бұлтшасы (Live Speech Bubble) */}
             {(currentTranscript || currentAiResponse) && (
               <div className="w-full max-h-36 overflow-y-auto space-y-2 rounded-2xl bg-muted/40 p-3.5 text-left border border-border/40 backdrop-blur-md">
                 {currentTranscript && (
@@ -607,7 +604,7 @@ export default function VoiceAssistantModal({
                 {currentAiResponse && (
                   <div className="border-t border-border/40 pt-1.5 space-y-0.5">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
-                      Sana AI:
+                      ChatGPT Voice:
                     </span>
                     <p className="text-xs text-foreground/90 sm:text-sm leading-relaxed">
                       {currentAiResponse}
@@ -617,48 +614,33 @@ export default function VoiceAssistantModal({
               </div>
             )}
 
-            {/* Төменгі басқару түймелері */}
-            <div className="w-full pt-1 pb-1 flex flex-col sm:flex-row items-center justify-center gap-2.5">
-              {state === 'listening' ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={finishSpeakingAndSubmit}
-                  className="w-full sm:w-auto h-11 px-6 rounded-full font-semibold shadow-md bg-emerald-600 hover:bg-emerald-700 text-white active:scale-95 transition-all text-xs flex items-center justify-center gap-1.5"
-                >
-                  <Send size={14} />
-                  <span>Сөйлеп болдым (Жіберу)</span>
-                </Button>
-              ) : null}
+            {/* Басқару батырмалары (Ешқандай батырма басудың қажеті жоқ, толық автоматты VAD) */}
+            <div className="w-full pt-1 pb-1 flex items-center justify-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={toggleMute}
+                className={cn(
+                  'h-12 w-12 rounded-full border-border/60 transition-all shadow-xs',
+                  isMuted
+                    ? 'bg-destructive/15 text-destructive border-destructive/40'
+                    : 'text-foreground hover:bg-muted',
+                )}
+                title={isMuted ? 'Микрофонды қосу' : 'Микрофонды өшіру'}
+              >
+                {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+              </Button>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={toggleMute}
-                  className={cn(
-                    'h-11 w-11 rounded-full border-border/60 transition-all shadow-xs',
-                    isMuted
-                      ? 'bg-destructive/15 text-destructive border-destructive/40'
-                      : 'text-foreground hover:bg-muted',
-                  )}
-                  title={isMuted ? 'Микрофонды қосу' : 'Микрофонды өшіру'}
-                >
-                  {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-                </Button>
-
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => onOpenChange(false)}
-                  className="h-11 px-5 rounded-full font-semibold shadow-md bg-rose-500 hover:bg-rose-600 text-white active:scale-95 transition-all text-xs flex items-center gap-1.5"
-                >
-                  <PhoneOff size={15} />
-                  <span>Аяқтау</span>
-                </Button>
-              </div>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => onOpenChange(false)}
+                className="h-12 px-7 rounded-full font-semibold shadow-md bg-rose-500 hover:bg-rose-600 text-white active:scale-95 transition-all text-xs sm:text-sm flex items-center gap-2"
+              >
+                <PhoneOff size={16} />
+                <span>Аяқтау</span>
+              </Button>
             </div>
           </div>
         )}

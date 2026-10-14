@@ -15,6 +15,96 @@ export interface VoiceDialogRecord {
   createdAt?: string;
 }
 
+export interface RealtimeSessionResponse {
+  status: string;
+  client_secret: string;
+  session_id: string;
+  model: string;
+  voice: string;
+}
+
+/**
+ * OpenAI Realtime API WebRTC үшін уақытша (ephemeral) кілт алады.
+ */
+export async function createRealtimeSession(
+  accessToken?: string,
+): Promise<RealtimeSessionResponse> {
+  const baseUrl = getAiApiBaseUrl();
+  const url = `${baseUrl}/api/voice/realtime/session`;
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    let detail = '';
+    try {
+      const errJson = JSON.parse(errorText);
+      detail = errJson.detail || errJson.message || '';
+    } catch {
+      detail = errorText;
+    }
+    throw new Error(detail || `OpenAI Realtime сессиясын бастау қатесі: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+/**
+ * WebRTC арқылы сөйлесілген әрбір сұрақ-жауапты Supabase-ке сақтайды.
+ */
+export async function saveVoiceTurn(
+  payload: {
+    userTranscript: string;
+    aiResponse: string;
+    sessionId?: string;
+    emotion?: string;
+  },
+  accessToken?: string,
+): Promise<string | null> {
+  try {
+    const baseUrl = getAiApiBaseUrl();
+    const url = `${baseUrl}/api/voice/history/save`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        user_transcript: payload.userTranscript,
+        ai_response: payload.aiResponse,
+        session_id: payload.sessionId,
+        emotion: payload.emotion || 'happy',
+      }),
+    });
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.id || null;
+  } catch (e) {
+    console.warn('Could not save voice turn to history:', e);
+    return null;
+  }
+}
+
+/**
+ * Сақтық REST режимі (егер WebRTC іске қосылмаса).
+ */
 export async function sendVoiceInteractHttp(
   audioBlob: Blob,
   options?: {
@@ -91,7 +181,6 @@ export async function sendVoiceInteractHttp(
   };
 }
 
-// Backward compatibility alias
 export const sendVoiceInteractRest = sendVoiceInteractHttp;
 
 export async function fetchVoiceHistory(

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 from typing import Any
 
+import httpx
 from fastapi import (
     APIRouter,
+    Body,
     File,
     Form,
     Header,
@@ -15,12 +18,14 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from ..dependencies.auth import (
     extract_bearer_token,
     resolve_user_id_from_bearer_token,
 )
 from ..services.voice_service import (
+    CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
     process_voice_with_gemini,
     synthesize_speech_openai,
 )
@@ -34,6 +39,21 @@ logger = logging.getLogger("bilimcorp.voice.api")
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 
 MAX_AUDIO_SIZE = 15 * 1024 * 1024  # 15 MB
+
+# OpenAI Realtime WebRTC моделдерінің басымдық тізімі
+REALTIME_CANDIDATE_MODELS = [
+    "gpt-4o-realtime-preview-2024-12-17",
+    "gpt-4o-realtime-preview",
+    "gpt-4o-mini-realtime-preview-2024-12-17",
+    "gpt-4o-mini-realtime-preview",
+]
+
+
+class SaveVoiceTurnRequest(BaseModel):
+    user_transcript: str
+    ai_response: str
+    session_id: str | None = None
+    emotion: str = "happy"
 
 
 def _extract_user_id(authorization: str | None, x_user_id: str | None) -> str | None:
@@ -50,62 +70,143 @@ def _extract_user_id(authorization: str | None, x_user_id: str | None) -> str | 
     return None
 
 
-@router.post("/interact")
-@router.post("/chat")
-async def voice_interact_gemini(
-    audio: UploadFile = File(..., description="Пайдаланушы жазған толық аудио файл (webm, mp3, wav)"),
-    session_id: str | None = Form(None),
+@router.post("/realtime/session")
+@router.post("/session")
+async def create_openai_realtime_session(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
     """
-    Тікелей Gemini 2.5 Flash мультимодальды аудио өңдеу құбыры:
-    1. Фронтендтен MediaRecorder арқылы жиналған толық аудио файлды қабылдайды.
-    2. Ешқандай бөлек STT қажет етпей, тікелей Gemini 2.5 Flash моделіне аудио күйінде береді.
-    3. Gemini аудионы тыңдап (user_transcript) және қазақша жауабын (ai_response) бірге қайтарады.
-    4. ElevenLabs (немесе Edge-TTS) арқылы сапалы MP3 дыбыс дайындайды.
-    5. Supabase дерекқорына RLS саясатымен сақтап, фронтендке қайтарады.
+    OpenAI Realtime API WebRTC сессиясы үшін уақытша (ephemeral) кілтті генерациялайды.
+    Фронтенд браузері осы кілтпен OpenAI WebRTC серверіне тікелей қосылып,
+    ChatGPT Advanced Voice Mode сияқты лезде (суб-секундтық кідіріспен), автоматты
+    server_vad арқылы толыққанды екі жақты сұхбат жүргізеді.
     """
+    openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if not openai_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Бэкендте OPENAI_API_KEY орнатылмаған. Render немесе .env файлына қосыңыз.",
+        )
+
+    voice = (os.getenv("OPENAI_REALTIME_VOICE") or "coral").strip()
+    if voice not in {"coral", "nova", "alloy", "echo", "fable", "onyx", "shimmer", "sage", "ash"}:
+        voice = "coral"
+
+    configured_model = (os.getenv("OPENAI_REALTIME_MODEL") or "").strip()
+    candidate_models: list[str] = []
+    if configured_model:
+        candidate_models.append(configured_model)
+    for m in REALTIME_CANDIDATE_MODELS:
+        if m not in candidate_models:
+            candidate_models.append(m)
+
+    headers = {
+        "Authorization": f"Bearer {openai_key}",
+        "Content-Type": "application/json",
+    }
+
+    url = "https://api.openai.com/v1/realtime/sessions"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        last_error_detail = ""
+        for model_name in candidate_models:
+            payload = {
+                "model": model_name,
+                "voice": voice,
+                "modalities": ["audio", "text"],
+                "instructions": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
+                "input_audio_transcription": {
+                    "model": "whisper-1",
+                },
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 600,
+                    "create_response": True,
+                },
+            }
+
+            try:
+                logger.info("Requesting OpenAI Realtime session for model: %s (voice=%s)", model_name, voice)
+                resp = await client.post(url, headers=headers, json=payload)
+
+                if resp.status_code in {200, 201}:
+                    data = resp.json()
+                    client_secret = data.get("client_secret", {}).get("value")
+                    session_id = data.get("id")
+
+                    if client_secret:
+                        logger.info("OpenAI Realtime session created successfully: session_id=%s, model=%s", session_id, model_name)
+                        return {
+                            "status": "success",
+                            "client_secret": client_secret,
+                            "session_id": session_id,
+                            "model": model_name,
+                            "voice": voice,
+                        }
+                else:
+                    last_error_detail = resp.text
+                    logger.warning("OpenAI session request for %s returned %d: %s", model_name, resp.status_code, resp.text[:140])
+            except Exception as exc:
+                last_error_detail = str(exc)
+                logger.warning("OpenAI session request error for %s: %s", model_name, exc)
+
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"OpenAI Realtime сессиясын бастау мүмкін болмады: {last_error_detail}",
+        )
+
+
+@router.post("/history/save")
+async def save_voice_turn(
+    payload: SaveVoiceTurnRequest,
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    """WebRTC диалогының әрбір қадамын Supabase базасына RLS бойынша сақтайды."""
+    user_id = _extract_user_id(authorization, x_user_id)
+    record_id = save_voice_dialog_record(
+        user_id=user_id,
+        session_id=payload.session_id,
+        user_transcript=payload.user_transcript,
+        ai_response=payload.ai_response,
+        emotion=payload.emotion,
+    )
+    return {"status": "success", "id": record_id}
+
+
+@router.post("/interact")
+@router.post("/chat")
+async def voice_interact_gemini(
+    audio: UploadFile = File(..., description="Пайдаланушы жазған толық аудио файл"),
+    session_id: str | None = Form(None),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    """Резервтік REST эндпоинты (егер WebRTC қолжетімсіз болса)."""
     try:
         audio_bytes = await audio.read()
         if not audio_bytes or len(audio_bytes) < 300:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Дыбыс жазылмады немесе файл тым қысқа. Қайта сөйлеп көріңізші.",
-            )
-
-        if len(audio_bytes) > MAX_AUDIO_SIZE:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail="Аудио файл тым үлкен (15 МБ-тан аспауы керек).",
+                detail="Дыбыс жазылмады немесе файл тым қысқа.",
             )
 
         user_id = _extract_user_id(authorization, x_user_id)
         filename = audio.filename or "recording.webm"
         content_type = audio.content_type or "audio/webm"
 
-        logger.info("Processing voice interaction via Gemini 2.5 Flash (size=%d bytes, file=%s, user=%s)", len(audio_bytes), filename, user_id)
-
-        # 1. Тікелей Gemini 2.5 Flash мультимодальды аудио өңдеу
         user_transcript, ai_reply, emotion = await process_voice_with_gemini(
             audio_bytes=audio_bytes,
             filename=filename,
             mime_type=content_type,
         )
 
-        if not ai_reply:
-            ai_reply = "Сәлем, достым! Сені толық түсінбей қалдым, қайталап айтып жібересің бе?"
-            emotion = "happy"
+        mp3_bytes = await synthesize_speech_openai(ai_reply)
+        mp3_b64 = base64.b64encode(mp3_bytes).decode("ascii")
 
-        # 2. OpenAI Audio Speech TTS (gpt-4o-mini-tts / coral / nova)
-        try:
-            mp3_bytes = await synthesize_speech_openai(ai_reply)
-            mp3_b64 = base64.b64encode(mp3_bytes).decode("ascii")
-        except Exception as tts_err:
-            logger.warning("OpenAI TTS generation error: %s", tts_err)
-            mp3_b64 = ""
-
-        # 3. Supabase RLS арқылы тарихқа сақтау
         record_id = save_voice_dialog_record(
             user_id=user_id,
             session_id=session_id,
@@ -128,10 +229,9 @@ async def voice_interact_gemini(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Voice interaction unexpected error: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc) or "Аудионы өңдеу кезінде күтпеген қате орын алды.",
+            detail=str(exc) or "Аудио өңдеуде қате болды.",
         )
 
 
