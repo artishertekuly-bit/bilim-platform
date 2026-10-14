@@ -34,6 +34,7 @@ import {
   type VoiceEmotion,
   type VoiceState,
 } from '@/lib/voice-api';
+import SanaTaqiyaAvatar from './SanaTaqiyaAvatar';
 
 interface VoiceAssistantModalProps {
   open: boolean;
@@ -686,116 +687,15 @@ export default function VoiceAssistantModal({
         ) : (
           /* 2. Негізгі GoPrep Визуалды Интерфейсі */
           <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col items-center justify-between text-center pt-2 pb-1 space-y-4">
-            {/* Орталық Эмоциялы Орб және Дыбыс толқыны */}
-            <div className="relative flex h-40 w-40 sm:h-48 sm:w-48 items-center justify-center my-1 select-none">
-              {/* Дыбыс толқындарының динамикалық кеңеюі (Listening кезінде mic деңгейіне қарай) */}
-              {state === 'listening' && !isMuted ? (
-                <>
-                  <span
-                    className="absolute rounded-full bg-emerald-500/15 transition-all duration-75 ease-out pointer-events-none"
-                    style={{
-                      width: `${Math.max(130, 130 + audioLevel * 1.3)}px`,
-                      height: `${Math.max(130, 130 + audioLevel * 1.3)}px`,
-                    }}
-                  />
-                  <span
-                    className="absolute rounded-full bg-emerald-500/25 transition-all duration-75 ease-out pointer-events-none"
-                    style={{
-                      width: `${Math.max(105, 105 + audioLevel * 0.9)}px`,
-                      height: `${Math.max(105, 105 + audioLevel * 0.9)}px`,
-                    }}
-                  />
-                </>
-              ) : null}
-
-              {/* Ойлану кезіндегі сиқырлы айналмалы жарқыл */}
-              {state === 'thinking' ? (
-                <>
-                  <span className="absolute h-36 w-36 sm:h-44 sm:w-44 rounded-full border-2 border-purple-500/40 border-t-transparent animate-spin pointer-events-none" />
-                  <span className="absolute h-32 w-32 sm:h-40 sm:w-40 rounded-full bg-purple-500/20 animate-pulse pointer-events-none" />
-                </>
-              ) : null}
-
-              {/* Сөйлеу кезіндегі ырғақты дыбыс пульсациясы */}
-              {state === 'speaking' ? (
-                <>
-                  <span className="absolute h-40 w-40 sm:h-48 sm:w-48 rounded-full bg-cyan-500/15 animate-ping pointer-events-none" />
-                  <span className="absolute h-34 w-34 sm:h-42 sm:w-42 rounded-full bg-cyan-500/25 animate-pulse pointer-events-none" />
-                </>
-              ) : null}
-
-              {/* Қуану (Happy) күйіндегі алтын ұшқындар */}
-              {emotion === 'happy' && state !== 'thinking' ? (
-                <span className="absolute 1 top-0 right-1 z-20 text-amber-400 animate-bounce pointer-events-none">
-                  <Sparkles size={22} />
-                </span>
-              ) : null}
-
-              {/* Негізгі интерактивті эмоционалды Орб (басуға болады) */}
-              <button
-                type="button"
+            {/* Орталық Тақиялы Қазақ Көмекшісі Маскоты */}
+            <div className="relative flex items-center justify-center my-1 select-none">
+              <SanaTaqiyaAvatar
+                state={state}
+                emotion={emotion}
+                audioLevel={audioLevel}
+                isMuted={isMuted}
                 onClick={state === 'listening' ? finishSpeakingAndSubmit : undefined}
-                className={cn(
-                  'relative z-10 flex h-28 w-28 sm:h-32 sm:w-32 items-center justify-center rounded-full cursor-pointer',
-                  'shadow-2xl transition-all duration-300 active:scale-95 focus:outline-none focus:ring-4 focus:ring-primary/20',
-                  state === 'speaking'
-                    ? 'bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 text-white shadow-cyan-500/30'
-                    : state === 'thinking'
-                    ? 'bg-gradient-to-tr from-purple-600 via-fuchsia-600 to-pink-500 text-white shadow-purple-500/30'
-                    : state === 'listening'
-                    ? isMuted
-                      ? 'bg-muted text-muted-foreground'
-                      : 'bg-gradient-to-tr from-emerald-500 via-teal-500 to-cyan-500 text-white shadow-emerald-500/35 hover:scale-105'
-                    : 'bg-primary text-primary-foreground',
-                )}
-                title={state === 'listening' ? 'Сөйлеп болсаңыз, осында басып бірден жіберіңіз' : undefined}
-              >
-                {/* Эмоциялы бет-жүз бейнесі (GoPrep Emotional Avatar) */}
-                <div className="flex flex-col items-center justify-center space-y-1">
-                  {/* Көздері */}
-                  <div className="flex items-center gap-3">
-                    {emotion === 'happy' ? (
-                      <>
-                        <span className="text-lg font-black leading-none">^</span>
-                        <span className="text-lg font-black leading-none">^</span>
-                      </>
-                    ) : state === 'thinking' ? (
-                      <>
-                        <span className="h-2 w-2 rounded-full bg-white animate-bounce" />
-                        <span className="h-2 w-2 rounded-full bg-white animate-bounce delay-150" />
-                      </>
-                    ) : state === 'speaking' ? (
-                      <>
-                        <span className="h-2.5 w-2.5 rounded-full bg-white" />
-                        <span className="h-2.5 w-2.5 rounded-full bg-white" />
-                      </>
-                    ) : isMuted ? (
-                      <>
-                        <span className="h-1 w-2.5 bg-muted-foreground rounded-full" />
-                        <span className="h-1 w-2.5 bg-muted-foreground rounded-full" />
-                      </>
-                    ) : (
-                      <>
-                        <span className="h-2.5 w-2.5 rounded-full bg-white transition-all duration-100" />
-                        <span className="h-2.5 w-2.5 rounded-full bg-white transition-all duration-100" />
-                      </>
-                    )}
-                  </div>
-
-                  {/* Ауыз / Көңіл-күй */}
-                  <div className="pt-0.5">
-                    {state === 'speaking' ? (
-                      <span className="inline-block h-2.5 w-4 rounded-full border-2 border-white bg-white/40 animate-pulse" />
-                    ) : emotion === 'happy' ? (
-                      <span className="inline-block h-1.5 w-3.5 border-b-2 border-white rounded-full" />
-                    ) : state === 'thinking' ? (
-                      <span className="inline-block h-1 w-2.5 bg-white/80 rounded-full" />
-                    ) : (
-                      <span className="inline-block h-1 w-3 border-b border-white/80 rounded-full" />
-                    )}
-                  </div>
-                </div>
-              </button>
+              />
             </div>
 
             {/* Микрофон деңгейінің индикаторы (Тірі толқын) */}
