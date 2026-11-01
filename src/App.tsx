@@ -14,8 +14,6 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider, useAuth, type UserRole } from '@/lib/auth-context';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { LoadingState } from '@/components/common/DataState';
-import t from '@/lib/i18n';
 
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 
@@ -103,10 +101,13 @@ type AppRouteConfig = {
 
 function AppLoadingScreen() {
   return (
-    <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md animate-fade-in">
-        <LoadingState align="center" title="Жүктелуде" text={t('page.app.loading')} />
-      </div>
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Жүктелуде"
+      className="min-h-screen w-full bg-background/70 backdrop-blur-2xl transition-all duration-300 animate-page-blur"
+    >
+      <div className="sana-blur-loader" />
     </div>
   );
 }

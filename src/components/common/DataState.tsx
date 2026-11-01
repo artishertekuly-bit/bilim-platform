@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, Inbox, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Inbox } from 'lucide-react';
 
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
@@ -181,26 +181,25 @@ type LoadingStateProps = {
 export function LoadingState({
   title = 'Жүктелуде',
   text,
-  hint,
   className,
-  align = 'left',
   compact = false,
   size = 'md',
 }: LoadingStateProps) {
+  const isSmall = size === 'sm' || compact;
+
   return (
-    <StateCard
+    <div
       role="status"
-      ariaBusy
-      tone="default"
-      align={align}
-      className={className}
-      icon={<Loader2 size={18} className="animate-spin text-primary" />}
-      title={title}
-      text={text}
-      hint={hint}
-      compact={compact}
-      size={size}
-    />
+      aria-live="polite"
+      aria-busy="true"
+      className={cn(
+        'sana-inline-blur w-full border border-border/35',
+        isSmall ? 'h-20' : 'h-36',
+        className,
+      )}
+    >
+      <span className="sr-only">{cleanText(text || title, MAX_TITLE_CHARS)}</span>
+    </div>
   );
 }
 

@@ -4,10 +4,6 @@ import type { Session } from '@supabase/supabase-js';
 import {
   AlertTriangle,
   ArrowRight,
-  GraduationCap,
-  Loader2,
-  ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 
 import KazakhOrnament from '@/components/KazakhOrnament';
@@ -216,7 +212,7 @@ export default function AuthCallbackPage() {
   const processedRef = useRef(false);
 
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('Google арқылы кіру аяқталуда...');
+  const [, setMessage] = useState('Google арқылы кіру аяқталуда...');
 
   useEffect(() => {
     if (processedRef.current) return;
@@ -375,58 +371,13 @@ export default function AuthCallbackPage() {
   }
 
   return (
-    <AuthCallbackShell>
-      <div className="overflow-hidden rounded-3xl border border-border bg-card shadow-soft-lg">
-        <div className="relative overflow-hidden border-b border-border/70 bg-card/80 px-5 py-5 text-center">
-          <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full bg-primary-soft blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-20 left-10 h-32 w-32 rounded-full bg-secondary-soft blur-3xl" />
-
-          <div className="relative">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-              <Loader2 size={26} className="animate-spin" />
-            </div>
-
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-ai-border bg-ai-soft px-3 py-1 text-xs font-semibold text-primary">
-              <Sparkles size={12} />
-              Google авторизациясы
-            </div>
-
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">
-              Авторизация
-            </h1>
-
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {cleanText(message, MAX_MESSAGE_CHARS)}
-            </p>
-          </div>
-        </div>
-
-        <div className="p-5">
-          <div className="rounded-3xl border border-ai-border bg-ai-soft/80 p-4 shadow-inner-soft">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-ai-border bg-card text-primary shadow-inner-soft">
-                <ShieldCheck size={18} />
-              </div>
-
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  Сессия тексеріліп жатыр
-                </p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Профиль және құпия сөз күйі тексеріледі.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <KazakhOrnament variant="divider" className="my-5" />
-
-          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-            <GraduationCap size={13} />
-            Sana
-          </div>
-        </div>
-      </div>
-    </AuthCallbackShell>
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Жүктелуде"
+      className="min-h-screen w-full bg-background/70 backdrop-blur-2xl transition-all duration-300 animate-page-blur"
+    >
+      <div className="sana-blur-loader" />
+    </div>
   );
 }

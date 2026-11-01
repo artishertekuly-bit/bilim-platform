@@ -1,7 +1,6 @@
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import {
   ArrowRight,
-  Loader2,
   ShieldAlert,
   UserRound,
 } from 'lucide-react';
@@ -15,17 +14,13 @@ import TeacherDashboard from '@/pages/TeacherDashboard';
 
 function DashboardLoadingScreen() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
-      <div className="w-full max-w-sm rounded-[2rem] border border-border bg-card p-7 text-center shadow-soft">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-foreground text-background">
-          <Loader2 size={19} className="animate-spin" />
-        </div>
-
-        <p className="mt-5 text-sm font-bold">Sana ашылуда</p>
-        <p className="mt-2 text-xs leading-5 text-muted-foreground">
-          Аккаунт кеңістігі дайындалып жатыр.
-        </p>
-      </div>
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Жүктелуде"
+      className="min-h-screen w-full bg-background/70 backdrop-blur-2xl transition-all duration-300 animate-page-blur"
+    >
+      <div className="sana-blur-loader" />
     </div>
   );
 }

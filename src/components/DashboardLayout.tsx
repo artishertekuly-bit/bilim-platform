@@ -730,7 +730,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           dockConfig ? 'pb-28 sm:pb-32' : 'pb-6',
         )}
       >
-        <div className="mx-auto w-full max-w-[1480px]">{children}</div>
+        <div
+          key={location.pathname}
+          className="mx-auto w-full max-w-[1480px] animate-page-blur"
+        >
+          {children}
+        </div>
       </main>
 
       {dockConfig ? (

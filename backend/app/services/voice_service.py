@@ -37,27 +37,30 @@ STYLE:
 - Plain speech only: no emojis, no markdown, no lists, no special symbols.
 - Help with school subjects, explain simply, and encourage the student."""
 
-# Оқушыларға арналған ChatGPT стиліндегі табиғи ауызекі қазақша жүйелік промпт
-CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT = """Сен — Bilim Platform платформасының оқушыларға арналған ақылды, тапқыр әрі мейірімді AI аудио-көмекшісісің.
-Сенің сөйлеу мәнерің — дәл ChatGPT сияқты таза, жанды, табиғи ауызекі қазақ тілінде және қазіргі жастарға жақын жеңіл стильде болуы тиіс.
+# Тегін (Стандартты STT -> LLM -> TTS) режимге арналған жүйелік промпт:
+# Оқушы қай тілде сөйлесе, сол тілде қысқа, қазіргі заманға сай нақты жауап береді.
+CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT = """You are Sana, the friendly voice assistant of "Bilim Platform", an online learning platform for school students in Kazakhstan.
 
-МАҢЫЗДЫ ҚАҒИДАЛАР (ҚАТАҢ ОРЫНДАЛСЫН):
-1. САНДАРДЫ ҚАТАҢ ТҮРДЕ ҚАЗАҚША СӨЗБЕН ЖАЗ:
-   Дыбыстау кезінде акцент пен қателіктер болмауы үшін мәтіндегі кез келген санды ТЕК ҚАНА қазақша сөзбен жаз!
-   Мысалы: «10» емес — «он»; «7-сынып» емес — «жетінші сынып»; «2024» емес — «екі мың жиырма төрт»; «5 минут» емес — «бес минут»; «100%» емес — «жүз пайыз». Ешқашан цифр қолданба!
-2. ҚЫСҚА ӘРІ ТЫҢДАУҒА ЖЕҢІЛ:
-   Сөйлемдерді өте қысқа, нақты және түсінікті құра (барлығы 1-3 қысқа сөйлем, 20-35 сөз). Ұзақ әрі күрделі сөйлемдер құрма.
-3. ДАУЫСҚА АРНАЛҒАН ТАЗА МӘТІН:
-   Ешқашан жұлдызша (*), тор (#), шаршы жақша, астын сызу, markdown белгілерін, кестелерді немесе эмодзилерді жазба. Тек әріптер, үтір және нүкте болсын.
-4. ШЫНАЙЫ АДАМ СИЯҚТЫ ДОСТЫҚ СТИЛЬ:
-   ChatGPT сияқты жылы, шабыттандыратын көңіл-күйде сөйле («Сәлем, достым!», «Керемет сұрақ қойдың...», «Қара, бұл өте қызық...»). Қазақ тілінің төл дыбыстарын (ә, і, ң, ғ, ү, ұ, қ, ө, һ) дұрыс қолдан.
-5. ЖАУАПТЫ ҚАТАҢ ТҮРДЕ МЫНА JSON ФОРМАТЫНДА ҚАЙТАР:
+CRITICAL RULES:
+1. REPLY IN THE SAME LANGUAGE THE STUDENT SPOKE:
+   - Kazakh -> reply in pure, natural modern Kazakh (never mix in Uzbek, Kyrgyz, or Russian words; use correct letters ә, і, ң, ғ, ү, ұ, қ, ө, һ).
+   - Russian -> reply in natural modern Russian.
+   - English -> reply in natural modern English.
+   - If the audio is unclear or very short, default to Kazakh.
+2. SHORT, MODERN, AND TO THE POINT:
+   - Keep `ai_response` to 1-2 short sentences (maximum 25-30 words). Do not give long lectures or repeat the question.
+   - Sound warm, casual, and modern, like a helpful older friend.
+3. TEXT FOR SPEECH (TTS):
+   - Write all numbers as words in the reply language (e.g. in Kazakh: "5" -> "бес", "2026" -> "екі мың жиырма алты"; in Russian: "5" -> "пять").
+   - Never use markdown (*, #, -), bullet lists, or emojis. Plain spoken sentences only.
+4. RETURN STRICT JSON ONLY:
 {
-  "user_transcript": "Оқушының сөйлеген сөзінің толық мәтіні",
-  "ai_response": "AI көмекшінің сандары сөзбен жазылған, таза қазақша жауабы",
-  "emotion": "happy"
+  "user_transcript": "Exact transcription of what the student said in their language",
+  "ai_response": "Short 1-2 sentence spoken reply in the same language with numbers written as words",
+  "emotion": "happy",
+  "language": "kk"
 }
-(emotion үшін тек: "happy", "thinking", "speaking" мәндерінің бірін таңда)."""
+("emotion" must be "happy", "thinking", or "speaking"; "language" must be "kk", "ru", or "en")."""
 
 
 # Сандарды қазақша сөзге айналдыру сөздігі (акцент пен қателіктердің алдын алу кепілдігі)
@@ -132,13 +135,14 @@ def kazakh_numbers_to_words(text: str) -> str:
 def clean_voice_text(text: str) -> str:
     """
     Дауыспен оқуға оңтайландыру:
-    Сандарды сөзге айналдырады, markdown және эмодзи белгілерін алып тастайды.
+    Қазақша мәтін болса сандарды сөзге айналдырады, markdown және эмодзи белгілерін алып тастайды.
     """
     if not text:
         return ""
 
-    # 1. Сандарды сөзге айналдыру
-    text = kazakh_numbers_to_words(text)
+    # 1. Егер мәтінде қазақ әріптері болса (немесе латын/орыс емес болса), сандарды қазақша сөзге айналдыру
+    if re.search(r"[әғқңөұүһіӘҒҚҢӨҰҮҺІ]", text):
+        text = kazakh_numbers_to_words(text)
 
     # 2. Markdown және арнайы белгілерді өшіру
     cleaned = re.sub(r"[\*#_`~>\[\]\(\)\{\}\\\/]", "", text)
@@ -156,10 +160,8 @@ async def process_voice_with_gemini(
     mime_type: str = "audio/webm",
 ) -> tuple[str, str, str]:
     """
-    Multimodal Gemini 2.5 Flash Pipeline:
-    Аудио файлды бөлек STT қолданбай, тікелей Gemini 2.5 Flash моделіне
-    мультимодальды кіріс ретінде жіберіп, оқушының айтқанын да (STT) және
-    AI-дың жауабын да (LLM) бір ғана жедел сұраныспен алады.
+    Multimodal Gemini 2.5 Flash Pipeline (+ OpenAI Whisper/GPT-4o-mini fallback):
+    Аудионы тыңдап, оқушы қай тілде сөйлесе, сол тілде қысқа әрі нақты жауап қайтарады.
 
     Қайтарады: (user_transcript, ai_response, emotion)
     """
@@ -173,7 +175,7 @@ async def process_voice_with_gemini(
         or ""
     ).strip()
 
-    # 1. Егер Gemini API кілті болса -> Тікелей Gemini 2.5 Flash арқылы мультимодальды өңдеу
+    # 1. Егер Gemini API кілті болса -> Тікелей Gemini Flash арқылы мультимодальды өңдеу
     if gemini_key:
         audio_b64 = base64.b64encode(audio_bytes).decode("ascii")
 
@@ -186,6 +188,8 @@ async def process_voice_with_gemini(
             clean_mime = "audio/wav"
         elif "ogg" in clean_mime:
             clean_mime = "audio/ogg"
+        elif "mp4" in clean_mime or "m4a" in clean_mime:
+            clean_mime = "audio/mp4"
 
         candidate_models: list[str] = []
         configured_model = (os.getenv("GEMINI_MODEL") or "").strip()
@@ -211,9 +215,10 @@ async def process_voice_with_gemini(
                         },
                         {
                             "text": (
-                                "Мына аудиодағы оқушының қазақша сөзін тыңдап, оған дәл ChatGPT сияқты "
-                                "табиғи ауызекі қазақ тілінде сандарды сөзбен жаза отырып, қысқа әрі жылы жауап бер. "
-                                "Нәтижені қатаң түрде JSON түрінде қайтар."
+                                "Listen to the student's audio. Transcribe what they said in `user_transcript`, "
+                                "and reply in `ai_response` in the EXACT SAME language they spoke (Kazakh, Russian, or English). "
+                                "Keep the reply short (1-2 sentences, max 25-30 words), modern, warm, and natural. "
+                                "Return strict JSON only."
                             )
                         },
                     ],
@@ -222,11 +227,11 @@ async def process_voice_with_gemini(
             "generationConfig": {
                 "response_mime_type": "application/json",
                 "temperature": 0.35,
-                "maxOutputTokens": 1000,
+                "maxOutputTokens": 450,
             },
         }
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        async with httpx.AsyncClient(timeout=35.0) as client:
             for model_name in candidate_models:
                 api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
                 try:
@@ -249,7 +254,7 @@ async def process_voice_with_gemini(
                                     emotion = "happy"
 
                                 if ai_response:
-                                    logger.info("Gemini 2.5 Flash success: transcript='%s', reply='%s'", user_transcript[:50], ai_response[:50])
+                                    logger.info("Gemini Flash success: transcript='%s', reply='%s'", user_transcript[:50], ai_response[:50])
                                     return user_transcript, ai_response, emotion
                             except Exception as parse_err:
                                 logger.warning("JSON parse failed, regex extraction: %s", parse_err)
@@ -261,30 +266,54 @@ async def process_voice_with_gemini(
                                         clean_voice_text(parsed.get("ai_response", "Сәлем, достым!")),
                                         parsed.get("emotion", "happy"),
                                     )
-                                return "Сөйлеген сөз", clean_voice_text(raw_text), "happy"
+                                return "Аудио хабарлама", clean_voice_text(raw_text), "happy"
                     else:
                         logger.warning("Gemini model %s returned HTTP %s: %s", model_name, resp.status_code, resp.text[:160])
                 except Exception as model_err:
                     logger.warning("Error with Gemini model %s: %s", model_name, model_err)
 
-    # 2. Резервтік Groq / OpenAI LLM арқылы орындау (егер Gemini кілті болмаса)
-    groq_key = (os.getenv("GROQ_API_KEY") or "").strip()
+    # 2. Резервтік OpenAI Whisper + GPT-4o-mini (немесе Groq) арқылы орындау
     openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    groq_key = (os.getenv("GROQ_API_KEY") or "").strip()
 
-    if groq_key or openai_key:
-        logger.info("Gemini key not set, using Groq Whisper + LLM fallback...")
-        transcript = await _fallback_transcribe_whisper(audio_bytes, filename)
+    if openai_key or groq_key:
+        logger.info("Using OpenAI/Groq Whisper + LLM pipeline...")
+        transcript = await _fallback_transcribe_whisper(audio_bytes, filename, mime_type)
         reply, emotion = await _fallback_llm_response(transcript)
         return transcript, reply, emotion
 
     raise RuntimeError(
-        "Gemini 2.5 Flash API кілті табылмады! Бэкенд баптауларына (Render / .env) "
-        "GEMINI_API_KEY кілтін қосыңыз (Google AI Studio-дан тегін алынады: aistudio.google.com)."
+        "GEMINI_API_KEY немесе OPENAI_API_KEY кілті табылмады! Бэкенд баптауларын тексеріңіз."
     )
 
 
-async def _fallback_transcribe_whisper(audio_bytes: bytes, filename: str) -> str:
-    """Резервтік Whisper STT."""
+async def _fallback_transcribe_whisper(
+    audio_bytes: bytes,
+    filename: str = "recording.webm",
+    mime_type: str = "audio/webm",
+) -> str:
+    """Резервтік OpenAI Whisper-1 (немесе Groq) STT."""
+    openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    if openai_key:
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                files = {"file": (filename or "recording.webm", audio_bytes, mime_type or "audio/webm")}
+                data = {"model": "whisper-1"}
+                resp = await client.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {openai_key}"},
+                    files=files,
+                    data=data,
+                )
+                if resp.status_code == 200:
+                    text = (resp.json().get("text") or "").strip()
+                    if text:
+                        return clean_voice_text(text)
+                else:
+                    logger.warning("OpenAI Whisper STT returned %d: %s", resp.status_code, resp.text[:140])
+        except Exception as exc:
+            logger.warning("OpenAI Whisper fallback STT error: %s", exc)
+
     groq_key = (os.getenv("GROQ_API_KEY") or "").strip()
     if groq_key:
         try:
@@ -293,35 +322,57 @@ async def _fallback_transcribe_whisper(audio_bytes: bytes, filename: str) -> str
             resp = await client.audio.transcriptions.create(
                 file=(filename, audio_bytes),
                 model="whisper-large-v3-turbo",
-                language="kk",
                 response_format="json",
             )
             return clean_voice_text(getattr(resp, "text", "") or "")
         except Exception as exc:
             logger.warning("Groq fallback STT error: %s", exc)
 
-    return "Сәлем, ассистент!"
+    return "Сәлем!"
 
 
 async def _fallback_llm_response(user_text: str) -> tuple[str, str]:
-    """Резервтік ChatGPT-стиліндегі LLM жауабы."""
+    """Резервтік OpenAI GPT-4o-mini жауабы (оқушы сөйлеген тілде қысқа жауап)."""
     openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
     if openai_key:
         try:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=openai_key)
-            resp = await client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_text},
-                ],
-                max_tokens=150,
-            )
-            text = clean_voice_text(resp.choices[0].message.content or "")
-            return text or "Сәлем, достым! Сұрағың өте қызық екен.", "happy"
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {openai_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "gpt-4o-mini",
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "You are Sana, the friendly voice assistant of Bilim Platform. "
+                                    "Reply in the EXACT SAME language the user spoke (Kazakh -> pure natural Kazakh, "
+                                    "Russian -> Russian, English -> English). Keep your answer to 1-2 short sentences "
+                                    "(max 25 words), warm and casual. Write numbers as words. Plain text only, no emojis or markdown."
+                                ),
+                            },
+                            {"role": "user", "content": user_text},
+                        ],
+                        "temperature": 0.4,
+                        "max_tokens": 120,
+                    },
+                )
+                if resp.status_code == 200:
+                    content = (
+                        resp.json()
+                        .get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                    )
+                    text = clean_voice_text(content)
+                    if text:
+                        return text, "happy"
         except Exception as exc:
-            logger.warning("OpenAI fallback error: %s", exc)
+            logger.warning("OpenAI fallback LLM error: %s", exc)
 
     return "Сәлем, достым! Сені тыңдап тұрмын.", "happy"
 
@@ -358,8 +409,8 @@ async def synthesize_speech_openai(
             candidate_models.append(m)
 
     instructions_text = (
-        "Қазақ тіліндегі төл дыбыстарды (ә, і, ң, ғ, ү, ұ, қ, ө, һ) таза әрі анық айтып, "
-        "жылы әрі шынайы адам сияқты табиғи ауызекі интонациямен сөйле."
+        "Speak naturally, warmly, and clearly in the language of the input text. "
+        "If the text is in Kazakh, pronounce Kazakh sounds (ә, і, ң, ғ, ү, ұ, қ, ө, һ) purely and naturally."
     )
 
     if openai_key:
@@ -371,24 +422,25 @@ async def synthesize_speech_openai(
 
         async with httpx.AsyncClient(timeout=25.0) as client:
             for tts_model in candidate_models:
-                # 1. Алдымен instructions параметрімен тырысамыз (gpt-4o-mini-tts үшін)
-                payload_with_instructions = {
-                    "model": tts_model,
-                    "voice": active_voice,
-                    "input": cleaned_text,
-                    "response_format": "mp3",
-                    "speed": 1.0,
-                    "instructions": instructions_text,
-                }
-                try:
-                    resp = await client.post(url, headers=headers, json=payload_with_instructions)
-                    if resp.status_code == 200 and resp.content:
-                        logger.info("OpenAI TTS success with %s (%s, %d bytes)", tts_model, active_voice, len(resp.content))
-                        return resp.content
-                except Exception as exc:
-                    logger.warning("OpenAI TTS error with instructions on %s: %s", tts_model, exc)
+                # 1. Егер модель gpt-4o-mini-tts болса, instructions параметрімен жібереміз
+                if "gpt-4o" in tts_model:
+                    payload_with_instructions = {
+                        "model": tts_model,
+                        "voice": active_voice,
+                        "input": cleaned_text,
+                        "response_format": "mp3",
+                        "speed": 1.0,
+                        "instructions": instructions_text,
+                    }
+                    try:
+                        resp = await client.post(url, headers=headers, json=payload_with_instructions)
+                        if resp.status_code == 200 and resp.content:
+                            logger.info("OpenAI TTS success with %s (%s, %d bytes)", tts_model, active_voice, len(resp.content))
+                            return resp.content
+                    except Exception as exc:
+                        logger.warning("OpenAI TTS error with instructions on %s: %s", tts_model, exc)
 
-                # 2. Стандартты параметрлермен тырысамыз (егер instructions қолдамаса)
+                # 2. Стандартты параметрлермен (tts-1 / tts-1-hd немесе fallback)
                 payload_standard = {
                     "model": tts_model,
                     "voice": active_voice,
@@ -406,8 +458,8 @@ async def synthesize_speech_openai(
                 except Exception as exc:
                     logger.warning("OpenAI TTS standard error on %s: %s", tts_model, exc)
 
-    # 3. Сақтық көшірме: егер OPENAI_API_KEY болмаса немесе қате болса -> Edge-TTS қазақша дауысы
-    logger.info("Falling back to Edge-TTS DauletNeural...")
+    # 3. Сақтық көшірме: егер OPENAI_API_KEY болмаса немесе қате болса -> Edge-TTS дауысы
+    logger.info("Falling back to Edge-TTS...")
     return await _synthesize_edge_tts_fallback(cleaned_text)
 
 
@@ -416,10 +468,16 @@ synthesize_speech_elevenlabs = synthesize_speech_openai
 
 
 async def _synthesize_edge_tts_fallback(text: str) -> bytes:
-    """Сақтық көшірме: edge-tts арқылы қазақша MP3 дауыс дайындау."""
+    """Сақтық көшірме: edge-tts арқылы мәтін тіліне сай MP3 дауыс дайындау."""
     try:
         import edge_tts
-        communicate = edge_tts.Communicate(text, "kk-KZ-DauletNeural", rate="-2%", pitch="+0Hz")
+        if re.search(r"[әғқңөұүһіӘҒҚҢӨҰҮҺІ]", text):
+            edge_voice = "kk-KZ-DauletNeural"
+        elif re.search(r"[а-яёА-ЯЁ]", text):
+            edge_voice = "ru-RU-SvetlanaNeural"
+        else:
+            edge_voice = "en-US-AriaNeural"
+        communicate = edge_tts.Communicate(text, edge_voice, rate="-2%", pitch="+0Hz")
         buffer = io.BytesIO()
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":

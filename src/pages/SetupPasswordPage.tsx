@@ -15,7 +15,6 @@ import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 
 import KazakhOrnament from '@/components/KazakhOrnament';
 import StatusBadge from '@/components/common/StatusBadge';
-import { LoadingState } from '@/components/common/DataState';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -318,14 +317,13 @@ export default function SetupPasswordPage() {
 
   if (isLoading) {
     return (
-      <div className="kazakh-ornament-bg flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="w-full max-w-md">
-          <LoadingState
-            align="center"
-            title="Сессия тексерілуде"
-            text="Аккаунт дерегі және кіру күйі тексеріліп жатыр."
-          />
-        </div>
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label="Жүктелуде"
+        className="min-h-screen w-full bg-background/70 backdrop-blur-2xl transition-all duration-300 animate-page-blur"
+      >
+        <div className="sana-blur-loader" />
       </div>
     );
   }

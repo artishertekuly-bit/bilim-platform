@@ -380,14 +380,7 @@ export default function UpdatePasswordPage() {
               </div>
             </div>
 
-            <div className="p-5">
-              {isLoading ? (
-                <div className="mb-4 flex items-center gap-2 rounded-2xl border border-border bg-surface-soft/60 px-3 py-2.5 text-sm text-muted-foreground">
-                  <Loader2 size={15} className="animate-spin text-primary" />
-                  Сессия тексерілуде...
-                </div>
-              ) : null}
-
+            <div className={cn('p-5 transition-all duration-300', isLoading && 'pointer-events-none opacity-50 blur-sm')}>
               {!isLoading && !session ? (
                 <AuthAlert tone="warning">
                   Бұл бетке email-дағы қалпына келтіру сілтемесі арқылы кіру керек.
