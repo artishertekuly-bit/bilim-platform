@@ -2,6 +2,7 @@ import { getAiApiBaseUrl } from './ai-api';
 
 export type VoiceEmotion = 'happy' | 'thinking' | 'speaking' | 'listening';
 export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
+export type VoiceManner = 'modern' | 'warm' | 'strict' | 'youth' | 'mature';
 
 export interface VoiceDialogRecord {
   id: string;
@@ -29,9 +30,10 @@ export interface RealtimeSessionResponse {
  */
 export async function createRealtimeSession(
   accessToken?: string,
+  manner: VoiceManner = 'modern',
 ): Promise<RealtimeSessionResponse> {
   const baseUrl = getAiApiBaseUrl();
-  const url = `${baseUrl}/api/voice/realtime/session`;
+  const url = `${baseUrl}/api/voice/realtime/session?manner=${encodeURIComponent(manner)}`;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -113,6 +115,7 @@ export async function sendVoiceInteractHttp(
   options?: {
     accessToken?: string;
     sessionId?: string;
+    manner?: VoiceManner;
   },
 ): Promise<{
   userTranscript: string;
@@ -129,6 +132,9 @@ export async function sendVoiceInteractHttp(
   formData.append('audio', audioBlob, 'recording.webm');
   if (options?.sessionId) {
     formData.append('session_id', options.sessionId);
+  }
+  if (options?.manner) {
+    formData.append('manner', options.manner);
   }
 
   const headers: Record<string, string> = {};

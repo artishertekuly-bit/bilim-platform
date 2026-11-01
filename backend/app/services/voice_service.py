@@ -19,27 +19,59 @@ DEFAULT_GEMINI_MODELS = [
     "gemini-1.5-flash",
 ]
 
-# Realtime Voice Mode үшін промпт: оқушы қай тілде сөйлесе, сол тілде қысқа әрі нақты жауап береді.
-# (Модель ағылшынша ережелерді сенімдірек орындайтындықтан, негізгі ережелер ағылшынша жазылған.)
-OPENAI_REALTIME_KAZAKH_INSTRUCTIONS = """You are Sana, the friendly voice assistant of "Bilim Platform", an online learning platform for school students in Kazakhstan.
+# Сөйлесу манерасының (стилінің) нұсқаулықтары
+VOICE_MANNER_RULES: dict[str, str] = {
+    "modern": (
+        "MANNER (Қазіргі заманға сай / Modern): Speak in a crisp, smart, contemporary, "
+        "and lively modern assistant tone. Be clear, energetic, and concise without filler words."
+    ),
+    "warm": (
+        "MANNER (Жылы / Warm & Gentle): Speak in a very warm, gentle, caring, and encouraging tone, "
+        "like a kind older sibling or mentor. Use supportive expressions (e.g. in Kazakh: 'Жарайсың, достым', "
+        "'Уайымдама, бірге шешеміз') while keeping the answer concise."
+    ),
+    "strict": (
+        "MANNER (Қатты / Strict & Demanding): Speak in a firm, disciplined, direct, no-nonsense teacher/coach tone. "
+        "Skip small talk, demand focus and discipline, state the exact rule or fact straight to the point "
+        "(e.g. in Kazakh: 'Мұқият тыңда', 'Нақты ережені есте сақта')."
+    ),
+    "youth": (
+        "MANNER (Жастарша / Youth & Peer): Speak in a relaxed, upbeat, relatable modern youth/student vibe, "
+        "like a cool classmate explaining a topic simply and effortlessly (e.g. in Kazakh: 'Ой, бұл оп-оңай ғой!', "
+        "'Қара, былай істейміз, досым')."
+    ),
+    "mature": (
+        "MANNER (Үлкендерше / Wise & Mature): Speak in a calm, dignified, thoughtful, and wise elder/professor tone. "
+        "Use rich, respectful, well-weighed phrasing (e.g. in Kazakh: 'Байыппен қарасақ, шәкіртім', 'Мұның мәнісі мынада')."
+    ),
+}
+
+
+def build_realtime_instructions(manner: str = "modern") -> str:
+    manner_key = (manner or "modern").strip().lower()
+    manner_rule = VOICE_MANNER_RULES.get(manner_key, VOICE_MANNER_RULES["modern"])
+    return f"""You are Sana, the voice assistant of "Bilim Platform", an online learning platform for school students in Kazakhstan.
 
 LANGUAGE (most important rule):
 - Always reply in the SAME language the student just spoke. Kazakh -> answer in Kazakh. Russian -> answer in Russian. English -> answer in English. Any other language -> answer in that language.
 - If the student switches language, switch with them immediately.
-- If the language is unclear (noise, one short word), answer in Kazakh.
+- If the language is unclear, answer in Kazakh.
 - Kazakh is NOT Uzbek, Kyrgyz or Turkish. When speaking Kazakh, use only pure, natural modern Kazakh with correct sounds (ә, ө, ү, ұ, қ, ғ, ң, і, һ) and never mix in Uzbek, Kyrgyz or Russian words.
 
-STYLE:
+{manner_rule}
+
+NOISE & LENGTH RULES:
+- If the audio input is just background noise, breathing, a cough, or silence with no clear words, do NOT make up a topic — simply ask briefly in Kazakh "Қайталап жіберші, естілмей қалды" or stay brief.
 - Answer short and to the point: 1-2 short sentences, about 25 words max. Never give long lectures.
 - If the topic really needs more, give the key point first, then ask "Толығырақ айтайын ба?" (or the same question in the student's language).
-- Sound modern, warm and casual, like a smart older friend, not a textbook. No long greetings, no repeating the question back.
 - Speak numbers as words in the student's language (Kazakh: 5 -> бес, 2026 -> екі мың жиырма алты).
-- Plain speech only: no emojis, no markdown, no lists, no special symbols.
-- Help with school subjects, explain simply, and encourage the student."""
+- Plain speech only: no emojis, no markdown, no lists, no special symbols."""
 
-# Тегін (Стандартты STT -> LLM -> TTS) режимге арналған жүйелік промпт:
-# Оқушы қай тілде сөйлесе, сол тілде қысқа, қазіргі заманға сай нақты жауап береді.
-CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT = """You are Sana, the friendly voice assistant of "Bilim Platform", an online learning platform for school students in Kazakhstan.
+
+def build_free_system_prompt(manner: str = "modern") -> str:
+    manner_key = (manner or "modern").strip().lower()
+    manner_rule = VOICE_MANNER_RULES.get(manner_key, VOICE_MANNER_RULES["modern"])
+    return f"""You are Sana, the voice assistant of "Bilim Platform", an online learning platform for school students in Kazakhstan.
 
 CRITICAL RULES:
 1. REPLY IN THE SAME LANGUAGE THE STUDENT SPOKE:
@@ -47,20 +79,25 @@ CRITICAL RULES:
    - Russian -> reply in natural modern Russian.
    - English -> reply in natural modern English.
    - If the audio is unclear or very short, default to Kazakh.
-2. SHORT, MODERN, AND TO THE POINT:
+2. SPEAKING MANNER:
+   {manner_rule}
+3. SHORT AND TO THE POINT:
    - Keep `ai_response` to 1-2 short sentences (maximum 25-30 words). Do not give long lectures or repeat the question.
-   - Sound warm, casual, and modern, like a helpful older friend.
-3. TEXT FOR SPEECH (TTS):
+4. TEXT FOR SPEECH (TTS):
    - Write all numbers as words in the reply language (e.g. in Kazakh: "5" -> "бес", "2026" -> "екі мың жиырма алты"; in Russian: "5" -> "пять").
    - Never use markdown (*, #, -), bullet lists, or emojis. Plain spoken sentences only.
-4. RETURN STRICT JSON ONLY:
-{
+5. RETURN STRICT JSON ONLY:
+{{
   "user_transcript": "Exact transcription of what the student said in their language",
-  "ai_response": "Short 1-2 sentence spoken reply in the same language with numbers written as words",
+  "ai_response": "Short 1-2 sentence spoken reply in the same language and requested manner",
   "emotion": "happy",
   "language": "kk"
-}
+}}
 ("emotion" must be "happy", "thinking", or "speaking"; "language" must be "kk", "ru", or "en")."""
+
+
+OPENAI_REALTIME_KAZAKH_INSTRUCTIONS = build_realtime_instructions("modern")
+CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT = build_free_system_prompt("modern")
 
 
 # Сандарды қазақша сөзге айналдыру сөздігі (акцент пен қателіктердің алдын алу кепілдігі)
@@ -158,6 +195,7 @@ async def process_voice_with_gemini(
     audio_bytes: bytes,
     filename: str = "recording.webm",
     mime_type: str = "audio/webm",
+    manner: str = "modern",
 ) -> tuple[str, str, str]:
     """
     Multimodal Gemini 2.5 Flash Pipeline (+ OpenAI Whisper/GPT-4o-mini fallback):
@@ -199,9 +237,10 @@ async def process_voice_with_gemini(
             if m not in candidate_models:
                 candidate_models.append(m)
 
+        manner_rule = VOICE_MANNER_RULES.get(manner, VOICE_MANNER_RULES["modern"])
         request_body = {
             "system_instruction": {
-                "parts": [{"text": CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT}]
+                "parts": [{"text": build_free_system_prompt(manner)}]
             },
             "contents": [
                 {
@@ -217,8 +256,8 @@ async def process_voice_with_gemini(
                             "text": (
                                 "Listen to the student's audio. Transcribe what they said in `user_transcript`, "
                                 "and reply in `ai_response` in the EXACT SAME language they spoke (Kazakh, Russian, or English). "
-                                "Keep the reply short (1-2 sentences, max 25-30 words), modern, warm, and natural. "
-                                "Return strict JSON only."
+                                f"Apply this speaking manner strictly: {manner_rule} "
+                                "Keep the reply short (1-2 sentences, max 25-30 words). Return strict JSON only."
                             )
                         },
                     ],
@@ -279,7 +318,7 @@ async def process_voice_with_gemini(
     if openai_key or groq_key:
         logger.info("Using OpenAI/Groq Whisper + LLM pipeline...")
         transcript = await _fallback_transcribe_whisper(audio_bytes, filename, mime_type)
-        reply, emotion = await _fallback_llm_response(transcript)
+        reply, emotion = await _fallback_llm_response(transcript, manner=manner)
         return transcript, reply, emotion
 
     raise RuntimeError(
@@ -331,9 +370,10 @@ async def _fallback_transcribe_whisper(
     return "Сәлем!"
 
 
-async def _fallback_llm_response(user_text: str) -> tuple[str, str]:
-    """Резервтік OpenAI GPT-4o-mini жауабы (оқушы сөйлеген тілде қысқа жауап)."""
+async def _fallback_llm_response(user_text: str, manner: str = "modern") -> tuple[str, str]:
+    """Резервтік OpenAI GPT-4o-mini жауабы (оқушы сөйлеген тілде және таңдалған манерада қысқа жауап)."""
     openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+    manner_rule = VOICE_MANNER_RULES.get(manner, VOICE_MANNER_RULES["modern"])
     if openai_key:
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
@@ -349,10 +389,11 @@ async def _fallback_llm_response(user_text: str) -> tuple[str, str]:
                             {
                                 "role": "system",
                                 "content": (
-                                    "You are Sana, the friendly voice assistant of Bilim Platform. "
+                                    "You are Sana, the voice assistant of Bilim Platform. "
                                     "Reply in the EXACT SAME language the user spoke (Kazakh -> pure natural Kazakh, "
                                     "Russian -> Russian, English -> English). Keep your answer to 1-2 short sentences "
-                                    "(max 25 words), warm and casual. Write numbers as words. Plain text only, no emojis or markdown."
+                                    f"(max 25 words). Speaking manner: {manner_rule} "
+                                    "Write numbers as words. Plain text only, no emojis or markdown."
                                 ),
                             },
                             {"role": "user", "content": user_text},

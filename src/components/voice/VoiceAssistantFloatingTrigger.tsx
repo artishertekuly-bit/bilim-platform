@@ -23,128 +23,68 @@ export default function VoiceAssistantFloatingTrigger({
           type="button"
           onClick={openAssistant}
           className={cn(
-            'group relative flex h-14 w-14 sm:h-15 sm:w-15 items-center justify-center rounded-2xl',
-            'bg-card/95 dark:bg-zinc-900/95 backdrop-blur-xl',
-            'border border-border/80 dark:border-white/10',
-            'shadow-[0_10px_30px_-8px_rgba(15,23,42,0.22)] transition-all duration-300',
-            'hover:-translate-y-0.5 hover:shadow-[0_14px_34px_-8px_rgba(15,23,42,0.32)] active:translate-y-0 active:scale-95',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            'group relative flex h-15 w-15 items-center justify-center rounded-full',
+            'bg-white dark:bg-zinc-900 border border-border/80 dark:border-white/15',
+            'shadow-[0_8px_26px_-6px_rgba(15,23,42,0.22)] transition-all duration-300',
+            'hover:scale-105 hover:shadow-[0_12px_32px_-6px_rgba(15,23,42,0.32)] active:scale-95',
+            'focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/20',
           )}
           aria-label="Дауыстық көмекшіні ашу"
           title="Sana Voice AI — Дауыстық көмекші"
         >
-          {/* Sana AI Assistant Mascot (Proper round head + Kazakh Taqiya + Audio Headphones) */}
+          {/* Жинақы әрі үйлесімді Тақиялы кейіпкер (жұлдызшасыз, бауырсақ емес пропорциямен) */}
           <svg
-            viewBox="0 0 240 240"
+            viewBox="0 0 400 360"
             className="w-11 h-11 relative z-10 transition-transform duration-300 group-hover:scale-105"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
           >
-            {/* Құлаққаптар (Audio Assistant Earpieces) */}
-            <rect
-              x="22"
-              y="112"
-              width="22"
-              height="48"
-              rx="11"
-              fill="#0F172A"
-            />
-            <rect
-              x="196"
-              y="112"
-              width="22"
-              height="48"
-              rx="11"
-              fill="#0F172A"
-            />
-            <rect
-              x="27"
-              y="122"
-              width="6"
-              height="28"
-              rx="3"
-              fill="#38BDF8"
-            />
-            <rect
-              x="207"
-              y="122"
-              width="6"
-              height="28"
-              rx="3"
-              fill="#38BDF8"
-            />
-
-            {/* Домалақ үйлесімді бас пішіні */}
-            <rect
-              x="38"
-              y="64"
-              width="164"
-              height="144"
-              rx="72"
+            {/* 1. Тақияның жоғарғы күмбезі */}
+            <path
+              d="M 102 132 C 122 70, 162 46, 200 46 C 238 46, 278 70, 298 132 Z"
               fill="#FFFFFF"
               stroke="#0F172A"
-              strokeWidth="10"
-            />
-
-            {/* Тақияның жоғарғы күмбезі */}
-            <path
-              d="M 50 86 C 56 42, 86 24, 120 24 C 154 24, 184 42, 190 86 Z"
-              fill="#F8FAFC"
-              stroke="#0F172A"
-              strokeWidth="10"
+              strokeWidth="12"
+              strokeLinecap="round"
               strokeLinejoin="round"
             />
-            {/* Тақия тігістері */}
             <path
-              d="M 120 26 L 120 76"
+              d="M 198 48 C 176 70, 160 98, 150 130"
               stroke="#0F172A"
-              strokeWidth="6"
+              strokeWidth="10"
               strokeLinecap="round"
             />
             <path
-              d="M 120 26 C 98 40, 86 56, 82 76"
+              d="M 202 48 C 224 70, 240 98, 250 130"
               stroke="#0F172A"
-              strokeWidth="5.5"
-              strokeLinecap="round"
-            />
-            <path
-              d="M 120 26 C 142 40, 154 56, 158 76"
-              stroke="#0F172A"
-              strokeWidth="5.5"
+              strokeWidth="10"
               strokeLinecap="round"
             />
 
-            {/* Тақияның маңдайдағы қара жиегі + ою сызығы */}
+            {/* 2. Кейіпкердің жинақы домалақ басы (жалпақ бауырсақ емес, тік үйлесімді) */}
             <path
-              d="M 42 78 Q 120 68 198 78 C 203 79, 205 94, 198 98 Q 120 88 42 98 C 35 94, 37 79, 42 78 Z"
+              d="M 104 152 C 82 174, 78 214, 82 250 C 86 290, 118 314, 162 314 L 238 314 C 282 314, 314 290, 318 250 C 322 214, 318 174, 296 152 Z"
+              fill="#FFFFFF"
+              stroke="#0F172A"
+              strokeWidth="20"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+
+            {/* 3. Тақияның төменгі қара жиегі */}
+            <path
+              d="M 96 118 Q 200 126 304 118 C 314 118, 317 126, 316 143 C 315 159, 310 165, 298 166 Q 200 175 102 166 C 90 165, 85 159, 84 143 C 83 126, 86 118, 96 118 Z"
               fill="#0F172A"
             />
+
+            {/* 4. Көздері */}
+            <ellipse cx="154" cy="226" rx="16" ry="25" fill="#0F172A" />
+            <ellipse cx="246" cy="226" rx="16" ry="25" fill="#0F172A" />
+
+            {/* 5. Күлкісі */}
             <path
-              d="M 78 86 L 88 81 L 98 86 M 110 84 L 120 79 L 130 84 M 142 86 L 152 81 L 162 86"
-              stroke="#FFFFFF"
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity="0.85"
-            />
-
-            {/* Көздер */}
-            <ellipse cx="88" cy="136" rx="11" ry="14" fill="#0F172A" />
-            <circle cx="84" cy="131" r="4" fill="#FFFFFF" />
-            <ellipse cx="152" cy="136" rx="11" ry="14" fill="#0F172A" />
-            <circle cx="148" cy="131" r="4" fill="#FFFFFF" />
-
-            {/* Беттің жеңіл шырайы */}
-            <ellipse cx="64" cy="154" rx="10" ry="5.5" fill="#FB7185" opacity="0.35" />
-            <ellipse cx="176" cy="154" rx="10" ry="5.5" fill="#FB7185" opacity="0.35" />
-
-            {/* Жылы күлкі */}
-            <path
-              d="M 104 156 Q 120 170 136 156"
-              stroke="#0F172A"
-              strokeWidth="7"
-              strokeLinecap="round"
-              fill="none"
+              d="M 182 246 Q 182 266 200 266 Q 218 266 218 246 Z"
+              fill="#0F172A"
             />
           </svg>
         </button>
