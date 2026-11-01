@@ -122,8 +122,7 @@ async def create_openai_realtime_session(
             # Түрлі нұсқадағы payload түрлері
             payload_variants = [
                 # 1. OpenAI Realtime GA ресми құрылымы (audio.input / audio.output)
-                #    Транскрипция тілі көрсетілмейді — оқушы қай тілде сөйлесе, сол автоматты анықталады.
-                #    threshold=0.78 және silence_duration_ms=900 артық шуды сезбеу үшін қойылды.
+                #    threshold=0.80 және silence_duration_ms=900 артық шуды сезбеу үшін қойылды.
                 {
                     "session": {
                         "type": "realtime",
@@ -135,7 +134,7 @@ async def create_openai_realtime_session(
                                 "transcription": {"model": "whisper-1"},
                                 "turn_detection": {
                                     "type": "server_vad",
-                                    "threshold": 0.78,
+                                    "threshold": 0.8,
                                     "prefix_padding_ms": 350,
                                     "silence_duration_ms": 900,
                                     "create_response": True,
