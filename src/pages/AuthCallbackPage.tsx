@@ -212,7 +212,6 @@ export default function AuthCallbackPage() {
   const processedRef = useRef(false);
 
   const [error, setError] = useState('');
-  const [, setMessage] = useState('Google арқылы кіру аяқталуда...');
 
   useEffect(() => {
     if (processedRef.current) return;
@@ -240,8 +239,6 @@ export default function AuthCallbackPage() {
         const code = cleanText(searchParams.get('code'), 2_000);
 
         if (code) {
-          setMessage('Google сессиясы сақталуда...');
-
           const { error: exchangeError } =
             await supabase.auth.exchangeCodeForSession(code);
 
@@ -251,8 +248,6 @@ export default function AuthCallbackPage() {
 
           safeWindow?.history.replaceState(null, document.title, '/auth/callback');
         }
-
-        setMessage('Сессия тексерілуде...');
 
         let currentSession: Session | null = null;
 
@@ -277,8 +272,6 @@ export default function AuthCallbackPage() {
         if (!currentSession?.user) {
           throw new Error('Google сессиясы табылмады. Қайта кіріп көріңіз.');
         }
-
-        setMessage('Профиль дайындалуда...');
 
         await claimRequestedRoleSafe(requestedRole);
         clearPendingOAuthRole();
@@ -372,12 +365,9 @@ export default function AuthCallbackPage() {
 
   return (
     <div
-      role="status"
       aria-busy="true"
-      aria-label="Жүктелуде"
-      className="min-h-screen w-full bg-background/70 backdrop-blur-2xl transition-all duration-300 animate-page-blur"
-    >
-      <div className="sana-blur-loader" />
-    </div>
+      aria-live="polite"
+      className="fixed inset-0 z-50 bg-background/60 backdrop-blur-xl transition-all duration-300 animate-fade-in"
+    />
   );
 }

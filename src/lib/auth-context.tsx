@@ -320,8 +320,38 @@ async function buildUserWithRetry(
   return buildUser(supabaseUser);
 }
 
+const CACHED_USER_STORAGE_KEY = 'bilim.cachedSessionUser';
+
+function readCachedUser(): User | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(CACHED_USER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as User;
+    if (parsed && parsed.id && isUserRole(parsed.role)) {
+      return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function writeCachedUser(nextUser: User | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (!nextUser) {
+      window.sessionStorage.removeItem(CACHED_USER_STORAGE_KEY);
+    } else {
+      window.sessionStorage.setItem(CACHED_USER_STORAGE_KEY, JSON.stringify(nextUser));
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(readCachedUser);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -336,10 +366,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!nextSession?.user) {
       if (hydrationVersionRef.current === hydrationVersion) {
         setUser(null);
+        writeCachedUser(null);
         setIsLoading(false);
       }
 
       return null;
+    }
+
+    // Егер кэште осы пайдаланушы болса, дереу көрсетіп, фонда жаңартамыз
+    const cached = readCachedUser();
+    if (cached && cached.id === nextSession.user.id) {
+      setUser(cached);
+      setIsLoading(false);
     }
 
     try {
@@ -349,12 +387,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (hydrationVersionRef.current === hydrationVersion) {
         setUser(appUser);
+        writeCachedUser(appUser);
       }
 
       return appUser;
     } catch (error) {
       if (hydrationVersionRef.current === hydrationVersion) {
-        setUser(null);
+        const fallbackCached = readCachedUser();
+        if (!fallbackCached || fallbackCached.id !== nextSession.user.id) {
+          setUser(null);
+          writeCachedUser(null);
+        }
       }
 
       throw error;
@@ -596,6 +639,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     hydrationVersionRef.current += 1;
     clearPendingOAuthRole();
+    writeCachedUser(null);
     setUser(null);
     setSession(null);
     setIsLoading(false);

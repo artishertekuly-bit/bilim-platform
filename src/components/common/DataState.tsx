@@ -179,8 +179,6 @@ type LoadingStateProps = {
 };
 
 export function LoadingState({
-  title = 'Жүктелуде',
-  text,
   className,
   compact = false,
   size = 'md',
@@ -190,16 +188,14 @@ export function LoadingState({
   return (
     <div
       role="status"
-      aria-live="polite"
       aria-busy="true"
+      aria-live="polite"
       className={cn(
-        'sana-inline-blur w-full border border-border/35',
+        'w-full rounded-3xl bg-card/45 backdrop-blur-xl transition-all duration-300 animate-pulse',
         isSmall ? 'h-20' : 'h-36',
         className,
       )}
-    >
-      <span className="sr-only">{cleanText(text || title, MAX_TITLE_CHARS)}</span>
-    </div>
+    />
   );
 }
 

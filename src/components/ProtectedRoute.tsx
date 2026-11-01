@@ -10,16 +10,17 @@ interface ProtectedRouteProps {
 
 type RecoveryState = 'idle' | 'running' | 'done';
 
+/**
+ * Сессия немесе бет жүктелу кезінде ешқандай мәтіндік блок ("Сессия тексерілуде")
+ * көрсетпей, тек тегіс бұлдыр (размытый) экран береді.
+ */
 function SessionLoadingScreen() {
   return (
     <div
-      role="status"
       aria-busy="true"
-      aria-label="Жүктелуде"
-      className="min-h-screen w-full bg-background/70 backdrop-blur-2xl transition-all duration-300 animate-page-blur"
-    >
-      <div className="sana-blur-loader" />
-    </div>
+      aria-live="polite"
+      className="fixed inset-0 z-50 bg-background/60 backdrop-blur-xl transition-all duration-300 animate-fade-in"
+    />
   );
 }
 
@@ -78,6 +79,14 @@ export default function ProtectedRoute({
       cancelled = true;
     };
   }, [isLoading, recoveryState, refreshUser, session, user]);
+
+  // Егер user кэште немесе жадыда бар болса, парақшаны үзбей бірден көрсету
+  if (user && session) {
+    if (allowedRoles?.length && !allowedRoles.includes(user.role)) {
+      return <Navigate to="/dashboard" replace />;
+    }
+    return <>{children}</>;
+  }
 
   const shouldShowLoading =
     isLoading ||
