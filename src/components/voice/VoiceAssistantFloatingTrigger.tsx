@@ -1,4 +1,4 @@
-import { Mic, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { useVoiceAssistant } from '@/hooks/use-voice-assistant';
 import VoiceAssistantModal from './VoiceAssistantModal';
 import { cn } from '@/lib/utils';
@@ -25,16 +25,18 @@ export default function VoiceAssistantFloatingTrigger({
           onClick={openAssistant}
           className={cn(
             'group relative flex h-16 w-16 items-center justify-center rounded-full',
-            'bg-card border-2 border-border shadow-2xl transition-all duration-300',
-            'hover:scale-110 active:scale-95 focus:outline-none focus:ring-4 focus:ring-primary/20',
+            'bg-white dark:bg-zinc-900 ring-1 ring-black/5 dark:ring-white/10',
+            'shadow-[0_8px_28px_-6px_rgba(15,23,42,0.25)] transition-all duration-300',
+            'hover:scale-105 hover:shadow-[0_12px_32px_-6px_rgba(15,23,42,0.35)] active:scale-95',
+            'focus:outline-none focus-visible:ring-4 focus-visible:ring-primary/25',
           )}
           aria-label="Дауыстық көмекшіні ашу"
           title="Sana Voice AI — Тақиялы ақылды көмекші"
         >
           {/* Sparkle icon */}
           <Sparkles
-            size={14}
-            className="absolute -top-1 -right-1 text-amber-400 animate-bounce z-20"
+            size={13}
+            className="absolute top-0.5 right-0.5 text-amber-400 z-20 opacity-90"
           />
 
           {/* Mini Wide Taqiya Mascot */}
@@ -80,11 +82,6 @@ export default function VoiceAssistantFloatingTrigger({
               fill="#111827"
             />
           </svg>
-
-          {/* Tiny Active Mic Badge */}
-          <span className="absolute -bottom-1 -right-1 z-20 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md border-2 border-card">
-            <Mic size={12} />
-          </span>
         </button>
       </div>
 

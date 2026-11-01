@@ -58,6 +58,7 @@ class SaveVoiceTurnRequest(BaseModel):
     ai_response: str
     session_id: str | None = None
     emotion: str = "happy"
+    language: str | None = None
 
 
 def _extract_user_id(authorization: str | None, x_user_id: str | None) -> str | None:
@@ -116,37 +117,43 @@ async def create_openai_realtime_session(
         for model_name in candidate_models:
             # Түрлі нұсқадағы payload түрлері
             payload_variants = [
-                # 1. GA стандартты session нысаны (modalities жоқ)
+                # 1. OpenAI Realtime GA ресми құрылымы (audio.input / audio.output)
+                #    Транскрипция тілі көрсетілмейді — оқушы қай тілде сөйлесе, сол автоматты анықталады.
                 {
                     "session": {
                         "type": "realtime",
                         "model": model_name,
                         "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
-                        "voice": voice,
-                        "input_audio_transcription": {
-                            "model": "whisper-1",
-                            "language": "kk",
-                        },
-                        "turn_detection": {
-                            "type": "server_vad",
-                            "threshold": 0.5,
-                            "prefix_padding_ms": 300,
-                            "silence_duration_ms": 600,
+                        "output_modalities": ["audio"],
+                        "audio": {
+                            "input": {
+                                "transcription": {"model": "whisper-1"},
+                                "turn_detection": {
+                                    "type": "server_vad",
+                                    "threshold": 0.5,
+                                    "prefix_padding_ms": 300,
+                                    "silence_duration_ms": 500,
+                                    "create_response": True,
+                                    "interrupt_response": True,
+                                },
+                            },
+                            "output": {"voice": voice},
                         },
                     },
                 },
-                # 2. Тек instructions және voice қамтитын realtime session
+                # 2. Тек instructions және voice қамтитын GA session
                 {
                     "session": {
                         "type": "realtime",
                         "model": model_name,
                         "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
-                        "voice": voice,
+                        "audio": {"output": {"voice": voice}},
                     },
                 },
-                # 3. Жеңілдетілген session нысаны (instructions сақталған)
+                # 3. Ескі (жалпақ) құрылым — сақтық үшін
                 {
                     "session": {
+                        "type": "realtime",
                         "model": model_name,
                         "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                         "voice": voice,
@@ -155,6 +162,7 @@ async def create_openai_realtime_session(
                 # 4. Тек модель көрсетілген session
                 {
                     "session": {
+                        "type": "realtime",
                         "model": model_name,
                     },
                 },
@@ -195,6 +203,7 @@ async def create_openai_realtime_session(
                                 "session_id": session_id,
                                 "model": model_name,
                                 "voice": voice,
+                                "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                             }
                     else:
                         last_error_detail = resp.text
@@ -233,6 +242,7 @@ async def create_openai_realtime_session(
                         "session_id": session_id,
                         "model": candidate_models[0],
                         "voice": voice,
+                        "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                     }
             else:
                 last_error_detail = resp.text
@@ -259,6 +269,7 @@ async def save_voice_turn(
         user_transcript=payload.user_transcript,
         ai_response=payload.ai_response,
         emotion=payload.emotion,
+        language=(payload.language or "kk")[:8],
     )
     return {"status": "success", "id": record_id}
 

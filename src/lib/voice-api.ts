@@ -21,6 +21,7 @@ export interface RealtimeSessionResponse {
   session_id: string;
   model: string;
   voice: string;
+  instructions?: string;
 }
 
 /**
@@ -68,6 +69,7 @@ export async function saveVoiceTurn(
     aiResponse: string;
     sessionId?: string;
     emotion?: string;
+    language?: string;
   },
   accessToken?: string,
 ): Promise<string | null> {
@@ -90,6 +92,7 @@ export async function saveVoiceTurn(
         ai_response: payload.aiResponse,
         session_id: payload.sessionId,
         emotion: payload.emotion || 'happy',
+        language: payload.language,
       }),
     });
 

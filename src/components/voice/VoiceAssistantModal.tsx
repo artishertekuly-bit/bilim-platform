@@ -33,6 +33,28 @@ import {
 } from '@/lib/voice-api';
 import SanaTaqiyaAvatar from './SanaTaqiyaAvatar';
 
+interface LiveMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+const MAX_LIVE_MESSAGES = 40;
+
+// Бэкенд нұсқаулығы келмей қалған жағдайға арналған сақтық промпт
+const FALLBACK_INSTRUCTIONS = `You are Sana, the friendly voice assistant of "Bilim Platform", a learning platform for school students in Kazakhstan.
+Always reply in the SAME language the student just spoke (Kazakh -> Kazakh, Russian -> Russian, English -> English). If unclear, use Kazakh.
+Kazakh is NOT Uzbek or Kyrgyz: when speaking Kazakh use only pure modern Kazakh.
+Answer in 1-2 short sentences (about 25 words max), modern, warm and casual. Speak numbers as words. No emojis, markdown or lists.`;
+
+// Мәтіннің тілін шамамен анықтау (тарихта сақтау үшін)
+function detectLanguage(text: string): string {
+  if (/[әғқңөұүһі]/i.test(text)) return 'kk';
+  if (/[а-яё]/i.test(text)) return 'ru';
+  if (/[a-z]/i.test(text)) return 'en';
+  return 'kk';
+}
+
 interface VoiceAssistantModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,9 +75,9 @@ export default function VoiceAssistantModal({
   const [historyList, setHistoryList] = useState<VoiceDialogRecord[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Сұхбат мәтіндері
-  const [currentTranscript, setCurrentTranscript] = useState<string>('');
-  const [currentAiResponse, setCurrentAiResponse] = useState<string>('');
+  // Ағымдағы сессияның нақты уақыттағы диалогы (оқушы + көмекші)
+  const [messages, setMessages] = useState<LiveMessage[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Рефтер
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -69,10 +91,13 @@ export default function VoiceAssistantModal({
   const remoteAnalyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  // Диалог жазбасын сақтау үшін соңғы айтылған сөздерді бақылау
-  const lastUserTranscriptRef = useRef<string>('');
-  const lastAiResponseRef = useRef<string>('');
+  // Диалогты Supabase-ке сақтау үшін жұп (оқушы сұрағы + көмекші жауабы) жинақтау
+  const pendingUserRef = useRef<string>('');
+  const pendingAiRef = useRef<string>('');
   const activeSessionIdRef = useRef<string>('');
+  // Токен жаңарғанда WebRTC байланысы қайта қосылып кетпеуі үшін ref арқылы сақтаймыз
+  const accessTokenRef = useRef<string | undefined>(session?.access_token);
+  accessTokenRef.current = session?.access_token;
 
   const stateRef = useRef<VoiceState>('idle');
   const isMutedRef = useRef<boolean>(false);
@@ -182,97 +207,149 @@ export default function VoiceAssistantModal({
     animFrameRef.current = requestAnimationFrame(checkAudio);
   }, []);
 
-  // OpenAI Realtime оқиғаларын өңдеу (Server Events)
+  // Диалог хабарламасын жаңарту немесе қосу (item_id бойынша)
+  const upsertMessage = useCallback(
+    (id: string, role: LiveMessage['role'], update: (prev: string) => string) => {
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === id);
+        if (idx === -1) {
+          return [...prev, { id, role, text: update('') }].slice(-MAX_LIVE_MESSAGES);
+        }
+        const next = [...prev];
+        next[idx] = { ...next[idx], text: update(next[idx].text) };
+        return next;
+      });
+    },
+    [],
+  );
+
+  const removeMessage = useCallback((id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  }, []);
+
+  // Сұрақ пен жауап екеуі де дайын болғанда бірден Supabase-ке сақтау (нақты уақытта)
+  const trySaveTurn = useCallback(() => {
+    const userT = pendingUserRef.current.trim();
+    const aiT = pendingAiRef.current.trim();
+    if (!userT || !aiT) return;
+
+    pendingUserRef.current = '';
+    pendingAiRef.current = '';
+
+    void saveVoiceTurn(
+      {
+        userTranscript: userT,
+        aiResponse: aiT,
+        sessionId: activeSessionIdRef.current,
+        emotion: 'happy',
+        language: detectLanguage(userT),
+      },
+      accessTokenRef.current,
+    );
+  }, []);
+
+  const goListening = useCallback(() => {
+    if (!isOpenRef.current) return;
+    setState('listening');
+    setEmotion('happy');
+  }, []);
+
+  // OpenAI Realtime оқиғаларын өңдеу (GA + ескі beta атаулары қатар қолдау табады)
   const handleRealtimeEvent = useCallback(
     (event: any) => {
-      const type = event.type || '';
+      const type: string = event.type || '';
+      const itemId: string = event.item_id || '';
 
-      // 1. Оқушы сөйлей бастады (Automatic Server VAD)
-      if (type === 'input_audio_buffer.speech_started') {
-        console.log('[OpenAI Realtime] User started speaking');
-        setState('listening');
-        setEmotion('happy');
-      }
+      switch (type) {
+        // 1. Оқушы сөйлей бастады (server VAD). Көмекші сөйлеп тұрса, OpenAI оны өзі тоқтатады.
+        case 'input_audio_buffer.speech_started':
+          setState('listening');
+          setEmotion('happy');
+          break;
 
-      // 2. Оқушы сөйлеуін аяқтады
-      else if (type === 'input_audio_buffer.speech_stopped') {
-        console.log('[OpenAI Realtime] User stopped speaking');
-        setState('thinking');
-        setEmotion('thinking');
-      }
+        // 2. Оқушы сөйлеуін аяқтады
+        case 'input_audio_buffer.speech_stopped':
+          setState('thinking');
+          setEmotion('thinking');
+          break;
 
-      // 3. Оқушының даусын мәтінге айналдыру аяқталды (Whisper transcription)
-      else if (type === 'conversation.item.input_audio_transcription.completed') {
-        const transcript = (event.transcript || '').trim();
-        if (transcript) {
-          console.log('[OpenAI Realtime] User transcript:', transcript);
-          setCurrentTranscript(transcript);
-          lastUserTranscriptRef.current = transcript;
-        }
-      }
+        // 3. Оқушы сөзі қабылданды — диалогта орын дайындап қоямыз (рет сақталуы үшін)
+        case 'input_audio_buffer.committed':
+          if (itemId) upsertMessage(itemId, 'user', (prev) => prev);
+          break;
 
-      // 4. AI жауап бере бастады (Audio / Text delta)
-      else if (type === 'response.audio_transcript.delta') {
-        setState('speaking');
-        setEmotion('happy');
-        setCurrentAiResponse((prev) => prev + (event.delta || ''));
-      }
-
-      // 5. AI жауабының мәтіні толық аяқталды
-      else if (type === 'response.audio_transcript.done') {
-        const aiText = (event.transcript || '').trim();
-        if (aiText) {
-          setCurrentAiResponse(aiText);
-          lastAiResponseRef.current = aiText;
-        }
-      }
-
-      // 6. Жауаптың дыбыстық бөлігі аяқталды
-      else if (type === 'response.audio.done') {
-        // Дыбыс аяқталған соң тыңдау күйіне қайту
-        setTimeout(() => {
-          if (isOpenRef.current) {
-            setState('listening');
-            setEmotion('happy');
+        // 4. Оқушы сөзінің мәтіні дайын
+        case 'conversation.item.input_audio_transcription.completed': {
+          const transcript = String(event.transcript || '').trim();
+          if (!transcript) {
+            if (itemId) removeMessage(itemId);
+            break;
           }
-        }, 300);
-      }
-
-      // 7. Сұрақ-жауап кезеңі толық аяқталды -> Supabase-ке сақтау
-      else if (type === 'response.done') {
-        console.log('[OpenAI Realtime] Turn completed, saving to Supabase');
-        const userT = lastUserTranscriptRef.current;
-        const aiT = lastAiResponseRef.current;
-
-        if (userT && aiT) {
-          saveVoiceTurn(
-            {
-              userTranscript: userT,
-              aiResponse: aiT,
-              sessionId: activeSessionIdRef.current,
-              emotion: 'happy',
-            },
-            session?.access_token,
-          );
+          if (itemId) upsertMessage(itemId, 'user', () => transcript);
+          pendingUserRef.current = transcript;
+          trySaveTurn();
+          break;
         }
 
-        setState('listening');
-        setEmotion('happy');
-      }
+        case 'conversation.item.input_audio_transcription.failed':
+          if (itemId) removeMessage(itemId);
+          // Жауап жұбы бұзылмауы үшін орнын толтырамыз
+          pendingUserRef.current = pendingUserRef.current || '[дауыстық хабарлама]';
+          trySaveTurn();
+          break;
 
-      // 8. OpenAI Realtime сессиясы сәтті жаңартылды
-      else if (type === 'session.updated') {
-        console.log('[OpenAI Realtime] Session updated successfully with Kazakh instructions & settings:', event);
-      }
+        // 5. Көмекші жауабының мәтіні ағынмен келуде
+        case 'response.output_audio_transcript.delta':
+        case 'response.audio_transcript.delta':
+          setState('speaking');
+          setEmotion('happy');
+          if (itemId) upsertMessage(itemId, 'assistant', (prev) => prev + (event.delta || ''));
+          break;
 
-      // 9. Қате орын алса
-      else if (type === 'error') {
-        console.warn('[OpenAI Realtime] Server error event:', event);
-        const errMsg = event.error?.message || 'OpenAI байланыс қатесі';
-        setErrorMessage(errMsg);
+        // 6. Көмекші жауабының мәтіні толық дайын → сақтау
+        case 'response.output_audio_transcript.done':
+        case 'response.audio_transcript.done': {
+          const aiText = String(event.transcript || '').trim();
+          if (aiText) {
+            if (itemId) upsertMessage(itemId, 'assistant', () => aiText);
+            pendingAiRef.current = aiText;
+            trySaveTurn();
+          }
+          break;
+        }
+
+        // 7. WebRTC ойнатуы басталды / аяқталды (ерін анимациясы дәл осыған сай)
+        case 'output_audio_buffer.started':
+          setState('speaking');
+          setEmotion('happy');
+          break;
+
+        case 'output_audio_buffer.stopped':
+        case 'output_audio_buffer.cleared':
+          goListening();
+          break;
+
+        // 8. Жауап генерациясы аяқталды. Дыбыс әлі ойнап тұрса, күйді өзгертпейміз.
+        case 'response.done':
+          if (stateRef.current !== 'speaking') goListening();
+          break;
+
+        case 'session.updated':
+          console.log('[OpenAI Realtime] Session configured');
+          break;
+
+        case 'error': {
+          console.warn('[OpenAI Realtime] Server error event:', event);
+          const errMsg = event.error?.message || 'OpenAI байланыс қатесі';
+          setErrorMessage(errMsg);
+          break;
+        }
+
+        default:
+          break;
       }
     },
-    [session?.access_token],
+    [goListening, removeMessage, trySaveTurn, upsertMessage],
   );
 
   // OpenAI Realtime WebRTC байланысын орнату (ChatGPT Advanced Voice Mode)
@@ -284,7 +361,7 @@ export default function VoiceAssistantModal({
     try {
       // 1. Бэкендтен уақытша (ephemeral) кілт алу
       console.log('[OpenAI WebRTC] Requesting ephemeral session from backend...');
-      const sessionInfo = await createRealtimeSession(session?.access_token);
+      const sessionInfo = await createRealtimeSession(accessTokenRef.current);
       activeSessionIdRef.current = sessionInfo.session_id;
 
       // 2. Оқушының микрофонын қосу
@@ -351,31 +428,30 @@ export default function VoiceAssistantModal({
       dc.onopen = () => {
         console.log('[OpenAI WebRTC] DataChannel connected and ready!');
         try {
+          // OpenAI Realtime GA құрылымы: audio.input / audio.output.
+          // Транскрипция тілі әдейі көрсетілмейді — оқушы қай тілде сөйлесе, сол тілде жауап береді.
           const sessionUpdate = {
             type: 'session.update',
             session: {
               type: 'realtime',
-              voice: sessionInfo.voice || 'coral',
-              instructions: `Сен — "Bilim Platform" қазақша оқу платформасының мектеп оқушыларына арналған ақылды әрі мейірімді AI дауыстық көмекшісісің.
-ҚАТАҢ БАСТЫ ТАЛАП: ТЕК ҚАНА ТАЗА ӘРІ ӘДЕМІ ҚАЗАҚ ТІЛІНДЕ СӨЙЛЕ ЖӘНЕ ЖАУАП БЕР!
-ЕШҚАШАН ӨЗБЕКШЕ, ҚЫРҒЫЗША НЕ ОРЫСША СӨЗДЕРДІ АЙТПА!
-Өзбек тіліндегі «salom», «qandaysiz», «yaxshi», «rahmat» деген сөздерге ҚАТАҢ ТЫЙЫМ САЛЫНАДЫ.
-Оның орнына тек таза қазақша: «Сәлем!», «Қалың қалай?», «Жақсы», «Керемет!», «Рақмет!» деп сөйле.
-Сен Қазақстанның оқушыларымен сөйлесіп тұрсың. Қазақ тілінің төл дыбыстарын (ә, ө, ү, ұ, қ, ғ, ң, і) анық сақта.
-Оқушымен дәл ChatGPT Advanced Voice Mode сияқты жанды, жылы, жастарға жақын ауызекі қазақ тілінде сөйлес.
-Барлық сандарды міндетті түрде қазақша сөзбен айт (мысалы 5 емес бес, 10 емес он, 2026 емес екі мың жиырма алты).
-Жауаптарыңды өте қысқа (1-2 сөйлем), түсінікті әрі нақты қайтар.
-Ешқандай жұлдызша, эмодзи немесе арнайы таңба қолданба.`,
-              input_audio_transcription: {
-                model: 'whisper-1',
-                language: 'kk',
-              },
-              turn_detection: {
-                type: 'server_vad',
-                threshold: 0.5,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 600,
-                create_response: true,
+              instructions: sessionInfo.instructions || FALLBACK_INSTRUCTIONS,
+              output_modalities: ['audio'],
+              audio: {
+                input: {
+                  transcription: { model: 'whisper-1' },
+                  noise_reduction: { type: 'near_field' },
+                  turn_detection: {
+                    type: 'server_vad',
+                    threshold: 0.5,
+                    prefix_padding_ms: 300,
+                    silence_duration_ms: 500,
+                    create_response: true,
+                    interrupt_response: true,
+                  },
+                },
+                output: {
+                  voice: sessionInfo.voice || 'coral',
+                },
               },
             },
           };
@@ -482,7 +558,7 @@ export default function VoiceAssistantModal({
       setErrorMessage(msg);
       setState('error');
     }
-  }, [handleRealtimeEvent, session?.access_token, startAudioAnimationLoop]);
+  }, [handleRealtimeEvent, startAudioAnimationLoop]);
 
   // Микрофонды қосу / өшіру (Mute)
   const toggleMute = useCallback(() => {
@@ -497,18 +573,22 @@ export default function VoiceAssistantModal({
 
   // Тарихты жүктеу
   const loadHistory = useCallback(async () => {
-    const records = await fetchVoiceHistory(session?.access_token);
+    const records = await fetchVoiceHistory(accessTokenRef.current);
     setHistoryList(records);
     setShowHistory(true);
-  }, [session?.access_token]);
+  }, []);
+
+  // Жаңа хабарлама келгенде диалогты төменге айналдыру
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages]);
 
   // Модаль ашылғанда қосылу, жабылғанда толық өшіру
   useEffect(() => {
     if (open) {
-      setCurrentTranscript('');
-      setCurrentAiResponse('');
-      lastUserTranscriptRef.current = '';
-      lastAiResponseRef.current = '';
+      setMessages([]);
+      pendingUserRef.current = '';
+      pendingAiRef.current = '';
       startRealtimeCall();
     } else {
       cleanupConnection();
@@ -547,7 +627,7 @@ export default function VoiceAssistantModal({
               <span>Sana Voice AI</span>
               <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold border border-emerald-500/20 flex items-center gap-1">
                 <Radio size={10} className="animate-pulse" />
-                ChatGPT Realtime
+                Realtime
               </span>
             </DialogTitle>
           </div>
@@ -642,25 +722,22 @@ export default function VoiceAssistantModal({
                     {isMuted ? 'Микрофон өшірулі' : 'Тыңдап тұрмын, сөйлей беріңіз...'}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    ChatGPT Advanced Voice: сөзіңізді тоқтатқанда автоматты түрде жауап береді
+                    Кез келген тілде сөйлеңіз — сол тілде жауап беремін
                   </p>
                 </div>
               ) : state === 'thinking' ? (
                 <div className="space-y-0.5">
                   <p className="text-sm font-bold text-purple-600 dark:text-purple-400 animate-pulse">
-                    ChatGPT ойланып жатыр...
-                  </p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Нақты уақытта жауап дайындауда
+                    Ойланып жатырмын...
                   </p>
                 </div>
               ) : state === 'speaking' ? (
                 <div className="space-y-0.5">
                   <p className="text-sm font-bold text-cyan-600 dark:text-cyan-400">
-                    ChatGPT жауап беруде (coral дауысы)...
+                    Sana жауап беріп жатыр...
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    (Сөйлей бастасаңыз, көмекші бірден тоқтап сізді тыңдайды)
+                    Сөйлей бастасаңыз, бірден тоқтап тыңдаймын
                   </p>
                 </div>
               ) : (
@@ -678,29 +755,27 @@ export default function VoiceAssistantModal({
               ) : null}
             </div>
 
-            {/* Нақты уақыттағы сұхбат бұлтшасы (Live Speech Bubble) */}
-            {(currentTranscript || currentAiResponse) && (
-              <div className="w-full max-h-36 overflow-y-auto space-y-2 rounded-2xl bg-muted/40 p-3.5 text-left border border-border/40 backdrop-blur-md">
-                {currentTranscript && (
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      Сіз:
-                    </span>
-                    <p className="text-xs font-medium text-foreground sm:text-sm">
-                      {currentTranscript}
+            {/* Нақты уақыттағы диалог (сессия бойы сақталады, әр жұп бірден Supabase-ке жазылады) */}
+            {messages.length > 0 && (
+              <div className="w-full max-h-48 overflow-y-auto space-y-2 rounded-2xl bg-muted/40 p-3 text-left border border-border/40">
+                {messages.map((m) => (
+                  <div
+                    key={m.id}
+                    className={cn('flex', m.role === 'user' ? 'justify-end' : 'justify-start')}
+                  >
+                    <p
+                      className={cn(
+                        'max-w-[85%] rounded-2xl px-3 py-1.5 text-xs sm:text-sm leading-relaxed',
+                        m.role === 'user'
+                          ? 'bg-primary text-primary-foreground rounded-br-md'
+                          : 'bg-card text-foreground border border-border/50 rounded-bl-md',
+                      )}
+                    >
+                      {m.text || <span className="opacity-60">…</span>}
                     </p>
                   </div>
-                )}
-                {currentAiResponse && (
-                  <div className="border-t border-border/40 pt-1.5 space-y-0.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
-                      ChatGPT Voice:
-                    </span>
-                    <p className="text-xs text-foreground/90 sm:text-sm leading-relaxed">
-                      {currentAiResponse}
-                    </p>
-                  </div>
-                )}
+                ))}
+                <div ref={messagesEndRef} />
               </div>
             )}
 
