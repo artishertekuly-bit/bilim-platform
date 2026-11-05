@@ -40,7 +40,7 @@ import { useAuth } from '@/lib/auth-context';
 import t from '@/lib/i18n';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
-type CatalogMode = 'student' | 'teacher' | 'admin';
+type CatalogMode = 'student' | 'admin';
 
 const MAX_ID_CHARS = 180;
 const MAX_SEARCH_CHARS = 160;
@@ -82,8 +82,13 @@ function getErrorMessage(error: unknown, fallback: string): string {
 }
 
 function getCatalogMode(pathname: string, role?: string): CatalogMode {
-  if (pathname.startsWith('/manage-courses') || role === 'admin') return 'admin';
-  if (pathname.startsWith('/my-courses') || role === 'teacher') return 'teacher';
+  if (
+    pathname.startsWith('/manage-courses') ||
+    pathname.startsWith('/my-courses') ||
+    role === 'admin'
+  ) {
+    return 'admin';
+  }
 
   return 'student';
 }
@@ -93,37 +98,24 @@ function buildCourseDetailPath(courseId: string) {
 }
 
 function getModeEyebrow({
-  isTeacherView,
   isAdminView,
 }: {
-  isTeacherView: boolean;
   isAdminView: boolean;
 }) {
-  if (isTeacherView) return 'Мұғалім';
-  if (isAdminView) return 'Әкімші';
+  if (isAdminView) return 'Админ';
 
   return 'Курстар';
 }
 
 function getModeBadge({
-  isTeacherView,
   isAdminView,
 }: {
-  isTeacherView: boolean;
   isAdminView: boolean;
 }) {
-  if (isTeacherView) {
-    return (
-      <Badge variant="secondary" className="text-[11px]">
-        Мұғалім
-      </Badge>
-    );
-  }
-
   if (isAdminView) {
     return (
       <Badge variant="warning" className="text-[11px]">
-        Әкімші
+        Админ
       </Badge>
     );
   }
@@ -309,9 +301,6 @@ function TeacherCourseCard({
           <span className="rounded-full bg-black/60 px-2.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-xs">
             {getTeacherCourseStatusLabel(course.status)}
           </span>
-          <span className="rounded-full bg-white/85 px-2.5 py-0.5 text-[10px] font-semibold text-black backdrop-blur-xs">
-            {getTeacherAccessLabel(accessType)}
-          </span>
         </div>
 
         <span className="absolute right-3 top-3 rounded-full bg-black/50 px-2.5 py-0.5 font-mono text-[10px] font-bold text-white backdrop-blur-xs">
@@ -394,8 +383,8 @@ export default function CourseCatalogPage() {
 
   const mode = getCatalogMode(location.pathname, user?.role);
   const isStudentView = mode === 'student';
-  const isTeacherView = mode === 'teacher';
   const isAdminView = mode === 'admin';
+  const isTeacherView = isAdminView;
 
   const safeUserId = cleanId(user?.id);
 
@@ -415,7 +404,7 @@ export default function CourseCatalogPage() {
 
   const { data, isLoading, error } = useCourseCatalog(
     user?.role === 'student' ? safeUserId : undefined,
-    isTeacherView ? safeUserId : undefined,
+    undefined,
     Boolean(safeUserId),
   );
 
@@ -642,68 +631,12 @@ export default function CourseCatalogPage() {
       return;
     }
 
-    const access = course.access;
-
-    if (course.enrolled) {
+    if (course.enrolled || course.hasActiveAccess) {
       navigate(buildCourseDetailPath(courseId));
       return;
     }
 
-    if (!access || access.unlockAction === 'enroll') {
-      enrollMutation.mutate(courseId);
-      return;
-    }
-
-    if (access.unlockAction === 'open_course') {
-      navigate(buildCourseDetailPath(courseId));
-      return;
-    }
-
-    if (access.unlockAction === 'redeem_invite') {
-      setInviteCourseId((current) => (current === courseId ? null : courseId));
-      setInviteCode('');
-      return;
-    }
-
-    if (access.unlockAction === 'request_paid_access') {
-      setPendingCourseId(courseId);
-
-      try {
-        await requestPaidAccessMutation.mutateAsync({
-          courseId,
-          userId: safeUserId,
-        });
-
-        await invalidateCatalogData();
-
-        toast({
-          title: 'Қолжетімділік сұранысы жіберілді',
-          description: 'Расталғаннан кейін курс ашылады.',
-        });
-      } catch (requestError) {
-        toast({
-          title: t('page.course_catalog.toast.error_title'),
-          description: getErrorMessage(
-            requestError,
-            'Ақылы курсқа сұраныс жіберу мүмкін болмады.',
-          ),
-          variant: 'destructive',
-        });
-      } finally {
-        setPendingCourseId(null);
-      }
-
-      return;
-    }
-
-    toast({
-      title: 'Курс қолжетімсіз',
-      description:
-        access?.accessState === 'requires_invite'
-          ? 'Бұл жабық курс. Шақыру коды қажет.'
-          : 'Бұл курсқа қазір кіру мүмкін емес.',
-      variant: 'destructive',
-    });
+    enrollMutation.mutate(courseId);
   };
 
   const handleRedeemInvite = async (course: CourseView) => {
@@ -890,7 +823,7 @@ export default function CourseCatalogPage() {
             eyebrow={
               <>
                 <BookOpen size={13} />
-                {getModeEyebrow({ isTeacherView, isAdminView })}
+                {getModeEyebrow({ isAdminView })}
               </>
             }
             icon={<BookOpen size={20} />}
@@ -967,7 +900,7 @@ export default function CourseCatalogPage() {
                       Көрсетілді: {filteredCourses}
                     </Badge>
                     {!isTeacherView
-                      ? getModeBadge({ isTeacherView, isAdminView })
+                      ? getModeBadge({ isAdminView })
                       : null}
                   </div>
                 </div>

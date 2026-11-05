@@ -39,8 +39,6 @@ const TeacherEditCoursePage = lazy(() => import('./pages/TeacherEditCoursePage')
 const TeacherCreateTestPage = lazy(() => import('./pages/TeacherCreateTestPage'));
 const TeacherStudentsPage = lazy(() => import('./pages/TeacherStudentsPage'));
 
-const ParentChildrenPage = lazy(() => import('./pages/ParentChildrenPage'));
-
 const AdminSubjectsPage = lazy(() => import('./pages/AdminSubjectsPage'));
 const AdminModerationPage = lazy(() => import('./pages/AdminModerationPage'));
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
@@ -73,22 +71,14 @@ const queryClient = new QueryClient({
   },
 });
 
-const ALL_ROLES: UserRole[] = ['student', 'teacher', 'parent', 'admin'];
+// Мұғалім және ата-ана рөлдері платформадан алынып тасталды: тек оқушы және админ (автор).
+const ALL_ROLES: UserRole[] = ['student', 'admin'];
 const STUDENT_ROLES: UserRole[] = ['student'];
-const TEACHER_ROLES: UserRole[] = ['teacher'];
-const PARENT_ROLES: UserRole[] = ['parent'];
 const ADMIN_ROLES: UserRole[] = ['admin'];
-const AUTHOR_ROLES: UserRole[] = ['teacher', 'admin'];
+const AUTHOR_ROLES: UserRole[] = ADMIN_ROLES;
 
-const LEARNING_CONTENT_ROLES: UserRole[] = ['student', 'teacher', 'admin'];
-const ANALYTICS_ROLES: UserRole[] = ['student', 'teacher', 'parent', 'admin'];
-
-const parentChildPaths = [
-  '/children',
-  '/child-progress',
-  '/child-tests',
-  '/child-achievements',
-] as const;
+const LEARNING_CONTENT_ROLES: UserRole[] = ['student', 'admin'];
+const ANALYTICS_ROLES: UserRole[] = ['student', 'admin'];
 
 const studentGamificationPaths = ['/games', '/achievements'] as const;
 
@@ -476,22 +466,6 @@ const authorRoutes: AppRouteConfig[] = [
   },
 ];
 
-const teacherOnlyRoutes: AppRouteConfig[] = [
-  {
-    path: '/students',
-    element: <TeacherStudentsPage />,
-    allowedRoles: TEACHER_ROLES,
-  },
-];
-
-const parentRoutes: AppRouteConfig[] = parentChildPaths.map(
-  (path): AppRouteConfig => ({
-    path,
-    element: <ParentChildrenPage />,
-    allowedRoles: PARENT_ROLES,
-  }),
-);
-
 const adminRoutes: AppRouteConfig[] = [
   {
     path: '/subjects',
@@ -533,6 +507,11 @@ const adminRoutes: AppRouteConfig[] = [
     element: <AdminUsersPage />,
     allowedRoles: ADMIN_ROLES,
   },
+  {
+    path: '/students',
+    element: <TeacherStudentsPage />,
+    allowedRoles: ADMIN_ROLES,
+  },
 ];
 
 const protectedRoutes: AppRouteConfig[] = [
@@ -540,8 +519,6 @@ const protectedRoutes: AppRouteConfig[] = [
   ...sharedContentRoutes,
   ...studentRoutes,
   ...authorRoutes,
-  ...teacherOnlyRoutes,
-  ...parentRoutes,
   ...adminRoutes,
 ];
 

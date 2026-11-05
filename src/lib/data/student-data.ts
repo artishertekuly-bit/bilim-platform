@@ -209,50 +209,12 @@ function isEntitlementCurrentlyActive(row: Pick<EntitlementRow, 'status' | 'vali
   );
 }
 
-async function getActiveCourseEntitlementsSafe(userId?: string) {
-  if (!userId) return [] as EntitlementRow[];
-
-  const db = supabase as unknown as DynamicSupabaseClient;
-
-  const { data, error } = await db
-    .from('entitlements')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('resource_type', 'course')
-    .eq('status', 'active');
-
-  if (error) {
-    if (isSoftSchemaError(error.message || '')) {
-      return [] as EntitlementRow[];
-    }
-
-    throw new Error(error.message);
-  }
-
-  return ((data || []) as EntitlementRow[]).filter(isEntitlementCurrentlyActive);
+async function getActiveCourseEntitlementsSafe(_userId?: string) {
+  return [] as EntitlementRow[];
 }
 
-async function getPendingCourseOrdersSafe(userId?: string) {
-  if (!userId) return [] as OrderRow[];
-
-  const db = supabase as unknown as DynamicSupabaseClient;
-
-  const { data, error } = await db
-    .from('orders')
-    .select('*')
-    .eq('buyer_id', userId)
-    .eq('product_type', 'course')
-    .eq('status', 'pending');
-
-  if (error) {
-    if (isSoftSchemaError(error.message || '')) {
-      return [] as OrderRow[];
-    }
-
-    throw new Error(error.message);
-  }
-
-  return (data || []) as OrderRow[];
+async function getPendingCourseOrdersSafe(_userId?: string) {
+  return [] as OrderRow[];
 }
 
 async function userHasCourseEntitlementSafe(userId: string, courseId: string) {

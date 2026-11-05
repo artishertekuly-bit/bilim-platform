@@ -31,9 +31,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  useAcceptParentLinkRequestMutation,
-  useDeclineParentLinkRequestMutation,
-  useIncomingParentLinkRequests,
   useStudentDashboard,
   useStudentLearningSnapshot,
 } from '@/hooks/use-platform-data';
@@ -124,22 +121,7 @@ function getScoreTone(score: number | null | undefined) {
   return 'danger' as const;
 }
 
-type IncomingParentLinkRequestStatus =
-  | 'pending'
-  | 'accepted'
-  | 'declined'
-  | 'expired'
-  | 'cancelled';
 
-type IncomingParentLinkRequestItem = {
-  id: string;
-  parentId: string;
-  parentName: string | null;
-  status: IncomingParentLinkRequestStatus;
-  requestedAt: string | null;
-  respondedAt: string | null;
-  expiresAt: string | null;
-};
 
 type DashboardLessonPreview = {
   id?: string | null;
@@ -597,12 +579,7 @@ function NextLessonCard({
                   <Lock size={12} />
                   {t('common.locked')}
                 </StatusBadge>
-              ) : (
-                <StatusBadge tone="success">
-                  <CheckCircle2 size={12} />
-                  Ашық
-                </StatusBadge>
-              )}
+              ) : null}
             </div>
 
             <h3 className="mt-2 line-clamp-1 text-sm font-bold text-foreground sm:text-base">
@@ -702,35 +679,7 @@ export default function StudentDashboard() {
     error: learningSnapshotError,
   } = useStudentLearningSnapshot(safeUserId, Boolean(safeUserId));
 
-  const {
-    data: incomingParentRequestsData,
-    isLoading: isIncomingParentRequestsLoading,
-    error: incomingParentRequestsError,
-  } = useIncomingParentLinkRequests(safeUserId, Boolean(safeUserId));
 
-  const acceptParentLinkRequestMutation = useAcceptParentLinkRequestMutation(safeUserId);
-  const declineParentLinkRequestMutation = useDeclineParentLinkRequestMutation(safeUserId);
-
-  const pendingParentRequests = useMemo(
-    () =>
-      ((incomingParentRequestsData as IncomingParentLinkRequestItem[] | undefined) || [])
-        .map((request) => ({
-          id: cleanId(request.id),
-          parentId: cleanId(request.parentId),
-          parentName: cleanText(request.parentName, MAX_NAME_CHARS) || null,
-          status: request.status,
-          requestedAt: cleanText(request.requestedAt, 80) || null,
-          respondedAt: cleanText(request.respondedAt, 80) || null,
-          expiresAt: cleanText(request.expiresAt, 80) || null,
-        }))
-        .filter((request) => request.id && request.status === 'pending')
-        .sort(
-          (a, b) =>
-            new Date(b.requestedAt || 0).getTime() -
-            new Date(a.requestedAt || 0).getTime(),
-        ),
-    [incomingParentRequestsData],
-  );
 
   const firstName =
     cleanText(user?.fullName, MAX_NAME_CHARS).split(/\s+/)[0] ||
@@ -771,10 +720,6 @@ export default function StudentDashboard() {
   const studyStatus = data
     ? getStudyStatus(safeStats.avgScore, safeStats.completedLessons)
     : '';
-
-  const parentRequestPending =
-    acceptParentLinkRequestMutation.isPending ||
-    declineParentLinkRequestMutation.isPending;
 
   return (
     <DashboardLayout>
@@ -883,7 +828,7 @@ export default function StudentDashboard() {
                       />
                     </PanelCard>
 
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <QuickActionCard
                         title="Курстар"
                         to="/courses"
@@ -911,55 +856,6 @@ export default function StudentDashboard() {
                       isLoading={learningSnapshotLoading}
                       hasError={Boolean(learningSnapshotError)}
                     />
-
-                    {pendingParentRequests.length > 0 ? (
-                      <PanelCard title="Ата-ана сұраныстары">
-                        {pendingParentRequests.map((request) => (
-                          <div
-                            key={cleanId(request.id)}
-                            className="rounded-2xl bg-muted/40 p-3"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="text-xs font-bold text-foreground">
-                                {cleanText(request.parentName, MAX_NAME_CHARS) || 'Ата-ана'}
-                              </p>
-                              <StatusBadge tone="warning">Күтуде</StatusBadge>
-                            </div>
-
-                            <div className="mt-2.5 grid grid-cols-2 gap-2">
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="h-7 text-xs"
-                                onClick={() =>
-                                  acceptParentLinkRequestMutation.mutate({
-                                    requestId: cleanId(request.id),
-                                  })
-                                }
-                                disabled={parentRequestPending}
-                              >
-                                Қабылдау
-                              </Button>
-
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-7 text-xs"
-                                onClick={() =>
-                                  declineParentLinkRequestMutation.mutate({
-                                    requestId: cleanId(request.id),
-                                  })
-                                }
-                                disabled={parentRequestPending}
-                              >
-                                Бас тарту
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </PanelCard>
-                    ) : null}
                   </div>
                 </div>
               </TabsContent>

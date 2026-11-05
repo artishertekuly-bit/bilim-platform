@@ -320,7 +320,7 @@ function ProfileActionCard({
 
 function getSanaRoleLabel(role: UserRole | null | undefined) {
   if (role === 'student') return 'Оқушы';
-  if (role === 'teacher' || role === 'admin') return 'Автор';
+  if (role === 'admin') return 'Админ';
   if (role === 'parent') return 'Ата-ана';
 
   return 'Қолданушы';
@@ -830,11 +830,15 @@ export default function ProfileSettingsPage() {
       ];
     }
 
+    if (user?.role !== 'admin') {
+      return [];
+    }
+
     return [
       {
         title: 'Курстарым',
         text: 'Авторлық материалдарды басқару',
-        href: user?.role === 'admin' ? '/manage-courses' : '/my-courses',
+        href: '/manage-courses',
         icon: <BookOpen size={17} />,
         featured: true,
       },
@@ -848,7 +852,7 @@ export default function ProfileSettingsPage() {
       {
         title: 'Аналитика',
         text: 'Платформа көрінісі',
-        href: user?.role === 'admin' ? '/admin-analytics' : '/analytics',
+        href: '/admin-analytics',
         icon: <BarChart3 size={17} />,
         featured: false,
       },

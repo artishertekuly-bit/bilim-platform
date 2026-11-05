@@ -74,7 +74,6 @@ type LessonReferenceRow = {
 
 type CurrentUserContext = {
   userId: string;
-  isTeacher: boolean;
   isAdmin: boolean;
 };
 
@@ -212,20 +211,11 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
     throw new Error('Авторизация қажет.');
   }
 
-  const [teacherResult, adminResult] = await Promise.all([
-    supabase.rpc('has_role', {
-      _user_id: user.id,
-      _role: 'teacher',
-    }),
-    supabase.rpc('has_role', {
-      _user_id: user.id,
-      _role: 'admin',
-    }),
-  ]);
-
-  if (teacherResult.error) {
-    throw new Error(teacherResult.error.message);
-  }
+  // Мұғалім рөлі алынып тасталды: курстарды тек админ басқарады.
+  const adminResult = await supabase.rpc('has_role', {
+    _user_id: user.id,
+    _role: 'admin',
+  });
 
   if (adminResult.error) {
     throw new Error(adminResult.error.message);
@@ -233,7 +223,6 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
 
   return {
     userId: user.id,
-    isTeacher: Boolean(teacherResult.data),
     isAdmin: Boolean(adminResult.data),
   };
 }
@@ -241,7 +230,7 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
 async function assertCanReadStudentAnalytics(studentId: string) {
   const context = await getCurrentUserContext();
 
-  if (context.isAdmin || context.isTeacher || context.userId === studentId) {
+  if (context.isAdmin || context.userId === studentId) {
     return context;
   }
 
@@ -270,10 +259,6 @@ async function assertCanReadCourseAnalytics(courseId: string) {
 
   if (!course) {
     throw new Error('Курс табылмады.');
-  }
-
-  if (context.isTeacher && course.teacher_id === context.userId) {
-    return context;
   }
 
   throw new Error('Бұл курстың analytics деректерін көруге рұқсатыңыз жоқ.');
@@ -914,7 +899,7 @@ export async function getTeacherStudentLearningSnapshot(input: {
 }): Promise<TeacherStudentLearningSnapshot> {
   const context = await getCurrentUserContext();
 
-  if (!context.isAdmin && (!context.isTeacher || context.userId !== input.teacherId)) {
+  if (!context.isAdmin) {
     throw new Error('Бұл оқушының analytics деректерін көруге рұқсатыңыз жоқ.');
   }
 

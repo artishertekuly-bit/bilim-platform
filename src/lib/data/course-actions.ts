@@ -74,7 +74,6 @@ type EntitlementDbRow = Tables<'entitlements'>;
 
 type CurrentUserContext = {
   userId: string;
-  isTeacher: boolean;
   isAdmin: boolean;
 };
 
@@ -398,20 +397,11 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
     throw new Error('Авторизация қажет.');
   }
 
-  const [teacherResult, adminResult] = await Promise.all([
-    supabase.rpc('has_role', {
-      _user_id: user.id,
-      _role: 'teacher',
-    }),
-    supabase.rpc('has_role', {
-      _user_id: user.id,
-      _role: 'admin',
-    }),
-  ]);
-
-  if (teacherResult.error) {
-    throw new Error(teacherResult.error.message);
-  }
+  // Мұғалім рөлі алынып тасталды: курстарды тек админ басқарады.
+  const adminResult = await supabase.rpc('has_role', {
+    _user_id: user.id,
+    _role: 'admin',
+  });
 
   if (adminResult.error) {
     throw new Error(adminResult.error.message);
@@ -419,7 +409,6 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
 
   return {
     userId: user.id,
-    isTeacher: Boolean(teacherResult.data),
     isAdmin: Boolean(adminResult.data),
   };
 }
@@ -433,8 +422,8 @@ async function getCurrentUserId(): Promise<string> {
 async function assertCanCreateCourse(): Promise<CurrentUserContext> {
   const context = await getCurrentUserContext();
 
-  if (!context.isTeacher && !context.isAdmin) {
-    throw new Error('Курс құру үшін мұғалім немесе admin рөлі қажет.');
+  if (!context.isAdmin) {
+    throw new Error('Курс құру тек админге қолжетімді.');
   }
 
   return context;
@@ -461,7 +450,7 @@ async function assertCourseOwner(courseId: string) {
     throw new Error('Курс табылмады.');
   }
 
-  if (!context.isAdmin && data.teacher_id !== context.userId) {
+  if (!context.isAdmin) {
     throw new Error('Бұл курсты өңдеуге рұқсатыңыз жоқ.');
   }
 
@@ -1745,18 +1734,8 @@ export async function redeemCourseInvite(
   ) as unknown as Promise<RedeemCourseInviteResponse>;
 }
 
-export async function getCourseInvites(courseId: string) {
-  const normalizedCourseId = normalizeText(courseId);
-
-  await assertCourseOwner(normalizedCourseId);
-
-  return queryOrThrow(
-    supabase
-      .from('course_invites')
-      .select('*')
-      .eq('course_id', normalizedCourseId)
-      .order('created_at', { ascending: false }),
-  ) as Promise<CourseInviteRow[]>;
+export async function getCourseInvites(_courseId: string): Promise<CourseInviteRow[]> {
+  return [];
 }
 
 export async function setCourseInviteActive(input: {
@@ -1845,23 +1824,12 @@ export async function manualApproveOrder(orderId: string) {
   ) as unknown as Promise<ManualApproveOrderResponse>;
 }
 
-export async function getMyOrders() {
-  return queryOrThrow(
-    supabase
-      .from('orders')
-      .select('*')
-      .order('created_at', { ascending: false }),
-  ) as Promise<OrderRow[]>;
+export async function getMyOrders(): Promise<OrderRow[]> {
+  return [];
 }
 
-export async function getPendingOrdersForAdmin() {
-  return queryOrThrow(
-    supabase
-      .from('orders')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false }),
-  ) as Promise<OrderRow[]>;
+export async function getPendingOrdersForAdmin(): Promise<OrderRow[]> {
+  return [];
 }
 
 /* ================= DELETE ================= */

@@ -386,5 +386,5 @@ def require_roles(*roles: str) -> RoleChecker:
     return RoleChecker(set(roles))
 
 
-require_author_role = require_roles("teacher", "admin")
+require_author_role = require_roles("admin")  # Мұғалім рөлі алынып тасталды: курс авторы тек админ.
 require_admin_role = require_roles("admin")

@@ -263,17 +263,12 @@ function LessonTimelineStatusBadge({
     return (
       <StatusBadge tone="muted">
         <Lock size={12} />
-        Жабық
+        Құлыпталған
       </StatusBadge>
     );
   }
 
-  return (
-    <StatusBadge tone="secondary">
-      <CircleDot size={12} />
-      Ашық
-    </StatusBadge>
-  );
+  return null;
 }
 
 function CurrentLessonCard({
@@ -330,7 +325,7 @@ function CurrentLessonCard({
         {lesson.isLocked || !lessonId ? (
           <Button type="button" variant="outline" disabled>
             <Lock size={14} className="mr-2" />
-            Жабық
+            Құлыпталған
           </Button>
         ) : (
           <Button type="button" asChild>
@@ -569,7 +564,7 @@ function LessonTimelineItem({
               {lesson.isLocked || !lessonId ? (
                 <Button type="button" variant="outline" size="sm" disabled>
                   <Lock size={14} className="mr-2" />
-                  Жабық
+                  Құлыпталған
                 </Button>
               ) : (
                 <Button
@@ -661,27 +656,23 @@ function ModuleTimelineCard({ module }: { module: CourseProgressModuleView }) {
 }
 
 function TeacherAdminCourseNotice({
-  role,
   courseId,
 }: {
-  role: string | undefined;
+  role?: string | undefined;
   courseId: string;
 }) {
-  const isAdmin = role === 'admin';
   const safeCourseId = cleanId(courseId);
-  const manageHref = isAdmin
-    ? '/manage-courses'
-    : safeCourseId
-      ? buildCourseEditPath(safeCourseId)
-      : '/create-course';
-  const listHref = isAdmin ? '/manage-courses' : '/my-courses';
+  const manageHref = safeCourseId
+    ? buildCourseEditPath(safeCourseId)
+    : '/manage-courses';
+  const listHref = '/manage-courses';
 
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
         <CardTitle className="flex items-center gap-2 text-base">
           <GraduationCap size={16} />
-          {isAdmin ? 'Әкімші режимі' : 'Мұғалім режимі'}
+          Админ режимі
         </CardTitle>
       </CardHeader>
 
@@ -710,14 +701,9 @@ export default function CourseDetailPage() {
   const safeUserId = cleanId(user?.id);
 
   const isStudent = user?.role === 'student';
-  const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin';
+  const isTeacherOrAdmin = user?.role === 'admin';
 
-  const backHref =
-    user?.role === 'teacher'
-      ? '/my-courses'
-      : user?.role === 'admin'
-        ? '/manage-courses'
-        : '/courses';
+  const backHref = user?.role === 'admin' ? '/manage-courses' : '/courses';
 
   const {
     data: timeline,
@@ -780,9 +766,9 @@ export default function CourseDetailPage() {
               <Button type="button" variant="outline" asChild>
                 <Link
                   to={
-                    user?.role === 'admin'
-                      ? '/manage-courses'
-                      : buildCourseEditPath(safeCourseId)
+                    safeCourseId
+                      ? buildCourseEditPath(safeCourseId)
+                      : '/manage-courses'
                   }
                 >
                   Курсты басқару

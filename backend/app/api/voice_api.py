@@ -28,7 +28,6 @@ from ..dependencies.auth import (
 from ..services.voice_service import (
     CHATGPT_KAZAKH_VOICE_SYSTEM_PROMPT,
     OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
-    build_realtime_instructions,
     process_voice_with_gemini,
     synthesize_speech_openai,
 )
@@ -79,7 +78,6 @@ def _extract_user_id(authorization: str | None, x_user_id: str | None) -> str | 
 @router.post("/realtime/session")
 @router.post("/session")
 async def create_openai_realtime_session(
-    manner: str = Query(default="modern"),
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
@@ -94,8 +92,6 @@ async def create_openai_realtime_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Бэкендте OPENAI_API_KEY орнатылмаған. Render немесе .env файлына қосыңыз.",
         )
-
-    session_instructions = build_realtime_instructions(manner)
 
     voice = (os.getenv("OPENAI_REALTIME_VOICE") or "coral").strip()
     if voice not in {"coral", "nova", "alloy", "echo", "fable", "onyx", "shimmer", "sage", "ash"}:
@@ -122,21 +118,21 @@ async def create_openai_realtime_session(
             # Түрлі нұсқадағы payload түрлері
             payload_variants = [
                 # 1. OpenAI Realtime GA ресми құрылымы (audio.input / audio.output)
-                #    threshold=0.80 және silence_duration_ms=900 артық шуды сезбеу үшін қойылды.
+                #    Транскрипция тілі көрсетілмейді — оқушы қай тілде сөйлесе, сол автоматты анықталады.
                 {
                     "session": {
                         "type": "realtime",
                         "model": model_name,
-                        "instructions": session_instructions,
+                        "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                         "output_modalities": ["audio"],
                         "audio": {
                             "input": {
                                 "transcription": {"model": "whisper-1"},
                                 "turn_detection": {
                                     "type": "server_vad",
-                                    "threshold": 0.8,
-                                    "prefix_padding_ms": 350,
-                                    "silence_duration_ms": 900,
+                                    "threshold": 0.5,
+                                    "prefix_padding_ms": 300,
+                                    "silence_duration_ms": 500,
                                     "create_response": True,
                                     "interrupt_response": True,
                                 },
@@ -150,7 +146,7 @@ async def create_openai_realtime_session(
                     "session": {
                         "type": "realtime",
                         "model": model_name,
-                        "instructions": session_instructions,
+                        "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                         "audio": {"output": {"voice": voice}},
                     },
                 },
@@ -159,7 +155,7 @@ async def create_openai_realtime_session(
                     "session": {
                         "type": "realtime",
                         "model": model_name,
-                        "instructions": session_instructions,
+                        "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                         "voice": voice,
                     },
                 },
@@ -207,7 +203,7 @@ async def create_openai_realtime_session(
                                 "session_id": session_id,
                                 "model": model_name,
                                 "voice": voice,
-                                "instructions": session_instructions,
+                                "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                             }
                     else:
                         last_error_detail = resp.text
@@ -246,7 +242,7 @@ async def create_openai_realtime_session(
                         "session_id": session_id,
                         "model": candidate_models[0],
                         "voice": voice,
-                        "instructions": session_instructions,
+                        "instructions": OPENAI_REALTIME_KAZAKH_INSTRUCTIONS,
                     }
             else:
                 last_error_detail = resp.text
@@ -283,11 +279,10 @@ async def save_voice_turn(
 async def voice_interact_gemini(
     audio: UploadFile = File(..., description="Пайдаланушы жазған толық аудио файл"),
     session_id: str | None = Form(None),
-    manner: str | None = Form("modern"),
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
-    """Резервтік REST эндпоинты (егер WebRTC қолжетімсіз болса немесе Тегін режим таңдалса)."""
+    """Резервтік REST эндпоинты (егер WebRTC қолжетімсіз болса)."""
     try:
         audio_bytes = await audio.read()
         if not audio_bytes or len(audio_bytes) < 300:
@@ -304,7 +299,6 @@ async def voice_interact_gemini(
             audio_bytes=audio_bytes,
             filename=filename,
             mime_type=content_type,
-            manner=manner or "modern",
         )
 
         mp3_bytes = await synthesize_speech_openai(ai_reply)

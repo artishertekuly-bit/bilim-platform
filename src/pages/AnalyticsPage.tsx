@@ -29,14 +29,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   useAdminDashboard,
   useAnalytics,
-  useParentDashboard,
   useTeacherDashboard,
 } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import t, { getLocale } from '@/lib/i18n';
 import { limitText, removeNullCharacters } from '@/lib/utils';
 
-type AnalyticsMode = 'student' | 'parent' | 'teacher' | 'admin';
+type AnalyticsMode = 'student' | 'admin';
 type ScoreTone = 'success' | 'warning' | 'danger';
 
 type SubjectPerformanceItem = {
@@ -150,8 +149,6 @@ function cleanId(value: unknown): string {
 }
 
 function getMode(role?: string): AnalyticsMode {
-  if (role === 'teacher') return 'teacher';
-  if (role === 'parent') return 'parent';
   if (role === 'admin') return 'admin';
 
   return 'student';
@@ -920,14 +917,8 @@ export default function AnalyticsPage() {
   const safeUserId = cleanId(user?.id);
 
   const analytics = useAnalytics(safeUserId, Boolean(safeUserId && mode === 'student'));
-  const parent = useParentDashboard(safeUserId, Boolean(safeUserId && mode === 'parent'));
-  const teacher = useTeacherDashboard(safeUserId, Boolean(safeUserId && mode === 'teacher'));
+  const teacher = useTeacherDashboard(safeUserId, Boolean(safeUserId && mode === 'admin'));
   const admin = useAdminDashboard(Boolean(safeUserId && mode === 'admin'));
-
-  const parentAnalytics = useMemo(
-    () => buildParentAnalytics(parent.data as ParentChildItem[] | undefined),
-    [parent.data],
-  );
 
   const studentAnalytics = useMemo(
     () =>
@@ -991,94 +982,6 @@ export default function AnalyticsPage() {
     [admin.data],
   );
 
-  if (mode === 'teacher') {
-    return (
-      <DashboardLayout>
-        <div className="space-y-6 animate-fade-in">
-          <PageHeader
-            eyebrow={
-              <>
-                <LineChart size={13} />
-                Мұғалім аналитикасы
-              </>
-            }
-            icon={<BarChart3 size={20} />}
-            title={t('page.analytics.title.teacher')}
-            actions={
-              <Button type="button" asChild>
-                <Link to="/my-courses">
-                  Курстарға өту
-                  <ArrowRight size={15} className="ml-2" />
-                </Link>
-              </Button>
-            }
-          />
-
-          {teacher.isLoading ? <AnalyticsSkeleton /> : null}
-          {!teacher.isLoading && teacher.error ? <PageErrorState /> : null}
-
-          {!teacher.isLoading && !teacher.error ? (
-            <>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-                <StatCard
-                  label={t('dashboard.total_courses')}
-                  value={teacherStats.totalCourses}
-                  icon={<BookOpen size={16} />}
-                />
-                <StatCard
-                  label={t('dashboard.total_students')}
-                  value={teacherStats.totalStudents}
-                  icon={<Users size={16} />}
-                />
-                <StatCard
-                  label={t('dashboard.total_tests')}
-                  value={teacherStats.totalTests}
-                  icon={<ClipboardList size={16} />}
-                />
-                <StatCard
-                  label={t('page.analytics.avg_course_progress')}
-                  value={`${teacherStats.avgCourseProgress}%`}
-                  icon={<Target size={16} />}
-                />
-                <StatCard
-                  label={t('page.analytics.completed_lessons')}
-                  value={teacherStats.completedLessons}
-                  icon={<Flame size={16} />}
-                />
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className="space-y-4 lg:col-span-2">
-                  <AnalyticsPanel
-                    title={t('page.analytics.teacher.course_progress_title')}
-                    icon={<TrendingUp size={15} />}
-                  >
-                    <TeacherCourseProgressList
-                      courses={teacherCourseProgress}
-                      metric="avgProgress"
-                    />
-                  </AnalyticsPanel>
-                </div>
-
-                <div className="space-y-4">
-                  <AnalyticsPanel
-                    title={t('page.analytics.teacher.completion_title')}
-                    icon={<CheckCircle2 size={15} />}
-                  >
-                    <TeacherCourseProgressList
-                      courses={teacherCourseProgress}
-                      metric="completionPct"
-                    />
-                  </AnalyticsPanel>
-                </div>
-              </div>
-            </>
-          ) : null}
-        </div>
-      </DashboardLayout>
-    );
-  }
-
   if (mode === 'admin') {
     return (
       <DashboardLayout>
@@ -1087,15 +990,15 @@ export default function AnalyticsPage() {
             eyebrow={
               <>
                 <LineChart size={13} />
-                Әкімші аналитикасы
+                Админ аналитикасы
               </>
             }
             icon={<BarChart3 size={20} />}
             title={t('page.analytics.title.admin')}
             actions={
               <Button type="button" asChild>
-                <Link to="/manage-users">
-                  Қолданушылар
+                <Link to="/manage-courses">
+                  Курстарды басқару
                   <ArrowRight size={15} className="ml-2" />
                 </Link>
               </Button>
@@ -1143,6 +1046,16 @@ export default function AnalyticsPage() {
                   >
                     <AdminSubjectStatsList subjects={adminSubjectStats} />
                   </AnalyticsPanel>
+
+                  <AnalyticsPanel
+                    title={t('page.analytics.teacher.course_progress_title')}
+                    icon={<TrendingUp size={15} />}
+                  >
+                    <TeacherCourseProgressList
+                      courses={teacherCourseProgress}
+                      metric="avgProgress"
+                    />
+                  </AnalyticsPanel>
                 </div>
 
                 <div className="space-y-4">
@@ -1169,6 +1082,16 @@ export default function AnalyticsPage() {
                       />
                     )}
                   </AnalyticsPanel>
+
+                  <AnalyticsPanel
+                    title={t('page.analytics.teacher.completion_title')}
+                    icon={<CheckCircle2 size={15} />}
+                  >
+                    <TeacherCourseProgressList
+                      courses={teacherCourseProgress}
+                      metric="completionPct"
+                    />
+                  </AnalyticsPanel>
                 </div>
               </div>
             </>
@@ -1178,12 +1101,11 @@ export default function AnalyticsPage() {
     );
   }
 
-  const data = mode === 'parent' ? parentAnalytics : studentAnalytics;
-  const isLoading = mode === 'parent' ? parent.isLoading : analytics.isLoading;
-  const error = mode === 'parent' ? parent.error : analytics.error;
+  const data = studentAnalytics;
+  const isLoading = analytics.isLoading;
+  const error = analytics.error;
 
-  const pageTitle =
-    mode === 'parent' ? t('page.analytics.title.parent') : t('nav.analytics');
+  const pageTitle = t('nav.analytics');
 
   return (
     <DashboardLayout>
@@ -1192,27 +1114,18 @@ export default function AnalyticsPage() {
           eyebrow={
             <>
               <LineChart size={13} />
-              {mode === 'parent' ? 'Ата-ана аналитикасы' : 'Оқу аналитикасы'}
+              Оқу аналитикасы
             </>
           }
           icon={<BarChart3 size={20} />}
           title={pageTitle}
           actions={
-            mode === 'parent' ? (
-              <Button type="button" asChild>
-                <Link to="/children">
-                  Балалар беті
-                  <ArrowRight size={15} className="ml-2" />
-                </Link>
-              </Button>
-            ) : (
-              <Button type="button" asChild>
-                <Link to="/courses">
-                  Курстарға өту
-                  <ArrowRight size={15} className="ml-2" />
-                </Link>
-              </Button>
-            )
+            <Button type="button" asChild>
+              <Link to="/courses">
+                Курстарға өту
+                <ArrowRight size={15} className="ml-2" />
+              </Link>
+            </Button>
           }
         />
 

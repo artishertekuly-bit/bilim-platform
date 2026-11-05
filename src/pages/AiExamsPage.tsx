@@ -618,8 +618,8 @@ export default function AiExamsPage() {
   const mountedRef = useRef(true);
 
   const accessToken = session?.access_token;
-  const isTeacher = user?.role === 'teacher';
-  const canUseAiExams = Boolean(user && isTeacher && accessToken);
+  const isAdmin = user?.role === 'admin';
+  const canUseAiExams = Boolean(user && isAdmin && accessToken);
 
   const draftExams = useMemo(
     () => exams.filter((item) => normalizeExamStatus(item.status) === 'draft'),
@@ -673,7 +673,7 @@ export default function AiExamsPage() {
   const loadExams = useCallback(async () => {
     listAbortRef.current?.abort();
 
-    if (!user || !isTeacher) {
+    if (!user || !isAdmin) {
       setExams([]);
       setLatestDraft(null);
       setErrorText('');
@@ -726,7 +726,7 @@ export default function AiExamsPage() {
         listAbortRef.current = null;
       }
     }
-  }, [accessToken, isTeacher, user]);
+  }, [accessToken, isAdmin, user]);
 
   useEffect(() => {
     void loadExams();
@@ -764,8 +764,8 @@ export default function AiExamsPage() {
       return;
     }
 
-    if (!isTeacher) {
-      setErrorText('Бұл бөлім мұғалімге арналған.');
+    if (!isAdmin) {
+      setErrorText('Бұл бөлім тек админге арналған.');
       return;
     }
 
@@ -870,8 +870,8 @@ export default function AiExamsPage() {
       return;
     }
 
-    if (!isTeacher) {
-      setErrorText('Бұл бөлім мұғалімге арналған.');
+    if (!isAdmin) {
+      setErrorText('Бұл бөлім тек админге арналған.');
       return;
     }
 
@@ -1012,7 +1012,7 @@ export default function AiExamsPage() {
     );
   }
 
-  if (!isTeacher) {
+  if (!isAdmin) {
     return (
       <DashboardLayout>
         <div className="space-y-6 animate-fade-in">
@@ -1028,8 +1028,8 @@ export default function AiExamsPage() {
           />
 
           <EmptyState
-            title="Мұғалім рөлі қажет"
-            text="Бұл бөлім мұғалімге арналған."
+            title="Админ рөлі қажет"
+            text="Бұл бөлім тек админге арналған."
             tone="ai"
           />
         </div>

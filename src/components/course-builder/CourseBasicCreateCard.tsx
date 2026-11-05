@@ -5,10 +5,9 @@ import {
   type ReactNode,
   type SetStateAction,
 } from 'react';
-import { BookOpen, KeyRound, Plus, Tag } from 'lucide-react';
+import { BookOpen, Plus } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
-import { CourseAccessTypeCards } from '@/components/course-builder/CourseAccessTypeCards';
 import { CourseThumbnailUploader } from '@/components/course-builder/CourseThumbnailUploader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,10 +19,6 @@ import type {
   CourseVisibility,
   SubjectRow,
 } from '@/lib/app-data-types';
-import {
-  resolveVisibilityFromAccessType,
-  shouldShowCoursePricing,
-} from '@/lib/course-creator/course-builder-utils';
 import t from '@/lib/i18n';
 import { removeNullCharacters } from '@/lib/utils';
 
@@ -57,32 +52,11 @@ type CourseBasicCreateCardProps = {
 
 const MAX_TITLE_CHARS = 180;
 const MAX_DESCRIPTION_CHARS = 1_200;
-const MAX_CURRENCY_CHARS = 3;
-const MAX_MAX_STUDENTS_CHARS = 6;
 const DEFAULT_MODULE_TITLE = 'Кіріспе';
 const DEFAULT_LESSON_TITLE = 'Курсқа кіріспе';
-const DEFAULT_PAID_PRICE = '5000';
-const DEFAULT_CURRENCY = 'KZT';
 
 function sanitizeInputValue(value: string, limit: number): string {
   return removeNullCharacters(value).slice(0, limit);
-}
-
-function normalizeCurrencyInput(value: string): string {
-  return removeNullCharacters(value)
-    .replace(/[^a-zA-Z]/g, '')
-    .toUpperCase()
-    .slice(0, MAX_CURRENCY_CHARS);
-}
-
-function normalizePositiveIntegerInput(value: string): string {
-  return removeNullCharacters(value)
-    .replace(/[^\d]/g, '')
-    .slice(0, MAX_MAX_STUDENTS_CHARS);
-}
-
-function normalizePriceInput(value: string): string {
-  return removeNullCharacters(value).replace(/[^\d.]/g, '').slice(0, 12);
 }
 
 function ensureInitialCourseStructure(course: NewCourseForm): NewCourseForm {
@@ -154,7 +128,6 @@ export function CourseBasicCreateCard({
   onCreateCourse,
 }: CourseBasicCreateCardProps) {
   const [thumbnailUploading, setThumbnailUploading] = useState(false);
-  const pricingVisible = shouldShowCoursePricing(newCourse.accessType);
 
   const basicsComplete =
     newCourse.title.trim().length > 0 &&
@@ -178,25 +151,6 @@ export function CourseBasicCreateCard({
     setNewCourse((previous) => ({
       ...previous,
       [key]: value,
-    }));
-  };
-
-  const handleAccessTypeChange = (nextAccessType: CourseAccessType) => {
-    setNewCourse((previous) => ({
-      ...previous,
-      accessType: nextAccessType,
-      visibility: resolveVisibilityFromAccessType(nextAccessType),
-      price:
-        nextAccessType === 'paid'
-          ? Number(previous.price || 0) > 0
-            ? previous.price
-            : DEFAULT_PAID_PRICE
-          : '0',
-      currency:
-        nextAccessType === 'paid'
-          ? normalizeCurrencyInput(previous.currency || DEFAULT_CURRENCY) ||
-            DEFAULT_CURRENCY
-          : DEFAULT_CURRENCY,
     }));
   };
 
@@ -252,147 +206,80 @@ export function CourseBasicCreateCard({
             </FieldBlock>
 
             <FieldBlock
-              label={t('page.teacher_course_builder.field.description')}
+              label={t('page.teacher_course_builder.field.course_description')}
               required
             >
               <Textarea
-                rows={4}
+                rows={3}
                 value={newCourse.description}
                 maxLength={MAX_DESCRIPTION_CHARS}
                 onChange={(event) =>
                   updateCourseField(
                     'description',
-                    sanitizeInputValue(event.target.value, MAX_DESCRIPTION_CHARS),
+                    sanitizeInputValue(
+                      event.target.value,
+                      MAX_DESCRIPTION_CHARS,
+                    ),
                   )
                 }
                 placeholder={t(
-                  'page.teacher_course_builder.placeholder.description',
+                  'page.teacher_course_builder.placeholder.course_description',
                 )}
               />
-
-              <p className="text-[11px] text-muted-foreground">
-                {newCourse.description.length}/{MAX_DESCRIPTION_CHARS}
-              </p>
             </FieldBlock>
 
-            <FieldBlock
-              label={t('page.teacher_course_builder.field.subject')}
-              required
-            >
-              <select
-                value={newCourse.subjectId}
-                onChange={(event) =>
-                  updateCourseField('subjectId', event.target.value)
-                }
-                className="h-11 w-full rounded-2xl border border-input bg-card px-4 py-2 text-sm text-foreground outline-none transition-all duration-200 ease-soft hover:border-primary-muted focus:border-primary-muted focus:ring-2 focus:ring-ring/25"
+            <div className="grid gap-4 md:grid-cols-2">
+              <FieldBlock
+                label={t('page.teacher_course_builder.field.subject')}
+                required
               >
-                <option value="">
-                  {t('page.teacher_course_builder.placeholder.select_subject')}
-                </option>
-
-                {subjectOptions.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.name_kk}
+                <select
+                  value={newCourse.subjectId}
+                  onChange={(event) =>
+                    updateCourseField('subjectId', event.target.value)
+                  }
+                  className="input-shell"
+                >
+                  <option value="">
+                    {t('page.teacher_course_builder.placeholder.subject_select')}
                   </option>
-                ))}
-              </select>
-            </FieldBlock>
+                  {subjectOptions.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name_kk}
+                    </option>
+                  ))}
+                </select>
+              </FieldBlock>
 
-            <FieldBlock label="Курс мұқабасы">
-              <CourseThumbnailUploader
-                userId={userId}
-                value={newCourse.thumbnailUrl}
-                onChange={(url) => updateCourseField('thumbnailUrl', url)}
-                disabled={creating}
-                onUploadingChange={setThumbnailUploading}
-              />
-            </FieldBlock>
+              <FieldBlock
+                label={t('page.teacher_course_builder.field.thumbnail')}
+              >
+                <CourseThumbnailUploader
+                  userId={userId}
+                  courseTitle={newCourse.title}
+                  value={newCourse.thumbnailUrl}
+                  onChange={(url) => updateCourseField('thumbnailUrl', url)}
+                  onUploadingChange={setThumbnailUploading}
+                  disabled={creating}
+                />
+              </FieldBlock>
+            </div>
           </div>
         </CompactSection>
 
-        <CompactSection title="Қолжетімділік" icon={<KeyRound size={16} />}>
-          <div className="space-y-4">
-            <FieldBlock label="Курсқа кіру түрі">
-              <CourseAccessTypeCards
-                value={newCourse.accessType}
-                onChange={handleAccessTypeChange}
-              />
-            </FieldBlock>
-
-            {pricingVisible ? (
-              <div className="rounded-3xl border border-warning-muted bg-warning-soft/60 p-4">
-                <div className="mb-3">
-                  <StatusBadge tone="warning">
-                    <Tag size={12} />
-                    Ақылы курс
-                  </StatusBadge>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <FieldBlock label="Баға" required>
-                    <Input
-                      type="text"
-                      inputMode="decimal"
-                      value={newCourse.price}
-                      onChange={(event) =>
-                        updateCourseField(
-                          'price',
-                          normalizePriceInput(event.target.value),
-                        )
-                      }
-                      placeholder={DEFAULT_PAID_PRICE}
-                    />
-                  </FieldBlock>
-
-                  <FieldBlock label="Валюта">
-                    <Input
-                      value={newCourse.currency}
-                      maxLength={MAX_CURRENCY_CHARS}
-                      onChange={(event) =>
-                        updateCourseField(
-                          'currency',
-                          normalizeCurrencyInput(event.target.value),
-                        )
-                      }
-                      placeholder={DEFAULT_CURRENCY}
-                    />
-                  </FieldBlock>
-                </div>
-              </div>
-            ) : null}
-
-            <FieldBlock label="Оқушы лимиті">
-              <Input
-                type="text"
-                inputMode="numeric"
-                value={newCourse.maxStudents}
-                onChange={(event) =>
-                  updateCourseField(
-                    'maxStudents',
-                    normalizePositiveIntegerInput(event.target.value),
-                  )
-                }
-                placeholder="Шектеусіз"
-              />
-            </FieldBlock>
-          </div>
-        </CompactSection>
-
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            className="w-full sm:w-auto"
-            onClick={handleCreateClick}
-            disabled={createButtonDisabled}
-          >
-            <Plus size={15} className="mr-2" />
-            {thumbnailUploading
+        <Button
+          type="button"
+          className="w-full"
+          disabled={createButtonDisabled}
+          onClick={handleCreateClick}
+        >
+          <Plus size={15} className="mr-2" />
+          {creating
+            ? t('page.teacher_course_builder.action.creating_course')
+            : thumbnailUploading
               ? 'Сурет жүктелуде...'
-              : creating
-                ? t('page.teacher_course_builder.action.saving')
-                : t('page.teacher_course_builder.action.create_course')}
-          </Button>
-        </div>
+              : t('page.teacher_course_builder.action.create_course')}
+        </Button>
       </CardContent>
     </Card>
   );

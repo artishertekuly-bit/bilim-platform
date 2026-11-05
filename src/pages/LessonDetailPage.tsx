@@ -1242,7 +1242,7 @@ export default function LessonDetailPage() {
                 <CardContent className="space-y-6 p-4 sm:p-5">
                   {contentBody ? (
                     <ReadingSection title="Теория" icon={<FileText size={15} />}>
-                      <article className="whitespace-pre-wrap rounded-3xl border border-border bg-card p-4 text-sm leading-7 text-foreground sm:p-5">
+                      <article className="break-words whitespace-pre-wrap rounded-3xl border border-border bg-card p-4 text-sm leading-7 text-foreground sm:p-5">
                         {contentBody}
                       </article>
                     </ReadingSection>
@@ -1284,7 +1284,7 @@ export default function LessonDetailPage() {
                       title={t('page.lesson_detail.practice_title')}
                       icon={<BookOpen size={15} />}
                     >
-                      <div className="whitespace-pre-wrap rounded-3xl border border-border bg-muted/35 p-4 text-sm leading-7 text-foreground sm:p-5">
+                      <div className="break-words whitespace-pre-wrap rounded-3xl border border-border bg-muted/35 p-4 text-sm leading-7 text-foreground sm:p-5">
                         {practiceContent}
                       </div>
                     </ReadingSection>

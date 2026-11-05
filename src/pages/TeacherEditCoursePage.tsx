@@ -214,7 +214,7 @@ export default function TeacherEditCoursePage() {
     refetchWorkspace,
     toast,
     onCourseDeleted: () => {
-      navigate('/my-courses');
+      navigate('/manage-courses');
     },
   });
 
@@ -388,7 +388,7 @@ export default function TeacherEditCoursePage() {
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => navigate('/my-courses')}
+              onClick={() => navigate('/manage-courses')}
               className="rounded-full text-xs font-semibold"
             >
               <ArrowLeft size={14} className="mr-1.5" />
@@ -402,7 +402,7 @@ export default function TeacherEditCoursePage() {
             action={
               <Button
                 type="button"
-                onClick={() => navigate('/my-courses')}
+                onClick={() => navigate('/manage-courses')}
                 className="rounded-full text-xs font-semibold"
               >
                 Курстарға оралу
@@ -420,7 +420,7 @@ export default function TeacherEditCoursePage() {
         {/* Navigation Breadcrumb & Back */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
-            to="/my-courses"
+            to="/manage-courses"
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition hover:text-foreground"
           >
             <ArrowLeft size={14} />
@@ -444,10 +444,6 @@ export default function TeacherEditCoursePage() {
 
             <StatusBadge tone={getCourseStatusTone(courseEdit.status)}>
               {courseStatusLabels[courseEdit.status]}
-            </StatusBadge>
-
-            <StatusBadge tone="primary">
-              {getAccessTypeLabel(courseEdit.accessType)}
             </StatusBadge>
           </div>
         </div>
@@ -484,7 +480,7 @@ export default function TeacherEditCoursePage() {
         />
 
         {/* Quick Stats Summary */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-3">
           <BuilderStatCard
             label="Модульдер"
             value={activeCourseModules.length}
@@ -502,12 +498,6 @@ export default function TeacherEditCoursePage() {
             value={activeCourse.students || 0}
             icon={<BookOpen size={17} />}
           />
-
-          <BuilderStatCard
-            label="Қолжетімділік"
-            value={selectedCoursePrice}
-            icon={<KeyRound size={17} />}
-          />
         </div>
 
         {/* Main Workspace with Tabs */}
@@ -516,7 +506,7 @@ export default function TeacherEditCoursePage() {
           onValueChange={(val) => setActiveTab(val as typeof activeTab)}
           className="space-y-6"
         >
-          <TabsList className="h-11 rounded-2xl bg-muted/30 p-1 shadow-xs">
+          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-2xl bg-muted/30 p-1 shadow-xs sm:w-fit sm:flex-nowrap">
             <TabsTrigger value="lessons" className="rounded-xl px-4 text-xs font-semibold gap-1.5">
               <Layers size={14} />
               Сабақтар мен құрылым
@@ -799,20 +789,7 @@ export default function TeacherEditCoursePage() {
                 onDeleteCourseAsset={handleDeleteCourseAsset}
               />
 
-              <div className="xl:col-span-2">
-                <CourseInviteCodesPanel
-                  accessType={courseEdit.accessType}
-                  inviteForm={inviteForm}
-                  setInviteForm={setInviteForm}
-                  courseInvites={courseInvites || []}
-                  courseInvitesLoading={courseInvitesLoading}
-                  createInvitePending={createInviteMutation.isPending}
-                  deactivateInvitePending={deactivateInviteMutation.isPending}
-                  onCreateInvite={handleCreateInvite}
-                  onDeactivateInvite={handleDeactivateInvite}
-                  onCopyInviteCode={copyInviteCode}
-                />
-              </div>
+
             </div>
           </TabsContent>
 

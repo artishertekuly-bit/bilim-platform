@@ -295,20 +295,11 @@ export function CourseStatusBadge({
   );
 }
 
-export function CourseAccessBadge({
-  accessType,
-  className,
-}: {
+export function CourseAccessBadge(_props: {
   accessType: CourseAccessType;
   className?: string;
 }) {
-  const config = getAccessMeta(accessType);
-
-  return (
-    <BaseStatusBadge tone={config.tone} className={className}>
-      {config.label}
-    </BaseStatusBadge>
-  );
+  return null;
 }
 
 export function OrderStatusBadge({

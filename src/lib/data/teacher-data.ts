@@ -203,7 +203,6 @@ async function getTeacherCourses(teacherId: string) {
     supabase
       .from('courses')
       .select('*')
-      .eq('teacher_id', teacherId)
       .order('created_at', { ascending: false }),
   ) as Promise<CourseRow[]>;
 }
@@ -212,27 +211,16 @@ async function getTestsForTeacherCourses(input: {
   teacherId: string;
   courseIds: string[];
 }) {
-  const [ownTests, courseTests] = await Promise.all([
-    queryOrThrow(
-      supabase
-        .from('tests')
-        .select('*')
-        .eq('created_by', input.teacherId)
-        .order('created_at', { ascending: false }),
-    ) as Promise<TestRow[]>,
+  if (!input.teacherId) return [] as TestRow[];
 
-    input.courseIds.length
-      ? (queryOrThrow(
-          supabase
-            .from('tests')
-            .select('*')
-            .in('course_id', input.courseIds)
-            .order('created_at', { ascending: false }),
-        ) as Promise<TestRow[]>)
-      : Promise.resolve([] as TestRow[]),
-  ]);
+  const rows = (await queryOrThrow(
+    supabase
+      .from('tests')
+      .select('*')
+      .order('created_at', { ascending: false }),
+  )) as TestRow[];
 
-  return sortTestsByCreatedAtDesc(dedupeTests([...ownTests, ...courseTests]));
+  return sortTestsByCreatedAtDesc(dedupeTests(rows));
 }
 
 async function getModulesForCourses(courseIds: string[]) {
@@ -332,7 +320,7 @@ export async function getTeacherDashboard(
   teacherId: string,
   locale: 'kk' | 'ru' = 'kk',
 ): Promise<TeacherDashboardData> {
-  const courses = await getCourseCatalog(undefined, teacherId, locale);
+  const courses = await getCourseCatalog(undefined, undefined, locale);
   const courseIds = courses.map((course) => course.id);
 
   const [tests, enrollments, modules] = await Promise.all([

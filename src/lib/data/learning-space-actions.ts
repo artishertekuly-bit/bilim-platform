@@ -79,7 +79,6 @@ type CourseAssetInsert = TablesInsert<'course_assets'>;
 
 type CurrentUserContext = {
   userId: string;
-  isTeacher: boolean;
   isAdmin: boolean;
 };
 
@@ -257,20 +256,11 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
     throw new Error('Авторизация қажет.');
   }
 
-  const [teacherResult, adminResult] = await Promise.all([
-    supabase.rpc('has_role', {
-      _user_id: user.id,
-      _role: 'teacher',
-    }),
-    supabase.rpc('has_role', {
-      _user_id: user.id,
-      _role: 'admin',
-    }),
-  ]);
-
-  if (teacherResult.error) {
-    throw new Error(teacherResult.error.message);
-  }
+  // Мұғалім рөлі алынып тасталды: курстарды тек админ басқарады.
+  const adminResult = await supabase.rpc('has_role', {
+    _user_id: user.id,
+    _role: 'admin',
+  });
 
   if (adminResult.error) {
     throw new Error(adminResult.error.message);
@@ -278,7 +268,6 @@ async function getCurrentUserContext(): Promise<CurrentUserContext> {
 
   return {
     userId: user.id,
-    isTeacher: Boolean(teacherResult.data),
     isAdmin: Boolean(adminResult.data),
   };
 }
@@ -305,7 +294,7 @@ async function assertCourseManager(courseId: string) {
     throw new Error('Курс табылмады.');
   }
 
-  if (!context.isAdmin && course.teacher_id !== context.userId) {
+  if (!context.isAdmin) {
     throw new Error('Бұл курстың материалдарын басқаруға рұқсатыңыз жоқ.');
   }
 

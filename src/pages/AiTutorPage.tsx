@@ -135,7 +135,7 @@ export default function AiTutorPage() {
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
 
   const accessToken = session?.access_token?.trim();
-  const isStudent = user?.role === 'student';
+  const isStudent = user?.role === 'student' || user?.role === 'admin';
   const isBusy = isCreatingSession || isSending;
   const hasMessages = messages.length > 0;
   const isAuthMissing = !accessToken;
@@ -495,8 +495,8 @@ export default function AiTutorPage() {
 
         {user && !isStudent ? (
           <EmptyState
-            title="Оқушы аккаунты қажет"
-            text="AI тәлімгер оқушыға арналған. Мұғалім үшін AI көмекші бетін қолданыңыз."
+            title="Қолжетімділік шектеулі"
+            text="AI тәлімгерді пайдалану үшін жүйеге кіріңіз."
             tone="ai"
           />
         ) : null}

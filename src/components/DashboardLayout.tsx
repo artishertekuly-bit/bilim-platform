@@ -95,42 +95,6 @@ const STUDENT_COURSE_TOOLS: SanaLauncherTool[] = [
   },
 ];
 
-const TEACHER_COURSE_TOOLS: SanaLauncherTool[] = [
-  {
-    id: 'teacher-courses',
-    title: 'Менің курстарым',
-    description: 'Авторлық курстар тізімі',
-    path: '/my-courses',
-    icon: BookOpen,
-    badge: 'Курстар',
-    featured: true,
-  },
-  {
-    id: 'teacher-create-course',
-    title: 'Жаңа курс',
-    description: 'Модульдер мен сабақтар құру',
-    path: '/create-course',
-    icon: Sparkles,
-    badge: 'Құрастыру',
-  },
-  {
-    id: 'teacher-create-test',
-    title: 'Жаңа тест',
-    description: 'Бағалау сұрақтарын әзірлеу',
-    path: '/create-test',
-    icon: ClipboardList,
-    badge: 'Бағалау',
-  },
-  {
-    id: 'teacher-students',
-    title: 'Оқушылар',
-    description: 'Студенттер тізімі мен оқу үлгерімі',
-    path: '/students',
-    icon: UserRound,
-    badge: 'Аудитория',
-  },
-];
-
 const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
   {
     id: 'admin-courses',
@@ -164,6 +128,14 @@ const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
     path: '/manage-tests',
     icon: ClipboardList,
     badge: 'Тесттер',
+  },
+  {
+    id: 'admin-students',
+    title: 'Оқушылар',
+    description: 'Курстарыңыздағы оқушылар мен үлгерім',
+    path: '/students',
+    icon: UserRound,
+    badge: 'Аудитория',
   },
 ];
 
@@ -260,8 +232,7 @@ function getDisplayEmail(email?: string | null): string {
 }
 
 function getRoleLabel(role: UserRole): string {
-  if (role === 'admin') return 'Автор';
-  if (role === 'teacher') return 'Автор';
+  if (role === 'admin') return 'Админ';
   if (role === 'student') return 'Оқушы';
 
   return 'Ескі аккаунт';
@@ -522,7 +493,7 @@ function AccountMenu({
               Профиль
             </Link>
 
-            {(role === 'admin' || role === 'teacher') ? (
+            {role === 'admin' ? (
               <Link
                 to="/ai"
                 role="menuitem"
@@ -606,26 +577,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         coursePaths: {
           back: '/courses',
           tests: '/tests',
-          progress: '/analytics',
-        },
-      };
-    }
-
-    if (user.role === 'teacher') {
-      return {
-        showCreate: true,
-        courseTools: TEACHER_COURSE_TOOLS,
-        aiTools: AUTHOR_AI_TOOLS,
-        mainPaths: {
-          home: '/dashboard',
-          courses: '/my-courses',
-          create: '/create-course',
-          ai: '/ai',
-          profile: '/profile',
-        },
-        coursePaths: {
-          back: '/my-courses',
-          tests: '/create-test',
           progress: '/analytics',
         },
       };

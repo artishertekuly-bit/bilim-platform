@@ -152,20 +152,20 @@ export default function LandingPage() {
       icon: GraduationCap,
     },
     {
-      title: t('landing.for_teachers'),
+      title: 'AI және дыбыстық көмекші',
       points: [
-        t('landing.audience.teachers.point_1'),
-        t('landing.audience.teachers.point_2'),
-        t('landing.audience.teachers.point_3'),
+        'AI Тьютор және AI Практика арқылы тақырыпты терең меңгеру',
+        'AI Емтихандар мен AI Оқу ізі арқылы білім деңгейін талдау',
+        'Sana аудио көмекшісі арқылы дауыспен сұхбаттасу',
       ],
-      icon: Users,
+      icon: Sparkles,
     },
     {
-      title: t('landing.for_parents'),
+      title: 'Автор және Админ кеңістігі',
       points: [
-        t('landing.audience.parents.point_1'),
-        t('landing.audience.parents.point_2'),
-        t('landing.audience.parents.point_3'),
+        'Курс, модуль, сабақ және тесттерді толық құрастыру',
+        'AI Автор көмекшісі және AI Сұрақ генераторы',
+        'Платформа аналитикасы мен оқушылар прогресін бақылау',
       ],
       icon: ShieldCheck,
     },
@@ -252,9 +252,9 @@ export default function LandingPage() {
             <div className="mx-auto mt-10 max-w-3xl rounded-3xl border border-border bg-card/80 p-4 shadow-soft backdrop-blur">
               <div className="grid gap-3 text-left sm:grid-cols-3">
                 {[
-                  'AI оқу көмекшісі',
+                  'AI Тьютор және Практика',
                   'Курс және сабақ roadmap',
-                  'Ата-ана бақылауы',
+                  'Sana аудио көмекшісі',
                 ].map((item) => (
                   <div
                     key={item}
@@ -316,7 +316,7 @@ export default function LandingPage() {
               </div>
 
               <h2 className="text-2xl font-bold tracking-tight text-foreground lg:text-3xl">
-                Оқушы, мұғалім және ата-анаға бөлек кеңістік
+                Оқушы мен AI мүмкіндіктеріне арналған бірыңғай кеңістік
               </h2>
             </div>
 

@@ -1,135 +1,112 @@
-import type { ReactNode } from 'react';
-import {
-  BookOpen,
-  FileText,
-  KeyRound,
-  Tag,
-  Users,
-} from 'lucide-react';
+import { BookOpen, FileText, Layers3, Users } from 'lucide-react';
 
 import StatusBadge from '@/components/common/StatusBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import type { CourseAccessType, TeacherCourseWorkspace } from '@/lib/app-data-types';
+import type { CourseView } from '@/lib/app-data-types';
 import {
-  getAccessTypeLabel,
-  shouldShowCoursePricing,
+  courseStatusLabels,
+  type CourseStatus,
 } from '@/lib/course-creator/course-builder-utils';
+import { limitText, removeNullCharacters } from '@/lib/utils';
 
-function getAccessTone(accessType: CourseAccessType) {
-  const normalized = String(accessType || '');
+type CourseSummaryCardProps = {
+  selectedCourse: CourseView | null;
+  selectedSubjectName: string;
+  selectedCoursePrice?: string;
+  totalModules: number;
+  totalLessons: number;
+};
 
-  if (normalized === 'paid' || normalized === 'subscription_only') {
-    return 'important' as const;
-  }
+const MAX_TITLE_CHARS = 180;
+const MAX_META_CHARS = 120;
 
-  if (
-    normalized === 'private_invite' ||
-    normalized === 'school_only' ||
-    normalized === 'closed' ||
-    normalized === 'invite_only'
-  ) {
-    return 'primary' as const;
-  }
-
-  return 'success' as const;
+function cleanText(value: unknown, limit = MAX_TITLE_CHARS): string {
+  return limitText(
+    removeNullCharacters(String(value ?? '')).replace(/\s+/g, ' ').trim(),
+    limit,
+  );
 }
 
-function SummaryRow({
-  label,
-  value,
-  icon,
-  emphasized = false,
-}: {
-  label: string;
-  value: string | number;
-  icon: ReactNode;
-  emphasized?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 ${
-        emphasized
-          ? 'border-accent-muted bg-accent-soft/70'
-          : 'border-border bg-muted/25'
-      }`}
-    >
-      <span className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-        <span
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border ${
-            emphasized
-              ? 'border-accent-muted bg-card text-accent-foreground'
-              : 'border-border bg-card text-muted-foreground'
-          }`}
-        >
-          {icon}
-        </span>
-        <span className="truncate">{label}</span>
-      </span>
+function formatCount(value: unknown): number {
+  const numericValue = Number(value);
 
-      <span className="shrink-0 text-right text-sm font-semibold text-foreground">
-        {value}
-      </span>
-    </div>
-  );
+  if (!Number.isFinite(numericValue)) return 0;
+
+  return Math.max(0, Math.round(numericValue));
+}
+
+function getStatusTone(status: CourseStatus) {
+  if (status === 'published') return 'active' as const;
+  if (status === 'archived') return 'muted' as const;
+
+  return 'completed' as const;
 }
 
 export function CourseSummaryCard({
   selectedCourse,
-  moduleCount,
-  lessonCount,
-  accessType,
-  selectedCoursePrice,
-}: {
-  selectedCourse: TeacherCourseWorkspace['courses'][number];
-  moduleCount: number;
-  lessonCount: number;
-  accessType: CourseAccessType;
-  selectedCoursePrice: string;
-}) {
-  const pricingVisible = shouldShowCoursePricing(accessType);
+  selectedSubjectName,
+  totalModules,
+  totalLessons,
+}: CourseSummaryCardProps) {
+  const status = (selectedCourse?.status || 'draft') as CourseStatus;
+  const courseTitle = cleanText(selectedCourse?.title) || 'Курс таңдалмаған';
+  const subjectLabel = cleanText(selectedSubjectName, MAX_META_CHARS) || 'Пән';
+  const studentsCount = formatCount(selectedCourse?.students);
+  const safeTotalModules = formatCount(totalModules);
+  const safeTotalLessons = formatCount(totalLessons);
 
   return (
     <Card className="overflow-hidden">
       <CardHeader className="border-b border-border/70 bg-card pb-4">
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-sm font-semibold">
-            Қысқаша мәлімет
-          </CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
+              <BookOpen size={17} />
+            </span>
 
-          <StatusBadge tone={getAccessTone(accessType)}>
-            <KeyRound size={12} />
-            {getAccessTypeLabel(accessType)}
-          </StatusBadge>
+            <CardTitle className="truncate text-base font-semibold">
+              {courseTitle}
+            </CardTitle>
+          </div>
+
+          {selectedCourse ? (
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge tone={getStatusTone(status)}>
+                {courseStatusLabels[status]}
+              </StatusBadge>
+            </div>
+          ) : null}
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-2.5 p-4 sm:p-5">
-        <SummaryRow
-          label="Модульдер"
-          value={moduleCount}
-          icon={<FileText size={13} />}
-        />
+      <CardContent className="space-y-4 p-4 sm:p-5">
+        <p className="text-xs text-muted-foreground">{subjectLabel}</p>
 
-        <SummaryRow
-          label="Сабақтар"
-          value={lessonCount}
-          icon={<BookOpen size={13} />}
-        />
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-border bg-muted/40 p-3">
+            <p className="text-[11px] text-muted-foreground">Модульдер</p>
+            <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <Layers3 size={14} className="text-primary" />
+              {safeTotalModules}
+            </p>
+          </div>
 
-        <SummaryRow
-          label="Оқушылар"
-          value={selectedCourse.students}
-          icon={<Users size={13} />}
-        />
+          <div className="rounded-2xl border border-border bg-muted/40 p-3">
+            <p className="text-[11px] text-muted-foreground">Сабақтар</p>
+            <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <FileText size={14} className="text-primary" />
+              {safeTotalLessons}
+            </p>
+          </div>
 
-        {pricingVisible ? (
-          <SummaryRow
-            label="Баға"
-            value={selectedCoursePrice}
-            icon={<Tag size={13} />}
-            emphasized
-          />
-        ) : null}
+          <div className="rounded-2xl border border-border bg-muted/40 p-3">
+            <p className="text-[11px] text-muted-foreground">Оқушылар</p>
+            <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+              <Users size={14} className="text-primary" />
+              {studentsCount}
+            </p>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

@@ -34,7 +34,7 @@ type AdminUserRow = {
   createdAt?: string | null;
 };
 
-const ROLE_FILTERS: RoleFilter[] = ['all', 'admin', 'teacher', 'parent', 'student', 'unknown'];
+const ROLE_FILTERS: RoleFilter[] = ['all', 'admin', 'student'];
 
 const MAX_ID_CHARS = 180;
 const MAX_NAME_CHARS = 160;

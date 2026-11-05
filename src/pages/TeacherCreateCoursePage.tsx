@@ -142,9 +142,9 @@ export default function TeacherCreateCoursePage() {
               asChild
               className="rounded-full text-xs font-semibold shadow-xs"
             >
-              <Link to="/my-courses">
+              <Link to="/manage-courses">
                 <BookOpen size={13} className="mr-1.5" />
-                Менің курстарым
+                Курстарым
               </Link>
             </Button>
           }

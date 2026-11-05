@@ -1,6 +1,7 @@
-import { Link, Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
+  LogOut,
   ShieldAlert,
   UserRound,
 } from 'lucide-react';
@@ -10,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import AdminDashboard from '@/pages/AdminDashboard';
 import StudentDashboard from '@/pages/StudentDashboard';
-import TeacherDashboard from '@/pages/TeacherDashboard';
 
 function DashboardLoadingScreen() {
   return (
@@ -63,6 +63,61 @@ function LegacyParentAccountState() {
                   Басты бет
                   <ArrowRight size={15} className="ml-2" />
                 </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </DashboardLayout>
+  );
+}
+
+function LegacyTeacherAccountState() {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // Local navigation still completes when the remote logout request fails.
+    } finally {
+      navigate('/login', { replace: true });
+    }
+  };
+
+  return (
+    <DashboardLayout>
+      <div className="mx-auto max-w-2xl animate-fade-in py-8 sm:py-14">
+        <section className="relative overflow-hidden rounded-[2.25rem] border border-border bg-card p-6 shadow-soft sm:p-9">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-foreground/[0.045] blur-3xl"
+          />
+
+          <div className="relative">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background">
+              <ShieldAlert size={19} />
+            </div>
+
+            <p className="mt-7 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              Ескі аккаунт
+            </p>
+
+            <h1 className="mt-2 text-3xl font-black tracking-[-0.045em] sm:text-4xl">
+              Мұғалім кеңістігі жабылды
+            </h1>
+
+            <p className="mt-4 max-w-xl text-sm leading-6 text-muted-foreground">
+              Sana енді тек оқушы мен админге арналған платформа ретінде
+              жұмыс істейді. Курстарды тек админ басқарады. Бұл аккаунттың
+              деректері өшірілген жоқ — қажет болса, админге хабарласыңыз.
+            </p>
+
+            <div className="mt-7 flex flex-col gap-2 sm:flex-row">
+              <Button type="button" onClick={() => void handleLogout()}>
+                <LogOut size={15} className="mr-2" />
+                Шығу
               </Button>
             </div>
           </div>
@@ -129,7 +184,7 @@ export default function DashboardRouter() {
   }
 
   if (user.role === 'teacher') {
-    return <TeacherDashboard />;
+    return <LegacyTeacherAccountState />;
   }
 
   if (user.role === 'admin') {

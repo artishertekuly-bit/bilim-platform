@@ -392,7 +392,7 @@ export default function AiAssistantPage() {
     'teacher_course_creator_advisor',
   );
 
-  const isAuthor = user?.role === 'teacher' || user?.role === 'admin';
+  const isAuthor = user?.role === 'admin';
   const canUseAssistant = Boolean(user?.id && isAuthor);
 
   const {
@@ -632,8 +632,8 @@ export default function AiAssistantPage() {
 
         {user && !isAuthor ? (
           <EmptyState
-            title="Автор аккаунты қажет"
-            text="Бұл бөлім курс авторына арналған."
+            title="Админ аккаунты қажет"
+            text="Бұл бөлім тек админге арналған."
             tone="ai"
           />
         ) : null}

@@ -94,9 +94,10 @@ async def learning_analysis(
 ) -> LearningAiResponse:
     user_id, actual_role = user_with_role
 
-    if payload.role.value == "teacher" and actual_role not in {"teacher", "admin"}:
+    # "teacher" — тек ішкі API режимінің атауы (автор режимі); оны енді тек админ қолдана алады.
+    if payload.role.value == "teacher" and actual_role != "admin":
         raise _http_error(
-            "Мұғалім режиміндегі талдау үшін 'teacher' немесе 'admin' рөлі қажет.",
+            "Автор режиміндегі талдау тек админге қолжетімді.",
             status.HTTP_403_FORBIDDEN,
         )
 

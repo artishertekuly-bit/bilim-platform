@@ -335,14 +335,14 @@ export default function TeacherStudentsPage() {
           eyebrow={
             <>
               <LayoutDashboard size={13} />
-              Мұғалім
+              Админ
             </>
           }
           icon={<Users size={20} />}
           title={t('nav.students')}
           actions={
             <Button type="button" variant="outline" asChild>
-              <Link to="/my-courses">
+              <Link to="/manage-courses">
                 <BookOpen size={15} className="mr-2" />
                 Курстарға өту
               </Link>
@@ -434,7 +434,7 @@ export default function TeacherStudentsPage() {
                 text={t('page.teacher_students.empty.text')}
                 action={
                   <Button type="button" variant="outline" asChild>
-                    <Link to="/my-courses">
+                    <Link to="/manage-courses">
                       Курстарға өту
                       <ArrowRight size={15} className="ml-2" />
                     </Link>

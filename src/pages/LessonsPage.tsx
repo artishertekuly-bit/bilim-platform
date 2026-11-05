@@ -363,7 +363,7 @@ export default function LessonsPage() {
                   >
                     <TabsList>
                       <TabsTrigger value="all">Барлығы</TabsTrigger>
-                      <TabsTrigger value="available">Ашық</TabsTrigger>
+                      <TabsTrigger value="available">Қолжетімді</TabsTrigger>
                       <TabsTrigger value="completed">Аяқталған</TabsTrigger>
                       <TabsTrigger value="locked">Құлыпталған</TabsTrigger>
                     </TabsList>
@@ -391,7 +391,7 @@ export default function LessonsPage() {
 
                 <StatusBadge tone="warning">
                   <PlayCircle size={12} />
-                  Ашық: {stats.available}
+                  Қолжетімді: {stats.available}
                 </StatusBadge>
 
                 <StatusBadge tone="success">

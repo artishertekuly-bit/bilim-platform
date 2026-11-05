@@ -54,7 +54,7 @@ export default function TeacherProfileCard({
   compact = false,
   className,
 }: Props) {
-  const teacherName = cleanText(teacher.fullName, MAX_NAME_CHARS) || 'Мұғалім';
+  const teacherName = cleanText(teacher.fullName, MAX_NAME_CHARS) || 'Автор';
   const teacherBio = cleanMultilineText(teacher.bio, MAX_BIO_CHARS);
   const avatarUrl = cleanText(teacher.avatarUrl, MAX_URL_CHARS) || undefined;
   const coursesCount = normalizeCount(teacher.coursesCount);

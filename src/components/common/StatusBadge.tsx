@@ -215,56 +215,8 @@ export default function StatusBadge({
   );
 }
 
-export function CourseAccessBadge({
-  accessType,
-  className,
-}: CourseAccessBadgeProps) {
-  const normalizedAccessType = normalizeKey(accessType);
-
-  const resolvedAccessType =
-    normalizedAccessType === 'subscription_only'
-      ? 'paid'
-      : normalizedAccessType === 'school_only'
-        ? 'private_invite'
-        : normalizedAccessType === 'closed'
-          ? 'private_invite'
-          : normalizedAccessType === 'open'
-            ? 'public_free'
-            : normalizedAccessType || 'public_free';
-
-  if (resolvedAccessType === 'public_free') {
-    return (
-      <StatusBadge tone="success" className={className}>
-        <Eye size={12} />
-        Ашық
-      </StatusBadge>
-    );
-  }
-
-  if (resolvedAccessType === 'private_invite') {
-    return (
-      <StatusBadge tone="primary" className={className}>
-        <KeyRound size={12} />
-        Жабық
-      </StatusBadge>
-    );
-  }
-
-  if (resolvedAccessType === 'paid') {
-    return (
-      <StatusBadge tone="important" className={className}>
-        <CreditCard size={12} />
-        Ақылы
-      </StatusBadge>
-    );
-  }
-
-  return (
-    <StatusBadge tone="muted" className={className}>
-      <Lock size={12} />
-      Белгісіз
-    </StatusBadge>
-  );
+export function CourseAccessBadge(_props: CourseAccessBadgeProps) {
+  return null;
 }
 
 export function CourseStatusBadge({
@@ -319,12 +271,7 @@ export function LessonStatusBadge({
   }
 
   if (normalizedStatus === 'available') {
-    return (
-      <StatusBadge tone="active" className={className}>
-        <Eye size={12} />
-        Ашық
-      </StatusBadge>
-    );
+    return null;
   }
 
   return (

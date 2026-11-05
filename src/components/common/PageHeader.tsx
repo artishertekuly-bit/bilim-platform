@@ -105,13 +105,13 @@ export default function PageHeader({
               </div>
             ) : null}
 
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-bold tracking-tight text-foreground sm:text-2xl">
+            <div className="min-w-0 flex-1">
+              <h1 className="break-words text-xl font-bold leading-tight tracking-tight text-foreground sm:text-2xl">
                 {title}
               </h1>
 
               {description ? (
-                <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                   {description}
                 </p>
               ) : null}

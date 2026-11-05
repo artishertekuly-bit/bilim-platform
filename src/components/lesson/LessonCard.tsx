@@ -64,7 +64,7 @@ function getIconToneClassName(lesson: LessonView) {
 
 function getOpenButtonLabel(lesson: LessonView) {
   if (lesson.isCompleted) return 'Қайталау';
-  if (lesson.isLocked) return 'Жабық';
+  if (lesson.isLocked) return 'Құлыпталған';
 
   return 'Ашу';
 }
