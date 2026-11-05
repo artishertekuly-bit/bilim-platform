@@ -87,8 +87,16 @@ function clampProgress(value: unknown): number {
   return Math.max(0, Math.min(100, formatNumber(value)));
 }
 
+function hasCourseAccess(course: CourseView): boolean {
+  return Boolean(
+    course.enrolled ||
+      course.access?.hasEntitlement ||
+      course.access?.canAccess,
+  );
+}
+
 function getStudentActionLabel(course: CourseView) {
-  if (course.enrolled || course.hasActiveAccess) {
+  if (hasCourseAccess(course)) {
     return t('course.continue');
   }
 
@@ -126,10 +134,12 @@ export default function CourseCard({
   const title = cleanText(course.title, MAX_TITLE_CHARS) || 'Атаусыз курс';
   const description = cleanText(course.description, MAX_DESCRIPTION_CHARS);
   const subjectBadge =
-    cleanText(course.subjectName || course.subject, MAX_META_CHARS) ||
+    cleanText(course.subjectName, MAX_META_CHARS) ||
     'Жалпы бағыт';
 
-  const thumbnailUrl = getSafeThumbnailUrl(course.thumbnail);
+  const thumbnailUrl = getSafeThumbnailUrl(
+    (course as CourseView & { thumbnailUrl?: string | null }).thumbnailUrl,
+  );
   const lessonsCount = formatNumber(course.lessons);
   const studentsCount = formatNumber(course.students);
   const progressValue =
@@ -274,7 +284,7 @@ export default function CourseCard({
 
           <MetricItem
             icon={<Users size={11} />}
-            label={`${studentsCount} ${t('course.students_count')}`}
+            label={`${studentsCount} оқушы`}
           />
         </div>
 
@@ -294,7 +304,7 @@ export default function CourseCard({
             <Button
               type="button"
               variant={
-                course.enrolled || course.hasActiveAccess
+                hasCourseAccess(course)
                   ? 'default'
                   : 'outline'
               }

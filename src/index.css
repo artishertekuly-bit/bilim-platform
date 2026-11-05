@@ -349,7 +349,7 @@
 
 @layer components {
   .input-shell {
-    @apply flex h-11 w-full rounded-2xl border border-input bg-background px-3.5 py-2 text-sm text-foreground shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply flex h-11 w-full rounded-2xl border border-input bg-background px-3.5 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .soft-page {
@@ -498,6 +498,10 @@
 }
 
 @layer utilities {
+  .shadow-xs {
+    box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  }
+
   .text-balance {
     text-wrap: balance;
   }

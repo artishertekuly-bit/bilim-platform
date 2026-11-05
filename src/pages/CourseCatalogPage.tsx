@@ -631,7 +631,11 @@ export default function CourseCatalogPage() {
       return;
     }
 
-    if (course.enrolled || course.hasActiveAccess) {
+    if (
+      course.enrolled ||
+      course.access?.hasEntitlement ||
+      course.access?.canAccess
+    ) {
       navigate(buildCourseDetailPath(courseId));
       return;
     }

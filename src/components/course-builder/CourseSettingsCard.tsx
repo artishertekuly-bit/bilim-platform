@@ -207,10 +207,7 @@ export function CourseSettingsCard({
               />
             </FieldBlock>
 
-            <FieldBlock
-              label={t('page.teacher_course_builder.field.course_description')}
-              required
-            >
+            <FieldBlock label="Курс сипаттамасы" required>
               <Textarea
                 rows={3}
                 value={courseEdit.description}
@@ -224,9 +221,7 @@ export function CourseSettingsCard({
                     ),
                   )
                 }
-                placeholder={t(
-                  'page.teacher_course_builder.placeholder.course_description',
-                )}
+                placeholder="Курстың қысқаша мазмұны мен мақсаты"
               />
             </FieldBlock>
 
@@ -242,9 +237,7 @@ export function CourseSettingsCard({
                   }
                   className="input-shell"
                 >
-                  <option value="">
-                    {t('page.teacher_course_builder.placeholder.subject_select')}
-                  </option>
+                  <option value="">Пәнді таңдаңыз</option>
                   {subjectOptions.map((subject) => (
                     <option key={subject.id} value={subject.id}>
                       {subject.name_kk}
@@ -278,7 +271,6 @@ export function CourseSettingsCard({
             <FieldBlock label={t('page.teacher_course_builder.field.thumbnail')}>
               <CourseThumbnailUploader
                 userId={userId}
-                courseTitle={courseEdit.title}
                 value={courseEdit.thumbnailUrl}
                 onChange={(url) => updateCourseField('thumbnailUrl', url)}
                 onUploadingChange={setThumbnailUploading}
@@ -296,10 +288,10 @@ export function CourseSettingsCard({
         >
           <Save size={15} className="mr-2" />
           {updating
-            ? t('page.teacher_course_builder.action.saving')
+            ? 'Сақталуда...'
             : thumbnailUploading
               ? 'Сурет жүктелуде...'
-              : t('page.teacher_course_builder.action.save_changes')}
+              : 'Өзгерістерді сақтау'}
         </Button>
       </CardContent>
     </Card>

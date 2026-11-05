@@ -25,8 +25,10 @@ import SanaTaqiyaAvatar from '@/components/voice/SanaTaqiyaAvatar';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/utils';
 import {
-  createRealtimeVoiceSession,
-  saveRealtimeVoiceTurn,
+  createRealtimeSession,
+  saveVoiceTurn,
+  type VoiceEmotion,
+  type VoiceState,
 } from '@/lib/voice-api';
 
 type CallPhase =
@@ -49,8 +51,6 @@ const SPECTRUM_WEIGHTS = [0.55, 0.85, 1, 0.9, 0.75, 0.5];
 export default function VoiceAssistantModal({
   open,
   onOpenChange,
-  courseId,
-  lessonId,
 }: VoiceAssistantModalProps) {
   const { user, session } = useAuth();
   const accessToken = session?.access_token?.trim() || '';
@@ -209,25 +209,24 @@ export default function VoiceAssistantModal({
       }
 
       try {
-        const result = await saveRealtimeVoiceTurn(
+        const savedSessionId = await saveVoiceTurn(
           {
             userTranscript: cleanUser || '...',
-            assistantText: cleanAssistant || '...',
+            aiResponse: cleanAssistant || '...',
             sessionId: sessionIdRef.current || undefined,
-            courseId,
-            lessonId,
+            emotion: 'happy',
           },
-          { accessToken },
+          accessToken,
         );
 
-        if (mountedRef.current && result.sessionId) {
-          setSessionId(result.sessionId);
+        if (mountedRef.current && savedSessionId) {
+          setSessionId(savedSessionId);
         }
       } catch {
         // Background persistence error should not interrupt live voice call
       }
     },
-    [accessToken, courseId, lessonId],
+    [accessToken],
   );
 
   const handleRealtimeEvent = useCallback(
@@ -360,22 +359,15 @@ export default function VoiceAssistantModal({
 
       localStreamRef.current = localStream;
 
-      const realtimeSession = await createRealtimeVoiceSession(
-        {
-          sessionId: sessionIdRef.current || undefined,
-          courseId,
-          lessonId,
-        },
-        { accessToken },
-      );
+      const realtimeSession = await createRealtimeSession(accessToken);
 
       if (!mountedRef.current) {
         cleanupCall();
         return;
       }
 
-      if (realtimeSession.sessionId) {
-        setSessionId(realtimeSession.sessionId);
+      if (realtimeSession.session_id) {
+        setSessionId(realtimeSession.session_id);
       }
 
       const pc = new RTCPeerConnection();
@@ -459,7 +451,7 @@ export default function VoiceAssistantModal({
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${realtimeSession.clientSecret}`,
+            Authorization: `Bearer ${realtimeSession.client_secret}`,
             'Content-Type': 'application/sdp',
           },
           body: offer.sdp || '',
@@ -499,9 +491,7 @@ export default function VoiceAssistantModal({
   }, [
     accessToken,
     cleanupCall,
-    courseId,
     handleRealtimeEvent,
-    lessonId,
     startMeterLoop,
     user,
   ]);
@@ -589,8 +579,19 @@ export default function VoiceAssistantModal({
 
           <div className="relative z-10 flex flex-col items-center px-5 py-6">
             <SanaTaqiyaAvatar
-              phase={phase}
-              audioLevel={audioLevel}
+              state={
+                (phase === 'connecting' ? 'thinking' : phase) as VoiceState
+              }
+              emotion={
+                (phase === 'speaking'
+                  ? 'speaking'
+                  : phase === 'thinking' || phase === 'connecting'
+                    ? 'thinking'
+                    : phase === 'listening'
+                      ? 'listening'
+                      : 'happy') as VoiceEmotion
+              }
+              audioLevel={Math.round(audioLevel * 100)}
               isMuted={isMicMuted}
             />
 

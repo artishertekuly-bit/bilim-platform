@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { BookOpen, FileText, Layers3, Users } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/DataState';
@@ -9,7 +8,6 @@ import {
   courseStatusLabels,
   type CourseStatus,
 } from '@/lib/course-creator/course-builder-utils';
-import t from '@/lib/i18n';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 type CourseManageListProps = {
@@ -51,26 +49,10 @@ function getStatusTone(status: CourseStatus) {
 
 export function CourseManageList({
   courses,
-  subjectOptions,
   selectedCourseId,
   onSelectCourse,
 }: CourseManageListProps) {
   const safeSelectedCourseId = cleanId(selectedCourseId);
-
-  const subjectNameById = useMemo(() => {
-    const map = new Map<string, string>();
-
-    for (const subject of subjectOptions) {
-      const id = cleanId(subject.id);
-      const name = cleanText(subject.name_kk, MAX_SUBJECT_CHARS);
-
-      if (id && name) {
-        map.set(id, name);
-      }
-    }
-
-    return map;
-  }, [subjectOptions]);
 
   return (
     <Card className="overflow-hidden">
@@ -82,7 +64,7 @@ export function CourseManageList({
             </span>
 
             <CardTitle className="text-base font-semibold">
-              {t('page.teacher_course_builder.section.manage_course')}
+              Курстар тізімі
             </CardTitle>
           </div>
 
@@ -97,7 +79,7 @@ export function CourseManageList({
         {courses.length === 0 ? (
           <EmptyState
             icon={<BookOpen size={18} />}
-            title={t('page.teacher_course_builder.empty.no_courses')}
+            title="Курстар әзірге жоқ"
             text="Алдымен жаңа курс жасаңыз."
             compact
           />
@@ -110,9 +92,7 @@ export function CourseManageList({
               );
               const status = (course.status || 'draft') as CourseStatus;
               const subjectName =
-                subjectNameById.get(cleanId(course.subjectId)) ||
-                cleanText(course.subjectName || course.subject, MAX_SUBJECT_CHARS) ||
-                'Пән';
+                cleanText(course.subjectName, MAX_SUBJECT_CHARS) || 'Пән';
 
               const lessonsCount = formatCount(course.lessons);
               const studentsCount = formatCount(course.students);

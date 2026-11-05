@@ -7,6 +7,12 @@ import type {
 export const courseStatuses = ['draft', 'published', 'archived'] as const;
 export type CourseStatus = (typeof courseStatuses)[number];
 
+export const courseStatusLabels: Record<CourseStatus, string> = {
+  draft: 'Жоба',
+  published: 'Жарияланған',
+  archived: 'Мұрағат',
+};
+
 export const courseAccessTypes: CourseAccessType[] = [
   'public_free',
   'private_invite',
