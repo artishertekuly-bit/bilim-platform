@@ -31,3 +31,4 @@ dist
 .venv
 __pycache__
 *.tsbuildinfo
+*.apk
