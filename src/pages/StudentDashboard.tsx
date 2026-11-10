@@ -1,45 +1,30 @@
-import { useMemo, type ReactNode } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertTriangle,
   ArrowRight,
   BookOpen,
+  Bot,
   Brain,
   CheckCircle,
-  CheckCircle2,
+  ClipboardList,
   Flame,
   GraduationCap,
-  LayoutDashboard,
   Lock,
-  MessageCircle,
   PlayCircle,
   RotateCcw,
+  Sparkles,
   Star,
   Target,
-  Trophy,
-  Users,
 } from 'lucide-react';
 
 import DashboardLayout from '@/components/DashboardLayout';
 import ProgressBar from '@/components/ProgressBar';
-import StatCard from '@/components/StatCard';
-import PageHeader from '@/components/common/PageHeader';
 import StatusBadge from '@/components/common/StatusBadge';
-import { EmptyState, ErrorState, LoadingState } from '@/components/common/DataState';
+import { EmptyState, ErrorState } from '@/components/common/DataState';
 import { SkeletonBlock } from '@/components/common/SkeletonBlocks';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  useStudentDashboard,
-  useStudentLearningSnapshot,
-} from '@/hooks/use-platform-data';
-import type {
-  LearningRiskLevel,
-  StudentLearningSnapshot,
-} from '@/lib/app-data-types';
+import { useStudentDashboard } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
-import t from '@/lib/i18n';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
 const MAX_ID_CHARS = 160;
@@ -61,17 +46,13 @@ function cleanId(value: unknown): string {
 
 function formatCount(value: unknown): number {
   const numberValue = Number(value);
-
   if (!Number.isFinite(numberValue)) return 0;
-
   return Math.max(0, Math.round(numberValue));
 }
 
 function clampPercentNumber(value: unknown): number {
   const numberValue = Number(value);
-
   if (!Number.isFinite(numberValue)) return 0;
-
   return Math.max(0, Math.min(100, Math.round(numberValue)));
 }
 
@@ -79,591 +60,37 @@ function formatPercent(value: unknown): string {
   return `${clampPercentNumber(value)}%`;
 }
 
-function formatScore(value: number | null | undefined): string {
-  if (value === null || value === undefined) return '—';
-
-  return `${clampPercentNumber(value)}%`;
-}
-
-function buildEntityPath(basePath: '/lessons' | '/courses', value: unknown): string | null {
-  const id = cleanId(value);
-
-  if (!id) return null;
-
-  return `${basePath}/${encodeURIComponent(id)}`;
-}
-
 function buildLessonPath(value: unknown): string | null {
-  return buildEntityPath('/lessons', value);
+  const id = cleanId(value);
+  if (!id) return null;
+  return `/lessons/${encodeURIComponent(id)}`;
 }
 
 function buildCoursePath(value: unknown): string | null {
-  return buildEntityPath('/courses', value);
-}
-
-function getStudyStatus(avgScore: number, completedLessons: number) {
-  if (avgScore >= 80 && completedLessons >= 5) {
-    return t('page.student_dashboard.status.excellent');
-  }
-
-  if (avgScore >= 60 || completedLessons >= 3) {
-    return t('page.student_dashboard.status.good');
-  }
-
-  return t('page.student_dashboard.status.attention');
+  const id = cleanId(value);
+  if (!id) return null;
+  return `/courses/${encodeURIComponent(id)}`;
 }
 
 function getScoreTone(score: number | null | undefined) {
   const normalized = clampPercentNumber(score);
-
   if (normalized >= 80) return 'success' as const;
   if (normalized >= 50) return 'warning' as const;
   return 'danger' as const;
 }
 
-
-
-type DashboardLessonPreview = {
-  id?: string | null;
-  title?: string | null;
-  subjectName?: string | null;
-  courseTitle?: string | null;
-  isLocked?: boolean | null;
-};
-
-function formatDateTime(value: string | null | undefined) {
-  const rawValue = cleanText(value, 80);
-
-  if (!rawValue) return '—';
-
-  const date = new Date(rawValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return '—';
-  }
-
-  return new Intl.DateTimeFormat('kk-KZ', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
-}
-
 function StudentDashboardSkeleton() {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div
-            key={index}
-            className="rounded-3xl border border-border bg-card p-5 shadow-soft"
-          >
-            <div className="flex items-center gap-3">
-              <SkeletonBlock className="h-10 w-10 rounded-2xl" />
-              <div className="space-y-2">
-                <SkeletonBlock className="h-3 w-24" />
-                <SkeletonBlock className="h-6 w-14" />
-              </div>
-            </div>
-          </div>
+    <div className="space-y-4 animate-pulse">
+      <div className="h-28 rounded-3xl bg-muted/50" />
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-20 rounded-2xl bg-muted/40 p-3" />
         ))}
       </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-4 lg:col-span-2">
-          <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
-            <SkeletonBlock className="h-5 w-40" />
-
-            <div className="mt-5 rounded-3xl border border-border p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <SkeletonBlock className="h-3 w-24" />
-                  <SkeletonBlock className="h-5 w-72 max-w-full" />
-                  <SkeletonBlock className="h-3 w-56 max-w-full" />
-                  <SkeletonBlock className="h-3 w-80 max-w-full" />
-                </div>
-
-                <SkeletonBlock className="h-9 w-28 rounded-2xl" />
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-2">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <SkeletonBlock key={index} className="h-14 w-full rounded-2xl" />
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
-            <SkeletonBlock className="h-5 w-32" />
-            <div className="mt-5 space-y-3">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="space-y-2 rounded-3xl border border-border p-3"
-                >
-                  <div className="flex justify-between gap-3">
-                    <div className="space-y-2">
-                      <SkeletonBlock className="h-4 w-48" />
-                      <SkeletonBlock className="h-3 w-64" />
-                    </div>
-                    <SkeletonBlock className="h-4 w-10" />
-                  </div>
-                  <SkeletonBlock className="h-2 w-full rounded-full" />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div
-              key={index}
-              className="rounded-3xl border border-border bg-card p-5 shadow-soft"
-            >
-              <SkeletonBlock className="h-5 w-36" />
-              <div className="mt-4 space-y-3">
-                <SkeletonBlock className="h-4 w-full" />
-                <SkeletonBlock className="h-4 w-5/6" />
-                <SkeletonBlock className="h-4 w-2/3" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <div className="h-44 rounded-3xl bg-muted/40" />
+      <div className="h-44 rounded-3xl bg-muted/40" />
     </div>
-  );
-}
-
-function QuickActionCard({
-  title,
-  to,
-  icon,
-  tone = 'primary',
-}: {
-  title: string;
-  to: string;
-  icon: ReactNode;
-  tone?: 'primary' | 'accent' | 'ai';
-}) {
-  const toneClassName = {
-    primary: {
-      card: 'hover:bg-primary-soft/50',
-      icon: 'bg-primary-soft text-primary',
-    },
-    accent: {
-      card: 'hover:bg-accent-soft/50',
-      icon: 'bg-accent-soft text-accent-foreground',
-    },
-    ai: {
-      card: 'hover:bg-ai-soft/50',
-      icon: 'bg-ai-soft text-primary',
-    },
-  }[tone];
-
-  return (
-    <Link
-      to={to}
-      className={cn(
-        'group flex items-center justify-between gap-3 rounded-2xl bg-card p-3.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm active:scale-[0.99]',
-        toneClassName.card,
-      )}
-    >
-      <div className="flex items-center gap-3 min-w-0">
-        <div
-          className={cn(
-            'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
-            toneClassName.icon,
-          )}
-        >
-          {icon}
-        </div>
-        <p className="truncate text-xs font-bold text-foreground">{title}</p>
-      </div>
-
-      <ArrowRight
-        size={14}
-        className="shrink-0 text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-primary"
-      />
-    </Link>
-  );
-}
-
-function PanelCard({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <Card className="overflow-hidden bg-card shadow-xs">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-sm font-bold text-foreground">{title}</CardTitle>
-          {action}
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-3 p-4 sm:p-5 pt-1">{children}</CardContent>
-    </Card>
-  );
-}
-
-function getRiskLevelLabel(riskLevel: LearningRiskLevel) {
-  if (riskLevel === 'high') return 'Жоғары назар';
-  if (riskLevel === 'medium') return 'Орташа назар';
-  return 'Тұрақты';
-}
-
-function getRiskLevelTone(riskLevel: LearningRiskLevel) {
-  if (riskLevel === 'high') return 'danger' as const;
-  if (riskLevel === 'medium') return 'warning' as const;
-  return 'success' as const;
-}
-
-function resolveOverallRisk(snapshot: StudentLearningSnapshot): LearningRiskLevel {
-  const courses = snapshot.courses || [];
-
-  if (courses.some((course) => course.riskLevel === 'high')) return 'high';
-  if (courses.some((course) => course.riskLevel === 'medium')) return 'medium';
-
-  return 'low';
-}
-
-function formatNullablePercent(value: number | null | undefined) {
-  if (value === null || value === undefined) return '—';
-
-  return `${clampPercentNumber(value)}%`;
-}
-
-function MiniMetric({
-  label,
-  value,
-  icon,
-  tone = 'primary',
-}: {
-  label: string;
-  value: string | number;
-  icon: ReactNode;
-  tone?: 'primary' | 'success' | 'warning' | 'ai';
-}) {
-  const toneClassName = {
-    primary: 'bg-primary-soft text-primary',
-    success: 'bg-success-soft text-success-foreground',
-    warning: 'bg-warning-soft text-warning-foreground',
-    ai: 'bg-ai-soft text-primary',
-  }[tone];
-
-  return (
-    <div className="rounded-2xl bg-muted/40 p-3">
-      <div className="flex items-center gap-2.5">
-        <div
-          className={cn(
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-xl',
-            toneClassName,
-          )}
-        >
-          {icon}
-        </div>
-
-        <div className="min-w-0">
-          <p className="truncate text-[11px] text-muted-foreground">{label}</p>
-          <p className="text-base font-bold text-foreground">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LearningAnalyticsPanel({
-  snapshot,
-  isLoading,
-  hasError,
-}: {
-  snapshot: StudentLearningSnapshot | undefined;
-  isLoading: boolean;
-  hasError: boolean;
-}) {
-  if (isLoading) {
-    return (
-      <PanelCard title="Оқу талдауы">
-        <div className="space-y-3">
-          <SkeletonBlock className="h-16 w-full rounded-2xl" />
-          <SkeletonBlock className="h-16 w-full rounded-2xl" />
-        </div>
-      </PanelCard>
-    );
-  }
-
-  if (hasError) {
-    return (
-      <PanelCard title="Оқу талдауы">
-        <ErrorState text="Оқу талдауын жүктеу мүмкін болмады." compact />
-      </PanelCard>
-    );
-  }
-
-  if (!snapshot) {
-    return (
-      <PanelCard title="Оқу талдауы">
-        <EmptyState
-          title="Талдау әзірге жоқ"
-          text="Нәтижелер жинақталғанда көрсетіледі."
-          compact
-          tone="ai"
-        />
-      </PanelCard>
-    );
-  }
-
-  const overallRisk = resolveOverallRisk(snapshot);
-  const primaryRecommendation = (snapshot.recommendations || [])[0] || null;
-  const weakLessons = (snapshot.weakLessons || [])
-    .map((lesson) => ({
-      ...lesson,
-      lessonId: cleanId(lesson.lessonId),
-      lessonTitle: cleanText(lesson.lessonTitle),
-      courseTitle: cleanText(lesson.courseTitle),
-      failedAttempts: formatCount(lesson.failedAttempts),
-    }))
-    .filter((lesson) => lesson.lessonId)
-    .slice(0, 3);
-
-  return (
-    <PanelCard
-      title="Оқу талдауы"
-      action={
-        <StatusBadge tone={getRiskLevelTone(overallRisk)}>
-          {getRiskLevelLabel(overallRisk)}
-        </StatusBadge>
-      }
-    >
-      <div className="grid grid-cols-2 gap-2">
-        <MiniMetric
-          label="Жалпы нәтиже"
-          value={formatPercent(snapshot.totals?.progressPct)}
-          icon={<Target size={14} />}
-          tone="success"
-        />
-
-        <MiniMetric
-          label="Шағын тест"
-          value={formatNullablePercent(snapshot.totals?.miniQuizAvgScore)}
-          icon={<Brain size={14} />}
-          tone="ai"
-        />
-
-        <MiniMetric
-          label="Қайталау"
-          value={formatCount(snapshot.totals?.reviewLaterItems)}
-          icon={<RotateCcw size={14} />}
-          tone="warning"
-        />
-
-        <MiniMetric
-          label="Сақталған"
-          value={formatCount(snapshot.totals?.savedLessons)}
-          icon={<Star size={14} />}
-          tone="primary"
-        />
-      </div>
-
-      {primaryRecommendation ? (
-        <div className="rounded-2xl bg-primary-soft/50 p-3.5">
-          <div className="mb-1.5 flex items-center gap-2">
-            <StatusBadge tone={getRiskLevelTone(primaryRecommendation.priority)}>
-              <Target size={12} />
-              Ұсыныс
-            </StatusBadge>
-          </div>
-
-          <p className="text-xs font-bold text-foreground">
-            {cleanText(primaryRecommendation.title)}
-          </p>
-
-          {buildLessonPath(primaryRecommendation.lessonId) ? (
-            <Button type="button" variant="outline" size="sm" className="mt-2.5 text-xs h-7" asChild>
-              <Link to={buildLessonPath(primaryRecommendation.lessonId) || '/lessons'}>
-                Сабақты ашу
-                <ArrowRight size={12} className="ml-1" />
-              </Link>
-            </Button>
-          ) : buildCoursePath(primaryRecommendation.courseId) ? (
-            <Button type="button" variant="outline" size="sm" className="mt-2.5 text-xs h-7" asChild>
-              <Link to={buildCoursePath(primaryRecommendation.courseId) || '/courses'}>
-                Курсты ашу
-                <ArrowRight size={12} className="ml-1" />
-              </Link>
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {weakLessons.length > 0 ? (
-        <div className="space-y-1.5">
-          <p className="text-xs font-semibold text-foreground">
-            Қайталауға ұсынылады
-          </p>
-
-          {weakLessons.map((lesson) => (
-            <Link
-              key={lesson.lessonId}
-              to={buildLessonPath(lesson.lessonId) || '/lessons'}
-              className="flex items-center justify-between gap-3 rounded-2xl bg-muted/35 p-2.5 text-xs transition-colors hover:bg-muted/60"
-            >
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-foreground">
-                  {lesson.lessonTitle || "Сабақ"}
-                </p>
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {lesson.courseTitle || "Курс"}
-                </p>
-              </div>
-
-              <StatusBadge tone={lesson.failedAttempts > 0 ? 'warning' : 'primary'}>
-                {lesson.failedAttempts > 0
-                  ? `${formatCount(lesson.failedAttempts)} қате`
-                  : 'Қайталау'}
-              </StatusBadge>
-            </Link>
-          ))}
-        </div>
-      ) : null}
-    </PanelCard>
-  );
-}
-
-function NextLessonCard({
-  nextLesson,
-  upcomingLessons,
-}: {
-  nextLesson: DashboardLessonPreview | null;
-  upcomingLessons: DashboardLessonPreview[];
-}) {
-  if (!nextLesson) {
-    return (
-      <EmptyState
-        title={t('page.student_dashboard.empty.next_lesson_title')}
-        text={t('page.student_dashboard.empty.next_lesson_text')}
-        action={
-          <Button type="button" asChild>
-            <Link to="/courses">
-              Курстарды қарау
-              <ArrowRight size={15} className="ml-2" />
-            </Link>
-          </Button>
-        }
-        compact
-      />
-    );
-  }
-
-  const nextLessonPath = buildLessonPath(nextLesson.id);
-
-  return (
-    <>
-      <div className="rounded-2xl bg-primary-soft/50 p-4 shadow-xs">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <StatusBadge tone="primary">
-                <PlayCircle size={12} />
-                Келесі қадам
-              </StatusBadge>
-
-              {nextLesson.isLocked ? (
-                <StatusBadge tone="muted">
-                  <Lock size={12} />
-                  {t('common.locked')}
-                </StatusBadge>
-              ) : null}
-            </div>
-
-            <h3 className="mt-2 line-clamp-1 text-sm font-bold text-foreground sm:text-base">
-              {cleanText(nextLesson.title)}
-            </h3>
-
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {cleanText(nextLesson.subjectName, MAX_META_CHARS)} ·{' '}
-              {cleanText(nextLesson.courseTitle, MAX_META_CHARS)}
-            </p>
-          </div>
-
-          {nextLesson.isLocked ? (
-            <Button type="button" variant="outline" size="sm" disabled>
-              <Lock size={13} className="mr-1.5" />
-              {t('common.locked')}
-            </Button>
-          ) : (
-            <Button type="button" size="sm" asChild>
-              <Link to={nextLessonPath || '/lessons'}>
-                {t('course.continue')}
-                <ArrowRight size={13} className="ml-1.5" />
-              </Link>
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {upcomingLessons.length > 0 ? (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-foreground">
-            {t('page.student_dashboard.next_lessons')}
-          </p>
-
-          {upcomingLessons.map((lesson, index) => {
-            const lessonId = cleanId(lesson.id);
-            const lessonPath = buildLessonPath(lessonId);
-
-            return lesson.isLocked || !lessonPath ? (
-              <div
-                key={lessonId || `${cleanText(lesson.title)}-${index}`}
-                className="flex items-center gap-3 rounded-3xl border border-border bg-muted/45 p-3 opacity-80"
-              >
-                <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-border bg-card">
-                  <Lock size={14} className="text-muted-foreground" />
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {cleanText(lesson.title)}
-                  </p>
-                  <p className="truncate text-[11px] text-muted-foreground">
-                    {cleanText(lesson.subjectName, MAX_META_CHARS)} ·{' '}
-                    {cleanText(lesson.courseTitle, MAX_META_CHARS)}
-                  </p>
-                </div>
-
-                <StatusBadge tone="muted">{t('common.locked')}</StatusBadge>
-              </div>
-            ) : (
-              <Link
-                key={lessonId || `${cleanText(lesson.title)}-${index}`}
-                to={lessonPath}
-                className="flex items-center gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft transition-all duration-200 ease-soft hover:-translate-y-0.5 hover:border-primary-muted hover:bg-primary-soft/55 hover:shadow-soft-md"
-              >
-                <div className="flex h-9 w-9 items-center justify-center rounded-2xl border border-primary-muted bg-primary-soft text-primary shadow-inner-soft">
-                  <ArrowRight size={14} />
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-foreground">
-                    {cleanText(lesson.title)}
-                  </p>
-                  <p className="truncate text-[11px] text-muted-foreground">
-                    {cleanText(lesson.subjectName, MAX_META_CHARS)} ·{' '}
-                    {cleanText(lesson.courseTitle, MAX_META_CHARS)}
-                  </p>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      ) : null}
-    </>
   );
 }
 
@@ -672,14 +99,6 @@ export default function StudentDashboard() {
   const safeUserId = cleanId(user?.id);
 
   const { data, isLoading, error } = useStudentDashboard(safeUserId, Boolean(safeUserId));
-
-  const {
-    data: learningSnapshot,
-    isLoading: learningSnapshotLoading,
-    error: learningSnapshotError,
-  } = useStudentLearningSnapshot(safeUserId, Boolean(safeUserId));
-
-
 
   const firstName =
     cleanText(user?.fullName, MAX_NAME_CHARS).split(/\s+/)[0] ||
@@ -693,10 +112,8 @@ export default function StudentDashboard() {
       streakDays: formatCount(data?.stats?.streakDays),
       points: formatCount(data?.stats?.points),
       rank: formatCount(data?.stats?.rank),
-      totalTests: formatCount(data?.stats?.totalTests),
       completedLessons: formatCount(data?.stats?.completedLessons),
       bestSubject: cleanText(data?.stats?.bestSubject, MAX_META_CHARS),
-      weakSubject: cleanText(data?.stats?.weakSubject, MAX_META_CHARS),
     }),
     [data],
   );
@@ -712,360 +129,294 @@ export default function StudentDashboard() {
 
   const nextLessonPath = nextLesson && !nextLesson.isLocked ? buildLessonPath(nextLesson.id) : null;
 
-  const upcomingLessons =
-    nextLessons
-      .filter((lesson) => cleanId(lesson.id) !== cleanId(nextLesson?.id))
-      .slice(0, 3);
-
-  const studyStatus = data
-    ? getStudyStatus(safeStats.avgScore, safeStats.completedLessons)
-    : '';
-
   return (
     <DashboardLayout>
-      <div className="space-y-6 animate-fade-in">
-        <PageHeader
-          eyebrow={
-            <>
-              <LayoutDashboard size={13} />
-              Оқушы кабинеті
-            </>
-          }
-          icon={<GraduationCap size={20} />}
-          title={`Қош келдіңіз, ${firstName}!`}
-          actions={
-            <Button type="button" asChild>
-              <Link
-                to={nextLessonPath || '/courses'}
-              >
-                Оқуды жалғастыру
-                <ArrowRight size={15} className="ml-2" />
-              </Link>
-            </Button>
-          }
-        />
+      <div className="space-y-4 sm:space-y-6">
+        {/* Mobile App Header Card */}
+        <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-gradient-to-r from-muted/50 via-card to-card p-4 sm:p-5 shadow-xs">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-foreground text-background shadow-xs">
+                <GraduationCap size={20} />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-base font-black tracking-tight text-foreground sm:text-lg">
+                  Сәлем, {firstName}!
+                </h1>
+                <p className="truncate text-xs text-muted-foreground">
+                  Оқу барысы белсенді
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="inline-flex items-center gap-1 rounded-full border border-warning-muted bg-warning-soft px-2.5 py-1 text-xs font-bold text-warning-foreground">
+                <Flame size={13} className="text-warning-foreground" />
+                {safeStats.streakDays} күн
+              </span>
+              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-bold text-foreground">
+                <Star size={12} className="text-accent-foreground" />
+                {safeStats.points}
+              </span>
+            </div>
+          </div>
+        </div>
 
         {isLoading ? <StudentDashboardSkeleton /> : null}
 
         {!isLoading && error ? (
           <ErrorState
-            text="Оқушы мәліметтерін жүктеу мүмкін болмады."
+            text="Оқушы деректерін жүктеу мүмкін болмады."
             action={
               <Button
                 type="button"
                 variant="outline"
+                size="sm"
+                className="rounded-full"
                 onClick={() => window.location.reload()}
               >
-                <RotateCcw size={15} className="mr-2" />
+                <RotateCcw size={14} className="mr-1.5" />
                 Қайта жүктеу
               </Button>
             }
           />
         ) : null}
 
-        {!isLoading && !error && !data ? (
-          <EmptyState
-            icon={<BookOpen size={18} />}
-            title="Оқу деректері жоқ"
-            text="Курсқа жазылғаннан кейін оқу барысы көрсетіледі."
-            action={
-              <Button type="button" asChild>
-                <Link to="/courses">
-                  Курстарды қарау
-                  <ArrowRight size={15} className="ml-2" />
-                </Link>
-              </Button>
-            }
-          />
-        ) : null}
-
-        {!isLoading && !error && data ? (
+        {!isLoading && !error && (
           <>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <StatCard
-                label={t('page.student_dashboard.my_courses')}
-                value={safeStats.enrolledCourses}
-                icon={<BookOpen size={16} />}
-                tone="primary"
-              />
-              <StatCard
-                label={t('dashboard.avg_score')}
-                value={formatPercent(safeStats.avgScore)}
-                icon={<Target size={16} />}
-                tone="success"
-              />
-              <StatCard
-                label={t('dashboard.streak')}
-                value={`${safeStats.streakDays} ${t('common.days')}`}
-                icon={<Flame size={16} />}
-                tone="warning"
-              />
-              <StatCard
-                label={t('dashboard.points')}
-                value={safeStats.points}
-                icon={<Star size={16} />}
-                subtitle={`${t('dashboard.rank')} ${
-                  safeStats.rank ? `#${safeStats.rank}` : '—'
-                }`}
-                tone="accent"
-              />
-            </div>
-
-            <Tabs defaultValue="overview" className="space-y-4">
-              <TabsList className="grid w-full max-w-sm grid-cols-3">
-                <TabsTrigger value="overview">Шолу</TabsTrigger>
-                <TabsTrigger value="courses">Курстар</TabsTrigger>
-                <TabsTrigger value="analytics">Нәтижелер</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="overview" className="space-y-4">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-4">
-                    <PanelCard title={t('dashboard.continue_learning')}>
-                      <NextLessonCard
-                        nextLesson={nextLesson}
-                        upcomingLessons={upcomingLessons}
-                      />
-                    </PanelCard>
-
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <QuickActionCard
-                        title="Курстар"
-                        to="/courses"
-                        icon={<BookOpen size={16} />}
-                        tone="primary"
-                      />
-                      <QuickActionCard
-                        title="Сақталған"
-                        to="/saved-lessons"
-                        icon={<Star size={16} />}
-                        tone="accent"
-                      />
-                      <QuickActionCard
-                        title="AI Тьютор"
-                        to="/ai-tutor"
-                        icon={<MessageCircle size={16} />}
-                        tone="ai"
-                      />
+            {/* Continue Learning Banner */}
+            {nextLesson ? (
+              <div className="group relative overflow-hidden rounded-3xl border border-primary/20 bg-primary-soft/40 p-4 sm:p-5 shadow-xs transition-all hover:border-primary/40">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1.5 flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                        <PlayCircle size={11} />
+                        Келесі сабақ
+                      </span>
+                      {nextLesson.isLocked ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Lock size={10} />
+                          Құлыптаулы
+                        </span>
+                      ) : null}
                     </div>
+
+                    <h2 className="line-clamp-1 text-sm font-bold text-foreground sm:text-base">
+                      {cleanText(nextLesson.title)}
+                    </h2>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {[cleanText(nextLesson.subjectName, MAX_META_CHARS), cleanText(nextLesson.courseTitle, MAX_META_CHARS)]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
                   </div>
 
-                  <div className="space-y-4">
-                    <LearningAnalyticsPanel
-                      snapshot={learningSnapshot}
-                      isLoading={learningSnapshotLoading}
-                      hasError={Boolean(learningSnapshotError)}
-                    />
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="courses" className="space-y-4">
-                <PanelCard
-                  title={t('page.student_dashboard.my_courses')}
-                  action={
-                    <Button type="button" variant="ghost" size="sm" asChild>
-                      <Link to="/courses">
-                        {t('common.view')}
-                        <ArrowRight size={14} className="ml-1.5" />
+                  {nextLesson.isLocked ? (
+                    <Button size="sm" variant="outline" className="h-9 rounded-full text-xs" disabled>
+                      <Lock size={13} className="mr-1.5" />
+                      Құлыптаулы
+                    </Button>
+                  ) : (
+                    <Button size="sm" className="h-9 rounded-full text-xs font-semibold shadow-xs app-tap" asChild>
+                      <Link to={nextLessonPath || '/courses'}>
+                        Жалғастыру
+                        <ArrowRight size={13} className="ml-1.5" />
                       </Link>
                     </Button>
-                  }
-                >
-                  {enrolledCourses.length === 0 ? (
-                    <EmptyState
-                      title={t('page.student_dashboard.empty.courses_title')}
-                      text={t('page.student_dashboard.empty.courses_text')}
-                      action={
-                        <Button type="button" asChild>
-                          <Link to="/courses">
-                            Курстарды қарау
-                            <ArrowRight size={15} className="ml-2" />
-                          </Link>
-                        </Button>
-                      }
-                      compact
-                    />
-                  ) : (
-                    <div className="space-y-2.5">
-                      {enrolledCourses.map((course, index) => {
-                        const courseId = cleanId(course.id);
-                        const coursePath = buildCoursePath(courseId);
-
-                        return (
-                          <Link
-                            key={courseId || `${cleanText(course.title)}-${index}`}
-                            to={coursePath || '/courses'}
-                            className="block rounded-2xl bg-muted/40 p-3.5 transition-colors hover:bg-muted/65"
-                          >
-                            <div className="mb-2.5 flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="line-clamp-1 text-sm font-bold text-foreground">
-                                  {cleanText(course.title)}
-                                </p>
-                                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                                  {[
-                                    cleanText(course.subjectName, MAX_META_CHARS),
-                                    `${formatCount(course.lessons)} ${t('course.lessons_count')}`,
-                                    cleanText(course.teacherName, MAX_META_CHARS),
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' · ')}
-                                </p>
-                              </div>
-
-                              <StatusBadge tone={getScoreTone(course.progress)}>
-                                {formatPercent(course.progress)}
-                              </StatusBadge>
-                            </div>
-
-                            <ProgressBar value={clampPercentNumber(course.progress)} size="sm" />
-                          </Link>
-                        );
-                      })}
-                    </div>
                   )}
-                </PanelCard>
-              </TabsContent>
+                </div>
+              </div>
+            ) : null}
 
-              <TabsContent value="analytics" className="space-y-4">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <PanelCard
-                    title={t('page.student_dashboard.recent_tests')}
-                    action={
-                      <Button type="button" variant="ghost" size="sm" asChild>
-                        <Link to="/tests">
-                          {t('common.view')}
-                          <ArrowRight size={14} className="ml-1.5" />
-                        </Link>
-                      </Button>
-                    }
-                  >
-                    {recentAttempts.length === 0 ? (
-                      <EmptyState
-                        title={t('page.student_dashboard.empty.tests_title')}
-                        text={t('page.student_dashboard.empty.tests_text')}
-                        action={
-                          <Button type="button" variant="outline" asChild>
-                            <Link to="/tests">
-                              Тесттерге өту
-                              <ArrowRight size={15} className="ml-2" />
-                            </Link>
-                          </Button>
-                        }
-                        compact
-                      />
-                    ) : (
-                      <div className="space-y-2">
-                        {recentAttempts.slice(0, 5).map((test, index) => (
-                          <Link
-                            key={cleanId(test.id) || `${cleanText(test.title)}-${index}`}
-                            to="/tests"
-                            className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 p-2.5 transition-colors hover:bg-muted/65"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-semibold text-foreground">
-                                {cleanText(test.title)}
-                              </p>
-                              <p className="truncate text-[10px] text-muted-foreground">
-                                {cleanText(test.subjectName, MAX_META_CHARS)}
-                              </p>
-                            </div>
+            {/* Core Stats Row */}
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              <div className="rounded-2xl border border-border/80 bg-card p-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-muted-foreground">Курстар</span>
+                  <BookOpen size={14} className="text-muted-foreground" />
+                </div>
+                <p className="mt-1 text-lg font-black text-foreground">{safeStats.enrolledCourses}</p>
+              </div>
 
-                            <StatusBadge tone={getScoreTone(test.score)}>
-                              {formatScore(test.score)}
-                            </StatusBadge>
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </PanelCard>
+              <div className="rounded-2xl border border-border/80 bg-card p-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-muted-foreground">Орташа балл</span>
+                  <Target size={14} className="text-success-foreground" />
+                </div>
+                <p className="mt-1 text-lg font-black text-foreground">{formatPercent(safeStats.avgScore)}</p>
+              </div>
 
-                  <div className="space-y-4">
-                    <PanelCard title={t('page.student_dashboard.progress_overview')}>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 p-2.5">
-                          <span className="text-xs text-muted-foreground">
-                            {t('page.student_dashboard.learning_pace')}
-                          </span>
-                          <span className="text-xs font-bold text-foreground">
-                            {studyStatus}
-                          </span>
-                        </div>
+              <div className="rounded-2xl border border-border/80 bg-card p-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-muted-foreground">Оқу сериясы</span>
+                  <Flame size={14} className="text-warning-foreground" />
+                </div>
+                <p className="mt-1 text-lg font-black text-foreground">{safeStats.streakDays} күн</p>
+              </div>
 
-                        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 p-2.5">
-                          <span className="text-xs text-muted-foreground">
-                            {t('dashboard.best_subject')}
-                          </span>
-                          <span className="flex items-center gap-1 text-xs font-bold text-foreground">
-                            <CheckCircle size={12} className="text-success-foreground" />
-                            {safeStats.bestSubject || t('common.not_defined_yet')}
-                          </span>
-                        </div>
+              <div className="rounded-2xl border border-border/80 bg-card p-3 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-muted-foreground">Аяқталған</span>
+                  <CheckCircle size={14} className="text-foreground" />
+                </div>
+                <p className="mt-1 text-lg font-black text-foreground">{safeStats.completedLessons} сабақ</p>
+              </div>
+            </div>
 
-                        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 p-2.5">
-                          <span className="text-xs text-muted-foreground">
-                            {t('page.student_dashboard.attention_subject')}
-                          </span>
-                          <span className="text-xs font-bold text-foreground">
-                            {safeStats.weakSubject || t('common.not_defined_yet')}
-                          </span>
-                        </div>
+            {/* Quick App Action Grid */}
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+              <Link
+                to="/courses"
+                className="app-tap flex items-center gap-3 rounded-2xl border border-border/80 bg-card p-3 transition-colors hover:border-foreground/20"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+                  <BookOpen size={16} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-foreground">Курстар</p>
+                  <p className="text-[10px] text-muted-foreground">Каталог</p>
+                </div>
+              </Link>
 
-                        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 p-2.5">
-                          <span className="text-xs text-muted-foreground">
-                            {t('dashboard.total_tests')}
-                          </span>
-                          <span className="text-xs font-bold text-foreground">
-                            {safeStats.totalTests}
-                          </span>
-                        </div>
+              <Link
+                to="/tests"
+                className="app-tap flex items-center gap-3 rounded-2xl border border-border/80 bg-card p-3 transition-colors hover:border-foreground/20"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+                  <ClipboardList size={16} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-foreground">Тесттер</p>
+                  <p className="text-[10px] text-muted-foreground">Тапсырмалар</p>
+                </div>
+              </Link>
 
-                        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 p-2.5">
-                          <span className="text-xs text-muted-foreground">
-                            {t('page.student_dashboard.completed_lessons')}
-                          </span>
-                          <span className="text-xs font-bold text-foreground">
-                            {safeStats.completedLessons} {t('course.lessons_count')}
-                          </span>
-                        </div>
-                      </div>
-                    </PanelCard>
+              <Link
+                to="/ai-tutor"
+                className="app-tap flex items-center gap-3 rounded-2xl border border-border/80 bg-card p-3 transition-colors hover:border-foreground/20"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+                  <Bot size={16} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-foreground">AI Тьютор</p>
+                  <p className="text-[10px] text-muted-foreground">Сұрақ-жауап</p>
+                </div>
+              </Link>
 
-                    <PanelCard
-                      title={t('nav.leaderboard')}
-                      action={
-                        <Button type="button" variant="ghost" size="sm" asChild>
-                          <Link to="/leaderboard">
-                            <ArrowRight size={14} />
-                          </Link>
-                        </Button>
-                      }
-                    >
+              <Link
+                to="/analytics"
+                className="app-tap flex items-center gap-3 rounded-2xl border border-border/80 bg-card p-3 transition-colors hover:border-foreground/20"
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+                  <Target size={16} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-foreground">Прогресс</p>
+                  <p className="text-[10px] text-muted-foreground">Талдау</p>
+                </div>
+              </Link>
+            </div>
+
+            {/* Enrolled Courses Section */}
+            <div className="rounded-3xl border border-border/80 bg-card p-4 sm:p-5 shadow-xs">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-bold text-foreground">Менің курстарым</h3>
+                <Link
+                  to="/courses"
+                  className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  Барлығы
+                  <ArrowRight size={13} className="ml-1" />
+                </Link>
+              </div>
+
+              {enrolledCourses.length === 0 ? (
+                <EmptyState
+                  title="Курстар әзірге жоқ"
+                  text="Каталогтан курс таңдап, оқуды бастаңыз."
+                  action={
+                    <Button size="sm" className="rounded-full text-xs font-semibold" asChild>
+                      <Link to="/courses">Курс таңдау</Link>
+                    </Button>
+                  }
+                  compact
+                />
+              ) : (
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  {enrolledCourses.map((course) => {
+                    const courseId = cleanId(course.id);
+                    const coursePath = buildCoursePath(courseId);
+
+                    return (
                       <Link
-                        to="/leaderboard"
-                        className="flex items-center gap-3 rounded-2xl bg-accent-soft/60 p-3.5 transition-colors hover:bg-accent-soft"
+                        key={courseId || cleanText(course.title)}
+                        to={coursePath || '/courses'}
+                        className="app-tap block rounded-2xl border border-border/70 bg-muted/20 p-3 transition-colors hover:bg-muted/40"
                       >
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-card text-accent-foreground shadow-xs">
-                          <Trophy size={16} />
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="line-clamp-1 text-xs font-bold text-foreground">
+                              {cleanText(course.title)}
+                            </p>
+                            <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                              {cleanText(course.subjectName, MAX_META_CHARS)} · {formatCount(course.lessons)} сабақ
+                            </p>
+                          </div>
+                          <StatusBadge tone={getScoreTone(course.progress)}>
+                            {formatPercent(course.progress)}
+                          </StatusBadge>
                         </div>
-
-                        <div>
-                          <p className="text-sm font-bold text-foreground">
-                            {safeStats.rank ? `#${safeStats.rank}` : '—'}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {t('page.student_dashboard.rank_label')}
-                          </p>
+                        <div className="mt-2.5">
+                          <ProgressBar value={clampPercentNumber(course.progress)} size="sm" />
                         </div>
                       </Link>
-                    </PanelCard>
-                  </div>
+                    );
+                  })}
                 </div>
-              </TabsContent>
-            </Tabs>
+              )}
+            </div>
+
+            {/* Recent Tests Section */}
+            {recentAttempts.length > 0 ? (
+              <div className="rounded-3xl border border-border/80 bg-card p-4 sm:p-5 shadow-xs">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-foreground">Соңғы тапсырмалар</h3>
+                  <Link
+                    to="/tests"
+                    className="inline-flex items-center text-xs font-semibold text-muted-foreground hover:text-foreground"
+                  >
+                    Барлық тесттер
+                    <ArrowRight size={13} className="ml-1" />
+                  </Link>
+                </div>
+
+                <div className="space-y-2">
+                  {recentAttempts.slice(0, 4).map((test, index) => (
+                    <Link
+                      key={cleanId(test.id) || index}
+                      to="/tests"
+                      className="app-tap flex items-center justify-between gap-3 rounded-2xl bg-muted/25 p-2.5 transition-colors hover:bg-muted/45"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-foreground">
+                          {cleanText(test.title)}
+                        </p>
+                        <p className="truncate text-[10px] text-muted-foreground">
+                          {cleanText(test.subjectName, MAX_META_CHARS)}
+                        </p>
+                      </div>
+                      <StatusBadge tone={getScoreTone(test.score)}>
+                        {formatPercent(test.score)}
+                      </StatusBadge>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </>
-        ) : null}
+        )}
       </div>
     </DashboardLayout>
   );

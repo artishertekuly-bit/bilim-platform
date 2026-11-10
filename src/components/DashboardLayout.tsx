@@ -628,9 +628,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         className={cn(
           'sticky top-0 z-40 border-b border-border/70 bg-background/82',
           'backdrop-blur-2xl supports-[backdrop-filter]:bg-background/72',
+          'pt-[env(safe-area-inset-top,0px)]',
         )}
       >
-        <div className="mx-auto flex h-16 w-full max-w-[1480px] items-center gap-3 px-4 sm:px-5 lg:px-8">
+        <div className="mx-auto flex h-14 sm:h-16 w-full max-w-[1480px] items-center gap-3 px-4 sm:px-5 lg:px-8">
           <Link
             to="/dashboard"
             aria-label="Sana басты беті"
@@ -677,8 +678,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       <main
         className={cn(
-          'relative z-10 px-4 pt-4 sm:px-5 sm:pt-5 lg:px-8 lg:pt-7',
-          dockConfig ? 'pb-28 sm:pb-32' : 'pb-6',
+          'relative z-10 px-4 pt-3.5 sm:px-5 sm:pt-5 lg:px-8 lg:pt-7',
+          dockConfig ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] sm:pb-32' : 'pb-6',
         )}
       >
         <div
