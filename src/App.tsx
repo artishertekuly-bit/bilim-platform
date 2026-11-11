@@ -14,6 +14,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider, useAuth, type UserRole } from '@/lib/auth-context';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { useAppDeepLink } from '@/lib/useAppDeepLink';
 
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 
@@ -563,12 +564,18 @@ function renderRoutes(routes: AppRouteConfig[], guarded = false) {
   ));
 }
 
+function DeepLinkHandler() {
+  useAppDeepLink();
+  return null;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <BrowserRouter>
           <AuthProvider>
+            <DeepLinkHandler />
             <Toaster />
             <Sonner />
             <RouteBlurTransitionVeil />

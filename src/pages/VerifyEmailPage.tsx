@@ -284,6 +284,10 @@ export default function VerifyEmailPage() {
               {error ? <AuthAlert tone="danger">{error}</AuthAlert> : null}
               {info ? <AuthAlert tone="warning">{info}</AuthAlert> : null}
 
+              <div className="mb-4 rounded-2xl bg-primary/10 border border-primary/20 p-3.5 text-xs text-foreground/85 leading-relaxed">
+                💡 <strong>Маңызды:</strong> Поштаға келген хаттағы сілтемені браузерде басудың қажеті жоқ! Хаттағы <strong>6 таңбалы сандық кодты</strong> төменге жазып, растаңыз.
+              </div>
+
               <form onSubmit={handleVerify} className="space-y-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="email" className="text-xs font-medium">

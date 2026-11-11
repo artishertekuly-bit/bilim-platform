@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from 'react';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
 
 import { supabase } from '@/integrations/supabase/client';
 import { removeNullCharacters } from '@/lib/utils';
@@ -504,6 +506,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const normalizedFullName = requireFullName(fullName);
       const normalizedRole: 'student' = 'student';
 
+      const isMobileApp = Capacitor.isNativePlatform();
+      const redirectUrl = isMobileApp
+        ? 'kz.sana.bilim://verify-email'
+        : `${window.location.origin}/verify-email`;
+
       const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
         password: normalizedPassword,
@@ -512,7 +519,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             full_name: normalizedFullName,
             role: normalizedRole,
           },
-          emailRedirectTo: `${window.location.origin}/verify-email`,
+          emailRedirectTo: redirectUrl,
         },
       });
 
@@ -522,36 +529,53 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('Пайдаланушы жасалмады.');
       }
 
-      if (!data.session) {
-        return {
-          user: null,
-          requiresEmailConfirmation: true,
-          message: 'Email-ға жіберілген 6 таңбалы кодты енгізіңіз.',
-        };
+      if (data.session) {
+        await syncRequestedRole(normalizedRole);
+        const appUser = await hydrateSession(data.session);
+        return { user: appUser };
       }
 
-      await syncRequestedRole(normalizedRole);
+      // Егер сессия бірден берілмесе, тікелей кіру әрекетін жасаймыз
+      try {
+        const loginAttempt = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password: normalizedPassword,
+        });
 
-      const appUser = await hydrateSession(data.session);
+        if (loginAttempt.data.session) {
+          await syncRequestedRole(normalizedRole);
+          const appUser = await hydrateSession(loginAttempt.data.session);
+          return { user: appUser };
+        }
+      } catch {
+        // Email растау коды қажет болған жағдайда төменге өтеді
+      }
 
-      return { user: appUser };
+      return {
+        user: null,
+        requiresEmailConfirmation: true,
+        message: 'Email-ге жіберілген 6 таңбалы кодты енгізіңіз.',
+      };
     },
     [hydrateSession],
   );
 
   const loginWithGoogle = useCallback(async (role?: UserRole) => {
-    const callbackUrl = new URL(`${window.location.origin}/auth/callback`);
+    const isMobileApp = Capacitor.isNativePlatform();
+    const callbackUrl = isMobileApp
+      ? 'kz.sana.bilim://auth/callback'
+      : `${window.location.origin}/auth/callback`;
 
     if (role) {
       const normalizedRole = normalizePublicRegistrationRole(role);
       setPendingOAuthRole(normalizedRole);
-      callbackUrl.searchParams.set('role', normalizedRole);
     }
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: callbackUrl.toString(),
+        redirectTo: callbackUrl,
+        skipBrowserRedirect: isMobileApp,
       },
     });
 
@@ -561,6 +585,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       throw new Error(error.message);
+    }
+
+    if (isMobileApp && data?.url) {
+      await Browser.open({ url: data.url, windowName: '_system' });
     }
   }, []);
 
