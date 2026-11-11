@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 
 import App from './App.tsx';
 import { ThemeProvider } from './components/theme/ThemeProvider';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -13,8 +14,10 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="system" storageKey="bilim-theme">
-      <App />
-    </ThemeProvider>
+    <AppErrorBoundary>
+      <ThemeProvider defaultTheme="system" storageKey="bilim-theme">
+        <App />
+      </ThemeProvider>
+    </AppErrorBoundary>
   </StrictMode>
 );

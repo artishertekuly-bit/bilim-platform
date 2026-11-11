@@ -24,16 +24,15 @@ function getBrowserStorage(): Storage | undefined {
   }
 }
 
-const SUPABASE_URL = getRequiredEnv('VITE_SUPABASE_URL');
+const DEFAULT_SUPABASE_URL = 'https://xhkrvkwyvwvncywglrnv.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhoa3J2a3d5dnd2bmN5d2dscm52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYwODgyNDQsImV4cCI6MjA5MTY2NDI0NH0.5n0f_fEgGdeR5-Da3dE1TNTektTMih8fGINJ4RzhMdE';
+
+const SUPABASE_URL = getRequiredEnv('VITE_SUPABASE_URL') || DEFAULT_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY =
   getRequiredEnv('VITE_SUPABASE_PUBLISHABLE_KEY') ||
-  getRequiredEnv('VITE_SUPABASE_ANON_KEY');
-
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  throw new Error(
-    'VITE_SUPABASE_URL және VITE_SUPABASE_PUBLISHABLE_KEY немесе VITE_SUPABASE_ANON_KEY .env файлында көрсетілуі керек.'
-  );
-}
+  getRequiredEnv('VITE_SUPABASE_ANON_KEY') ||
+  DEFAULT_SUPABASE_ANON_KEY;
 
 export const supabase = createClient<Database>(
   SUPABASE_URL,
