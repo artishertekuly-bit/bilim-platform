@@ -524,4 +524,4 @@ class LLMResult:
 5. Examiner-дің ЖИ форматтары, диалог және мұғалімнің растау кезегі.
 6. Платформа: `classes`, `lessons` кестесін қайта құру, чат рұқсаты, курстарды алу. Кестелерді өшіру бөлек бекітіледі ([karta §6.2](platforma-kartasy.md)).
 7. Tutor.
-8. Ойындар: ойын банкі, бөлмелер, төрт ойын ([geimifikatsiya.md](geimifikatsiya.md)).
+8. Ойындар: ойын банкі, бөлмелер, бес ойын ([geimifikatsiya.md](geimifikatsiya.md)).

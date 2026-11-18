@@ -16,7 +16,7 @@
 | [ortaq-infraqurylym.md](ortaq-infraqurylym.md) | Екі жүйеге ортақ инфрақұрылым: LLM gateway, оқулық метадерегі, дабылдар, өлшеу жүйесі, қазақ тілі, дерек қорғау |
 | [platforma-kartasy.md](platforma-kartasy.md) | Платформа картасы: рөлдер мен аймақтар, сабақтар, профиль, мұғалім панелі, чат, қазіргі кодтағы алынатын бөліктер |
 | [api-kelisimderi.md](api-kelisimderi.md) | API келісімдері: шекаралар, Examiner мен Tutor эндпоинттері, DTO, платформа RPC, LLM gateway интерфейсі |
-| [geimifikatsiya.md](geimifikatsiya.md) | Геймификация: төрт ойын, ойын банкі, бөлмелер, ойын сервисі |
+| [geimifikatsiya.md](geimifikatsiya.md) | Геймификация: бес ойын, ойын банкі, бөлмелер, ойын сервисі |
 
 ---
 
