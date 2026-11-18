@@ -1,0 +1,79 @@
+{
+  "chars_per_token": 2.5,
+  "embedding_timeout_s": 30,
+  "providers": {
+    "primary": {
+      "type": "openai_compat",
+      "api_key_env": "OPENAI_API_KEY",
+      "base_url_env": "OPENAI_BASE_URL",
+      "structured_outputs": "json_schema"
+    },
+    "reserve": {
+      "type": "openai_compat",
+      "api_key_env": "LLM_RESERVE_API_KEY",
+      "base_url_env": "LLM_RESERVE_BASE_URL",
+      "structured_outputs": "json_object",
+      "max_tokens_param": "max_tokens"
+    }
+  },
+  "models": {
+    "small": {
+      "provider": "primary",
+      "model": "${LLM_SMALL_MODEL:-gpt-4o-mini}",
+      "rpm": 500,
+      "tpm": 200000,
+      "max_concurrency": 16
+    },
+    "strong": {
+      "provider": "primary",
+      "model": "${LLM_STRONG_MODEL}",
+      "rpm": 500,
+      "tpm": 100000,
+      "max_concurrency": 16
+    },
+    "grading": {
+      "provider": "primary",
+      "model": "${LLM_GRADING_MODEL}",
+      "pinned": true,
+      "rpm": 500,
+      "tpm": 100000,
+      "max_concurrency": 8
+    },
+    "second_grading": {
+      "provider": "primary",
+      "model": "${LLM_SECOND_GRADING_MODEL}",
+      "rpm": 200,
+      "tpm": 50000,
+      "max_concurrency": 4
+    },
+    "reserve": {
+      "provider": "reserve",
+      "model": "${LLM_RESERVE_MODEL}",
+      "rpm": 100,
+      "tpm": 50000,
+      "max_concurrency": 8
+    },
+    "answer_embedding": {
+      "provider": "primary",
+      "kind": "embedding",
+      "model": "${LLM_ANSWER_EMBEDDING_MODEL:-text-embedding-3-small}",
+      "rpm": 1000,
+      "tpm": 500000,
+      "max_concurrency": 8
+    }
+  },
+  "routes": {
+    "moderation": { "model": "small", "mode": "sync", "temperature": 0, "max_output_tokens": 200, "timeout_s": 10 },
+    "tutor_tags": { "model": "small", "mode": "sync", "temperature": 0, "max_output_tokens": 400, "timeout_s": 10, "fallback": ["reserve"] },
+    "mcq_solver_check": { "model": "small", "mode": "sync", "temperature": 0, "max_output_tokens": 300, "timeout_s": 30, "fallback": ["reserve"] },
+    "official_grading": { "model": "grading", "mode": "sync", "temperature": 0, "max_output_tokens": 800, "timeout_s": 60 },
+    "second_grading": { "model": "second_grading", "mode": "sync", "temperature": 0, "max_output_tokens": 800, "timeout_s": 60 },
+    "explanation": { "model": "small", "mode": "sync", "temperature": 0.3, "max_output_tokens": 400, "timeout_s": 15 },
+    "tutor_reply": { "model": "strong", "mode": "stream", "temperature": 0.7, "max_output_tokens": 900, "timeout_s": 60, "fallback": ["reserve"] },
+    "examiner_dialog": { "model": "strong", "mode": "stream", "temperature": 0.3, "max_output_tokens": 600, "timeout_s": 60 },
+    "generation": { "model": "strong", "mode": "batch", "temperature": 0.7, "max_output_tokens": 4000, "timeout_s": 120, "fallback": ["reserve"] }
+  },
+  "embeddings": {
+    "answers": "answer_embedding"
+  }
+}
