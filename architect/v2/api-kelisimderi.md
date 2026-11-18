@@ -16,11 +16,13 @@
 |---|---|---|---|
 | Examiner | FastAPI сервисі, `examiner_svc` рөлі | `/api/examiner/v1` | `examiner` схемасы; `rag` — тек оқу |
 | Tutor | FastAPI сервисі, `tutor_svc` рөлі | `/api/tutor/v1` | `tutor` схемасы; `rag` — тек оқу |
+| Ойындар | FastAPI сервисі, `games_svc` рөлі ([geimifikatsiya §7](geimifikatsiya.md)) | `/api/games/v1` | `games` схемасы; `rag` — тек оқу |
 | Платформа | Supabase: кестелер RLS-пен, күрделі әрекеттер RPC арқылы | `/rest/v1`, `/rest/v1/rpc` | `public` схемасы |
 
 - `examiner` пен `tutor` схемалары Supabase API-ына ашылмайды (D15). Сондықтан мұғалім панелі мен ата-ана беті емтихан нәтижесін Examiner API арқылы алады, ал Tutor-ға «бұғатты ашу» командасын Tutor API арқылы жібереді ([karta §4.1](platforma-kartasy.md)).
 - Платформа бөлігінде LLM де, құпия кілт те жоқ, сондықтан оған бөлек сервис жасалмайды. Сабақтар, бетбелгілер, жазбалар, чат және сыныптар Supabase RLS ережелерімен қорғалады; қазіргі фронтенд те осылай жұмыс істейді.
-- LLM gateway HTTP API емес: ол екі сервистің ішіндегі кітапхана (§7).
+- LLM gateway HTTP API емес: ол сервистердің ішіндегі кітапхана (§7).
+- Ойын сервисінің эндпоинттері осы құжаттың жалпы ережелеріне (§2) бағынады; олардың тізімі ойын сервисін іске асыру кезінде жазылады.
 - Қазіргі `/api/ai/*` эндпоинттері ([main.py](../../backend/app/main.py)) жаңа API іске қосылғанда алынады.
 
 ---
@@ -434,7 +436,7 @@ event: error    data: {"code": "RATE_LIMITED", "message": "…"}
 
 ## 7. LLM gateway интерфейсі (ішкі)
 
-Gateway екі сервистің ішінде Python кітапханасы ретінде қолданылады ([ortaq §2](ortaq-infraqurylym.md)). Коды — [backend/app/llm_gateway](../../backend/app/llm_gateway/), конфигурациясы — [backend/config/llm_gateway.json](../../backend/config/llm_gateway.json).
+Gateway сервистердің (Examiner, Tutor, Ойындар) ішінде Python кітапханасы ретінде қолданылады ([ortaq §2](ortaq-infraqurylym.md)). Коды — [backend/app/llm_gateway](../../backend/app/llm_gateway/), конфигурациясы — [backend/config/llm_gateway.json](../../backend/config/llm_gateway.json).
 
 ```python
 class Task(StrEnum):
@@ -522,3 +524,4 @@ class LLMResult:
 5. Examiner-дің ЖИ форматтары, диалог және мұғалімнің растау кезегі.
 6. Платформа: `classes`, `lessons` кестесін қайта құру, чат рұқсаты, курстарды алу. Кестелерді өшіру бөлек бекітіледі ([karta §6.2](platforma-kartasy.md)).
 7. Tutor.
+8. Ойындар: ойын банкі, бөлмелер, төрт ойын ([geimifikatsiya.md](geimifikatsiya.md)).
