@@ -74,6 +74,7 @@
     "generation": { "model": "strong", "mode": "batch", "temperature": 0.7, "max_output_tokens": 4000, "timeout_s": 120, "fallback": ["reserve"] }
   },
   "embeddings": {
-    "answers": "answer_embedding"
+    "answers": "answer_embedding",
+    "questions": "answer_embedding"
   }
 }

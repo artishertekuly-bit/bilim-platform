@@ -24,10 +24,13 @@
 | `examiner` | Examiner сервисі | Тек `examiner_svc` |
 | `tutor` | Tutor сервисі | Тек `tutor_svc` |
 | `games` | Ойын сервисі ([geimifikatsiya §7](geimifikatsiya.md), D54) | Тек `games_svc` |
-| `rag` (LightRAG + `chunk_meta`) | Индекстеу контуры | Үш сервис — тек `SELECT` |
+| `rag` (LightRAG) | Индекстеу контуры (`lightrag_app`) | Сервистер тікелей көрмейді |
+| `corpus` (`textbooks`, `chunk_meta`, оқу көріністері, D57) | Индекстеу контуры | Үш сервис — тек `SELECT` |
 | `public.security_alerts` | Платформа | Үш сервис — тек `INSERT`; оқу — мұғалім панелі (RLS) |
 
-Ережені сервис рөлдерінің құқықтары қамтамасыз етеді: әр сервис тек өз схемасына қол жеткізеді. `examiner_svc` `tutor` пен `games` схемаларын көрмейді, `tutor_svc` — `examiner` пен `games` схемаларын, `games_svc` — `examiner` пен `tutor` схемаларын. `rag` схемасы Supabase API-ына ашылмайды.
+Ережені сервис рөлдерінің құқықтары қамтамасыз етеді: әр сервис тек өз схемасына қол жеткізеді. `examiner_svc` `tutor` пен `games` схемаларын көрмейді, `tutor_svc` — `examiner` пен `games` схемаларын, `games_svc` — `examiner` пен `tutor` схемаларын. `rag` пен `corpus` схемалары Supabase API-ына ашылмайды.
+
+Іске асыру: [service_schemas_and_roles](../../supabase/migrations/20261118190557_service_schemas_and_roles.sql), [examiner_tables](../../supabase/migrations/20261118190708_examiner_tables.sql), [corpus_chunk_meta](../../supabase/migrations/20261119090000_corpus_chunk_meta.sql). Рөлдер `NOLOGIN` болып құрылады; пароль мен `LOGIN` migration-нан тыс бір рет қойылады.
 
 ---
 
@@ -78,10 +81,16 @@
 ## 3. Оқулық корпусы және `chunk_meta` ✅
 
 - `books/` ішіндегі кітаптар өзгертілмейді, LightRAG индексі қайта құрылмайды.
+- Метадерек `corpus` схемасында тұрады; LightRAG-тың `rag` схемасына ештеңе қосылмайды (D57).
+- Кітап → пән мен сынып: `corpus.textbooks (book, title, subject_id, grade)`.
 - Чанк мәтініндегі `[Оқулық: … | Тарау: … | Тақырып: §…]` тақырыптары бір рет талданып, кестеге жазылады:
-  `chunk_meta (chunk_id, book, subject, grade, chapter, paragraph_no, paragraph_title, order_in_paragraph)`
-- Индекстер: `(book, paragraph_no, order_in_paragraph)` және `(chunk_id)`.
-- Жаңа кітап индекстелгенде `chunk_meta` сол контурда толтырылады.
+  `corpus.chunk_meta (chunk_id, book, section_no, chunk_order_index, chapter_no, chapter, paragraph_no, paragraph_title, topic_id, order_in_paragraph, subitem, is_back_matter)`
+- `topic_id` = `<кітап файлы>#§<нөмір>`, мысалы `kazakn5.md#§12–13` (D58). `3-4` түріндегі нөмір `3–4` болып біріздендіріледі.
+- Бөлімнің соңындағы мазмұн мен әдебиет тізімі (`is_back_matter`) ешбір §-ке жатпайды.
+- Тарау тек чанк тақырыбында «Тарау:» бар кітапта толтырылады; қазіргі корпуста — 5-сынып (D58).
+- Индекстер: `(book, paragraph_no, order_in_paragraph)`, `(topic_id, order_in_paragraph)` және `(chunk_id)`.
+- Сервистерге арналған көріністер: `corpus.paragraphs` (§ тізімі), `corpus.chunk_text` (чанк мәтіні), `corpus.entity_chunk_links` (LightRAG entity ↔ чанк). Сервистер `rag` схемасын тікелей көрмейді.
+- Жаңа кітап индекстелгенде индекстеу контуры `corpus.refresh_chunk_meta()` функциясын шақырады.
 - Осы кестеге Examiner-дің масштаб анықтауы ([ai_examiner §2](ai_examiner.md)) және Tutor-дың `tutor_nodes.paragraph_no` пен `textbook_order` алғышарт жиектері ([personarag §2.1](lightrag_personarag.md)) сүйенеді.
 
 ---
@@ -149,4 +158,4 @@
 - Оқушылардың көбі кәмелетке толмаған, сондықтан дерек тек қажетті көлемде жиналады.
 - RLS: оқушы тек өз дерегін, мұғалім тек өз оқушыларының дерегін көреді.
 - Дабыл дәлелінің мәтіні оқу жылының соңына дейін сақталады, содан кейін өшіріледі немесе анонимделеді (D14).
-- `rag` схемасы Supabase API-ына ашылмайды; сервистер тікелей Postgres қосылымымен, өз рөлдерімен қосылады.
+- `rag` пен `corpus` схемалары Supabase API-ына ашылмайды; сервистер тікелей Postgres қосылымымен, өз рөлдерімен қосылады.
