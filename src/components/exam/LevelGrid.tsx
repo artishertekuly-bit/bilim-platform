@@ -26,6 +26,7 @@ export function LevelGrid({ levels }: { levels: LevelResult[] }) {
             </span>
             <span className={cn('text-[11px] font-semibold', level.mastered ? 'text-[#1F6B3F]' : 'text-[#4A4A4A]')}>
               {!taken ? 'өтпеді' : level.mastered ? 'меңгерілді' : `шек ${THRESHOLDS[level.level]}%`}
+              {taken && !level.is_final ? ' · алдын ала' : ''}
             </span>
           </div>
         );

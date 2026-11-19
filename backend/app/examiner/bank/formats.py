@@ -18,8 +18,14 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# 1–2-деңгейдің код форматтары (ai_examiner §3). Қалғандары ЖИ немесе гибрид, олар 5-қадамда.
+# 1–2-деңгейдің код форматтары (ai_examiner §3). Қалғандары гибрид немесе ЖИ (5-қадам).
 CODE_FORMATS: tuple[str, ...] = ("mcq", "matching", "sequence", "error_step", "formula_builder", "slider")
+HYBRID_FORMATS: tuple[str, ...] = ("true_false_fix", "priority")
+AI_FORMATS: tuple[str, ...] = ("short_answer", "socratic", "feynman", "teach_ai", "case_study")
+DIALOG_FORMATS: tuple[str, ...] = ("socratic", "teach_ai")
+CACHEABLE_TEXT_FORMATS: tuple[str, ...] = ("short_answer", "true_false_fix", "priority")
+ALL_FORMATS: tuple[str, ...] = CODE_FORMATS + HYBRID_FORMATS + AI_FORMATS
+CONCEPT_BOUND_FORMATS: frozenset[str] = frozenset({"mcq", *HYBRID_FORMATS, *AI_FORMATS})
 
 FORMAT_LEVEL: dict[str, int] = {
     "mcq": 1,
@@ -40,13 +46,14 @@ FORMAT_LEVEL: dict[str, int] = {
 
 # OCR тасымалы (D80): «иуда-\n\nизм» → «иудаизм». Тек жол соңындағы дефис және екі жағында да әріп:
 # «1946–\n1974», «Беғазы-Дәндібай» өзгермейді. Жұмсақ тасымал белгісі (U+00AD) әрқашан алынады.
-_OCR_HYPHEN = re.compile(r"(?<=[^\W\d_])-[ \t]*\n\s*(?=[^\W\d_])")
+_OCR_HYPHEN = re.compile(r"(?<=[^\W\d_])-[ \t]*\r?\n\s*(?=[^\W\d_])")
 
 
 def normalize_text(text: str) -> str:
     """Салыстыру үшін: Unicode NFC, OCR тасымалы біріктірілген, кіші әріп, тырнақша мен сызықша бірізді,
-    бос орын біреу."""
-    text = unicodedata.normalize("NFC", text).replace("­", "")
+    бос орын біреу. Тасымал сызықшаларды бірізді етпей тұрып біріктіріледі: жол соңындағы «–» (күн
+    аралығы) тасымал емес (D79, D80)."""
+    text = unicodedata.normalize("NFC", text).replace("\u00ad", "")
     text = _OCR_HYPHEN.sub("", text).casefold()
     text = re.sub(r"[«»“”„\"']", '"', text)
     text = re.sub(r"[–—−]", "-", text)
@@ -72,6 +79,8 @@ class Package:
     ecd_skill: str
     evidence: str
     support_quote: str
+    rubric_0_4: list[dict[str, Any]] | None = None
+    socratic_checkpoints: list[dict[str, Any]] | None = None
 
     @property
     def ecd_evidence(self) -> dict[str, Any]:
@@ -126,7 +135,14 @@ class GenBase(BaseModel):
     def to_package(self, rng: random.Random) -> Package:
         raise NotImplementedError
 
-    def _package(self, content: dict[str, Any], key: dict[str, Any]) -> Package:
+    def _package(
+        self,
+        content: dict[str, Any],
+        key: dict[str, Any],
+        *,
+        rubric_0_4: list[dict[str, Any]] | None = None,
+        socratic_checkpoints: list[dict[str, Any]] | None = None,
+    ) -> Package:
         return Package(
             format=self.format_name,
             content=content,
@@ -134,6 +150,8 @@ class GenBase(BaseModel):
             ecd_skill=self.ecd_skill.strip(),
             evidence=self.evidence.strip(),
             support_quote=self.support_quote.strip(),
+            rubric_0_4=rubric_0_4,
+            socratic_checkpoints=socratic_checkpoints,
         )
 
 
@@ -515,14 +533,439 @@ class SliderGen(GenBase):
         return self._package(content, {"accept_min": self.accept_min, "accept_max": self.accept_max})
 
 
+class RubricBand(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    score: int = Field(description="Балл деңгейі.")
+    criteria: str = Field(description="Осы балл қойылатын нақты критерий.")
+    required_facts: list[str] = Field(description="Осы деңгейде болуы тиіс негізгі фактілер мен терминдер.")
+
+
+class SocraticCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(description="Тексеріс нүктесінің қысқа идентификаторы, мысалы c1.")
+    goal: str = Field(description="Оқушы диалогта дәлелдеуі тиіс негізгі ой.")
+    probe_question: str = Field(description="Қосымша жетелеуші сұрақ.")
+    expected_concepts: list[str] = Field(description="Осы нүктеде күтілетін ұғымдар мен терминдер.")
+
+
+class CaseTableRow(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    cells: list[str] = Field(description="Кесте жолының ұяшықтары, баған санына тең.")
+
+
+class CaseDataTable(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(description="Кесте атауы.")
+    headers: list[str] = Field(description="2–5 баған атауы.")
+    rows: list[CaseTableRow] = Field(description="1–6 жол дерек.")
+
+
+def _rubric_problems(rubric: list[RubricBand], expected_scores: set[int]) -> list[str]:
+    problems: list[str] = []
+    scores = [band.score for band in rubric]
+    if len(scores) != len(set(scores)) or set(scores) != expected_scores:
+        ordered = ", ".join(str(s) for s in sorted(expected_scores))
+        problems.append(f"Т6: рубрика деңгейлері {{{ordered}}} болуы керек")
+        return problems
+    top_min = 3 if max(expected_scores) == 4 else 2
+    for band in rubric:
+        if not band.criteria.strip():
+            problems.append(f"Т6: рубрика {band.score} балл сипаттамасы бос")
+        if band.score >= top_min and not [f for f in band.required_facts if f.strip()]:
+            problems.append(f"Т6: рубрика {band.score} балда required_facts бос")
+    return problems
+
+
+def _rubric_dicts(rubric: list[RubricBand]) -> list[dict[str, Any]]:
+    return [
+        {
+            "score": band.score,
+            "criteria": band.criteria.strip(),
+            "required_facts": [fact.strip() for fact in band.required_facts if fact.strip()],
+        }
+        for band in sorted(rubric, key=lambda b: b.score)
+    ]
+
+
+class ShortAnswerGen(GenBase):
+    """1 · Қысқа ашық жауап: 1–3 сөйлем, 0–4 рубрика (ЖИ)."""
+
+    format_name: ClassVar[str] = "short_answer"
+
+    stem: str = Field(description="Нақты сұрақ, 400 таңбаға дейін.")
+    reference_answer: str = Field(description="Оқулыққа негізделген 1–3 сөйлемдік эталон жауап.")
+    rubric: list[RubricBand] = Field(description="0, 1, 2, 3, 4 балдық дескриптор.")
+
+    def problems(self) -> list[str]:
+        problems = self.common_problems()
+        if not self.stem.strip():
+            problems.append("Т6: stem бос")
+        elif len(self.stem) > STEM_LIMIT:
+            problems.append(f"Т6: stem {STEM_LIMIT} таңбадан ұзын")
+        if not self.reference_answer.strip():
+            problems.append("Т6: reference_answer бос")
+        problems += _rubric_problems(self.rubric, {0, 1, 2, 3, 4})
+        return problems
+
+    def to_package(self, rng: random.Random) -> Package:
+        return self._package(
+            {"stem": self.stem.strip()},
+            {"reference_answer": self.reference_answer.strip()},
+            rubric_0_4=_rubric_dicts(self.rubric),
+        )
+
+
+class TrueFalseFixGen(GenBase):
+    """2 · Шын/Жалған + түзету: код (вердикт) + ЖИ (түзету a ∈ 0..2)."""
+
+    format_name: ClassVar[str] = "true_false_fix"
+
+    stem: str = Field(description="Қысқа нұсқау, 400 таңбаға дейін.")
+    statement: str = Field(description="Тексерілетін оқулық тұжырымы, 400 таңбаға дейін.")
+    is_true: bool = Field(description="Тұжырым оқулық бойынша дұрыс болса true, қате болса false.")
+    correction: str = Field(description="is_true = false болса дұрыс нұсқасы, әйтпесе бос жол.")
+    rubric: list[RubricBand] = Field(description="Түзету бөлігіне арналған 0, 1, 2 балдық дескриптор.")
+
+    def problems(self) -> list[str]:
+        problems = self.common_problems()
+        statement_ref = _text_reference_problem(self.statement)
+        if statement_ref:
+            problems.append(statement_ref)
+        if not self.stem.strip():
+            problems.append("Т6: stem бос")
+        elif len(self.stem) > STEM_LIMIT:
+            problems.append(f"Т6: stem {STEM_LIMIT} таңбадан ұзын")
+        if not self.statement.strip():
+            problems.append("Т6: statement бос")
+        elif len(self.statement) > STEM_LIMIT:
+            problems.append(f"Т6: statement {STEM_LIMIT} таңбадан ұзын")
+        if not self.is_true:
+            if not self.correction.strip():
+                problems.append("Т6: қате тұжырымда correction бос")
+            elif normalize_text(self.correction) == normalize_text(self.statement):
+                problems.append("Т7: түзету тұжырыммен бірдей")
+        problems += _rubric_problems(self.rubric, {0, 1, 2})
+        return problems
+
+    def to_package(self, rng: random.Random) -> Package:
+        return self._package(
+            {"stem": self.stem.strip(), "statement": self.statement.strip()},
+            {"is_true": bool(self.is_true), "correction": self.correction.strip()},
+            rubric_0_4=_rubric_dicts(self.rubric),
+        )
+
+
+class PriorityGen(GenBase):
+    """4 · Басымдық қою + негіздеу: код (рет) + ЖИ (негіздеме a ∈ 0..2)."""
+
+    format_name: ClassVar[str] = "priority"
+    OPTION_LIMIT: ClassVar[int] = 80
+    SCENARIO_WORDS_LIMIT: ClassVar[int] = 80
+
+    stem: str = Field(description="Тапсырма нұсқауы.")
+    scenario: str = Field(description="80 сөзге дейінгі жағдай сипаттамасы.")
+    options: list[str] = Field(description="3–4 нұсқа, әрқайсысы 80 таңбаға дейін.")
+    accepted_rankings: list[list[int]] = Field(description="1–3 дұрыс рет (0-ден басталатын индекстер).")
+    reference_justification: str = Field(description="Реттің оқулыққа негізделген үлгі дәлелі.")
+    rubric: list[RubricBand] = Field(description="Негіздеме бөлігіне арналған 0, 1, 2 балдық дескриптор.")
+
+    def problems(self) -> list[str]:
+        problems = self.common_problems()
+        scenario_ref = _text_reference_problem(self.scenario)
+        if scenario_ref:
+            problems.append(scenario_ref)
+        if not self.stem.strip():
+            problems.append("Т6: stem бос")
+        if not self.scenario.strip():
+            problems.append("Т6: scenario бос")
+        elif len(self.scenario.split()) > self.SCENARIO_WORDS_LIMIT:
+            problems.append(f"Т6: scenario {self.SCENARIO_WORDS_LIMIT} сөзден ұзын")
+        if not 3 <= len(self.options) <= 4:
+            problems.append("Т6: басымдық нұсқа саны 3–4 емес")
+        problems += _length_problems(self.options, self.OPTION_LIMIT, "нұсқа")
+        problems += _duplicates(self.options, "нұсқа")
+        expected_indices = list(range(len(self.options)))
+        if not 1 <= len(self.accepted_rankings) <= 3:
+            problems.append("Т6: accepted_rankings саны 1–3 емес")
+        else:
+            seen_rankings: set[tuple[int, ...]] = set()
+            for ranking in self.accepted_rankings:
+                if sorted(ranking) != expected_indices:
+                    problems.append("Т6: accepted_rankings барлық нұсқаны қамтымайды")
+                    break
+                seen_rankings.add(tuple(ranking))
+            if len(seen_rankings) != len(self.accepted_rankings):
+                problems.append("Т7: accepted_rankings қайталанады")
+        if not self.reference_justification.strip():
+            problems.append("Т6: reference_justification бос")
+        problems += _rubric_problems(self.rubric, {0, 1, 2})
+        return problems
+
+    def to_package(self, rng: random.Random) -> Package:
+        order = list(range(len(self.options)))
+        accepted0 = list(self.accepted_rankings[0]) if self.accepted_rankings else order
+        if len(order) >= 2:
+            for _ in range(20):
+                rng.shuffle(order)
+                if order != accepted0:
+                    break
+        options = [{"id": f"p{pos + 1}", "text": self.options[src].strip()} for pos, src in enumerate(order)]
+        id_of = {src: f"p{pos + 1}" for pos, src in enumerate(order)}
+        accepted = [[id_of[src] for src in ranking] for ranking in self.accepted_rankings]
+        return self._package(
+            {"stem": self.stem.strip(), "scenario": self.scenario.strip(), "options": options},
+            {"accepted_rankings": accepted, "reference_justification": self.reference_justification.strip()},
+            rubric_0_4=_rubric_dicts(self.rubric),
+        )
+
+
+class CaseStudyGen(GenBase):
+    """5 · Кейс талдау: ≤ 120 сөз + 1–6 жол кесте, 0–4 рубрика (Т6)."""
+
+    format_name: ClassVar[str] = "case_study"
+    CASE_WORDS_LIMIT: ClassVar[int] = 120
+    MAX_ROWS: ClassVar[int] = 6
+
+    stem: str = Field(description="Кейс тақырыбы / кіріспе.")
+    case_text: str = Field(description="120 сөзге дейінгі ықшам кейс мәтіні.")
+    data_table: CaseDataTable = Field(description="2–5 баған, 1–6 жолдан тұратын деректер кестесі.")
+    task_prompt: str = Field(description="Оқушыға қойылатын талдау сұрағы.")
+    reference_answer: str = Field(description="Кейс пен кестеге сүйенген эталон талдау.")
+    rubric: list[RubricBand] = Field(description="0, 1, 2, 3, 4 балдық дескриптор.")
+
+    def problems(self) -> list[str]:
+        problems = self.common_problems()
+        prompt_ref = _text_reference_problem(self.task_prompt)
+        if prompt_ref:
+            problems.append(prompt_ref)
+        if not self.stem.strip():
+            problems.append("Т6: stem бос")
+        if not self.case_text.strip():
+            problems.append("Т6: case_text бос")
+        elif len(self.case_text.split()) > self.CASE_WORDS_LIMIT:
+            problems.append(f"Т6: case_text {self.CASE_WORDS_LIMIT} сөзден ұзын")
+        if not self.task_prompt.strip():
+            problems.append("Т6: task_prompt бос")
+        if not self.reference_answer.strip():
+            problems.append("Т6: reference_answer бос")
+        if not self.data_table.title.strip():
+            problems.append("Т6: data_table атауы бос")
+        if not 2 <= len(self.data_table.headers) <= 5:
+            problems.append("Т6: кесте баған саны 2–5 емес")
+        if not 1 <= len(self.data_table.rows) <= self.MAX_ROWS:
+            problems.append(f"Т6: кесте жол саны 1–{self.MAX_ROWS} емес")
+        cols = len(self.data_table.headers)
+        for index, row in enumerate(self.data_table.rows, start=1):
+            if len(row.cells) != cols:
+                problems.append(f"Т6: кестенің {index}-жолында баған саны сай емес")
+                break
+            if any(not cell.strip() for cell in row.cells):
+                problems.append(f"Т6: кестенің {index}-жолында бос ұяшық бар")
+                break
+        problems += _rubric_problems(self.rubric, {0, 1, 2, 3, 4})
+        return problems
+
+    def to_package(self, rng: random.Random) -> Package:
+        table = {
+            "title": self.data_table.title.strip(),
+            "headers": [h.strip() for h in self.data_table.headers],
+            "rows": [[cell.strip() for cell in row.cells] for row in self.data_table.rows],
+        }
+        return self._package(
+            {
+                "stem": self.stem.strip(),
+                "case_text": self.case_text.strip(),
+                "data_table": table,
+                "task_prompt": self.task_prompt.strip(),
+            },
+            {"reference_answer": self.reference_answer.strip()},
+            rubric_0_4=_rubric_dicts(self.rubric),
+        )
+
+
+class FeynmanGen(GenBase):
+    """3 · Фейнман әдісі: өз сөзімен түсіндіру (≥ 40 сөз), 0–4 рубрика."""
+
+    format_name: ClassVar[str] = "feynman"
+
+    stem: str = Field(description="Тапсырма шарты.")
+    concept: str = Field(description="Түсіндірілетін басты ұғым.")
+    audience_prompt: str = Field(description="Кімге және қалай түсіндіру керегі.")
+    min_words: int = Field(description="Ұсынылған ең аз сөз саны (40).")
+    reference_answer: str = Field(description="Қарапайым тілдегі эталон түсіндірме.")
+    rubric: list[RubricBand] = Field(description="0, 1, 2, 3, 4 балдық дескриптор.")
+
+    def problems(self) -> list[str]:
+        problems = self.common_problems()
+        aud_ref = _text_reference_problem(self.audience_prompt)
+        if aud_ref:
+            problems.append(aud_ref)
+        if not self.stem.strip():
+            problems.append("Т6: stem бос")
+        if not self.concept.strip():
+            problems.append("Т6: concept бос")
+        if not self.audience_prompt.strip():
+            problems.append("Т6: audience_prompt бос")
+        if not 20 <= self.min_words <= 80:
+            problems.append("Т6: min_words 20–80 аралығында емес")
+        if not self.reference_answer.strip():
+            problems.append("Т6: reference_answer бос")
+        problems += _rubric_problems(self.rubric, {0, 1, 2, 3, 4})
+        return problems
+
+    def to_package(self, rng: random.Random) -> Package:
+        return self._package(
+            {
+                "stem": self.stem.strip(),
+                "concept": self.concept.strip(),
+                "audience_prompt": self.audience_prompt.strip(),
+                "min_words": int(self.min_words),
+            },
+            {"reference_answer": self.reference_answer.strip()},
+            rubric_0_4=_rubric_dicts(self.rubric),
+        )
+
+
+class SocraticGen(GenBase):
+    """I-1 · Сократтық диалог: 2–3 бақылау нүктесі, 0–4 рубрика (Т6)."""
+
+    format_name: ClassVar[str] = "socratic"
+
+    stem: str = Field(description="Диалог тақырыбы, 1 сөйлем.")
+    situation: str = Field(description="Қысқа жағдай немесе сұрау, 1–2 сөйлем.")
+    opening_question: str = Field(description="Емтихан алушының алғашқы жетелеуші сұрағы.")
+    checkpoints: list[SocraticCheckpoint] = Field(description="Дәл 2 немесе 3 бақылау нүктесі.")
+    rubric: list[RubricBand] = Field(description="0, 1, 2, 3, 4 балдық дескриптор.")
+
+    def problems(self) -> list[str]:
+        problems = self.common_problems()
+        for text in (self.situation, self.opening_question):
+            ref = _text_reference_problem(text)
+            if ref:
+                problems.append(ref)
+        if not self.stem.strip():
+            problems.append("Т6: stem бос")
+        if not self.situation.strip():
+            problems.append("Т6: situation бос")
+        if not self.opening_question.strip():
+            problems.append("Т6: opening_question бос")
+        if not 2 <= len(self.checkpoints) <= 3:
+            problems.append("Т6: socratic бақылау нүктесі 2–3 емес")
+        ids = [cp.id.strip() for cp in self.checkpoints]
+        if any(not i for i in ids) or len(set(ids)) != len(ids):
+            problems.append("Т6: socratic нүкте id-лері бос немесе қайталанады")
+        if any(not cp.goal.strip() or not cp.probe_question.strip() for cp in self.checkpoints):
+            problems.append("Т6: socratic нүкте мақсаты не сұрағы бос")
+        problems += _rubric_problems(self.rubric, {0, 1, 2, 3, 4})
+        return problems
+
+    def to_package(self, rng: random.Random) -> Package:
+        checkpoints = [
+            {
+                "id": cp.id.strip(),
+                "goal": cp.goal.strip(),
+                "probe_question": cp.probe_question.strip(),
+                "expected_concepts": [c.strip() for c in cp.expected_concepts if c.strip()],
+            }
+            for cp in self.checkpoints
+        ]
+        return self._package(
+            {
+                "stem": self.stem.strip(),
+                "situation": self.situation.strip(),
+                "opening_question": self.opening_question.strip(),
+            },
+            {"opening_question": self.opening_question.strip()},
+            rubric_0_4=_rubric_dicts(self.rubric),
+            socratic_checkpoints=checkpoints,
+        )
+
+
+class TeachAiGen(GenBase):
+    """2 · «ЖИ-ді оқыт»: қате түсінікті түзету диалогы, 0–4 рубрика."""
+
+    format_name: ClassVar[str] = "teach_ai"
+
+    stem: str = Field(description="Тапсырма шарты.")
+    situation: str = Field(description="Оқушыға көрінетін қысқа жағдай.")
+    ai_persona: str = Field(description="ЖИ рөлінің сипаттамасы (оқушыға көрінбейді).")
+    misconception: str = Field(description="ЖИ ұстанатын қате түсінік (оқушыға көрінбейді).")
+    opening_message: str = Field(description="ЖИ-оқушының алғашқы қате пікірі мен сұрағы.")
+    rubric: list[RubricBand] = Field(description="0, 1, 2, 3, 4 балдық дескриптор.")
+
+    def problems(self) -> list[str]:
+        problems = self.common_problems()
+        sit_ref = _text_reference_problem(self.situation)
+        if sit_ref:
+            problems.append(sit_ref)
+        for field_name in ("stem", "situation", "ai_persona", "misconception", "opening_message"):
+            if not getattr(self, field_name).strip():
+                problems.append(f"Т6: {field_name} бос")
+        problems += _rubric_problems(self.rubric, {0, 1, 2, 3, 4})
+        return problems
+
+    def to_package(self, rng: random.Random) -> Package:
+        return self._package(
+            {
+                "stem": self.stem.strip(),
+                "situation": self.situation.strip(),
+                "opening_message": self.opening_message.strip(),
+            },
+            {"ai_persona": self.ai_persona.strip(), "misconception": self.misconception.strip()},
+            rubric_0_4=_rubric_dicts(self.rubric),
+            socratic_checkpoints=None,
+        )
+
+
 GEN_MODELS: dict[str, type[GenBase]] = {
     model.format_name: model
-    for model in (MCQGen, MatchingGen, SequenceGen, ErrorStepGen, FormulaGen, SliderGen)
+    for model in (
+        MCQGen,
+        MatchingGen,
+        SequenceGen,
+        ErrorStepGen,
+        FormulaGen,
+        SliderGen,
+        ShortAnswerGen,
+        TrueFalseFixGen,
+        PriorityGen,
+        CaseStudyGen,
+        FeynmanGen,
+        SocraticGen,
+        TeachAiGen,
+    )
 }
 
 
-def gen_from_package(fmt: str, content: dict[str, Any], key: dict[str, Any], *, ecd_skill: str, evidence: str,
-                     support_quote: str) -> GenBase:
+def _reconstruct_rubric(rubric_0_4: list[dict[str, Any]] | None) -> list[RubricBand]:
+    if not isinstance(rubric_0_4, list):
+        return []
+    return [
+        RubricBand(
+            score=int(band["score"]),
+            criteria=str(band.get("criteria", "")),
+            required_facts=[str(f) for f in (band.get("required_facts") or [])],
+        )
+        for band in rubric_0_4
+        if isinstance(band, dict) and "score" in band
+    ]
+
+
+def gen_from_package(
+    fmt: str,
+    content: dict[str, Any],
+    key: dict[str, Any],
+    *,
+    ecd_skill: str,
+    evidence: str,
+    support_quote: str,
+    rubric_0_4: list[dict[str, Any]] | None = None,
+    socratic_checkpoints: list[dict[str, Any]] | None = None,
+) -> GenBase:
     """Банктегі пакеттен генератордың моделін қайта құрады: аудит Т6/Т7-ні генерациядағы кодпен тексереді.
     Нұсқалардың реті маңызды емес: тексерістер ретке тәуелсіз."""
     common = {"ecd_skill": ecd_skill, "evidence": evidence, "support_quote": support_quote}
@@ -560,4 +1003,75 @@ def gen_from_package(fmt: str, content: dict[str, Any], key: dict[str, Any], *, 
                          min=spec["min"], max=spec["max"], step=spec["step"], output_name=out["name"],
                          output_unit=out.get("unit", ""), formula=out.get("formula", ""),
                          accept_min=key["accept_min"], accept_max=key["accept_max"], **common)
-    raise ValueError(f"«{fmt}» — код форматы емес")
+    rubric = _reconstruct_rubric(rubric_0_4)
+    if fmt == "short_answer":
+        return ShortAnswerGen(stem=content["stem"], reference_answer=key["reference_answer"], rubric=rubric, **common)
+    if fmt == "true_false_fix":
+        return TrueFalseFixGen(
+            stem=content["stem"],
+            statement=content["statement"],
+            is_true=bool(key["is_true"]),
+            correction=key.get("correction", ""),
+            rubric=rubric,
+            **common,
+        )
+    if fmt == "priority":
+        options = [item["text"] for item in content["options"]]
+        idx_of = {item["id"]: i for i, item in enumerate(content["options"])}
+        rankings = [[idx_of[oid] for oid in r] for r in key["accepted_rankings"]]
+        return PriorityGen(
+            stem=content["stem"],
+            scenario=content["scenario"],
+            options=options,
+            accepted_rankings=rankings,
+            reference_justification=key["reference_justification"],
+            rubric=rubric,
+            **common,
+        )
+    if fmt == "case_study":
+        dt = content["data_table"]
+        table = CaseDataTable(
+            title=dt["title"],
+            headers=list(dt["headers"]),
+            rows=[CaseTableRow(cells=list(r)) for r in dt["rows"]],
+        )
+        return CaseStudyGen(
+            stem=content["stem"],
+            case_text=content["case_text"],
+            data_table=table,
+            task_prompt=content["task_prompt"],
+            reference_answer=key["reference_answer"],
+            rubric=rubric,
+            **common,
+        )
+    if fmt == "feynman":
+        return FeynmanGen(
+            stem=content["stem"],
+            concept=content["concept"],
+            audience_prompt=content["audience_prompt"],
+            min_words=int(content.get("min_words", 40)),
+            reference_answer=key["reference_answer"],
+            rubric=rubric,
+            **common,
+        )
+    if fmt == "socratic":
+        cps = [SocraticCheckpoint(**cp) for cp in (socratic_checkpoints or [])]
+        return SocraticGen(
+            stem=content["stem"],
+            situation=content["situation"],
+            opening_question=content["opening_question"],
+            checkpoints=cps,
+            rubric=rubric,
+            **common,
+        )
+    if fmt == "teach_ai":
+        return TeachAiGen(
+            stem=content["stem"],
+            situation=content["situation"],
+            ai_persona=key["ai_persona"],
+            misconception=key["misconception"],
+            opening_message=content["opening_message"],
+            rubric=rubric,
+            **common,
+        )
+    raise ValueError(f"Белгісіз формат: «{fmt}»")

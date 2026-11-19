@@ -40,7 +40,9 @@ export default function ExamProfilePage() {
             </SectionLabel>
             <Card className="flex items-center justify-between gap-3 px-4 py-3.5">
               <span className="flex flex-col gap-0.5">
-                <span className="text-[15px] font-semibold">Жалпы балл (F)</span>
+                <span className="text-[15px] font-semibold">
+                  Жалпы балл (F){subject.f !== null && subject.f_is_final === false ? ' · алдын ала' : ''}
+                </span>
                 <span className="text-[13px] text-[#5E5E5E]">
                   {subject.f === null ? 'Төрт деңгей түгел тапсырылғанда есептеледі' : 'Төрт деңгейдің орташасы'}
                 </span>

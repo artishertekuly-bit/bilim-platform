@@ -13,13 +13,15 @@ from app.examiner.bank.formats import (
     FormulaGen,
     MatchingGen,
     MCQGen,
+    PriorityGen,
     SequenceGen,
     SliderGen,
+    TrueFalseFixGen,
 )
 from app.examiner.session.composition import Slot, build_composition, level_formats, x1_count
-from app.examiner.session.grading import AnswerInvalid, check_answer
+from app.examiner.session.grading import AnswerInvalid, check_answer, check_hybrid_answer, extract_text_answer
 from app.examiner.session.scoring import GradedItem, level_score, x3_eligible
-from app.examiner.session.selection import Candidate, Picker, level_availability, order_items
+from app.examiner.session.selection import POOL_CODE, Candidate, Picker, level_availability, order_items
 from app.examiner.session.shuffle import shuffle_content
 
 COMMON = {"ecd_skill": "Дағды", "evidence": "Дәлел", "support_quote": "Оқулықтан алынған ұзын дәйексөз."}
@@ -31,24 +33,34 @@ def package(model, **data):
 
 
 class CompositionTests(unittest.TestCase):
-    def test_level1_is_code_only(self) -> None:
+    def test_level1_includes_short_answer(self) -> None:
         composition = build_composition(1, {})
-        self.assertEqual(composition.formats, {"mcq": 5, "matching": 3})
-        self.assertEqual(composition.excluded, ("short_answer",))
+        self.assertEqual(composition.formats, {"mcq": 5, "matching": 3, "short_answer": 2})
+        self.assertEqual(composition.excluded, ())
         tiers = [(slot.tier, slot.format) for slot in composition.slots]
-        self.assertEqual(tiers, [("X1", "mcq")] * 2 + [("X1", "matching")] + [("X2", "mcq")] * 3
-                         + [("X2", "matching")] * 2)
-        self.assertEqual(composition.n, 8)
+        self.assertEqual(
+            tiers,
+            [("X1", "mcq")] * 2 + [("X1", "matching"), ("X1", "short_answer")]
+            + [("X2", "mcq")] * 3 + [("X2", "matching")] * 2 + [("X2", "short_answer")],
+        )
+        self.assertEqual(composition.n, 10)
 
     def test_level2_history_substitutes_formula_and_slider(self) -> None:
         composition = build_composition(2, HISTORY)
-        self.assertEqual(composition.formats, {"sequence": 3, "error_step": 3})
-        self.assertEqual(composition.excluded, ("true_false_fix",))
-        self.assertEqual(level_formats(2, HISTORY), ["sequence", "error_step"])
+        self.assertEqual(composition.formats, {"sequence": 3, "error_step": 3, "true_false_fix": 2})
+        self.assertEqual(composition.excluded, ())
+        self.assertEqual(set(level_formats(2, HISTORY)), {"sequence", "error_step", "true_false_fix"})
 
-    def test_levels_3_and_4_closed(self) -> None:
+    def test_levels_3_and_4_open(self) -> None:
+        l3 = build_composition(3, {})
+        self.assertEqual(l3.n, 8)
+        self.assertEqual(sum(1 for s in l3.slots if s.block == "A"), 6)
+        self.assertEqual(sum(1 for s in l3.slots if s.block == "D"), 2)
+        l4 = build_composition(4, {})
+        self.assertEqual(l4.formats, {"case_study": 1, "priority": 2})
+        self.assertEqual(l4.n, 3)
         with self.assertRaises(ValueError):
-            build_composition(3, {})
+            build_composition(5, {})
 
     def test_x1_share(self) -> None:
         self.assertEqual([x1_count(n) for n in (1, 2, 3, 5)], [0, 1, 1, 2])
@@ -118,6 +130,49 @@ class GradingTests(unittest.TestCase):
         with self.assertRaises(AnswerInvalid):
             check_answer("short_answer", {}, {}, {"text": "x"})
 
+    def test_hybrid_true_false_fix_and_priority(self) -> None:
+        rubric3 = [
+            {"score": 0, "criteria": "Қате", "required_facts": []},
+            {"score": 1, "criteria": "Орта", "required_facts": []},
+            {"score": 2, "criteria": "Толық", "required_facts": ["факт"]},
+        ]
+        tff_true = package(
+            TrueFalseFixGen, stem="?", statement="Дұрыс сөз", is_true=True, correction="", rubric=rubric3
+        )
+        self.assertEqual(check_hybrid_answer("true_false_fix", tff_true.content, tff_true.key, {"verdict": True}), (1, None))
+        self.assertEqual(check_hybrid_answer("true_false_fix", tff_true.content, tff_true.key, {"verdict": False}), (0, None))
+
+        tff_false = package(
+            TrueFalseFixGen, stem="?", statement="Қате сөз", is_true=False, correction="Дұрыс", rubric=rubric3
+        )
+        self.assertEqual(
+            check_hybrid_answer("true_false_fix", tff_false.content, tff_false.key, {"verdict": False, "correction": "Нақты түзету"}),
+            (1, "Нақты түзету"),
+        )
+        self.assertEqual(check_hybrid_answer("true_false_fix", tff_false.content, tff_false.key, {"verdict": True}), (0, None))
+
+        prio = package(
+            PriorityGen,
+            stem="?",
+            scenario="Жағдай",
+            options=["Бір", "Екі", "Үш"],
+            accepted_rankings=[[0, 1, 2]],
+            reference_justification="Дәлел",
+            rubric=rubric3,
+        )
+        right_order = prio.key["accepted_rankings"][0]
+        self.assertEqual(
+            check_hybrid_answer("priority", prio.content, prio.key, {"ranking": right_order, "justification": "Себеп"}),
+            (1, "Себеп"),
+        )
+        self.assertEqual(
+            check_hybrid_answer(
+                "priority", prio.content, prio.key, {"ranking": list(reversed(right_order)), "justification": "Себеп"}
+            ),
+            (0, None),
+        )
+        self.assertEqual(extract_text_answer("short_answer", {"text": "Жауап"}), "Жауап")
+
 
 class ScoringTests(unittest.TestCase):
     def items(self, scores, x3=None):
@@ -149,21 +204,50 @@ class ScoringTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             level_score(1, self.items([4] * 7 + [None]))
 
+    def test_level3_weighted_formula_and_d37(self) -> None:
+        items = [GradedItem("X1", "mcq", "A", 4)] * 2 + [GradedItem("X2", "mcq", "A", 2)] * 4 + [
+            GradedItem("X1", "socratic", "D", 4, is_final=False),
+            GradedItem("X2", "feynman", "D", 3, is_final=True),
+        ]
+        # A = (8 + 8) / 24 = 0.6667; D = (4 + 3) / 8 = 0.875; P3 = (0.7 * 0.875 + 0.3 * 0.6667) * 100 = 81.25
+        score = level_score(3, items)
+        self.assertAlmostEqual(score.part_a or 0.0, 0.6667, places=4)
+        self.assertAlmostEqual(score.part_d or 0.0, 0.875, places=4)
+        self.assertAlmostEqual(score.p, 81.25, places=1)
+        self.assertFalse(score.is_final)
+
+        # D37: X3 бар, бірақ мұғалім бағаны 2-ге түсірді → x3_rating_valid = False
+        overridden = [GradedItem("X1", "socratic", "D", 2), GradedItem("X2", "feynman", "D", 4)] + [
+            GradedItem("X1", "mcq", "A", 4)
+        ] * 6 + [GradedItem("X3", "socratic", None, 4)]
+        d37_score = level_score(3, overridden)
+        self.assertFalse(d37_score.x3_rating_valid)
+
 
 class SelectionTests(unittest.TestCase):
     def test_substitutes_within_tier_and_spreads_topics(self) -> None:
         composition = build_composition(1, {})
-        candidates = [Candidate(f"m{t}{i}", f"§{t}", "mcq", tier) for t in (1, 2) for i in range(4)
-                      for tier in ("X1", "X2")]
-        picker = Picker(candidates, ["mcq", "matching"], random.Random(1))
+        candidates = (
+            [Candidate(f"m{t}{i}", f"§{t}", "mcq", tier) for t in (1, 2) for i in range(4) for tier in ("X1", "X2")]
+            + [Candidate(f"s{t}", f"§{t}", "short_answer", tier) for t in (1, 2) for tier in ("X1", "X2")]
+        )
+        picker = Picker(candidates, ["mcq", "matching", "short_answer"], random.Random(1))
         chosen = [picker.take(slot) for slot in composition.slots]
         self.assertTrue(all(chosen))
-        self.assertEqual({c.format for c in chosen}, {"mcq"})  # matching жоқ → mcq-мен алмастырылды
+        self.assertEqual({c.format for c in chosen}, {"mcq", "short_answer"})  # matching жоқ → mcq-мен алмастырылды
         self.assertTrue(all(c.tier == slot.tier for c, slot in zip(chosen, composition.slots)))
         topics = [c.topic_id for c in chosen]
         self.assertLessEqual(abs(topics.count("§1") - topics.count("§2")), 1)
         ordered = order_items(composition.slots, chosen)
         self.assertEqual([slot.tier for slot, _ in ordered], [slot.tier for slot in composition.slots])
+
+    def test_ai_format_never_substituted_by_code(self) -> None:
+        picker = Picker([Candidate(f"m{i}", "§1", "mcq", "X1") for i in range(5)], ["mcq", "short_answer"], random.Random(1))
+        self.assertIsNone(picker.take(Slot("X1", "short_answer")))
+        # L3 D-блокта feynman орнына teach_ai рұқсат етіледі, бірақ socratic орнына емес.
+        d_picker = Picker([Candidate("t1", "§1", "teach_ai", "X2")], ["socratic", "feynman", "teach_ai"], random.Random(1))
+        self.assertIsNone(d_picker.take(Slot("X2", "socratic", "D")))
+        self.assertIsNotNone(d_picker.take(Slot("X2", "feynman", "D")))
 
     def test_shortage_returns_none(self) -> None:
         picker = Picker([Candidate("q", "§1", "mcq", "X2")], ["mcq", "matching"], random.Random(1))
@@ -188,11 +272,17 @@ class SelectionTests(unittest.TestCase):
         self.assertIsNone(picker.take(slot))
 
     def test_level_availability(self) -> None:
-        slots = build_composition(1, {}).slots  # X1 — 3, X2 — 5
-        self.assertEqual(level_availability(slots, {"X1": (3, 3), "X2": (6, 5)}), "ready")
-        self.assertEqual(level_availability(slots, {"X1": (3, 1), "X2": (6, 5)}), "low_stock")
-        self.assertEqual(level_availability(slots, {"X1": (3, 3), "X2": (4, 4)}), "unavailable")
-        self.assertEqual(level_availability(slots, {"X2": (9, 9)}), "unavailable")
+        slots = build_composition(1, {}).slots  # X1: code=3, short_answer=1; X2: code=5, short_answer=1
+        ready = {
+            ("X1", POOL_CODE): (3, 3), ("X1", "short_answer"): (1, 1),
+            ("X2", POOL_CODE): (6, 5), ("X2", "short_answer"): (1, 1),
+        }
+        self.assertEqual(level_availability(slots, ready), "ready")
+        low = {**ready, ("X1", POOL_CODE): (3, 1)}
+        self.assertEqual(level_availability(slots, low), "low_stock")
+        missing_sa = {**ready, ("X2", "short_answer"): (0, 0), ("X2", POOL_CODE): (20, 20)}
+        self.assertEqual(level_availability(slots, missing_sa), "unavailable")
+        self.assertEqual(level_availability(slots, {("X2", POOL_CODE): (9, 9)}), "unavailable")
 
 
 class ShuffleTests(unittest.TestCase):
@@ -229,6 +319,25 @@ class ShuffleTests(unittest.TestCase):
         pkg = package(ErrorStepGen, stem="Қатені тап", steps=["бір", "екі", "үш"], error_index=1, correction="2")
         shown = shuffle_content("error_step", pkg.content, pkg.ecd_evidence["code_check_target"], "e-1")
         self.assertEqual(shown["steps"], pkg.content["steps"])
+
+    def test_priority_never_shows_accepted_order(self) -> None:
+        pkg = package(
+            PriorityGen,
+            stem="Ретте",
+            scenario="Жағдай",
+            options=["А", "Ә", "Б"],
+            accepted_rankings=[[0, 1, 2]],
+            reference_justification="Дәлел",
+            rubric=[
+                {"score": 0, "criteria": "Қате", "required_facts": []},
+                {"score": 1, "criteria": "Жартылай", "required_facts": []},
+                {"score": 2, "criteria": "Толық", "required_facts": ["А"]},
+            ],
+        )
+        key = pkg.ecd_evidence["code_check_target"]
+        for i in range(40):
+            shown = shuffle_content("priority", pkg.content, key, f"p-{i}")
+            self.assertNotEqual([opt["id"] for opt in shown["options"]], key["accepted_rankings"][0])
 
 
 if __name__ == "__main__":

@@ -158,3 +158,29 @@ def duplicate_problem(embedding: Sequence[float], existing: Sequence[Sequence[fl
     if best >= DUPLICATE_THRESHOLD:
         return f"Т7: бар сұраққа тым ұқсас ({best:.2f})"
     return None
+
+
+_MULTI_DIGIT = re.compile(r"\b\d{2,}\b")
+
+
+def rubric_grounded_problem(package: Package, reference_text: str) -> str | None:
+    """Т7 (bagalau §5): ашық және гибрид форматтардағы рубрика фактілері бос емес және оқулыққа қайшы сан енгізбейді."""
+    if package.rubric_0_4 is None:
+        return None
+    if not package.rubric_0_4:
+        return "Т7: rubric_0_4 бос"
+    top_facts = [
+        str(fact).strip()
+        for band in package.rubric_0_4
+        if isinstance(band, dict)
+        for fact in (band.get("required_facts") or [])
+        if str(fact).strip()
+    ]
+    if not top_facts:
+        return "Т7: рубрикадағы required_facts бос"
+    allowed = normalize_text(reference_text) + " " + normalize_text(package.similarity_text())
+    for fact in top_facts:
+        for num in _MULTI_DIGIT.findall(fact):
+            if num not in allowed:
+                return f"Т7: рубрикадағы сан ({num}) оқулық мәтінінде жоқ"
+    return None

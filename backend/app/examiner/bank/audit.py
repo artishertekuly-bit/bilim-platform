@@ -7,8 +7,9 @@
   * қайталау — бір § пен деңгейдегі белсенді сұрақтар арасында ≥ DUPLICATE_THRESHOLD және сол форматтағы
     мазмұн қайталауы (`repeat_problem`, D80) (Т7): ертерек жасалғаны қалады, кейінгісі белгіленеді.
 MCQ-дің шешуші тексерісі (LLM) қайталанбайды: ол генерацияда сол модельмен өткен.
-Аудит тек код форматтарын тексереді (`GEN_MODELS`). ЖИ мен гибрид форматтарының (5-қадам) пакетін бұл
-модуль құра алмайды: оларды «оқылмады» деп шығарып жібермеу үшін олар өткізіледі.
+Ашық пен гибрид форматтарында рубриканың мәтінге сүйенуі де тексеріледі (`rubric_grounded_problem`, D79).
+Аудит `GEN_MODELS`-те генератор моделі бар форматтарды тексереді (5-қадамнан бері барлық 13 формат); моделі
+жоқ формат «оқылмады» деп шығарылып кетпеуі үшін өткізіледі.
 
 Белгіленген сұрақ өшірілмейді: `question_state.status = 'retired'`, себебі тарихқа жазылады
 (`question_state_history`), сондықтан оны қайта белсенді етуге болады.
@@ -23,7 +24,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .checks import DUPLICATE_THRESHOLD, cosine, quote_problem, repeat_problem
+from .checks import DUPLICATE_THRESHOLD, cosine, quote_problem, repeat_problem, rubric_grounded_problem
 from .formats import GEN_MODELS, Package, gen_from_package
 
 
@@ -42,6 +43,8 @@ class BankQuestion:
     support_quote: str
     reference_text: str
     embedding: list[float] | None
+    rubric_0_4: list[dict[str, Any]] | None = None
+    socratic_checkpoints: list[dict[str, Any]] | None = None
 
 
 @dataclass(frozen=True)
@@ -53,19 +56,35 @@ class Finding:
 def question_problems(question: BankQuestion) -> list[str]:
     try:
         generated = gen_from_package(
-            question.format, question.content, question.key, ecd_skill=question.ecd_skill,
-            evidence=question.evidence, support_quote=question.support_quote,
+            question.format,
+            question.content,
+            question.key,
+            ecd_skill=question.ecd_skill,
+            evidence=question.evidence,
+            support_quote=question.support_quote,
+            rubric_0_4=question.rubric_0_4,
+            socratic_checkpoints=question.socratic_checkpoints,
         )
     except (KeyError, ValueError, ValidationError, TypeError) as exc:
         return [f"Т6: пакет құрылымы оқылмады ({type(exc).__name__})"]
     problems = generated.problems()
     if question.reference_text:
-        package = Package(format=question.format, content=question.content, key=question.key,
-                          ecd_skill=question.ecd_skill, evidence=question.evidence,
-                          support_quote=question.support_quote)
+        package = Package(
+            format=question.format,
+            content=question.content,
+            key=question.key,
+            ecd_skill=question.ecd_skill,
+            evidence=question.evidence,
+            support_quote=question.support_quote,
+            rubric_0_4=question.rubric_0_4,
+            socratic_checkpoints=question.socratic_checkpoints,
+        )
         quote = quote_problem(package, question.reference_text)
         if quote:
             problems.append(quote)
+        rubric_prob = rubric_grounded_problem(package, question.reference_text)
+        if rubric_prob:
+            problems.append(rubric_prob)
     else:
         problems.append("Т7: reference_context мәтіні сақталмаған")
     return problems
@@ -73,7 +92,7 @@ def question_problems(question: BankQuestion) -> list[str]:
 
 def audit(questions: Sequence[BankQuestion]) -> list[Finding]:
     """Белгіленген сұрақтар және себептері. Қайталау тексерісінде алдымен белгіленбегендер ескеріледі.
-    Код форматы емес сұрақ (ЖИ, гибрид) тексерілмейді және белгіленбейді."""
+    Генератор моделі жоқ формат тексерілмейді және белгіленбейді."""
     questions = [q for q in questions if q.format in GEN_MODELS]
     reasons: dict[str, list[str]] = {q.question_id: question_problems(q) for q in questions}
     kept: dict[tuple[str, int], list[BankQuestion]] = {}

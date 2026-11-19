@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import random
 import unittest
@@ -36,25 +37,44 @@ from app.examiner.bank.concepts import (
     topic_concepts,
 )
 from app.examiner.bank.context import (
+    FULL_PARAGRAPH_FORMATS,
     Chunk,
     chunk_combinations,
     clean_chunk_text,
     distant_partners,
     entity_map,
+    full_paragraph_window,
     reference_text,
     strip_assignments,
 )
 from app.examiner.bank.formats import (
+    AI_FORMATS,
+    ALL_FORMATS,
+    CODE_FORMATS,
+    CONCEPT_BOUND_FORMATS,
     GEN_MODELS,
+    HYBRID_FORMATS,
+    CaseDataTable,
+    CaseStudyGen,
+    CaseTableRow,
     ErrorStepGen,
+    FeynmanGen,
     FormulaGen,
     MatchingGen,
     MCQGen,
+    PriorityGen,
+    RubricBand,
     SequenceGen,
+    ShortAnswerGen,
     SliderGen,
+    SocraticCheckpoint,
+    SocraticGen,
+    TeachAiGen,
+    TrueFalseFixGen,
     gen_from_package,
     normalize_text,
 )
+from app.examiner.session import ai_grader, dialog
 from app.examiner.bank.pipeline import (
     BankPipeline,
     BatchRecord,
@@ -252,20 +272,39 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(len(texts), 1)
 
     def test_public_content_has_no_key_fields(self) -> None:
-        """ortaq §4: клиентке баратын content-те кілт өрістері жоқ."""
-        forbidden = ("correct", "key", "accept", "order", "pairs", "placement", "correction", "error")
-        samples = [
-            mcq(),
-            MatchingGen.model_validate({"stem": "x", "pairs": [{"left": "а", "right": "б"}, {"left": "в", "right": "г"},
-                                                               {"left": "д", "right": "е"}], **COMMON}),
-            SequenceGen.model_validate({"stem": "x", "steps": ["а", "б", "в"], **COMMON}),
-            ErrorStepGen.model_validate({"stem": "x", "steps": ["а", "б", "в"], "error_index": 1, "correction": "г",
-                                         **COMMON}),
-        ]
-        for gen in samples:
+        """ortaq §4: клиентке баратын content-те кілт және рубрика өрістері жоқ."""
+        forbidden = (
+            "correct", "key", "accept", "order", "pairs", "placement", "correction", "error",
+            "rubric", "misconception", "ai_persona", "socratic_checkpoints", "reference_answer",
+            "is_true", "accepted_rankings",
+        )
+        for gen in valid_gens():
             content_keys = json.dumps(gen.to_package(self.rng).content)
             for word in forbidden:
-                self.assertNotIn(f'"{word}', content_keys, f"{gen.format_name}: {word}")
+                self.assertNotIn(f'"{word}"', content_keys, f"{gen.format_name}: {word}")
+
+    def test_new_ai_and_hybrid_t6_limits(self) -> None:
+        long_case = CaseStudyGen.model_validate({
+            "stem": "Кейс", "case_text": "сөз " * 121,
+            "data_table": {"title": "К", "headers": ["А", "Б"], "rows": [{"cells": ["1", "2"]} for _ in range(7)]},
+            "task_prompt": "Талдаңыз.", "reference_answer": "Жауап.", "rubric": rubric_5(), **COMMON,
+        })
+        probs = long_case.problems()
+        self.assertIn("Т6: case_text 120 сөзден ұзын", probs)
+        self.assertIn("Т6: кесте жол саны 1–6 емес", probs)
+
+        bad_socratic = SocraticGen.model_validate({
+            "stem": "Тақырып", "situation": "Жағдай", "opening_question": "Неге?",
+            "checkpoints": [{"id": "c1", "goal": "Мақсат", "probe_question": "Қалай?", "expected_concepts": ["а"]}],
+            "rubric": rubric_5(), **COMMON,
+        })
+        self.assertIn("Т6: socratic бақылау нүктесі 2–3 емес", bad_socratic.problems())
+        self.assertEqual(len(ALL_FORMATS), 13)
+        self.assertEqual(len(GEN_MODELS), 13)
+        # teach_ai пакетінде socratic_checkpoints міндетті түрде None болуы шарт (Postgres CHECK).
+        teach = next(g for g in valid_gens() if g.format_name == "teach_ai").to_package(self.rng)
+        self.assertIsNone(teach.socratic_checkpoints)
+        self.assertIsNotNone(teach.rubric_0_4)
 
 
 # ------------------------------------------------------------------ контекст
@@ -327,6 +366,29 @@ class ContextTests(unittest.TestCase):
         mapping = entity_map(links, ids)
         self.assertEqual(mapping, {"c1": frozenset({"Отырар"}), "c5": frozenset({"Отырар"})})
 
+    def test_reference_text_deduplicates_chunk_overlap(self) -> None:
+        shared = "Есіл, Тобыл, Ертіс аймақтары мен Оңтүстік Орал даласы ертеде тығыз байланыста болды."
+        c1 = Chunk("c1", 1, "Бірінші бөлім мазмұны. " + shared)
+        c2 = Chunk("c2", 2, shared + " Кейінгі ғасырларда Сарыарқада ірі мәдениет қалыптасты.")
+        c3 = Chunk("c3", 3, "Басқа тәуелсіз бөлім.")
+        stitched = reference_text([c1, c2])
+        self.assertEqual(stitched.count("Есіл, Тобыл, Ертіс аймақтары"), 1)
+        self.assertIn("Бірінші бөлім мазмұны.", stitched)
+        self.assertIn("Сарыарқада ірі мәдениет қалыптасты.", stitched)
+        self.assertIn("\n\nБасқа тәуелсіз бөлім.", reference_text([c1, c3]))
+
+    def test_full_paragraph_window_returns_whole_or_anchored_window(self) -> None:
+        small = [Chunk(f"c{i}", i, f"Бөлім {i}: мазмұн мәтіні.") for i in range(1, 5)]
+        self.assertEqual(full_paragraph_window(small, anchor_chunk_id="c2"), tuple(small))
+        self.assertEqual(full_paragraph_window([]), ())
+
+        huge = [Chunk(f"c{i}", i, f"Бөлім {i}: " + ("дерек " * 80)) for i in range(1, 7)]
+        win = full_paragraph_window(huge, anchor_chunk_id="c4", max_chars=1200)
+        ids = [c.chunk_id for c in win]
+        self.assertIn("c4", ids)
+        self.assertLess(len(win), len(huge))
+        self.assertLessEqual(len(reference_text(win)), 1200)
+
 
 # ------------------------------------------------------------------ жоспарлаушы
 
@@ -338,10 +400,13 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(sum(composition.values()), 8)
 
     def test_targets(self) -> None:
-        targets = stock_targets(1, {}, StockPolicy())
+        targets = stock_targets(1, {}, StockPolicy(), formats=CODE_FORMATS)
         # mcq: 5 × 0.4 × 2.4 = 4.8 → 5; 5 × 0.6 × 2.4 = 7.2 → 8; X3: ceil(2.4) = 3 → mcq 2, matching 1
         self.assertEqual(targets, {("mcq", "X1"): 5, ("mcq", "X2"): 8, ("matching", "X1"): 3,
                                    ("matching", "X2"): 5, ("mcq", "X3"): 2, ("matching", "X3"): 1})
+        l4_targets = stock_targets(4, {}, StockPolicy())
+        self.assertIn(("case_study", "X2"), l4_targets)
+        self.assertIn(("priority", "X2"), l4_targets)
 
     def test_plan_counts_existing_stock(self) -> None:
         have = {("t1", "mcq", "X1"): 5, ("t1", "mcq", "X2"): 3}
@@ -470,8 +535,48 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(payload["нысана"], "Ұлы Жібек жолы")
         self.assertEqual(payload["§_ұғымдары"], ["Отырар", "Тараз"])
 
+    def test_prompts_enforce_rubric_fairness_and_siz_tone(self) -> None:
+        system_body = load_prompt("system").body
+        self.assertIn("«сіз»", system_body)
+        self.assertIn("required_facts", system_body)
+        self.assertIn("сұрақтың өзінде", system_body)
+
+        for fmt in (*HYBRID_FORMATS, *AI_FORMATS):
+            body = load_prompt(fmt).body
+            self.assertIn("«сіз»", body, fmt)
+            self.assertIn("required_facts", body, fmt)
+            if fmt != "short_answer":
+                self.assertIn("нысана", body, fmt)
+            if fmt in FULL_PARAGRAPH_FORMATS:
+                self.assertIn("толық", body, fmt)
+        self.assertNotIn("мысалмен түсіндір\"", load_prompt("feynman").body)
+
+        dialog_src = inspect.getsource(dialog.build_dialog_messages)
+        self.assertGreaterEqual(dialog_src.count("«сіз»"), 2)
+        grader_src = inspect.getsource(ai_grader)
+        self.assertIn("сұрақтың өзінде беріліп қойған", grader_src)
+        self.assertIn("«сіз»", grader_src)
+
 
 # ------------------------------------------------------------------ банк аудиті (D73)
+
+
+def rubric_5() -> list[dict]:
+    return [
+        {"score": 0, "criteria": "Жауап жоқ не қате", "required_facts": []},
+        {"score": 1, "criteria": "Үстірт сөз бар", "required_facts": ["жібек"]},
+        {"score": 2, "criteria": "Жартылай дұрыс", "required_facts": ["жібек", "сауда"]},
+        {"score": 3, "criteria": "Негізгі ой бар", "required_facts": ["жібек", "қағаз"]},
+        {"score": 4, "criteria": "Толық дәл", "required_facts": ["жібек", "қағаз", "дәмдеуіштер"]},
+    ]
+
+
+def rubric_3() -> list[dict]:
+    return [
+        {"score": 0, "criteria": "Түзету қате", "required_facts": []},
+        {"score": 1, "criteria": "Жартылай дұрыс", "required_facts": ["жібек"]},
+        {"score": 2, "criteria": "Толық дұрыс", "required_facts": ["жібек", "қағаз"]},
+    ]
 
 
 def valid_gens() -> list:
@@ -489,6 +594,71 @@ def valid_gens() -> list:
         SliderGen.model_validate({"stem": "I = 2 А", "input_name": "R", "input_unit": "Ом", "min": 1, "max": 20,
                                   "step": 1, "output_name": "I", "output_unit": "А", "formula": "I = 12 / R",
                                   "accept_min": 5.5, "accept_max": 6.5, **COMMON}),
+        ShortAnswerGen.model_validate({
+            "stem": "Ұлы Жібек жолы арқылы қандай тауарлар тасылды?",
+            "reference_answer": "Жібек, қағаз және дәмдеуіштер тасылды.",
+            "rubric": rubric_5(),
+            **COMMON,
+        }),
+        TrueFalseFixGen.model_validate({
+            "stem": "Тұжырымды тексеріңіз",
+            "statement": "Ұлы Жібек жолы арқылы тек темір тасылды.",
+            "is_true": False,
+            "correction": "Ұлы Жібек жолы арқылы жібек, қағаз және дәмдеуіштер тасылды.",
+            "rubric": rubric_3(),
+            **COMMON,
+        }),
+        PriorityGen.model_validate({
+            "stem": "Сауда керуенінің ретін таңдаңыз",
+            "scenario": "Отырар мен Тараз арқылы керуен өтпекші.",
+            "options": ["Бағытты тексеру", "Жүкті жинау", "Қорғаушы жалдау"],
+            "accepted_rankings": [[0, 1, 2]],
+            "reference_justification": "Алдымен қауіпсіз бағыт таңдалады.",
+            "rubric": rubric_3(),
+            **COMMON,
+        }),
+        CaseStudyGen.model_validate({
+            "stem": "Жібек жолы саудасы",
+            "case_text": "Қытайдан Жерорта теңізіне жібек пен қағаз жеткізілді.",
+            "data_table": {
+                "title": "Қалалар",
+                "headers": ["Қала", "Тауар"],
+                "rows": [{"cells": ["Отырар", "Жібек"]}, {"cells": ["Тараз", "Қағаз"]}],
+            },
+            "task_prompt": "Отырардың рөлін түсіндіріңіз.",
+            "reference_answer": "Отырар ірі сауда орталығы болды.",
+            "rubric": rubric_5(),
+            **COMMON,
+        }),
+        FeynmanGen.model_validate({
+            "stem": "Ұғымды түсіндіріңіз",
+            "concept": "Сауда жолы",
+            "audience_prompt": "5-сынып оқушысына қарапайым түсіндіріңіз.",
+            "min_words": 40,
+            "reference_answer": "Елдер арасындағы тауар таситын үлкен жол.",
+            "rubric": rubric_5(),
+            **COMMON,
+        }),
+        SocraticGen.model_validate({
+            "stem": "Отырар мен Тараздың рөлі",
+            "situation": "Қалалар үлкен жол бойында орналасты.",
+            "opening_question": "Сауда жолы қалаларға қалай әсер етті?",
+            "checkpoints": [
+                {"id": "c1", "goal": "Сауда дамуы", "probe_question": "Неге қолөнер өсті?", "expected_concepts": ["сауда"]},
+                {"id": "c2", "goal": "Мәдени байланыс", "probe_question": "Тағы не алмасты?", "expected_concepts": ["қағаз"]},
+            ],
+            "rubric": rubric_5(),
+            **COMMON,
+        }),
+        TeachAiGen.model_validate({
+            "stem": "Қате түсінікті түзетіңіз",
+            "situation": "Сыныптасыңыз Жібек жолының бағытын шатастырып отыр.",
+            "ai_persona": "Сенімді емес оқушы",
+            "misconception": "Жібек жолы тек солтүстікке жүрді.",
+            "opening_message": "Меніңше Жібек жолы тек солтүстік ормандармен өткен сияқты?",
+            "rubric": rubric_5(),
+            **COMMON,
+        }),
     ]
 
 
@@ -498,17 +668,21 @@ def bank_question(gen, *, qid: str, minute: int = 0, embedding=None, reference: 
         question_id=qid, topic_id="kazakh6.md#§1", level=1, format=package.format, x_tier="X1",
         created_at=datetime(2026, 11, 19, 8, minute, tzinfo=timezone.utc), content=package.content, key=package.key,
         ecd_skill=package.ecd_skill, evidence=package.evidence, support_quote=package.support_quote,
-        reference_text=reference, embedding=embedding,
+        reference_text=reference, embedding=embedding, rubric_0_4=package.rubric_0_4,
+        socratic_checkpoints=package.socratic_checkpoints,
     )
 
 
 class AuditTests(unittest.TestCase):
-    def test_package_round_trip_for_every_code_format(self) -> None:
+    def test_package_round_trip_for_every_format(self) -> None:
         for gen in valid_gens():
             with self.subTest(fmt=gen.format_name):
                 package = gen.to_package(random.Random(4))
-                rebuilt = gen_from_package(package.format, package.content, package.key, ecd_skill=package.ecd_skill,
-                                           evidence=package.evidence, support_quote=package.support_quote)
+                rebuilt = gen_from_package(
+                    package.format, package.content, package.key, ecd_skill=package.ecd_skill,
+                    evidence=package.evidence, support_quote=package.support_quote,
+                    rubric_0_4=package.rubric_0_4, socratic_checkpoints=package.socratic_checkpoints,
+                )
                 self.assertEqual(rebuilt.problems(), [])
                 self.assertEqual(rebuilt.to_package(random.Random(4)).similarity_text(), package.similarity_text())
 
@@ -540,10 +714,13 @@ class AuditTests(unittest.TestCase):
         findings = {f.question.question_id: f.reasons for f in audit(questions)}
         self.assertEqual(findings, {"later": ("Т7: бар сұрақпен мазмұны қайталанады (сұрақ мәтіні бірдей)",)})
 
-    def test_non_code_formats_are_skipped(self) -> None:
-        # ЖИ форматтарының пакетін аудит құра алмайды: оларды «оқылмады» деп шығарып жібермеуі керек.
+    def test_open_formats_are_audited_and_unknown_formats_skipped(self) -> None:
+        # 5-қадамнан бері ашық пен гибрид форматтарының да генератор моделі бар: олардың бұзық пакеті белгіленеді.
         ai = replace(bank_question(mcq(), qid="ai"), format="short_answer", content={"stem": "Атаңыз."}, key={})
-        self.assertEqual(audit([ai]), [])
+        self.assertEqual(audit([ai])[0].reasons, ("Т6: пакет құрылымы оқылмады (KeyError)",))
+        # Генератор моделі жоқ формат «оқылмады» деп шығарылып кетпейді (D80).
+        legacy = replace(bank_question(mcq(), qid="legacy"), format="legacy_format", content={"stem": "?"}, key={})
+        self.assertEqual(audit([legacy]), [])
 
     def test_broken_package_is_flagged_not_crashing(self) -> None:
         broken = replace(bank_question(mcq(), qid="broken"), content={"stem": "?"})
@@ -837,7 +1014,8 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
     async def test_history_level2_excludes_formula_and_slider(self) -> None:
         batches = await self.pipeline.submit(["kazakh6.md"], 2, max_requests=200)
         self.assertEqual({b.prompt_id for b in batches},
-                         {"examiner.generation.sequence", "examiner.generation.error_step"})
+                         {"examiner.generation.sequence", "examiner.generation.error_step",
+                          "examiner.generation.true_false_fix"})
 
     # ---------------------------------------------------------- ұсақ партиялар, Fast Lane, watchdog
 
@@ -1186,6 +1364,115 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.accepted, 3)
         self.assertEqual(events[:2], ["start", "end"])
         self.assertEqual(events.count("start"), 3)
+    async def test_all_new_formats_require_concept_key_and_l3_l4_get_full_paragraph(self) -> None:
+        self.repo.chunk_rows["kazakh6.md#§1"] = [
+            Chunk("c1", 1, SOURCE),
+            Chunk("c2", 2, "Екінші бөлім: Отырар саудасы дамыды."),
+            Chunk("c3", 3, "Үшінші бөлім: Тараз қолөнері өркендеді."),
+            Chunk("c4", 4, "Төртінші бөлім: керуен жолдары қауіпсіз болды."),
+        ]
+        self.provider.concept_responses = [
+            [{"term": f"Ұғым {i}", "quote": "Ол арқылы жібек"} if i == 1 else {"term": f"Ұғым {i}", "quote": ""}
+             for i in range(1, 3)]
+            for _ in range(4)
+        ]
+        self.assertEqual(CONCEPT_BOUND_FORMATS, frozenset({"mcq", *HYBRID_FORMATS, *AI_FORMATS}))
+
+        for lvl, fmts in (
+            (1, ["short_answer"]),
+            (2, ["true_false_fix"]),
+            (3, ["socratic", "feynman", "teach_ai"]),
+            (4, ["case_study", "priority"]),
+        ):
+            await self.pipeline.submit(["kazakh6.md"], lvl, formats=fmts)
+
+        records = [row["record"] for row in self.repo.requests.values()]
+        self.assertGreaterEqual(len(records), 7)
+        for rec in records:
+            self.assertTrue(rec.concept_key, f"{rec.format} request missing concept_key")
+            if rec.format in FULL_PARAGRAPH_FORMATS:
+                self.assertEqual(rec.chunk_ids, ("c1", "c2", "c3", "c4"), rec.format)
+
+        sent_prompts = [req.messages[-1].content for batch in self.provider.batches for _, req in batch]
+        for msg in sent_prompts:
+            self.assertIn('"нысана":', msg)
+
+        # Ұғымдар шығарылмаса (provider error → None), концепт-форматтар concept_key=None сұраныс жасамайды.
+        fresh_repo = MemoryRepository()
+        fail_provider = BankFakeProvider("primary")
+        fail_provider.complete = mock.AsyncMock(side_effect=ProviderError("503", retryable=False, status=503))  # type: ignore[method-assign]
+        fail_gw = LLMGateway(parse_config(gateway_config(), {"KEY": "k"}), providers={"primary": fail_provider},
+                             sink=MemorySink(), sleep=no_sleep, rng=lambda: 0.0)
+        fail_pipe = BankPipeline(fail_gw, fresh_repo, rng=random.Random(1))
+        self.assertEqual(await fail_pipe.submit(["kazakh6.md"], 1, formats=["short_answer"]), [])
+        self.assertEqual(fresh_repo.requests, {})
+
+    async def test_fast_lane_warms_prompt_cache_before_parallel_wave(self) -> None:
+        self.repo.chunk_rows["kazakh6.md#§1"] = [
+            Chunk("c1", 1, SOURCE),
+            Chunk("c2", 2, "Екінші үзінді: Отырар мен Тараз ірі сауда орталықтары болды."),
+            Chunk("c3", 3, "Үшінші үзінді: керуендер жібек пен қағаз тасымалдады."),
+        ]
+
+        class WarmupProvider(BankFakeProvider):
+            def __init__(self) -> None:
+                super().__init__("primary")
+                self.events: list[tuple[str, str, float]] = []
+                self.in_flight_gens = 0
+                self.max_parallel_gens = 0
+                self.fail_first_gen = False
+                self._gen_count = 0
+
+            async def complete(self, request: CompletionRequest) -> ProviderCompletion:
+                if request.schema_name in {"SocraticGen", "ShortAnswerGen"}:
+                    self._gen_count += 1
+                    idx = self._gen_count
+                    loop_t = asyncio.get_running_loop().time()
+                    self.events.append(("start", f"{request.schema_name}#{idx}", loop_t))
+                    self.in_flight_gens += 1
+                    self.max_parallel_gens = max(self.max_parallel_gens, self.in_flight_gens)
+                    await asyncio.sleep(0.02)
+                    self.in_flight_gens -= 1
+                    end_t = asyncio.get_running_loop().time()
+                    self.events.append(("end", f"{request.schema_name}#{idx}", end_t))
+                    if self.fail_first_gen and idx == 1:
+                        raise ProviderError("boom", retryable=False, status=500)
+                    if request.schema_name == "SocraticGen":
+                        payload = valid_gens()[11].model_copy(update={"stem": f"Тақырып #{idx}"}).model_dump_json()
+                    else:
+                        payload = valid_gens()[6].model_copy(update={"stem": f"Сұрақ #{idx}?"}).model_dump_json()
+                    return ProviderCompletion(payload, Usage(50, 0, 50), request.model)
+                return await super().complete(request)
+
+        wp = WarmupProvider()
+        gw = LLMGateway(parse_config(gateway_config(), {"KEY": "k"}), providers={"primary": wp},
+                        sink=MemorySink(), sleep=no_sleep, rng=lambda: 0.0)
+        pipe = BankPipeline(gw, self.repo, policy=StockPolicy(concurrent_sessions_per_topic=2, safety=1.2), rng=random.Random(1))
+        report = await pipe.generate_now(
+            ["kazakh6.md"], 3, topics=["kazakh6.md#§1"], formats=["socratic"], max_requests=3, rounds=1,
+        )
+        self.assertEqual(report.accepted, 3)
+        end_first = next(t for kind, label, t in wp.events if kind == "end" and label == "SocraticGen#1")
+        starts_rest = [t for kind, label, t in wp.events if kind == "start" and label in {"SocraticGen#2", "SocraticGen#3"}]
+        self.assertEqual(len(starts_rest), 2)
+        self.assertTrue(all(st >= end_first for st in starts_rest))
+        self.assertGreaterEqual(wp.max_parallel_gens, 2)
+
+        # Лидер сәтсіз аяқталса да (fail_first_gen=True), 2-толқын блокталмайды.
+        wp2 = WarmupProvider()
+        wp2.fail_first_gen = True
+        gw2 = LLMGateway(parse_config(gateway_config(), {"KEY": "k"}), providers={"primary": wp2},
+                         sink=MemorySink(), sleep=no_sleep, rng=lambda: 0.0)
+        pipe2 = BankPipeline(gw2, MemoryRepository(), rng=random.Random(1))
+        pipe2._repo.chunk_rows["kazakh6.md#§1"] = [  # type: ignore[attr-defined]
+            Chunk("c1", 1, SOURCE),
+            Chunk("c2", 2, SOURCE + " Отырар сауда орталығы."),
+            Chunk("c3", 3, SOURCE + " Тараз қолөнер қаласы."),
+        ]
+        rep2 = await pipe2.generate_now(
+            ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["short_answer"], max_requests=3, rounds=1,
+        )
+        self.assertEqual((rep2.failed, rep2.accepted), (1, 2))
 
 
 class CheckTests(unittest.IsolatedAsyncioTestCase):
@@ -1297,6 +1584,21 @@ class CheckTests(unittest.IsolatedAsyncioTestCase):
         twice = FlakyPool(2)
         with self.assertRaises(asyncpg.exceptions.ConnectionDoesNotExistError):
             await PgBankRepository(twice)._fetch("select 1")  # type: ignore[arg-type]
+    def test_normalize_text_cleans_ocr_hyphen_breaks_without_breaking_compounds(self) -> None:
+        ocr_ref = (
+            "Иуда-\n\nизм, христиан және ислам діндері.\n"
+            "Бұл қазақ-\nстан мен Орал -\nКаспий өңірінде 1946-\n1974 жылдары Беғазы-Дәндібай жазу\u00adсы."
+        )
+        normed = normalize_text(ocr_ref)
+        self.assertIn("иудаизм", normed)
+        self.assertIn("қазақстан", normed)
+        self.assertIn("беғазы-дәндібай", normed)
+        self.assertIn("1946- 1974", normed)
+        self.assertIn("орал - каспий", normed)
+        self.assertIn("жазусы", normed)
+
+        pkg = mcq(support_quote="Иудаизм, христиан және ислам діндері.").to_package(random.Random(1))
+        self.assertIsNone(quote_problem(pkg, ocr_ref))
 
     async def test_solver_unreadable_answer_fails_closed(self) -> None:
         provider = FakeProvider("primary", ["это не json"] * 3)

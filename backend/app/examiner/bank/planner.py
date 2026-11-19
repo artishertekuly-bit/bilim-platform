@@ -18,12 +18,14 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 
-from .formats import CODE_FORMATS
+from .formats import ALL_FORMATS, CODE_FORMATS, CONCEPT_BOUND_FORMATS
 
-# bagalau §2.3: X.1 + X.2 тапсырмаларының саны.
+# bagalau §2.3: X.1 + X.2 тапсырмаларының саны (3-деңгейдің A блогы 1–2-деңгейден таңдалады).
 COMPOSITION: dict[int, dict[str, int]] = {
     1: {"mcq": 5, "matching": 3, "short_answer": 2},
     2: {"sequence": 2, "true_false_fix": 2, "error_step": 2, "formula_builder": 1, "slider": 1},
+    3: {"socratic": 1, "feynman": 1, "teach_ai": 1},
+    4: {"case_study": 1, "priority": 2},
 }
 
 BASELINE_SESSIONS = 2.4       # 2 қатар сессия × 1.2
@@ -35,8 +37,9 @@ MATCHING_PER_CONCEPT = 0.5
 MATCHING_MIN = 3
 MATCHING_MAX = 12
 MIN_MATCHING_CONCEPTS = 3     # сәйкестендіруге кемінде 3 жұп керек (Т6)
-# Әр сұрағы бір ұғымға байланатын форматтар: олардың қоры ұғым санынан аспайды (D80).
-ANCHORED_FORMATS = frozenset({"mcq", "matching"})
+# Әр сұрағы бір ұғымға байланатын форматтар: тест, сәйкестендіру (D80), ашық пен гибрид форматтары (D79).
+# Бір § пен форматта бір ұғым тобынан бір ғана сұрақ, санатқа қарамай: қоры ұғым санынан аспайды (D80).
+ANCHORED_FORMATS = frozenset({"matching", *CONCEPT_BOUND_FORMATS})
 
 
 @dataclass(frozen=True)
@@ -60,17 +63,18 @@ def effective_composition(level: int, applicable: Mapping[str, bool]) -> dict[st
     кезекпен беріледі. ЖИ мен гибрид форматтары барлық пәнге ортақ (bagalau §2.4)."""
     composition = dict(COMPOSITION[level])
     code = [name for name in composition if name in CODE_FORMATS]
-    receivers = [name for name in code if applicable.get(name, True)]
-    if not receivers:
-        raise ValueError(f"{level}-деңгейде пәнге қолданылатын код форматы жоқ")
-    for index, name in enumerate(name for name in code if not applicable.get(name, True)):
-        count = composition.pop(name)
-        composition[receivers[index % len(receivers)]] += count
+    if code:
+        receivers = [name for name in code if applicable.get(name, True)]
+        if not receivers:
+            raise ValueError(f"{level}-деңгейде пәнге қолданылатын код форматы жоқ")
+        for index, name in enumerate(name for name in code if not applicable.get(name, True)):
+            count = composition.pop(name)
+            composition[receivers[index % len(receivers)]] += count
     return composition
 
 
 def stock_targets(
-    level: int, applicable: Mapping[str, bool], policy: StockPolicy, formats: Iterable[str] = CODE_FORMATS
+    level: int, applicable: Mapping[str, bool], policy: StockPolicy, formats: Iterable[str] = ALL_FORMATS
 ) -> dict[tuple[str, str], int]:
     """Бір § үшін (формат, санат) → базалық мақсатты қор (ұғым саны белгісіз кезде)."""
     wanted = set(formats)
@@ -94,7 +98,7 @@ def concept_targets(
     level: int,
     applicable: Mapping[str, bool],
     policy: StockPolicy = StockPolicy(),
-    formats: Iterable[str] = CODE_FORMATS,
+    formats: Iterable[str] = ALL_FORMATS,
 ) -> dict[tuple[str, str], int]:
     """§-тің ұғым саны бойынша (формат, санат) → мақсатты қор (D76)."""
     if concept_count <= 0:
@@ -171,7 +175,7 @@ def plan(
     applicable: Mapping[str, bool],
     have: Mapping[tuple[str, str, str], int],
     policy: StockPolicy = StockPolicy(),
-    formats: Iterable[str] = CODE_FORMATS,
+    formats: Iterable[str] = ALL_FORMATS,
     *,
     concepts_by_topic: Mapping[str, int] | None = None,
     x3_limits: Mapping[tuple[str, str], int] | None = None,

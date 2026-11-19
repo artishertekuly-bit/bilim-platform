@@ -53,4 +53,11 @@ def shuffle_content(fmt: str, content: Mapping[str, Any], key: Mapping[str, Any]
                                     bad=lambda order: [step["id"] for step in order] == correct)
     elif fmt == "formula_builder":
         result["tokens"] = _shuffled(list(content.get("tokens") or []), rng)
+    elif fmt == "priority":
+        accepted0 = list((key.get("accepted_rankings") or [[]])[0])
+        result["options"] = _shuffled(
+            list(content.get("options") or []),
+            rng,
+            bad=lambda order: bool(accepted0) and [opt["id"] for opt in order] == accepted0,
+        )
     return result

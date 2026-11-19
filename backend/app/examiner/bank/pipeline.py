@@ -21,7 +21,7 @@ import logging
 import random
 import uuid
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
@@ -39,7 +39,7 @@ from ...llm_gateway import (
     Task,
 )
 from ...llm_gateway.prompting import strip_json_fence
-from .checks import duplicate_problem, mcq_solver_problem, quote_problem, repeat_problem
+from .checks import duplicate_problem, mcq_solver_problem, quote_problem, repeat_problem, rubric_grounded_problem
 from .concepts import (
     DEFAULT_CONCEPT_TYPE,
     ChunkConcepts,
@@ -48,8 +48,17 @@ from .concepts import (
     ensure_concepts,
     topic_concepts,
 )
-from .context import COMBO_SIZE, Chunk, chunk_combinations, distant_partners, entity_map, reference_text
-from .formats import CODE_FORMATS, FORMAT_LEVEL, GEN_MODELS, Package, normalize_text, word_stems
+from .context import (
+    COMBO_SIZE,
+    FULL_PARAGRAPH_FORMATS,
+    Chunk,
+    chunk_combinations,
+    distant_partners,
+    entity_map,
+    full_paragraph_window,
+    reference_text,
+)
+from .formats import ALL_FORMATS, CONCEPT_BOUND_FORMATS, FORMAT_LEVEL, GEN_MODELS, Package, normalize_text, word_stems
 from .planner import ANCHORED_FORMATS, StockPolicy, plan
 from .prompts import GenerationTask, generation_messages, generation_prompt_ref
 
@@ -193,7 +202,7 @@ class BankPipeline:
         books: Sequence[str],
         level: int,
         *,
-        formats: Sequence[str] = CODE_FORMATS,
+        formats: Sequence[str] = ALL_FORMATS,
         max_requests: int | None = None,
         topics: Sequence[str] | None = None,
     ) -> list[BatchRecord]:
@@ -244,7 +253,7 @@ class BankPipeline:
         level: int,
         *,
         topics: Sequence[str],
-        formats: Sequence[str] = CODE_FORMATS,
+        formats: Sequence[str] = ALL_FORMATS,
         max_requests: int | None = None,
         concurrency: int = FAST_CONCURRENCY,
         rounds: int = FAST_ROUNDS,
@@ -269,9 +278,9 @@ class BankPipeline:
             if not planned:
                 break
             await self._record_fast_batches(planned)
-            # Prompt cache (D80): әр форматтың бірінші сұранысы алдымен жалғыз жіберіледі. Ол жүйелік промпт
-            # пен формат ережесінің ортақ префиксін кэшке жазады, қалғандары оны оқиды. Қатар жіберілген
-            # суық сұраныстардың ешқайсысы бір-бірінің кэшіне тимейді.
+            # Prompt cache (D79, D80): әр форматтың бірінші сұранысы алдымен жалғыз жіберіліп, жүйелік промпт пен
+            # формат ережесінің ортақ префиксін кэшке жазады; сосын әр мәтін (§ пен чанктар) тобының біріншісі
+            # <textbook> префиксін жазады, қалғандары оны оқиды (`_run_fast_with_warmup`).
             leaders = [(name, *rows[0]) for name, rows in planned.items() if rows]
             followers = [(name, request, messages) for name, rows in planned.items() for request, messages in rows[1:]]
             items = leaders + followers
@@ -296,8 +305,7 @@ class BankPipeline:
                     except Exception as exc:  # noqa: BLE001 — бір сұраныстың қатесі қалғандарын тоқтатпайды (D80)
                         await self._fail_safely(report, request, exc)
 
-            await asyncio.gather(*(run(name, request, messages) for name, request, messages in leaders))
-            await asyncio.gather(*(run(name, request, messages) for name, request, messages in followers))
+            await _run_fast_with_warmup(items, run)
             for batch_id in {request.batch_id for _, request, _ in items}:
                 await self._repo.set_batch_status(batch_id, "processed")
             if remaining is not None:
@@ -358,9 +366,9 @@ class BankPipeline:
         max_requests: int | None,
         topics: Sequence[str] | None,
     ) -> dict[str, list[tuple[RequestRecord, list]]]:
-        formats = [name for name in formats if name in CODE_FORMATS and FORMAT_LEVEL[name] == level]
+        formats = [name for name in formats if name in ALL_FORMATS and FORMAT_LEVEL.get(name) == level]
         if not formats:
-            raise ValueError(f"{level}-деңгейде генерацияланатын код форматы жоқ")
+            raise ValueError(f"{level}-деңгейде генерацияланатын формат жоқ")
         paragraphs = await self._repo.paragraphs(books)
         if not paragraphs:
             raise ValueError("Кітаптарда § табылмады: corpus.chunk_meta толтырылған ба?")
@@ -465,9 +473,12 @@ class BankPipeline:
             return None
 
         async def anchored_context(topic_id: str, name: str, anchor: Concept) -> tuple[Chunk, ...]:
-            """Нысананың чанкы; комбинация керек форматта — сол чанкы бар комбинация."""
+            """Нысананың чанкы; комбинация керек форматта — сол чанкы бар комбинация; L3/L4 форматтарында —
+            толық § (тым ұзын §-те нысана айналасындағы терезе, D79)."""
             content = content_chunks_by_topic[topic_id]
             anchor_chunk = next(chunk for chunk in content if chunk.chunk_id == anchor.chunk_id)
+            if name in FULL_PARAGRAPH_FORMATS:
+                return full_paragraph_window(content, anchor_chunk_id=anchor.chunk_id) or (anchor_chunk,)
             counter = (topic_id, name, anchor.chunk_id)
             size = COMBO_SIZE[name]
             if size <= 1:
@@ -565,6 +576,11 @@ class BankPipeline:
                 break
             paragraph = by_topic[slot.topic_id]
             topic_concept_list = concepts_by_topic.get(slot.topic_id)
+            # Ашық пен гибрид форматтарының рубрикасы ұғымға байланады (D79): ұғымдар шықпаса, олар өткізіледі.
+            # Тест пен сәйкестендіру ол кезде чанк бойынша құрылады (D76).
+            if topic_concept_list is None and slot.format in CONCEPT_BOUND_FORMATS and slot.format != "mcq":
+                logger.warning("skipping %s for %s: concepts unavailable", slot.format, slot.topic_id)
+                continue
             anchored = slot.format in ANCHORED_FORMATS and topic_concept_list is not None
             if anchored and not topic_concept_list:
                 continue
@@ -696,7 +712,8 @@ class BankPipeline:
         package = generated.to_package(self._rng)
         chunks = await self._repo.chunks(request.chunk_ids)
         reference = reference_text(chunks)
-        problem = quote_problem(package, reference)
+        # Рубрика мәтінге сүйенуі керек (D79): ашық пен гибрид форматтарда.
+        problem = quote_problem(package, reference) or rubric_grounded_problem(package, reference)
         if problem is None:
             # Мазмұнның тікелей қайталануы (D80): шешуші мен embedding шақыруынан бұрын, ақысыз.
             existing = await self._repo.existing_packages(request.topic_id, request.level, request.format)
@@ -767,3 +784,42 @@ class BankPipeline:
 
 def _with_batch(request: RequestRecord, batch_id: str) -> RequestRecord:
     return replace(request, batch_id=batch_id)
+
+
+async def _run_fast_with_warmup(
+    items: Sequence[tuple[str, RequestRecord, list]],
+    run: Callable[[str, RequestRecord, list], Awaitable[None]],
+) -> None:
+    """Prompt caching префиксін (system + ереже + <textbook>) суық күйде қатар жібермей қыздырады."""
+
+    async def run_context_group(group: Sequence[tuple[str, RequestRecord, list]], *, warm: bool) -> None:
+        if not group:
+            return
+        if not warm:
+            await run(*group[0])
+            group = group[1:]
+        if group:
+            await asyncio.gather(*(run(*item) for item in group))
+
+    async def run_format_group(fmt_items: Sequence[tuple[str, RequestRecord, list]]) -> None:
+        by_context: dict[tuple[str, tuple[str, ...]], list[tuple[str, RequestRecord, list]]] = {}
+        for item in fmt_items:
+            _, req, _ = item
+            by_context.setdefault((req.topic_id, req.chunk_ids), []).append(item)
+        groups = list(by_context.values())
+        if not groups:
+            return
+        first = groups[0]
+        await run(*first[0])
+        tasks = []
+        if len(first) > 1:
+            tasks.append(run_context_group(first[1:], warm=True))
+        for other in groups[1:]:
+            tasks.append(run_context_group(other, warm=False))
+        if tasks:
+            await asyncio.gather(*tasks)
+
+    by_format: dict[str, list[tuple[str, RequestRecord, list]]] = {}
+    for item in items:
+        by_format.setdefault(item[0], []).append(item)
+    await asyncio.gather(*(run_format_group(fmt_items) for fmt_items in by_format.values()))

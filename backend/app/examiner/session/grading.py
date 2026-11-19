@@ -114,3 +114,47 @@ def check_answer(fmt: str, content: Mapping[str, Any], key: Mapping[str, Any], a
     if not isinstance(answer, Mapping):
         raise AnswerInvalid("answer объект болуы керек")
     return checker(content, key, answer)
+
+
+def check_hybrid_answer(
+    fmt: str, content: Mapping[str, Any], key: Mapping[str, Any], answer: Any
+) -> tuple[int, str | None]:
+    """Гибрид форматтар (true_false_fix, priority): код `c ∈ {0, 1}` және ЖИ тексеретін мәтінді қайтарады."""
+    if not isinstance(answer, Mapping):
+        raise AnswerInvalid("answer объект болуы керек")
+    if fmt == "true_false_fix":
+        verdict = _require(answer, "verdict")
+        if not isinstance(verdict, bool):
+            raise AnswerInvalid("verdict boolean (true/false) болуы керек")
+        expected = bool(key["is_true"])
+        c = int(verdict is expected)
+        if c == 1 and not expected:
+            correction = answer.get("correction")
+            if not isinstance(correction, str) or len(correction) > 2000:
+                raise AnswerInvalid("correction жол болуы керек")
+            return 1, correction
+        return c, None
+    if fmt == "priority":
+        ranking = _require(answer, "ranking")
+        option_ids = _ids(content.get("options"))
+        if not isinstance(ranking, list) or sorted(map(str, ranking)) != sorted(option_ids):
+            raise AnswerInvalid("ranking барлық нұсқаны бір-бір реттен қамтуы керек")
+        justification = _require(answer, "justification")
+        if not isinstance(justification, str) or len(justification) > 3000:
+            raise AnswerInvalid("justification жол болуы керек")
+        accepted = [[str(x) for x in item] for item in key.get("accepted_rankings") or []]
+        c = int([str(x) for x in ranking] in accepted)
+        return c, justification if c == 1 else None
+    raise AnswerInvalid(f"«{fmt}» гибрид форматы емес")
+
+
+def extract_text_answer(fmt: str, answer: Any) -> str:
+    """Ашық ЖИ форматтарынан (`short_answer`, `feynman`, `case_study`) мәтінді алады."""
+    if not isinstance(answer, Mapping):
+        raise AnswerInvalid("answer объект болуы керек")
+    if fmt not in {"short_answer", "feynman", "case_study"}:
+        raise AnswerInvalid(f"«{fmt}» мәтіндік жауап күтпейді")
+    text = _require(answer, "text")
+    if not isinstance(text, str) or len(text) > 8000:
+        raise AnswerInvalid("text жол (8000 таңбаға дейін) болуы керек")
+    return text

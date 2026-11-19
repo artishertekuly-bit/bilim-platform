@@ -19,7 +19,20 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
+from ..bank.formats import CODE_FORMATS
 from .composition import Slot
+
+POOL_CODE = "__code__"
+POOL_D_EXPLAIN = "__d_explain__"
+
+
+def slot_pool_key(slot: Slot) -> str:
+    """Формат алмастыру тобы (bagalau §2.4): код тек кодпен; ЖИ/гибрид өз форматымен ғана."""
+    if slot.format == "any_code" or slot.format in CODE_FORMATS:
+        return POOL_CODE
+    if slot.block == "D" and slot.format in ("feynman", "teach_ai"):
+        return POOL_D_EXPLAIN
+    return slot.format
 
 
 @dataclass(frozen=True)
@@ -38,6 +51,7 @@ class Candidate:
 class Picker:
     def __init__(self, candidates: Iterable[Candidate], formats: Sequence[str], rng: random.Random) -> None:
         self._formats = list(formats)
+        self._code_formats = [fmt for fmt in self._formats if fmt in CODE_FORMATS]
         self._rng = rng
         self._free: dict[tuple[str, str], list[Candidate]] = defaultdict(list)
         self._leased: dict[tuple[str, str], list[Candidate]] = defaultdict(list)
@@ -72,34 +86,59 @@ class Picker:
         return None
 
     def take(self, slot: Slot) -> Candidate | None:
-        """Орынның өз форматы (бос, содан кейін бекітілген), болмаса сол санаттағы басқа код форматы."""
-        chosen = self._first(slot.tier, [slot.format])
-        if chosen is not None:
-            return chosen
-        return self._first(slot.tier, [fmt for fmt in self._formats if fmt != slot.format])
+        """bagalau §2.4: код форматы тек код форматымен алмастырылады; ЖИ/гибрид алмастырылмайды."""
+        if slot.format == "any_code":
+            code = list(self._code_formats)
+            self._rng.shuffle(code)
+            return self._first(slot.tier, code)
+        if slot.format in CODE_FORMATS:
+            chosen = self._first(slot.tier, [slot.format])
+            if chosen is not None:
+                return chosen
+            return self._first(slot.tier, [fmt for fmt in self._code_formats if fmt != slot.format])
+        if slot.block == "D" and slot.format in ("feynman", "teach_ai"):
+            alt = "teach_ai" if slot.format == "feynman" else "feynman"
+            ordered = [slot.format, alt] if alt in self._formats else [slot.format]
+            return self._first(slot.tier, ordered)
+        return self._first(slot.tier, [slot.format])
 
     def take_any(self, tier: str) -> Candidate | None:
-        """X3: деңгейдің кез келген код форматы, алдымен бос сұрақ."""
+        """X3: деңгейдің кез келген форматы, алдымен бос сұрақ."""
         formats = list(self._formats)
         self._rng.shuffle(formats)
         return self._first(tier, formats)
 
 
-def level_availability(slots: Sequence[Slot], stock: Mapping[str, tuple[int, int]]) -> str:
-    """Деңгей картасының күйі (D65). `stock`: санат → (Е2-ден өткен сұрақ, оның ішінде бос сұрақ).
-    Санат ішінде формат алмастырылатындықтан (bagalau §2.4), қор санат бойынша саналады."""
-    need = Counter(slot.tier for slot in slots)
-    if any(stock.get(tier, (0, 0))[0] < count for tier, count in need.items()):
+def level_availability(
+    slots: Sequence[Slot], stock: Mapping[tuple[str, str], tuple[int, int]] | Mapping[str, tuple[int, int]]
+) -> str:
+    """Деңгей картасының күйі (D65; bagalau §2.4): ЖИ/гибрид форматтары өз тобында тексеріледі."""
+    sample_key = next(iter(stock), None)
+    if isinstance(sample_key, str):
+        need = Counter(slot.tier for slot in slots)
+        tier_stock: Mapping[str, tuple[int, int]] = stock  # type: ignore[assignment]
+        if any(tier_stock.get(tier, (0, 0))[0] < count for tier, count in need.items()):
+            return "unavailable"
+        if any(tier_stock.get(tier, (0, 0))[1] < count for tier, count in need.items()):
+            return "low_stock"
+        return "ready"
+
+    need_pairs = Counter((slot.tier, slot_pool_key(slot)) for slot in slots)
+    pair_stock: Mapping[tuple[str, str], tuple[int, int]] = stock  # type: ignore[assignment]
+    if any(pair_stock.get(key, (0, 0))[0] < count for key, count in need_pairs.items()):
         return "unavailable"
-    if any(stock.get(tier, (0, 0))[1] < count for tier, count in need.items()):
+    if any(pair_stock.get(key, (0, 0))[1] < count for key, count in need_pairs.items()):
         return "low_stock"
     return "ready"
 
 
 def order_items(slots: Sequence[Slot], chosen: Sequence[Candidate]) -> list[tuple[Slot, Candidate]]:
-    """Сессиядағы рет: X1 → X2, әр санаттың ішінде құрамдағы форматтардың ретімен (bagalau §2.3).
-    Алмастырылған сұрақ өз форматының орнына тұрады."""
+    """Сессиядағы рет: 3-деңгейде A блогы D блогынан бұрын; әр блокта X1 → X2."""
     rank = {fmt: index for index, fmt in enumerate(dict.fromkeys(slot.format for slot in slots))}
     pairs = list(zip(slots, chosen, strict=True))
     tier_rank = {"X1": 0, "X2": 1, "X3": 2}
-    return sorted(pairs, key=lambda pair: (tier_rank[pair[0].tier], rank.get(pair[1].format, len(rank))))
+    block_rank = {"A": 0, "D": 1, None: 2}
+    return sorted(
+        pairs,
+        key=lambda pair: (block_rank.get(pair[0].block, 2), tier_rank[pair[0].tier], rank.get(pair[1].format, len(rank))),
+    )

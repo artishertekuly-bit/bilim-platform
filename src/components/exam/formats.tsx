@@ -4,11 +4,19 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import type {
+  CaseStudyContent,
+  DialogTurn,
+  FeynmanContent,
   FormulaContent,
   MatchingContent,
   McqContent,
+  PriorityContent,
+  ShortAnswerContent,
   SliderContent,
+  SocraticContent,
   StepsContent,
+  TeachAiContent,
+  TrueFalseFixContent,
 } from '@/lib/examiner-api';
 import { cn } from '@/lib/utils';
 
@@ -472,6 +480,430 @@ export function SliderTask({ content, locked, onChange }: FormatProps<SliderCont
           </span>
           <span className="font-semibold">{output.formula}</span>
         </div>
+      </div>
+    </>
+  );
+}
+
+// --------------------------------------------------------------------- 1 · Қысқа ашық жауап
+
+const TEXTAREA =
+  'w-full rounded-[14px] border border-[#E2E0DB] bg-white p-3.5 text-[15px] leading-relaxed text-[#111111] placeholder:text-[#8C877E] focus:border-[#111111] focus:outline-none disabled:bg-[#F1EFEA]';
+
+export function ShortAnswerTask({ content, locked, onChange }: FormatProps<ShortAnswerContent>) {
+  const [text, setText] = useState('');
+
+  useEffect(() => {
+    onChange(text.trim() ? { text } : null);
+  }, [text, onChange]);
+
+  return (
+    <>
+      <Stem text={content.stem} hint="Ойыңызды 1–3 нақты сөйлеммен жазыңыз." />
+      <div className="flex flex-col gap-1.5">
+        <textarea
+          aria-label="Жауап мәтіні"
+          rows={4}
+          maxLength={4000}
+          disabled={locked}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Жауабыңызды осында жазыңыз…"
+          className={TEXTAREA}
+        />
+        <span className="self-end text-xs text-[#5E5E5E]">{text.length} / 4000</span>
+      </div>
+    </>
+  );
+}
+
+// --------------------------------------------------------------------- 2 · Шын/Жалған + түзету
+
+export function TrueFalseFixTask({ content, locked, verdict, onChange }: FormatProps<TrueFalseFixContent>) {
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const [correction, setCorrection] = useState('');
+
+  useEffect(() => {
+    if (choice === true) {
+      onChange({ verdict: true, correction: '' });
+    } else if (choice === false) {
+      onChange(correction.trim() ? { verdict: false, correction } : null);
+    } else {
+      onChange(null);
+    }
+  }, [choice, correction, onChange]);
+
+  const cardStyle = (value: boolean) => {
+    const picked = choice === value;
+    if (locked) {
+      if (!picked) return DIM;
+      if (verdict === 'correct') return GOOD;
+      if (verdict === 'incorrect') return BAD;
+      return SELECTED;
+    }
+    return picked ? SELECTED : IDLE;
+  };
+
+  return (
+    <>
+      <Stem text={content.stem} />
+      <div className="rounded-2xl border border-[#E2E0DB] bg-white p-4 text-base font-medium leading-relaxed text-[#111111]">
+        {content.statement}
+      </div>
+      <div className="grid grid-cols-2 gap-2.5">
+        <button
+          type="button"
+          disabled={locked}
+          aria-pressed={choice === true}
+          onClick={() => setChoice(true)}
+          className={cn('h-[52px] rounded-[14px] text-[15px] font-semibold', cardStyle(true))}
+        >
+          Дұрыс
+        </button>
+        <button
+          type="button"
+          disabled={locked}
+          aria-pressed={choice === false}
+          onClick={() => setChoice(false)}
+          className={cn('h-[52px] rounded-[14px] text-[15px] font-semibold', cardStyle(false))}
+        >
+          Қате
+        </button>
+      </div>
+      {choice === false ? (
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="tff-correction" className="text-sm font-semibold text-[#111111]">
+            Дұрыс нұсқасын жазыңыз
+          </label>
+          <textarea
+            id="tff-correction"
+            rows={3}
+            maxLength={2000}
+            disabled={locked}
+            value={correction}
+            onChange={(e) => setCorrection(e.target.value)}
+            placeholder="Тұжырымды қалай түзету керек?"
+            className={TEXTAREA}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+// --------------------------------------------------------------------- 4 · Басымдық қою + негіздеу
+
+export function PriorityTask({ content, locked, onChange }: FormatProps<PriorityContent>) {
+  const [ranking, setRanking] = useState<string[]>([]);
+  const [justification, setJustification] = useState('');
+
+  useEffect(() => {
+    const complete = ranking.length === content.options.length && justification.trim().length > 0;
+    onChange(complete ? { ranking, justification } : null);
+  }, [ranking, justification, content.options.length, onChange]);
+
+  const toggle = (id: string) => {
+    if (locked) return;
+    setRanking((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
+
+  return (
+    <>
+      <Stem text={content.stem} hint="Нұсқаларды маңыздылық ретімен 1-ден бастап түртіп белгілеңіз." />
+      <div className="rounded-2xl border border-[#E2E0DB] bg-white p-4 text-[15px] leading-relaxed text-[#111111]">
+        {content.scenario}
+      </div>
+      <div className="flex flex-col gap-2">
+        {content.options.map((opt) => {
+          const idx = ranking.indexOf(opt.id);
+          const ranked = idx >= 0;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              disabled={locked}
+              aria-pressed={ranked}
+              onClick={() => toggle(opt.id)}
+              className={cn(OPTION, ranked ? SELECTED : IDLE)}
+            >
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'flex h-7 w-7 flex-none items-center justify-center rounded-lg text-[13px] font-bold',
+                  ranked ? 'bg-[#111111] text-white' : 'bg-[#F1EFEA] text-[#4A4A4A]',
+                )}
+              >
+                {ranked ? idx + 1 : '·'}
+              </span>
+              <span className="flex-1 text-[15px]">{opt.text}</span>
+            </button>
+          );
+        })}
+        {ranking.length > 0 && !locked ? (
+          <button
+            type="button"
+            onClick={() => setRanking([])}
+            className="self-end px-2 py-1 text-xs font-semibold text-[#5E5E5E] hover:text-[#111111]"
+          >
+            Ретін тазалау
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="priority-reason" className="text-sm font-semibold text-[#111111]">
+          Таңдауыңызды қысқаша негіздеңіз
+        </label>
+        <textarea
+          id="priority-reason"
+          rows={3}
+          maxLength={3000}
+          disabled={locked}
+          value={justification}
+          onChange={(e) => setJustification(e.target.value)}
+          placeholder="Неліктен дәл осы ретті таңдадыңыз?"
+          className={TEXTAREA}
+        />
+      </div>
+    </>
+  );
+}
+
+// --------------------------------------------------------------------- 5 · Кейс талдау (3 қойынды, күй сақталады)
+
+export function CaseStudyTask({ content, locked, onChange }: FormatProps<CaseStudyContent>) {
+  const [tab, setTab] = useState<'case' | 'table' | 'answer'>('case');
+  const [text, setText] = useState('');
+
+  useEffect(() => {
+    onChange(text.trim() ? { text } : null);
+  }, [text, onChange]);
+
+  const tabs: { id: 'case' | 'table' | 'answer'; label: string }[] = [
+    { id: 'case', label: 'Жағдай' },
+    { id: 'table', label: 'Деректер' },
+    { id: 'answer', label: 'Жауап' },
+  ];
+
+  return (
+    <>
+      <Stem text={content.stem} />
+      <div className="grid grid-cols-3 gap-1 rounded-[14px] bg-[#ECE9E3] p-1" role="tablist">
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            onClick={() => setTab(item.id)}
+            className={
+              tab === item.id
+                ? 'h-10 rounded-[10px] bg-white text-sm font-semibold text-[#111111] shadow-[0_1px_2px_rgba(0,0,0,0.08)]'
+                : 'h-10 rounded-[10px] text-sm font-semibold text-[#4A4A4A]'
+            }
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'case' ? (
+        <div className="rounded-2xl border border-[#E2E0DB] bg-white p-4 text-[15px] leading-relaxed text-[#111111]">
+          {content.case_text}
+        </div>
+      ) : null}
+
+      {tab === 'table' ? (
+        <div className="overflow-x-auto rounded-2xl border border-[#E2E0DB] bg-white p-3">
+          <p className="m-0 mb-2.5 text-sm font-semibold text-[#111111]">{content.data_table.title}</p>
+          <table className="w-full border-collapse text-left text-[13px]">
+            <thead>
+              <tr className="border-b border-[#E2E0DB] text-[#5E5E5E]">
+                {content.data_table.headers.map((header, idx) => (
+                  <th key={idx} className="px-2 py-2 font-semibold">
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {content.data_table.rows.map((row, rIdx) => (
+                <tr key={rIdx} className="border-b border-[#F1EFEA] last:border-0">
+                  {row.map((cell, cIdx) => (
+                    <td key={cIdx} className="px-2 py-2 text-[#111111]">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      {tab === 'answer' ? (
+        <div className="flex flex-col gap-2">
+          <p className="m-0 text-sm font-semibold text-[#111111]">{content.task_prompt}</p>
+          <textarea
+            aria-label="Кейс жауабы"
+            rows={5}
+            maxLength={5000}
+            disabled={locked}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Жағдай мен кесте деректеріне сүйеніп талдау жазыңыз…"
+            className={TEXTAREA}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+// --------------------------------------------------------------------- 3 · Фейнман әдісі
+
+export function FeynmanTask({ content, locked, onChange }: FormatProps<FeynmanContent>) {
+  const [text, setText] = useState('');
+  const minWords = content.min_words || 40;
+  const wordCount = useMemo(() => (text.trim() ? text.trim().split(/\s+/).length : 0), [text]);
+
+  useEffect(() => {
+    onChange(text.trim() ? { text } : null);
+  }, [text, onChange]);
+
+  const enough = wordCount >= minWords;
+
+  return (
+    <>
+      <Stem text={content.stem} />
+      <div className="flex flex-col gap-1 rounded-2xl border border-[#E2E0DB] bg-white p-4">
+        <span className="self-start rounded-full bg-[#ECE9E3] px-2.5 py-0.5 text-xs font-semibold text-[#111111]">
+          {content.concept}
+        </span>
+        <p className="m-0 mt-1 text-[15px] leading-snug text-[#4A4A4A]">{content.audience_prompt}</p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <textarea
+          aria-label="Фейнман түсіндірмесі"
+          rows={5}
+          maxLength={6000}
+          disabled={locked}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Өз сөзіңізбен қарапайым тілде түсіндіріңіз…"
+          className={TEXTAREA}
+        />
+        <span className={cn('self-end text-xs font-semibold', enough ? 'text-[#1F6B3F]' : 'text-[#5E5E5E]')}>
+          {wordCount} / {minWords} сөз {enough ? '· жеткілікті' : '· кемінде 40 сөз ұсынылады'}
+        </span>
+      </div>
+    </>
+  );
+}
+
+// --------------------------------------------------------------------- 3 · Диалог (Сократ пен ЖИ-ді оқыт)
+
+export function DialogTask({
+  format,
+  content,
+  turns,
+  streamingText,
+  sending,
+  maxTurns = 3,
+  onSendTurn,
+}: {
+  format: string;
+  content: SocraticContent | TeachAiContent;
+  turns: DialogTurn[];
+  streamingText: string;
+  sending: boolean;
+  maxTurns?: number;
+  onSendTurn: (text: string) => Promise<boolean>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [draft, setDraft] = useState('');
+  const opening =
+    format === 'socratic'
+      ? (content as SocraticContent).opening_question
+      : (content as TeachAiContent).opening_message;
+  const remaining = Math.max(0, maxTurns - turns.length);
+
+  const submit = async () => {
+    const clean = draft.trim();
+    if (!clean || sending || remaining <= 0) return;
+    const accepted = await onSendTurn(clean);
+    if (accepted) setDraft('');
+  };
+
+  return (
+    <>
+      <Stem text={content.stem} />
+      <div className="rounded-2xl border border-[#E2E0DB] bg-white p-3.5">
+        <p className={cn('m-0 text-sm leading-relaxed text-[#4A4A4A]', !expanded && 'line-clamp-2')}>
+          {content.situation}
+        </p>
+        {content.situation.length > 90 ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-1 text-xs font-semibold text-[#111111]"
+          >
+            {expanded ? 'Жию' : 'Толық оқу'}
+          </button>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        {opening ? (
+          <div className="self-start rounded-2xl rounded-tl-sm border border-[#E2E0DB] bg-white px-4 py-3 text-[15px] leading-relaxed text-[#111111]">
+            {opening}
+          </div>
+        ) : null}
+
+        {turns.map((turn) => (
+          <div key={turn.turn_no} className="flex flex-col gap-2">
+            <div className="max-w-[85%] self-end rounded-2xl rounded-tr-sm bg-[#121212] px-4 py-2.5 text-[15px] leading-relaxed text-white">
+              {turn.student_text}
+            </div>
+            {turn.examiner_text ? (
+              <div className="max-w-[90%] self-start rounded-2xl rounded-tl-sm border border-[#E2E0DB] bg-white px-4 py-3 text-[15px] leading-relaxed text-[#111111]">
+                {turn.examiner_text}
+              </div>
+            ) : null}
+          </div>
+        ))}
+
+        {streamingText ? (
+          <div className="max-w-[90%] self-start rounded-2xl rounded-tl-sm border border-[#E2E0DB] bg-white px-4 py-3 text-[15px] leading-relaxed text-[#111111]">
+            {streamingText}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="mt-1 flex flex-col gap-2 rounded-2xl border border-[#E2E0DB] bg-white p-3">
+        <div className="flex items-center justify-between text-xs font-semibold text-[#5E5E5E]">
+          <span>Диалог қадамы</span>
+          <span>
+            {Math.min(turns.length + (sending ? 1 : 0), maxTurns)} / {maxTurns}
+          </span>
+        </div>
+        <textarea
+          aria-label="Диалог жауабы"
+          rows={3}
+          maxLength={4000}
+          disabled={sending || remaining <= 0}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Жауабыңызды жазыңыз…"
+          className="w-full resize-none rounded-xl border border-[#E2E0DB] bg-[#F6F5F2] p-3 text-[15px] text-[#111111] focus:border-[#111111] focus:outline-none disabled:opacity-60"
+        />
+        <button
+          type="button"
+          disabled={sending || !draft.trim() || remaining <= 0}
+          onClick={submit}
+          className="h-11 rounded-xl bg-[#121212] text-sm font-semibold text-white disabled:bg-[#D9D6D0] disabled:text-[#4A4A4A]"
+        >
+          {sending ? 'Жіберілуде…' : 'Жауап жіберу'}
+        </button>
       </div>
     </>
   );

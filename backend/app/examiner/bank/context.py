@@ -17,12 +17,30 @@ from itertools import combinations
 
 COMBO_SIZE: dict[str, int] = {
     "mcq": 1,
+    "short_answer": 1,
     "matching": 2,
     "sequence": 2,
+    "true_false_fix": 2,
     "error_step": 2,
+    "feynman": 2,
+    "socratic": 2,
+    "teach_ai": 2,
     "formula_builder": 3,
     "slider": 3,
+    "case_study": 3,
+    "priority": 3,
 }
+
+# L3/L4 форматтарына §-тің жартысын емес, толық § контекстін беру (оқушы дұрыс дерек айтса балы түспеуі үшін, D79).
+FULL_PARAGRAPH_FORMATS: frozenset[str] = frozenset({
+    "socratic",
+    "feynman",
+    "teach_ai",
+    "case_study",
+    "priority",
+})
+MAX_FULL_PARAGRAPH_CHARS = 24_000
+_MIN_OVERLAP_CHARS = 40
 
 _HEADER = re.compile(r"^\s*\[[^\]]*\]\s*")
 _HEADING_MARKS = re.compile(r"^#{1,6}\s*", re.MULTILINE)
@@ -92,8 +110,76 @@ def clean_chunk_text(content: str) -> str:
     return strip_assignments(re.sub(r"\n{3,}", "\n\n", text).strip())
 
 
+def _merge_overlap(left: str, right: str) -> str:
+    """Көрші чанктардың қабаттасқан (overlap) бөлігін қайталамай тігеді."""
+    if not right:
+        return left
+    if not left:
+        return right
+    if len(right) >= _MIN_OVERLAP_CHARS:
+        probe = right[:_MIN_OVERLAP_CHARS]
+        start = max(0, len(left) - len(right))
+        while (pos := left.find(probe, start)) != -1:
+            overlap = len(left) - pos
+            if right.startswith(left[pos:]):
+                tail = right[overlap:]
+                if not tail:
+                    return left
+                sep = "" if (left[-1].isspace() or tail[0].isspace() or tail[0] in ".,;:!?") else " "
+                return left + sep + tail
+            start = pos + 1
+    return left + "\n\n" + right
+
+
 def reference_text(chunks: Sequence[Chunk]) -> str:
-    return "\n\n".join(chunk.text for chunk in sorted(chunks, key=lambda chunk: chunk.order))
+    ordered = sorted(chunks, key=lambda chunk: chunk.order)
+    merged = ""
+    for chunk in ordered:
+        merged = _merge_overlap(merged, chunk.text)
+    return merged
+
+
+def full_paragraph_window(
+    chunks: Sequence[Chunk],
+    *,
+    anchor_chunk_id: str | None = None,
+    max_chars: int = MAX_FULL_PARAGRAPH_CHARS,
+) -> tuple[Chunk, ...]:
+    """§-тің толық мәтінін (немесе тым ұзын §-те нысана айналасындағы шекті терезені) қайтарады."""
+    ordered = sorted(chunks, key=lambda chunk: chunk.order)
+    if not ordered:
+        return ()
+    if len(reference_text(ordered)) <= max_chars:
+        return tuple(ordered)
+
+    anchor_idx = 0
+    if anchor_chunk_id is not None:
+        for idx, chunk in enumerate(ordered):
+            if chunk.chunk_id == anchor_chunk_id:
+                anchor_idx = idx
+                break
+
+    lo = anchor_idx
+    hi = anchor_idx
+    prefer_left = False
+    while lo > 0 or hi + 1 < len(ordered):
+        sides = ("left", "right") if prefer_left else ("right", "left")
+        grew = False
+        for side in sides:
+            if side == "left" and lo > 0:
+                if len(reference_text(ordered[lo - 1:hi + 1])) <= max_chars:
+                    lo -= 1
+                    grew = True
+                    break
+            elif side == "right" and hi + 1 < len(ordered):
+                if len(reference_text(ordered[lo:hi + 2])) <= max_chars:
+                    hi += 1
+                    grew = True
+                    break
+        if not grew:
+            break
+        prefer_left = not prefer_left
+    return tuple(ordered[lo:hi + 1])
 
 
 def entity_map(links: Sequence[tuple[str, str]], chunk_ids: Sequence[str]) -> dict[str, frozenset[str]]:

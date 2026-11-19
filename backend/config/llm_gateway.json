@@ -35,18 +35,20 @@
     },
     "grading": {
       "provider": "primary",
-      "model": "${LLM_GRADING_MODEL}",
+      "model": "${LLM_GRADING_MODEL:-gpt-5.4-mini-2026-03-17}",
       "pinned": true,
       "rpm": 500,
       "tpm": 100000,
-      "max_concurrency": 8
+      "max_concurrency": 8,
+      "pricing": { "input_per_mtok": 0.75, "cached_input_per_mtok": 0.075, "output_per_mtok": 4.5 }
     },
     "second_grading": {
       "provider": "primary",
-      "model": "${LLM_SECOND_GRADING_MODEL}",
+      "model": "${LLM_SECOND_GRADING_MODEL:-gpt-5.4-2026-03-05}",
       "rpm": 200,
       "tpm": 50000,
-      "max_concurrency": 4
+      "max_concurrency": 4,
+      "pricing": { "input_per_mtok": 2.5, "cached_input_per_mtok": 0.25, "output_per_mtok": 15.0 }
     },
     "reserve": {
       "provider": "reserve",

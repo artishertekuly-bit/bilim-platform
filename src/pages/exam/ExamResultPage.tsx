@@ -1,5 +1,6 @@
 // Сессия нәтижесі (дизайн: Result.dc.html; api §3.7). X3 деңгей балына кірмейді (bagalau §4.2).
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 
 import {
@@ -28,11 +29,31 @@ function LockIcon() {
 export default function ExamResultPage() {
   const { sessionId = '' } = useParams();
   const api = useExaminerApi();
+  const queryClient = useQueryClient();
+  const [appealItem, setAppealItem] = useState<string | null>(null);
+  const [appealReason, setAppealReason] = useState('');
+  const [appealSuccess, setAppealSuccess] = useState<string | null>(null);
+  const [appealError, setAppealError] = useState<string | null>(null);
+
   const result = useQuery({
     queryKey: ['examiner', 'result', sessionId],
     queryFn: () => api.result(sessionId),
     enabled: Boolean(sessionId),
     retry: false,
+  });
+
+  const sendAppeal = useMutation({
+    mutationFn: ({ itemId, reason }: { itemId: string; reason: string }) => api.appeal(sessionId, itemId, reason),
+    onSuccess: () => {
+      setAppealItem(null);
+      setAppealReason('');
+      setAppealError(null);
+      setAppealSuccess('Шағым мұғалімнің тексеру кезегіне жіберілді.');
+      void queryClient.invalidateQueries({ queryKey: ['examiner', 'result', sessionId] });
+    },
+    onError: (err) => {
+      setAppealError(err instanceof Error ? err.message : 'Шағым жіберілмеді.');
+    },
   });
 
   const footer = (
@@ -104,6 +125,74 @@ export default function ExamResultPage() {
 
       {!data.is_final ? (
         <Banner tone="warn">ЖИ бағалаған тапсырмалар мұғалім растағанша алдын ала, сондықтан нәтиже өзгеруі мүмкін.</Banner>
+      ) : null}
+
+      {data.level === 3 && data.part_d != null && data.part_a != null ? (
+        <Card className="grid grid-cols-2 gap-3 px-4 py-3.5">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-semibold text-[#5E5E5E]">Диалог блогы (70%)</span>
+            <span className="text-lg font-bold">{Math.round(data.part_d * 100)}%</span>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-semibold text-[#5E5E5E]">Ұшқырлық блогы (30%)</span>
+            <span className="text-lg font-bold">{Math.round(data.part_a * 100)}%</span>
+          </div>
+        </Card>
+      ) : null}
+
+      {data.items && data.items.some((item) => item.appealable) ? (
+        <Card className="flex flex-col gap-2.5 px-4 py-3.5">
+          <span className="text-[15px] font-semibold">ЖИ бағасына шағымдану</span>
+          {appealSuccess ? <Banner tone="good">{appealSuccess}</Banner> : null}
+          {appealError ? <Banner tone="warn">{appealError}</Banner> : null}
+          <div className="flex flex-col gap-2">
+            {data.items
+              .filter((item) => item.appealable)
+              .map((item) => (
+                <div key={item.item_id} className="flex flex-col gap-2 border-t border-[#F1EFEA] pt-2 first:border-0 first:pt-0">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="font-medium">
+                      #{item.position} · {FORMAT_TITLES[item.format] ?? item.format} ({item.score} / {item.max_score})
+                    </span>
+                    {item.appealed ? (
+                      <span className="text-xs font-semibold text-[#5E5E5E]">Шағым жіберілді</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAppealItem(appealItem === item.item_id ? null : item.item_id);
+                          setAppealError(null);
+                        }}
+                        className="rounded-lg border border-[#D9D6D0] px-2.5 py-1 text-xs font-semibold text-[#111111]"
+                      >
+                        Шағымдану
+                      </button>
+                    )}
+                  </div>
+                  {appealItem === item.item_id ? (
+                    <div className="flex flex-col gap-2">
+                      <textarea
+                        rows={2}
+                        maxLength={1000}
+                        value={appealReason}
+                        onChange={(e) => setAppealReason(e.target.value)}
+                        placeholder="Неге қайта қарау керек? Қысқаша жазыңыз…"
+                        className="w-full rounded-xl border border-[#E2E0DB] bg-[#F6F5F2] p-2.5 text-sm text-[#111111]"
+                      />
+                      <button
+                        type="button"
+                        disabled={appealReason.trim().length < 3 || sendAppeal.isPending}
+                        onClick={() => sendAppeal.mutate({ itemId: item.item_id, reason: appealReason.trim() })}
+                        className="h-10 rounded-xl bg-[#121212] text-sm font-semibold text-white disabled:bg-[#D9D6D0] disabled:text-[#4A4A4A]"
+                      >
+                        {sendAppeal.isPending ? 'Жіберілуде…' : 'Жіберу'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+          </div>
+        </Card>
       ) : null}
 
       <Card className="flex flex-col gap-1.5 px-4 py-3.5">

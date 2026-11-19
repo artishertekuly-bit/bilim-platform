@@ -42,13 +42,16 @@ export function SessionHeader({
   answered,
   total,
   onClose,
+  timerSeconds,
 }: {
   levelLabel: string;
   answered: number;
   total: number;
   onClose: () => void;
+  timerSeconds?: number | null;
 }) {
   const percent = total ? Math.round((answered / total) * 100) : 0;
+  const urgent = timerSeconds !== null && timerSeconds !== undefined && timerSeconds <= 10;
   return (
     <header className="flex items-center gap-2 pb-2 pl-1 pr-4 pt-3">
       <button
@@ -60,11 +63,23 @@ export function SessionHeader({
         <CloseIcon />
       </button>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex items-baseline justify-between text-[13px] text-[#5E5E5E]">
-          <span className="font-semibold text-[#111111]">{levelLabel}</span>
-          <span>
-            {Math.min(answered + 1, total)} / {total}
-          </span>
+        <div className="flex items-center justify-between gap-2 text-[13px] text-[#5E5E5E]">
+          <span className="truncate font-semibold text-[#111111]">{levelLabel}</span>
+          <div className="flex items-center gap-2">
+            {timerSeconds !== null && timerSeconds !== undefined ? (
+              <span
+                className={cn(
+                  'rounded-full px-2.5 py-0.5 font-mono text-xs font-bold tabular-nums',
+                  urgent ? 'bg-[#FBEAEA] text-[#B42323]' : 'bg-[#ECE9E3] text-[#111111]',
+                )}
+              >
+                00:{String(Math.max(0, timerSeconds)).padStart(2, '0')}
+              </span>
+            ) : null}
+            <span>
+              {Math.min(answered + 1, total)} / {total}
+            </span>
+          </div>
         </div>
         <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-[#E2E0DB]">
           <div className="h-full rounded-full bg-[#111111] transition-all" style={{ width: `${percent}%` }} />

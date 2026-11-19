@@ -33,6 +33,32 @@ class AbandonRequest(BaseModel):
     client_request_id: UUID
 
 
+class DialogTurnRequest(BaseModel):
+    client_request_id: UUID
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class AppealRequest(BaseModel):
+    client_request_id: UUID
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class ConfirmGradeRequest(BaseModel):
+    client_request_id: UUID
+
+
+class OverrideGradeRequest(BaseModel):
+    client_request_id: UUID
+    new_score: int = Field(ge=0, le=4)
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+class FalsePositiveRequest(BaseModel):
+    client_request_id: UUID
+    reason: str = Field(min_length=3, max_length=1000)
+    new_score: int | None = Field(default=None, ge=0, le=4)
+
+
 # ------------------------------------------------------------------ масштаб пен каталог
 
 
@@ -84,6 +110,12 @@ class Progress(BaseModel):
     total: int
 
 
+class DialogTurnDTO(BaseModel):
+    turn_no: int
+    student_text: str
+    examiner_text: str | None = None
+
+
 class SessionItem(BaseModel):
     item_id: str
     position: int
@@ -94,6 +126,7 @@ class SessionItem(BaseModel):
     served_at: datetime | None
     deadline_at: datetime | None
     state: Literal["open", "answered", "grading", "graded"]
+    turns: list[DialogTurnDTO] | None = None
 
 
 class ExamSession(BaseModel):
@@ -123,6 +156,17 @@ class AnswerResult(BaseModel):
     session: ExamSession
 
 
+class ExplanationResponse(BaseModel):
+    status: Literal["pending", "ready", "failed"]
+    text: str | None = None
+
+
+class AppealResponse(BaseModel):
+    item_id: str
+    grade_id: str
+    status: Literal["appealed"]
+
+
 # ------------------------------------------------------------------ нәтиже мен профиль
 
 
@@ -146,6 +190,7 @@ class SubjectProfile(BaseModel):
     subject: SubjectInfo
     levels: list[LevelResult]
     f: float | None
+    f_is_final: bool = False
 
 
 class StudentProfile(BaseModel):
@@ -170,6 +215,17 @@ class X3Result(BaseModel):
     reason: str | None = None
 
 
+class ResultItemSummary(BaseModel):
+    item_id: str
+    position: int
+    format: str
+    score: int
+    max_score: int = 4
+    grade_status: Literal["pending", "provisional", "final"]
+    appealable: bool
+    appealed: bool
+
+
 class SessionResult(BaseModel):
     session_id: str
     level: int
@@ -178,10 +234,93 @@ class SessionResult(BaseModel):
     threshold: int
     mastered: bool
     is_final: bool
+    part_d: float | None = None
+    part_a: float | None = None
+    x3_rating_valid: bool = True
     breakdown: list[BreakdownRow]
     total: Total
     x3: X3Result
+    items: list[ResultItemSummary] = []
     subject_profile: SubjectProfile
+
+
+# ------------------------------------------------------------------ мұғалім кезегі (api §3.9)
+
+
+class ReviewQueueItem(BaseModel):
+    grade_id: str
+    session_id: str
+    student_id: str
+    level: int
+    format: str
+    x_tier: Tier
+    review_reason: str | None
+    original_score: int | None
+    effective_score: int | None
+    grade_source: str | None
+    appealed: bool
+    created_at: datetime
+
+
+class ReviewQueueResponse(BaseModel):
+    items: list[ReviewQueueItem]
+    total: int
+
+
+class GradeOverrideDTO(BaseModel):
+    override_id: str
+    teacher_id: str
+    new_score: int
+    reason: str
+    kind: Literal["review", "false_positive"]
+    created_at: datetime
+
+
+class TeacherGradeDetail(BaseModel):
+    grade_id: str
+    session_id: str
+    item_id: str
+    student_id: str
+    level: int
+    format: str
+    x_tier: Tier
+    question_content: dict[str, Any]
+    rubric_0_4: list[dict[str, Any]] | None
+    reference_text: str | None
+    answer: dict[str, Any]
+    answer_text: str | None
+    dialog_turns: list[DialogTurnDTO]
+    original_score: int | None
+    effective_score: int | None
+    grade_source: str | None
+    grade_status: Literal["pending", "provisional", "final"]
+    review_reason: str | None
+    evidence_quotes: list[dict[str, Any]]
+    grade_reason: str | None
+    appeal_text: str | None
+    grader_model: str | None
+    prompt_version: str | None
+    overrides: list[GradeOverrideDTO]
+
+
+class TeacherGradeActionResponse(BaseModel):
+    grade_id: str
+    effective_score: int | None
+    grade_status: Literal["final"]
+    session_p: float | None = None
+    session_is_final: bool | None = None
+    x3_rating_valid: bool | None = None
+
+
+class FalsePositiveResponse(BaseModel):
+    event_id: str
+    session_id: str
+    strike_count: int
+    grade_id: str | None = None
+    effective_score: int | None = None
+    session_p: float | None = None
+    session_is_final: bool | None = None
+    x3_rating_valid: bool | None = None
 
 
 class LevelCard(BaseModel):

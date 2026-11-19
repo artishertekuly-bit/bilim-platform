@@ -1,7 +1,8 @@
-"""Examiner API: `/api/examiner/v1` (api-kelisimderi.md §3.2).
+"""Examiner API: `/api/examiner/v1` (api-kelisimderi.md §3.2, §3.9).
 
-Оқушы тек өз сессиясын көреді: сессия әрдайым `student_id`-мен бірге ізделеді, ал бөтен сессия
-`404` қайтарады (api §2.1). Қателер `{"error": {code, message, details}}` пішімінде (api §2.4).
+Оқушы тек өз сессиясын көреді (`404` бөтен сессияда).
+Мұғалім эндпоинттары тек `teacher` рөліне ашық (`admin` мен `student` 403 алады, api §2.1).
+Қателер `{"error": {code, message, details}}` пішімінде (api §2.4).
 """
 
 from __future__ import annotations
@@ -10,25 +11,36 @@ import asyncio
 import logging
 
 import asyncpg
-from fastapi import APIRouter, Depends, FastAPI, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
-from ...dependencies.auth import get_current_user_id
+from ...dependencies.auth import get_current_user_id, get_current_user_with_role
 from ..bank.repository import create_pool
 from .dto import (
     AbandonRequest,
     AnswerRequest,
     AnswerResult,
+    AppealRequest,
+    AppealResponse,
+    ConfirmGradeRequest,
+    DialogTurnRequest,
     ExamSession,
+    ExplanationResponse,
+    FalsePositiveRequest,
+    FalsePositiveResponse,
     LevelsResponse,
+    OverrideGradeRequest,
+    ReviewQueueResponse,
     ScopeCatalog,
     ScopeType,
     SessionResult,
     StartSessionRequest,
     StudentProfile,
     SubjectCatalogItem,
+    TeacherGradeActionResponse,
+    TeacherGradeDetail,
 )
 from .errors import ExaminerError
 from .service import ExaminerService
@@ -61,9 +73,22 @@ async def get_service() -> ExaminerService:
 
 async def close_service() -> None:
     global _service, _pool
+    if _service is not None:
+        await _service.close()
     if _pool is not None:
         await _pool.close()
     _service, _pool = None, None
+
+
+def require_teacher_id(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> str:
+    """api §2.1: мұғалім кезегі тек мұғалімге (admin де оқушы нәтижесін оқымайды)."""
+    user_id, role = get_current_user_with_role(authorization=authorization, x_user_id=x_user_id)
+    if role != "teacher":
+        raise ExaminerError(403, "FORBIDDEN", "Бұл әрекет тек мұғалімге қолжетімді.")
+    return user_id
 
 
 # ------------------------------------------------------------------ каталог
@@ -132,6 +157,45 @@ async def answer(
     return await service.answer(user_id, _uuid(session_id), _uuid(item_id), body)
 
 
+@router.get("/sessions/{session_id}/items/{item_id}/explanation", response_model=ExplanationResponse)
+async def explanation(
+    session_id: str,
+    item_id: str,
+    user_id: str = Depends(get_current_user_id),
+    service: ExaminerService = Depends(get_service),
+) -> JSONResponse:
+    status_code, data = await service.explanation(user_id, _uuid(session_id), _uuid(item_id))
+    headers = {"Retry-After": "1"} if status_code == 202 else None
+    return JSONResponse(data.model_dump(mode="json"), status_code=status_code, headers=headers)
+
+
+@router.post("/sessions/{session_id}/items/{item_id}/turns")
+async def dialog_turn(
+    session_id: str,
+    item_id: str,
+    body: DialogTurnRequest,
+    user_id: str = Depends(get_current_user_id),
+    service: ExaminerService = Depends(get_service),
+) -> StreamingResponse:
+    stream = await service.stream_turn(user_id, _uuid(session_id), _uuid(item_id), body)
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/sessions/{session_id}/items/{item_id}/appeal", response_model=AppealResponse)
+async def appeal_item(
+    session_id: str,
+    item_id: str,
+    body: AppealRequest,
+    user_id: str = Depends(get_current_user_id),
+    service: ExaminerService = Depends(get_service),
+) -> AppealResponse:
+    return await service.appeal(user_id, _uuid(session_id), _uuid(item_id), body)
+
+
 @router.post("/sessions/{session_id}/abandon", response_model=ExamSession)
 async def abandon(
     session_id: str,
@@ -156,13 +220,66 @@ async def profile(
     return await service.profile(user_id)
 
 
+# ------------------------------------------------------------------ мұғалім (api §3.9)
+
+
+@router.get("/teacher/review-queue", response_model=ReviewQueueResponse)
+async def review_queue(
+    class_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    teacher_id: str = Depends(require_teacher_id),
+    service: ExaminerService = Depends(get_service),
+) -> ReviewQueueResponse:
+    cid = _uuid(class_id) if class_id is not None else None
+    return await service.teacher_review_queue(teacher_id, class_id=cid, limit=limit, offset=offset)
+
+
+@router.get("/teacher/grades/{grade_id}", response_model=TeacherGradeDetail)
+async def grade_detail(
+    grade_id: str,
+    teacher_id: str = Depends(require_teacher_id),
+    service: ExaminerService = Depends(get_service),
+) -> TeacherGradeDetail:
+    return await service.teacher_grade_detail(teacher_id, _uuid(grade_id))
+
+
+@router.post("/teacher/grades/{grade_id}/confirm", response_model=TeacherGradeActionResponse)
+async def confirm_grade_route(
+    grade_id: str,
+    body: ConfirmGradeRequest,
+    teacher_id: str = Depends(require_teacher_id),
+    service: ExaminerService = Depends(get_service),
+) -> TeacherGradeActionResponse:
+    return await service.teacher_confirm_grade(teacher_id, _uuid(grade_id), body)
+
+
+@router.post("/teacher/grades/{grade_id}/override", response_model=TeacherGradeActionResponse)
+async def override_grade_route(
+    grade_id: str,
+    body: OverrideGradeRequest,
+    teacher_id: str = Depends(require_teacher_id),
+    service: ExaminerService = Depends(get_service),
+) -> TeacherGradeActionResponse:
+    return await service.teacher_override_grade(teacher_id, _uuid(grade_id), body)
+
+
+@router.post("/teacher/alerts/{alert_id}/false-positive", response_model=FalsePositiveResponse)
+async def false_positive_route(
+    alert_id: str,
+    body: FalsePositiveRequest,
+    teacher_id: str = Depends(require_teacher_id),
+    service: ExaminerService = Depends(get_service),
+) -> FalsePositiveResponse:
+    return await service.teacher_false_positive(teacher_id, _uuid(alert_id), body)
+
+
 def _uuid(value: str) -> str:
     import uuid
 
     try:
         return str(uuid.UUID(value))
     except ValueError:
-        # Бөтен немесе жарамсыз id-дің бар-жоғы ашылмайды (api §2.1).
         raise ExaminerError(404, "NOT_FOUND", "Табылмады.") from None
 
 

@@ -341,15 +341,25 @@ class PgBankRepository:
         """Пакет, оның күйі және сұраныстың нәтижесі бір транзакцияда жазылады."""
         request = question.request
         package = question.package
+        rubric_json = (
+            json.dumps(package.rubric_0_4, ensure_ascii=False)
+            if package.rubric_0_4 is not None
+            else None
+        )
+        checkpoints_json = (
+            json.dumps(package.socratic_checkpoints, ensure_ascii=False)
+            if package.socratic_checkpoints is not None
+            else None
+        )
         async with self._pool.acquire() as connection, connection.transaction():
             question_id = await connection.fetchval(
                 """
                 insert into examiner.questions
                   (subject_id, topic_id, level, format, question_content, ecd_skill, ecd_evidence,
                    reference_context, generator_model, prompt_version, content_embedding, content_embedding_model,
-                   concept_key)
+                   concept_key, rubric_0_4, socratic_checkpoints)
                 values ($1::uuid, $2, $3::smallint, $4::text, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9, $10,
-                        ($11::text)::extensions.vector, $12, $13)
+                        ($11::text)::extensions.vector, $12, $13, $14::jsonb, $15::jsonb)
                 returning question_id::text
                 """,
                 request.subject_id, request.topic_id, request.level, request.format,
@@ -358,6 +368,7 @@ class PgBankRepository:
                 json.dumps(question.reference_context, ensure_ascii=False),
                 question.generator_model, question.prompt_version,
                 _vector(question.embedding), question.embedding_model, request.concept_key,
+                rubric_json, checkpoints_json,
             )
             await connection.execute(
                 "insert into examiner.question_state (question_id, x_tier, change_reason) values ($1::uuid, $2::text, 'generation')",
@@ -382,7 +393,8 @@ class PgBankRepository:
             """
             select q.question_id::text as question_id, q.topic_id, q.level::int as level, q.format::text as format,
                    s.x_tier::text as x_tier, q.created_at, q.question_content, q.ecd_skill, q.ecd_evidence,
-                   q.reference_context, q.content_embedding::text as embedding
+                   q.reference_context, q.content_embedding::text as embedding,
+                   q.rubric_0_4, q.socratic_checkpoints
             from examiner.questions q
             join examiner.question_state s on s.question_id = q.question_id
             where s.status = 'active'
@@ -393,6 +405,8 @@ class PgBankRepository:
         for row in rows:
             evidence = _json(row["ecd_evidence"])
             reference = _json(row["reference_context"])
+            rubric_raw = row["rubric_0_4"]
+            cp_raw = row["socratic_checkpoints"]
             questions.append(BankQuestion(
                 question_id=row["question_id"], topic_id=row["topic_id"], level=row["level"], format=row["format"],
                 x_tier=row["x_tier"], created_at=row["created_at"], content=_json(row["question_content"]),
@@ -400,6 +414,8 @@ class PgBankRepository:
                 evidence=evidence.get("evidence") or "", support_quote=evidence.get("support_quote") or "",
                 reference_text=reference.get("text") or "",
                 embedding=_parse_vector(row["embedding"]) if row["embedding"] else None,
+                rubric_0_4=_json_list(rubric_raw) if rubric_raw is not None else None,
+                socratic_checkpoints=_json_list(cp_raw) if cp_raw is not None else None,
             ))
         return questions
 
