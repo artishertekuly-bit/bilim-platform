@@ -345,14 +345,16 @@ class LLMGateway:
                 raise LLMUnavailableError(str(exc), retry_after=exc.retry_after) from exc
             raise LLMRequestError(str(exc), status=exc.status) from exc
 
-        if status.status == "completed" and status.results is not None and handle.batch_id not in self._completed_batches:
+        # Нәтижесі бар кез келген соңғы күй (мерзімі өткен, тоқтатылған batch те) шығынға бір рет жазылады.
+        if status.results is not None and handle.batch_id not in self._completed_batches:
             self._completed_batches.add(handle.batch_id)
             usage = sum((result.usage for result in status.results), Usage())
             route = self._config.route(handle.task)
             self._record(
                 task=handle.task.value, provider=provider.name, model_name=model.model or model.model_spec,
                 prompt=handle.prompt, usage=usage, started=self._clock(), pricing=model.pricing,
-                outcome="batch_completed", attempts=1, fallback_used=handle.model_key != route.model, batch=True,
+                outcome=f"batch_{status.status}", attempts=1, fallback_used=handle.model_key != route.model,
+                batch=True,
             )
         return status
 

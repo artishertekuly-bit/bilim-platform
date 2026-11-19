@@ -245,13 +245,19 @@ class BankPipeline:
             if status.status == "in_progress":
                 continue
             pending = {request.custom_id: request for request in await self._repo.pending_requests(batch.batch_id)}
-            if status.status != "completed":
+            if status.results is None:  # batch мүлде орындалмады (failed): нәтиже жоқ
                 for request in pending.values():
                     await self._finish(report, request, "failed", [f"batch {status.status}"])
                 await self._repo.set_batch_status(batch.batch_id, "processed")
                 continue
+            # Мерзімі өткен немесе тоқтатылған batch-тің біткен сұраныстары толық batch-тікі сияқты өңделеді.
+            # Базадағы `completed` — «нәтиже алынды, өңделіп жатыр» (open_batches оны қайта береді).
             if batch.status == "submitted":
                 await self._repo.set_batch_status(batch.batch_id, "completed")
+            missing_reason = (
+                "batch нәтижесінде бұл сұраныс жоқ" if status.status == "completed"
+                else f"batch {status.status}: сұраныс орындалмады"
+            )
 
             model_name = self._gateway.config.models[batch.model_key].model or batch.model_key
             deferred = False
@@ -268,7 +274,7 @@ class BankPipeline:
                     report.deferred += 1
                     deferred = True
             for request in pending.values():
-                await self._finish(report, request, "failed", ["batch нәтижесінде бұл сұраныс жоқ"])
+                await self._finish(report, request, "failed", [missing_reason])
             if not deferred:
                 await self._repo.set_batch_status(batch.batch_id, "processed")
         return report

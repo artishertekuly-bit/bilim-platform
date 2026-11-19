@@ -473,6 +473,18 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.accepted, 1)
         self.assertEqual(self.repo.batches["primary-batch-1"].status, "processed")
 
+    async def test_expired_batch_keeps_finished_results(self) -> None:
+        # Мерзімі өткен batch: біткен сұраныс банкке жазылады, орындалмағаны failed болады.
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
+        ids = await self.submit_mcq(2)
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        self.provider.batch_status["primary-batch-1"] = BatchStatus("primary-batch-1", "expired", (
+            BatchItemResult(ids[0], mcq().model_dump_json(), Usage(10, 0, 10)),))
+        report = await self.pipeline.process()
+        self.assertEqual((report.accepted, report.failed), (1, 1))
+        self.assertEqual(self.repo.requests[ids[1]]["reasons"], ["batch expired: сұраныс орындалмады"])
+        self.assertEqual(self.repo.batches["primary-batch-1"].status, "processed")
+
     async def test_failed_batch_marks_requests_failed(self) -> None:
         ids = await self.submit_mcq(2)
         self.provider.batch_status["primary-batch-1"] = BatchStatus("primary-batch-1", "expired")

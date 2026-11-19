@@ -20,9 +20,13 @@ _BATCH_STATE: dict[str, BatchState] = {
     "completed": "completed",
     "failed": "failed",
     "expired": "expired",
-    "cancelling": "cancelled",
+    # Тоқтатылып жатқан batch-тің нәтиже файлы әлі толық емес: `cancelled` болғанша күтеміз.
+    "cancelling": "in_progress",
     "cancelled": "cancelled",
 }
+# Бұл күйлерде шығыс және қате файлдарында біткен сұраныстардың нәтижесі тұрады. Мерзімі өткен
+# немесе тоқтатылған batch-тің біткен сұраныстары үшін де ақы алынады, сондықтан олар лақтырылмайды.
+_BATCH_WITH_RESULTS = frozenset({"completed", "expired", "cancelled"})
 
 
 def _retry_after(exc: Exception) -> float | None:
@@ -178,7 +182,7 @@ class OpenAICompatProvider:
         try:
             batch = await self._client.batches.retrieve(batch_id)
             state = _BATCH_STATE.get(batch.status, "in_progress")
-            if state != "completed":
+            if state not in _BATCH_WITH_RESULTS:
                 return BatchStatus(batch_id=batch_id, status=state)
             results: list[BatchItemResult] = []
             for file_id in (batch.output_file_id, batch.error_file_id):
@@ -190,7 +194,7 @@ class OpenAICompatProvider:
                         results.append(_batch_row(json.loads(line)))
         except Exception as exc:  # noqa: BLE001
             raise to_provider_error(exc) from exc
-        return BatchStatus(batch_id=batch_id, status="completed", results=tuple(results))
+        return BatchStatus(batch_id=batch_id, status=state, results=tuple(results))
 
 
 def _batch_row(row: dict[str, Any]) -> BatchItemResult:

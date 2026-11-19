@@ -157,5 +157,45 @@ class BatchRowTests(unittest.TestCase):
         self.assertEqual(result.error, "HTTP 500")
 
 
+class _Batches:
+    def __init__(self, status: str, output_file_id: str | None) -> None:
+        self.batch = SimpleNamespace(status=status, output_file_id=output_file_id, error_file_id=None)
+
+    async def retrieve(self, batch_id):
+        return self.batch
+
+
+class _Files:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.reads = 0
+
+    async def content(self, file_id):
+        self.reads += 1
+        return SimpleNamespace(text=self.text)
+
+
+class FetchBatchTests(unittest.IsolatedAsyncioTestCase):
+    ROW = '{"custom_id": "q1", "response": {"status_code": 200, "body": {"choices": [{"message": {"content": "ok"}}]}}}'
+
+    def provider(self, status: str, output_file_id: str | None = "file-1") -> tuple[OpenAICompatProvider, _Files]:
+        files = _Files(self.ROW + "\n")
+        client = SimpleNamespace(batches=_Batches(status, output_file_id), files=files)
+        return OpenAICompatProvider("p", api_key="test", client=client), files
+
+    async def test_expired_and_cancelled_batches_return_finished_rows(self) -> None:
+        for status in ("expired", "cancelled"):
+            provider, _ = self.provider(status)
+            result = await provider.fetch_batch("b1")
+            self.assertEqual(result.status, status)
+            self.assertEqual([(r.custom_id, r.text) for r in result.results], [("q1", "ok")])
+
+    async def test_cancelling_and_failed_batches_have_no_results(self) -> None:
+        for status, expected in (("cancelling", "in_progress"), ("finalizing", "in_progress"), ("failed", "failed")):
+            provider, files = self.provider(status)
+            result = await provider.fetch_batch("b1")
+            self.assertEqual((result.status, result.results, files.reads), (expected, None, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

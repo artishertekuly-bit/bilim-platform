@@ -334,6 +334,18 @@ class EmbeddingAndBatchTests(GatewayTestCase):
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0].input_tokens, 200)
 
+    async def test_expired_batch_usage_is_recorded(self) -> None:
+        gateway = self.make()
+        handle = await gateway.submit_batch(Task.GENERATION, PROMPT, [BatchRequest("q1", tuple(MESSAGES))])
+        self.primary.batch_status[handle.batch_id] = BatchStatus(
+            batch_id=handle.batch_id, status="expired",
+            results=(BatchItemResult("q1", '{"score": 4}', Usage(input_tokens=100, output_tokens=10)),),
+        )
+        await gateway.fetch_batch(handle)
+        await gateway.fetch_batch(handle)
+        expired = [r for r in self.sink.records if r.outcome == "batch_expired"]
+        self.assertEqual([r.input_tokens for r in expired], [100])
+
     async def test_batch_falls_back_to_reserve(self) -> None:
         gateway = self.make()
         self.primary.push(unavailable(), unavailable(), unavailable())
