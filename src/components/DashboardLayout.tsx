@@ -140,13 +140,21 @@ const ADMIN_COURSE_TOOLS: SanaLauncherTool[] = [
 
 const STUDENT_AI_TOOLS: SanaLauncherTool[] = [
   {
+    id: 'exam',
+    title: 'Емтихан',
+    description: 'Оқулық бойынша төрт деңгейлі емтихан',
+    path: '/exam',
+    icon: ClipboardCheck,
+    badge: 'Жаңа',
+    featured: true,
+  },
+  {
     id: 'tutor',
     title: 'AI Тьютор',
     description: 'Сұрақтар мен тақырыпты түсіндіру',
     path: '/ai-tutor',
     icon: Bot,
     badge: 'Тьютор',
-    featured: true,
   },
   {
     id: 'practice',

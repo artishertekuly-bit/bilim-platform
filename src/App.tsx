@@ -58,6 +58,11 @@ const AiAssistantPage = lazy(() => import('./pages/AiAssistantPage'));
 const AiExamSessionPage = lazy(() => import('./pages/AiExamSessionPage'));
 const AiStudentExamsPage = lazy(() => import('./pages/AiStudentExamsPage'));
 
+const ExamHomePage = lazy(() => import('./pages/exam/ExamHomePage'));
+const ExamSessionPage = lazy(() => import('./pages/exam/ExamSessionPage'));
+const ExamResultPage = lazy(() => import('./pages/exam/ExamResultPage'));
+const ExamProfilePage = lazy(() => import('./pages/exam/ExamProfilePage'));
+
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
 const UpdatePasswordPage = lazy(() => import('./pages/UpdatePasswordPage'));
@@ -343,6 +348,14 @@ const commonProtectedRoutes: AppRouteConfig[] = [
   },
 ];
 
+// Examiner v2 (api-kelisimderi.md §3): деңгей таңдау → сессия → нәтиже, профиль.
+const examRoutes: AppRouteConfig[] = [
+  { path: '/exam', element: <ExamHomePage />, allowedRoles: LEARNING_CONTENT_ROLES },
+  { path: '/exam/session/:sessionId', element: <ExamSessionPage />, allowedRoles: LEARNING_CONTENT_ROLES },
+  { path: '/exam/result/:sessionId', element: <ExamResultPage />, allowedRoles: LEARNING_CONTENT_ROLES },
+  { path: '/exam/profile', element: <ExamProfilePage />, allowedRoles: LEARNING_CONTENT_ROLES },
+];
+
 const sharedContentRoutes: AppRouteConfig[] = [
   {
     path: '/courses',
@@ -517,6 +530,7 @@ const adminRoutes: AppRouteConfig[] = [
 
 const protectedRoutes: AppRouteConfig[] = [
   ...commonProtectedRoutes,
+  ...examRoutes,
   ...sharedContentRoutes,
   ...studentRoutes,
   ...authorRoutes,
