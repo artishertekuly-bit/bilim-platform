@@ -191,6 +191,7 @@ $$\Delta t > \frac{n_{sq} \cdot \ln(1/0.30)}{\lambda_q} \approx \frac{1.2 \cdot 
   - Қолмен іске қосу: `python -m app.examiner.bank.cli submit --book kazakn5.md --level 1`, содан кейін `... cli process`.
   - Fast Lane: `... cli generate --book kazakn5.md --topic "kazakn5.md#§1" --level 1`. Оның жазбалары да `generation_requests`-те, batch_id-і `fast-`-тен басталады; үзілген Fast Lane жазбасын 30 минуттан кейін `process` жабады.
   - Cron: `... cli tick --book kazakn5.md --level 1 --level 2 --max-requests 200` (`--max-requests` — бір іске қосудағы шығын шегі).
+  - Аудит (D73): `... cli audit` белсенді сұрақтарды қазіргі Т6/Т7 ережесімен қайта тексеріп, тізімін шығарады; `--apply` өтпегендерін `retired` етеді. Тексеріс ережесі өзгерген сайын іске қосылады.
   - Промпттар `templates/*.md` файлдарында, әрқайсысының өз нұсқасы бар; ол `prompt_version` болып пакетке жазылады.
 
 ---

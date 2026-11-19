@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 import asyncpg
 
+from .audit import BankQuestion
 from .context import Chunk, clean_chunk_text
 from .pipeline import BatchRecord, NewQuestion, Paragraph, RequestRecord
 
@@ -36,6 +37,12 @@ def _vector(values: Sequence[float]) -> str:
 
 def _parse_vector(text: str) -> list[float]:
     return [float(part) for part in text.strip("[]").split(",") if part]
+
+
+def _json(value: object) -> dict:
+    if isinstance(value, str):
+        value = json.loads(value)
+    return value if isinstance(value, dict) else {}
 
 
 class PgBankRepository:
@@ -223,6 +230,45 @@ class PgBankRepository:
             if updated != "UPDATE 1":
                 raise RuntimeError(f"generation_requests {request.custom_id} pending күйінде емес")
         return question_id
+
+    # ------------------------------------------------------------ аудит (D73)
+
+    async def active_questions(self) -> list[BankQuestion]:
+        rows = await self._pool.fetch(
+            """
+            select q.question_id::text as question_id, q.topic_id, q.level::int as level, q.format::text as format,
+                   s.x_tier::text as x_tier, q.created_at, q.question_content, q.ecd_skill, q.ecd_evidence,
+                   q.reference_context, q.content_embedding::text as embedding
+            from examiner.questions q
+            join examiner.question_state s on s.question_id = q.question_id
+            where s.status = 'active'
+            order by q.created_at
+            """
+        )
+        questions = []
+        for row in rows:
+            evidence = _json(row["ecd_evidence"])
+            reference = _json(row["reference_context"])
+            questions.append(BankQuestion(
+                question_id=row["question_id"], topic_id=row["topic_id"], level=row["level"], format=row["format"],
+                x_tier=row["x_tier"], created_at=row["created_at"], content=_json(row["question_content"]),
+                key=evidence.get("code_check_target") or {}, ecd_skill=row["ecd_skill"] or "",
+                evidence=evidence.get("evidence") or "", support_quote=evidence.get("support_quote") or "",
+                reference_text=reference.get("text") or "",
+                embedding=_parse_vector(row["embedding"]) if row["embedding"] else None,
+            ))
+        return questions
+
+    async def retire(self, question_id: str, reason: str) -> bool:
+        """Сұрақты банктен шығарады (өшірмейді). Себебі `question_state_history`-ге жазылады."""
+        result = await self._pool.execute(
+            """
+            update examiner.question_state set status = 'retired', change_reason = $2, updated_at = now()
+            where question_id = $1::uuid and status = 'active'
+            """,
+            question_id, reason[:500],
+        )
+        return result == "UPDATE 1"
 
     async def reject(self, custom_id: str, status: str, reasons: Sequence[str]) -> None:
         await self._pool.execute(

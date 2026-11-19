@@ -32,6 +32,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from ...llm_gateway import get_gateway
+from .audit import audit
 from .formats import CODE_FORMATS
 from .pipeline import WATCHDOG_MAX_AGE, BankPipeline, ProcessReport
 from .repository import PgBankRepository, create_pool
@@ -75,6 +76,19 @@ async def _run(args: argparse.Namespace) -> int:
             report = await pipeline.generate_now(args.book, args.level, topics=args.topic, formats=formats,
                                                  max_requests=args.max_requests)
             _print_report(report, f"Fast Lane: {time.monotonic() - started:.0f} сек")
+        elif args.command == "audit":
+            repo = PgBankRepository(pool)
+            findings = audit(await repo.active_questions())
+            for finding in findings:
+                q = finding.question
+                stem = str(q.content.get("stem", ""))[:70]
+                print(f"{q.question_id[:8]} {q.topic_id} {q.format}/{q.x_tier}: {stem}")
+                for reason in finding.reasons:
+                    print(f"    {reason}")
+                if args.apply:
+                    await repo.retire(q.question_id, "audit: " + "; ".join(finding.reasons))
+            verb = "банктен шығарылды (retired)" if args.apply else "белгіленді (--apply берілмеді, өзгеріс жоқ)"
+            print(f"--- {len(findings)} сұрақ {verb}")
         elif args.command == "watchdog":
             cancelled = await pipeline.watchdog(timedelta(hours=args.max_age_hours))
             print(f"тоқтатылған batch: {cancelled or 'жоқ'}")
@@ -107,6 +121,8 @@ def main() -> int:
     generate.add_argument("--level", type=int, choices=(1, 2), required=True)
     generate.add_argument("--format", action="append", choices=CODE_FORMATS)
     generate.add_argument("--max-requests", type=int)
+    audit_cmd = sub.add_parser("audit", help="Белсенді сұрақтарды қазіргі Т6/Т7 ережесімен қайта тексеру")
+    audit_cmd.add_argument("--apply", action="store_true", help="өтпегендерін банктен шығару (retired)")
     watchdog = sub.add_parser("watchdog", help="Тұрып қалған batch-терді тоқтату")
     watchdog.add_argument("--max-age-hours", type=float, default=WATCHDOG_MAX_AGE.total_seconds() / 3600)
     tick = sub.add_parser("tick", help="Cron: process, watchdog және фондық submit")

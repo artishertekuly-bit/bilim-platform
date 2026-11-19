@@ -158,6 +158,29 @@ ABSOLUTE_WORDS = frozenset({
 })
 
 
+# Сұрақтағы сөз тек дұрыс нұсқада қайталанса («палеолиттің кезеңі?» → «Ерте палеолит»), жауап білініп қалады.
+# Сұрақ сөздері мен жиі қызметші сөздер салыстырылмайды.
+ECHO_MIN_WORD = 4
+ECHO_STOPWORDS = frozenset({
+    "қандай", "қалай", "қайсы", "қайсысы", "қашан", "неліктен", "неге", "туралы", "бойынша", "және", "немесе",
+    "деген", "дегеніміз", "болды", "болған", "болып", "арқылы", "кезде", "кезінде", "үшін", "мына", "осы",
+})
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"\w+", normalize_text(text)))
+
+
+def _stem_echo_problem(stem: str, options: list[str], correct_index: int) -> str | None:
+    if len(options) < 2 or not 0 <= correct_index < len(options):
+        return None
+    stem_words = {word for word in _words(stem) if len(word) >= ECHO_MIN_WORD and word not in ECHO_STOPWORDS}
+    echoes = [bool(_words(option) & stem_words) for option in options]
+    if echoes[correct_index] and not any(echo for index, echo in enumerate(echoes) if index != correct_index):
+        return "Т6: сұрақтағы сөз тек дұрыс нұсқада қайталанады"
+    return None
+
+
 def _option_cue_problems(options: list[str], correct_index: int) -> list[str]:
     if len(options) < 2 or not 0 <= correct_index < len(options):
         return []
@@ -167,8 +190,7 @@ def _option_cue_problems(options: list[str], correct_index: int) -> list[str]:
     longest_other = max(length for index, length in enumerate(lengths) if index != correct_index)
     if right - longest_other > max(LENGTH_CUE_MIN_CHARS, LENGTH_CUE_RATIO * longest_other):
         problems.append(f"Т6: дұрыс нұсқа қалғандарынан едәуір ұзын ({right} / {longest_other} таңба)")
-    marked = [index for index, option in enumerate(options)
-              if set(re.findall(r"\w+", normalize_text(option))) & ABSOLUTE_WORDS]
+    marked = [index for index, option in enumerate(options) if _words(option) & ABSOLUTE_WORDS]
     if correct_index not in marked and len(marked) >= 2:
         problems.append("Т6: «тек», «ешқашан» сияқты сөздер тек қате нұсқаларда")
     return problems
@@ -197,6 +219,9 @@ class MCQGen(GenBase):
         if not 0 <= self.correct_index < len(self.options):
             problems.append("Т6: correct_index нұсқалар аралығында емес")
         problems += _option_cue_problems(self.options, self.correct_index)
+        echo = _stem_echo_problem(self.stem, self.options, self.correct_index)
+        if echo:
+            problems.append(echo)
         return problems
 
     def to_package(self, rng: random.Random) -> Package:
@@ -411,3 +436,45 @@ GEN_MODELS: dict[str, type[GenBase]] = {
     model.format_name: model
     for model in (MCQGen, MatchingGen, SequenceGen, ErrorStepGen, FormulaGen, SliderGen)
 }
+
+
+def gen_from_package(fmt: str, content: dict[str, Any], key: dict[str, Any], *, ecd_skill: str, evidence: str,
+                     support_quote: str) -> GenBase:
+    """Банктегі пакеттен генератордың моделін қайта құрады: аудит Т6/Т7-ні генерациядағы кодпен тексереді.
+    Нұсқалардың реті маңызды емес: тексерістер ретке тәуелсіз."""
+    common = {"ecd_skill": ecd_skill, "evidence": evidence, "support_quote": support_quote}
+    if fmt == "mcq":
+        ids = [option["id"] for option in content["options"]]
+        return MCQGen(stem=content["stem"], options=[option["text"] for option in content["options"]],
+                      correct_index=ids.index(key["correct_option_id"]) if key.get("correct_option_id") in ids else -1,
+                      **common)
+    if fmt == "matching":
+        left = {item["id"]: item["text"] for item in content["left"]}
+        right = {item["id"]: item["text"] for item in content["right"]}
+        pairs = [MatchingPair(left=left.get(pair["left_id"], ""), right=right.get(pair["right_id"], ""))
+                 for pair in key["pairs"]]
+        return MatchingGen(stem=content["stem"], pairs=pairs, **common)
+    if fmt == "sequence":
+        steps = {step["id"]: step["text"] for step in content["steps"]}
+        return SequenceGen(stem=content["stem"], steps=[steps.get(step_id, "") for step_id in key["order"]], **common)
+    if fmt == "error_step":
+        ids = [step["id"] for step in content["steps"]]
+        return ErrorStepGen(stem=content["stem"], steps=[step["text"] for step in content["steps"]],
+                            error_index=ids.index(key["step_id"]) if key.get("step_id") in ids else -1,
+                            correction=key.get("correction", ""), **common)
+    if fmt == "formula_builder":
+        labels = {token["id"]: token["label"] for token in content["tokens"]}
+        placement = key["placement"]
+        numerator = [labels[placement[s["id"]]] for s in content["slots"] if s["position"] == "numerator"]
+        denominator = [labels[placement[s["id"]]] for s in content["slots"] if s["position"] == "denominator"]
+        used = set(placement.values())
+        return FormulaGen(stem=content["stem"], result=content.get("result", ""), numerator=numerator,
+                          denominator=denominator,
+                          distractors=[label for token_id, label in labels.items() if token_id not in used], **common)
+    if fmt == "slider":
+        spec, out = content["input"], content["output"]
+        return SliderGen(stem=content["stem"], input_name=spec["name"], input_unit=spec.get("unit", ""),
+                         min=spec["min"], max=spec["max"], step=spec["step"], output_name=out["name"],
+                         output_unit=out.get("unit", ""), formula=out.get("formula", ""),
+                         accept_min=key["accept_min"], accept_max=key["accept_max"], **common)
+    raise ValueError(f"«{fmt}» — код форматы емес")

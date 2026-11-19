@@ -14,6 +14,7 @@ from unittest import mock
 
 import app.examiner.bank.pipeline as pipeline_module
 
+from app.examiner.bank.audit import BankQuestion, audit
 from app.examiner.bank.checks import (
     DUPLICATE_THRESHOLD,
     cosine,
@@ -30,6 +31,7 @@ from app.examiner.bank.formats import (
     MCQGen,
     SequenceGen,
     SliderGen,
+    gen_from_package,
 )
 from app.examiner.bank.pipeline import (
     BankPipeline,
@@ -105,6 +107,14 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(mcq().problems(), [])
         # Абсолютті сөз бір ғана қате нұсқада — рұқсат.
         self.assertEqual(mcq(options=["Ұлы Жібек жолы", "Тек тұз жолы", "Янтарь жолы", "Шай жолы"]).problems(), [])
+
+    def test_mcq_stem_echo_cue(self) -> None:
+        # Бірінші Fast Lane сынағындағы нақты сұрақ: «палеолит» сөзі тек дұрыс нұсқада қайталанады.
+        echo = mcq(stem="Палеолит дәуірінің негізгі кезеңдерінің бірі қалай аталады?",
+                   options=["Ерте палеолит", "Энеолит", "Қола дәуірі", "Неолит"], correct_index=0)
+        self.assertIn("Т6: сұрақтағы сөз тек дұрыс нұсқада қайталанады", echo.problems())
+        # Сөз барлық нұсқада қайталанса — белгі емес.
+        self.assertEqual(mcq().problems(), [])
 
     def test_matching_bijection_and_limits(self) -> None:
         gen = MatchingGen.model_validate({"stem": "Сәйкестендіріңіз", "pairs": [
@@ -269,6 +279,70 @@ class PromptTests(unittest.TestCase):
     def test_every_code_format_has_template(self) -> None:
         for name in GEN_MODELS:
             self.assertTrue(load_prompt(name).body)
+
+
+# ------------------------------------------------------------------ банк аудиті (D73)
+
+
+def valid_gens() -> list:
+    return [
+        mcq(),
+        MatchingGen.model_validate({"stem": "Сәйкестендіріңіз", "pairs": [
+            {"left": "Отырар", "right": "Сырдария"}, {"left": "Тараз", "right": "Талас"},
+            {"left": "Испиджаб", "right": "Сайрам"}], **COMMON}),
+        SequenceGen.model_validate({"stem": "Ретімен", "steps": ["Түрік қағанаты", "Түргеш қағанаты",
+                                                                  "Қарлұқ қағанаты"], **COMMON}),
+        ErrorStepGen.model_validate({"stem": "Қатені табыңыз", "steps": ["А болды", "Б болды", "В болды"],
+                                     "error_index": 1, "correction": "Б болмады", **COMMON}),
+        FormulaGen.model_validate({"stem": "Ток күші", "result": "I", "numerator": ["U"], "denominator": ["R"],
+                                   "distractors": ["P", "t"], **COMMON}),
+        SliderGen.model_validate({"stem": "I = 2 А", "input_name": "R", "input_unit": "Ом", "min": 1, "max": 20,
+                                  "step": 1, "output_name": "I", "output_unit": "А", "formula": "I = 12 / R",
+                                  "accept_min": 5.5, "accept_max": 6.5, **COMMON}),
+    ]
+
+
+def bank_question(gen, *, qid: str, minute: int = 0, embedding=None, reference: str = SOURCE) -> BankQuestion:
+    package = gen.to_package(random.Random(minute))
+    return BankQuestion(
+        question_id=qid, topic_id="kazakh6.md#§1", level=1, format=package.format, x_tier="X1",
+        created_at=datetime(2026, 11, 19, 8, minute, tzinfo=timezone.utc), content=package.content, key=package.key,
+        ecd_skill=package.ecd_skill, evidence=package.evidence, support_quote=package.support_quote,
+        reference_text=reference, embedding=embedding,
+    )
+
+
+class AuditTests(unittest.TestCase):
+    def test_package_round_trip_for_every_code_format(self) -> None:
+        for gen in valid_gens():
+            with self.subTest(fmt=gen.format_name):
+                package = gen.to_package(random.Random(4))
+                rebuilt = gen_from_package(package.format, package.content, package.key, ecd_skill=package.ecd_skill,
+                                           evidence=package.evidence, support_quote=package.support_quote)
+                self.assertEqual(rebuilt.problems(), [])
+                self.assertEqual(rebuilt.to_package(random.Random(4)).similarity_text(), package.similarity_text())
+
+    def test_audit_flags_cues_quotes_and_duplicates(self) -> None:
+        cue = mcq(options=["Адамзаттың өткен өміріндегі маңызды оқиғалар мен тұлғаларды зерттейді.",
+                           "Тек қазіргі заман оқиғаларын зерттейді.", "Тек тарихи тұлғаларды зерттейді.",
+                           "Тек ежелгі деректерді зерттейді."])
+        questions = [
+            bank_question(mcq(), qid="first", minute=0, embedding=[1.0, 0.0]),
+            bank_question(mcq(stem="Жерорта теңізіне дейін созылған сауда жолы қалай аталды?"), qid="copy", minute=1,
+                          embedding=[0.99, 0.05]),
+            bank_question(cue, qid="cue", minute=2, embedding=[0.0, 1.0]),
+            bank_question(mcq(), qid="no_quote", minute=3, embedding=[0.5, -0.5], reference="Басқа мәтін."),
+            bank_question(valid_gens()[1], qid="matching_ok", minute=4, embedding=[-1.0, 0.2]),
+        ]
+        findings = {f.question.question_id: f.reasons for f in audit(questions)}
+        self.assertEqual(set(findings), {"copy", "cue", "no_quote"})
+        self.assertTrue(findings["copy"][0].startswith("Т7: бар сұраққа тым ұқсас"))
+        self.assertTrue(any(r.startswith("Т6: дұрыс нұсқа қалғандарынан едәуір ұзын") for r in findings["cue"]))
+        self.assertEqual(findings["no_quote"], ("Т7: support_quote оқулық мәтінінде жоқ",))
+
+    def test_broken_package_is_flagged_not_crashing(self) -> None:
+        broken = replace(bank_question(mcq(), qid="broken"), content={"stem": "?"})
+        self.assertEqual(audit([broken])[0].reasons, ("Т6: пакет құрылымы оқылмады (KeyError)",))
 
 
 # ------------------------------------------------------------------ gateway үлгісі
