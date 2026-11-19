@@ -184,8 +184,8 @@ class MCQGen(GenBase):
 class MatchingPair(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    left: str = Field(description="Сол жақ элемент, 20 таңбаға дейін.")
-    right: str = Field(description="Оң жақ элемент, 20 таңбаға дейін.")
+    left: str = Field(description="Сол жақ элемент: 1–3 сөз, ең көбі 20 таңба (есім, күн, жер, ұғым). Сөйлем емес.")
+    right: str = Field(description="Оң жақ элемент: 1–3 сөз, ең көбі 20 таңба (есім, күн, жер, ұғым). Сөйлем емес.")
 
 
 class MatchingGen(GenBase):

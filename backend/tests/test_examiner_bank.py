@@ -405,6 +405,16 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.schema_name, "MCQGen")
         self.assertIn("Ұлы Жібек жолы", request.messages[2].content)
 
+    async def test_tiers_of_one_topic_get_different_chunks(self) -> None:
+        # Бір § пен форматтың X1, X2, X3 сұраныстары чанк кезегін бөліседі: X1 мен X2 бір мәтінді алмайды.
+        pipeline = BankPipeline(self.gateway, self.repo, policy=StockPolicy(concurrent_sessions_per_topic=1, safety=0.25),
+                                rng=random.Random(1))
+        await pipeline.submit(["kazakh6.md"], 1, formats=["mcq"])
+        by_tier = {row["record"].x_tier: row["record"].chunk_ids for row in self.repo.requests.values()}
+        self.assertEqual(set(by_tier), {"X1", "X2", "X3"})
+        self.assertNotEqual(by_tier["X1"], by_tier["X2"])
+        self.assertEqual({by_tier["X1"], by_tier["X2"]}, {("c1",), ("c2",)})
+
     async def test_planner_skips_full_stock(self) -> None:
         await self.submit_mcq(None)  # type: ignore[arg-type]
         self.assertEqual(await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq"]), [])
@@ -481,6 +491,17 @@ class CheckTests(unittest.IsolatedAsyncioTestCase):
         package = mcq(support_quote="Ол арқылы  жібек, қағаз және дәмдеуіштер тасылды").to_package(random.Random(1))
         self.assertIsNone(quote_problem(package, SOURCE))
         self.assertIsNotNone(quote_problem(package, "Басқа мәтін"))
+
+    def test_quote_fragments_split_by_ellipsis(self) -> None:
+        def check(quote: str) -> str | None:
+            return quote_problem(mcq(support_quote=quote).to_package(random.Random(1)), SOURCE)
+
+        both = "Ұлы Жібек жолы Қытайдан Жерорта теңізіне дейін созылған… Отырар мен Тараз осы жолдың бойындағы"
+        self.assertIsNone(check(both))
+        self.assertIsNone(check(both.replace("…", "...")))
+        self.assertEqual(check("Ұлы Жібек жолы Қытайдан басталды… Отырар мен Тараз осы жолдың бойындағы"),
+                         "Т7: support_quote оқулық мәтінінде жоқ")
+        self.assertEqual(check("Ұлы Жібек… жолы… Отырар мен"), "Т7: support_quote тым қысқа")
 
     def test_duplicate_threshold(self) -> None:
         self.assertAlmostEqual(cosine([1, 0], [1, 0]), 1.0)

@@ -174,19 +174,30 @@ class BankPipeline:
         slots = plan(list(by_topic), level, applicable, have, self._policy, formats)
 
         planned: dict[str, list[tuple[RequestRecord, list]]] = defaultdict(list)
+        combos_by_key: dict[tuple[str, str], list] = {}
+        # Чанк комбинациялары § пен формат бойынша кезекпен беріледі: бір §-тің X1, X2, X3 сұраныстары
+        # әртүрлі мәтіннен жасалады (әйтпесе модель бірдей сұрақ жазып, дубликат тексерісі оны тоқтатады).
+        cursor: dict[tuple[str, str], int] = {}
         count = 0
         for slot in slots:
             paragraph = by_topic[slot.topic_id]
-            chunks = await self._repo.paragraph_chunks(slot.topic_id)
-            if not chunks:
+            key = (slot.topic_id, slot.format)
+            if key not in combos_by_key:
+                chunks = await self._repo.paragraph_chunks(slot.topic_id)
+                links = await self._repo.entity_links([chunk.chunk_id for chunk in chunks]) if chunks else []
+                combos_by_key[key] = (
+                    chunk_combinations(chunks, COMBO_SIZE[slot.format], entity_map(links, [c.chunk_id for c in chunks]))
+                    if chunks else []
+                )
+                cursor[key] = sum(n for (topic, name, _), n in have.items() if (topic, name) == key)
+            combos = combos_by_key[key]
+            if not combos:
                 continue
-            links = await self._repo.entity_links([chunk.chunk_id for chunk in chunks])
-            combos = chunk_combinations(chunks, COMBO_SIZE[slot.format], entity_map(links, [c.chunk_id for c in chunks]))
-            used = have.get((slot.topic_id, slot.format, slot.tier), 0)
-            for offset in range(slot.missing):
+            for _ in range(slot.missing):
                 if max_requests is not None and count >= max_requests:
                     break
-                combo = combos[(used + offset) % len(combos)]
+                combo = combos[cursor[key] % len(combos)]
+                cursor[key] += 1
                 request = RequestRecord(
                     custom_id=uuid.uuid4().hex,
                     batch_id="",

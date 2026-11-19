@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Sequence
 
 from pydantic import BaseModel, Field
@@ -21,14 +22,24 @@ from .formats import Package, normalize_text
 
 DUPLICATE_THRESHOLD = 0.92
 SOLVER_PROMPT = PromptRef("examiner.bank.mcq_solver", "2026-11-19.1")
+MIN_QUOTE_FRAGMENT = 15
+_ELLIPSIS = re.compile(r"…|\.{3,}")
 
 
 def quote_problem(package: Package, reference_text: str) -> str | None:
-    """Дәйексөз оқулық мәтінінде бар-жоғы. Бос орын, тырнақша мен сызықша айырмашылығы есептелмейді."""
-    quote = normalize_text(package.support_quote).strip(' ."')
-    if not quote:
+    """Дәйексөз оқулық мәтінінде бар-жоғы. Бос орын, тырнақша мен сызықша айырмашылығы есептелмейді.
+
+    Модель бірнеше үзіндіні «…» белгісімен біріктіруі мүмкін: онда әр үзінді мәтіннен бөлек ізделеді,
+    ал ең ұзыны кемінде MIN_QUOTE_FRAGMENT таңба болады (дәлел ұсақ сөз тіркестерінен құралмауы үшін).
+    """
+    fragments = [part.strip(' ."') for part in _ELLIPSIS.split(normalize_text(package.support_quote))]
+    fragments = [part for part in fragments if part]
+    if not fragments:
         return "Т7: support_quote бос"
-    if quote not in normalize_text(reference_text):
+    if max(len(part) for part in fragments) < MIN_QUOTE_FRAGMENT:
+        return "Т7: support_quote тым қысқа"
+    reference = normalize_text(reference_text)
+    if any(part not in reference for part in fragments):
         return "Т7: support_quote оқулық мәтінінде жоқ"
     return None
 
