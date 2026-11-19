@@ -76,6 +76,19 @@ class BodyTests(unittest.TestCase):
         self.assertEqual(body["response_format"], {"type": "json_object"})
         self.assertEqual(body["stream_options"], {"include_usage": True})
 
+    def test_reasoning_models_get_effort_instead_of_temperature(self) -> None:
+        provider = OpenAICompatProvider("p", api_key="test", client=_client(_Completions()))
+        for model in ("gpt-5.4", "gpt-5.4-mini-2026-03-17", "o3"):
+            with self.subTest(model=model):
+                body = provider.body(CompletionRequest(**{**REQUEST.__dict__, "model": model, "temperature": 0.7,
+                                                          "reasoning_effort": "medium"}))
+                self.assertNotIn("temperature", body)
+                self.assertEqual(body["reasoning_effort"], "medium")
+        classic = provider.body(CompletionRequest(**{**REQUEST.__dict__, "model": "gpt-4.1", "temperature": 0.7,
+                                                     "reasoning_effort": "medium"}))
+        self.assertEqual(classic["temperature"], 0.7)
+        self.assertNotIn("reasoning_effort", classic)
+
 
 class ErrorMappingTests(unittest.TestCase):
     def test_rate_limit_is_retryable_with_retry_after(self) -> None:

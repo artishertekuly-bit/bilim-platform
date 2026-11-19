@@ -151,6 +151,7 @@ class LLMGateway:
                 temperature=route.temperature,
                 max_output_tokens=route.max_output_tokens,
                 timeout_s=route.timeout_s,
+                reasoning_effort=route.reasoning_effort,
             )
             started = self._clock()
             fallback_used = index > 0
@@ -299,6 +300,7 @@ class LLMGateway:
                         json_schema=json_schema,
                         schema_name=schema.__name__ if schema is not None else None,
                         strict_schema=route.strict_schema,
+                        reasoning_effort=route.reasoning_effort,
                     ),
                 )
                 for request in requests
@@ -395,6 +397,7 @@ class LLMGateway:
             json_schema=json_schema,
             schema_name=schema.__name__ if schema is not None else None,
             strict_schema=route.strict_schema,
+            reasoning_effort=route.reasoning_effort,
         )
         estimate = self._estimate(messages, route)
         priority = TASK_PRIORITY[route.task]

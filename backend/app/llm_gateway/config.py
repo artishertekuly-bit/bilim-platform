@@ -109,6 +109,10 @@ class RouteConfig:
     retry: RetryPolicy = RetryPolicy()
     format_retries: int = 2
     strict_schema: bool = False
+    reasoning_effort: str | None = None  # ойлау модельдері үшін; басқа модельдерде ескерілмейді
+
+
+REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high"})
 
 
 @dataclass(frozen=True)
@@ -251,9 +255,13 @@ def _parse_route(task: Task, item: Mapping[str, Any], models: Mapping[str, Model
             "retry",
             "format_retries",
             "strict_schema",
+            "reasoning_effort",
         },
         where,
     )
+    reasoning_effort = item.get("reasoning_effort")
+    if reasoning_effort is not None and reasoning_effort not in REASONING_EFFORTS:
+        raise ConfigError(f"{where}: reasoning_effort {sorted(REASONING_EFFORTS)} мәндерінің бірі болуы керек")
     model_key = _require(item, "model", where)
     model = models.get(model_key)
     if model is None or model.kind != "chat":
@@ -308,6 +316,7 @@ def _parse_route(task: Task, item: Mapping[str, Any], models: Mapping[str, Model
         retry=_parse_retry(item.get("retry"), f"{where}.retry"),
         format_retries=format_retries,
         strict_schema=bool(item.get("strict_schema", False)),
+        reasoning_effort=reasoning_effort,
     )
 
 

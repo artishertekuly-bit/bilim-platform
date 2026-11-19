@@ -19,14 +19,14 @@
   "models": {
     "small": {
       "provider": "primary",
-      "model": "${LLM_SMALL_MODEL:-gpt-4o-mini}",
+      "model": "${LLM_SMALL_MODEL:-gpt-5.4-mini}",
       "rpm": 500,
       "tpm": 200000,
       "max_concurrency": 16
     },
     "strong": {
       "provider": "primary",
-      "model": "${LLM_STRONG_MODEL}",
+      "model": "${LLM_STRONG_MODEL:-gpt-5.4}",
       "rpm": 500,
       "tpm": 100000,
       "max_concurrency": 16
@@ -63,16 +63,16 @@
     }
   },
   "routes": {
-    "moderation": { "model": "small", "mode": "sync", "temperature": 0, "max_output_tokens": 200, "timeout_s": 10 },
-    "tutor_tags": { "model": "small", "mode": "sync", "temperature": 0, "max_output_tokens": 400, "timeout_s": 10, "fallback": ["reserve"] },
-    "mcq_solver_check": { "model": "small", "mode": "sync", "temperature": 0, "max_output_tokens": 300, "timeout_s": 30, "fallback": ["reserve"] },
-    "official_grading": { "model": "grading", "mode": "sync", "temperature": 0, "max_output_tokens": 800, "timeout_s": 60 },
-    "second_grading": { "model": "second_grading", "mode": "sync", "temperature": 0, "max_output_tokens": 800, "timeout_s": 60 },
-    "explanation": { "model": "small", "mode": "sync", "temperature": 0.3, "max_output_tokens": 400, "timeout_s": 15 },
-    "tutor_reply": { "model": "strong", "mode": "stream", "temperature": 0.7, "max_output_tokens": 900, "timeout_s": 60, "fallback": ["reserve"] },
-    "examiner_dialog": { "model": "strong", "mode": "stream", "temperature": 0.3, "max_output_tokens": 600, "timeout_s": 60 },
-    "generation": { "model": "strong", "mode": "batch", "temperature": 0.7, "max_output_tokens": 4000, "timeout_s": 120, "fallback": ["reserve"] },
-    "generation_fast": { "model": "strong", "mode": "sync", "temperature": 0.7, "max_output_tokens": 4000, "timeout_s": 120, "fallback": ["reserve"] }
+    "moderation": { "model": "small", "mode": "sync", "temperature": 0, "reasoning_effort": "low", "max_output_tokens": 1500, "timeout_s": 15 },
+    "tutor_tags": { "model": "small", "mode": "sync", "temperature": 0, "reasoning_effort": "low", "max_output_tokens": 2000, "timeout_s": 15, "fallback": ["reserve"] },
+    "mcq_solver_check": { "model": "small", "mode": "sync", "temperature": 0, "reasoning_effort": "low", "max_output_tokens": 2000, "timeout_s": 60, "fallback": ["reserve"] },
+    "official_grading": { "model": "grading", "mode": "sync", "temperature": 0, "reasoning_effort": "medium", "max_output_tokens": 4000, "timeout_s": 90 },
+    "second_grading": { "model": "second_grading", "mode": "sync", "temperature": 0, "reasoning_effort": "medium", "max_output_tokens": 4000, "timeout_s": 90 },
+    "explanation": { "model": "small", "mode": "sync", "temperature": 0.3, "reasoning_effort": "low", "max_output_tokens": 2000, "timeout_s": 20 },
+    "tutor_reply": { "model": "strong", "mode": "stream", "temperature": 0.7, "reasoning_effort": "low", "max_output_tokens": 3000, "timeout_s": 60, "fallback": ["reserve"] },
+    "examiner_dialog": { "model": "strong", "mode": "stream", "temperature": 0.3, "reasoning_effort": "low", "max_output_tokens": 3000, "timeout_s": 60 },
+    "generation": { "model": "strong", "mode": "batch", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"] },
+    "generation_fast": { "model": "strong", "mode": "sync", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"] }
   },
   "embeddings": {
     "answers": "answer_embedding",

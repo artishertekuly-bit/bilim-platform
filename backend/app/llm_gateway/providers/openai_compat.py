@@ -28,6 +28,14 @@ _BATCH_STATE: dict[str, BatchState] = {
 # немесе тоқтатылған batch-тің біткен сұраныстары үшін де ақы алынады, сондықтан олар лақтырылмайды.
 _BATCH_WITH_RESULTS = frozenset({"completed", "expired", "cancelled"})
 
+# Ойлау модельдері (reasoning): `temperature` қабылдамайды, оның орнына `reasoning_effort` бар.
+# `max_completion_tokens` ойлау токендерін де қамтиды.
+_REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+def is_reasoning_model(model: str) -> bool:
+    return model.startswith(_REASONING_PREFIXES)
+
 
 def _retry_after(exc: Exception) -> float | None:
     response = getattr(exc, "response", None)
@@ -92,7 +100,10 @@ class OpenAICompatProvider:
             "model": request.model,
             "messages": [{"role": m.role, "content": m.content} for m in request.messages],
         }
-        if request.temperature is not None:
+        if is_reasoning_model(request.model):
+            if request.reasoning_effort:
+                body["reasoning_effort"] = request.reasoning_effort
+        elif request.temperature is not None:
             body["temperature"] = request.temperature
         if request.max_output_tokens is not None:
             body[self._max_tokens_param] = request.max_output_tokens

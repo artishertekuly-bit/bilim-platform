@@ -18,6 +18,7 @@ class CompletionRequest:
     json_schema: dict[str, Any] | None = None
     schema_name: str | None = None
     strict_schema: bool = False
+    reasoning_effort: str | None = None  # тек ойлау модельдерінде (gpt-5*, o*) жіберіледі
 
 
 @dataclass(frozen=True)
