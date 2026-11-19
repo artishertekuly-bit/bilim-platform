@@ -358,6 +358,19 @@ class LLMGateway:
             )
         return status
 
+    async def cancel_batch(self, handle: BatchHandle) -> None:
+        """Тұрып қалған batch-ті тоқтатады. Біткен сұраныстардың нәтижесі `fetch_batch` арқылы алынады."""
+        try:
+            provider = self._provider(handle.provider)
+        except _ProviderNotConfigured:
+            raise ConfigError(f"'{handle.provider}' провайдерінің кілті немесе base_url берілмеген") from None
+        try:
+            await provider.cancel_batch(handle.batch_id)
+        except ProviderError as exc:
+            if exc.retryable:
+                raise LLMUnavailableError(str(exc), retry_after=exc.retry_after) from exc
+            raise LLMRequestError(str(exc), status=exc.status) from exc
+
     # ----------------------------------------------------------------- internal
 
     async def _complete_on(

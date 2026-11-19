@@ -142,7 +142,7 @@ class PgBankRepository:
     async def open_batches(self) -> list[BatchRecord]:
         rows = await self._pool.fetch(
             """
-            select batch_id, provider, model_key, prompt_id, prompt_version, request_count, status
+            select batch_id, provider, model_key, prompt_id, prompt_version, request_count, status, submitted_at
             from examiner.generation_batches
             where status in ('submitted', 'completed')
             order by submitted_at

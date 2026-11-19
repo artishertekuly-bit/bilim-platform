@@ -479,6 +479,7 @@ class Task(StrEnum):
     TUTOR_REPLY = "tutor_reply"
     EXAMINER_DIALOG = "examiner_dialog"
     GENERATION = "generation"               # Batch API
+    GENERATION_FAST = "generation_fast"     # Fast Lane: емтиханнан бұрын синхрон толтыру (D71)
 
 class LLMGateway:
     async def complete(self, task: Task, prompt: PromptRef, messages: Sequence[Message], *,
@@ -489,6 +490,7 @@ class LLMGateway:
     async def submit_batch(self, task: Task, prompt: PromptRef, requests: Sequence[BatchRequest], *,
                            schema: type[BaseModel] | None = None) -> BatchHandle: ...
     async def fetch_batch(self, handle: BatchHandle) -> BatchStatus: ...
+    async def cancel_batch(self, handle: BatchHandle) -> None: ...  # watchdog (D71)
 
 @dataclass(frozen=True)
 class LLMResult:

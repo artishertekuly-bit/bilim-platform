@@ -21,6 +21,7 @@ class Task(StrEnum):
     TUTOR_REPLY = "tutor_reply"
     EXAMINER_DIALOG = "examiner_dialog"
     GENERATION = "generation"  # Batch API
+    GENERATION_FAST = "generation_fast"  # Fast Lane: мұғалім сұраған § синхрон толтырылады (ai_examiner §5.4)
 
 
 class Priority(IntEnum):
@@ -44,11 +45,12 @@ TASK_PRIORITY: dict[Task, Priority] = {
     Task.SECOND_GRADING: Priority.BACKGROUND,
     Task.MCQ_SOLVER_CHECK: Priority.BACKGROUND,
     Task.GENERATION: Priority.BACKGROUND,
+    Task.GENERATION_FAST: Priority.BACKGROUND,  # генерация ресми бағалау мен Tutor-ды ешқашан озбайды
 }
 
 # Резерв провайдер тек Tutor мен генерация үшін (ortaq §2.4).
 FALLBACK_ALLOWED: frozenset[Task] = frozenset(
-    {Task.TUTOR_TAGS, Task.TUTOR_REPLY, Task.GENERATION, Task.MCQ_SOLVER_CHECK}
+    {Task.TUTOR_TAGS, Task.TUTOR_REPLY, Task.GENERATION, Task.GENERATION_FAST, Task.MCQ_SOLVER_CHECK}
 )
 
 # ortaq §2.1 кестесіндегі режимдер. Көрсетілмеген тапсырма — sync.

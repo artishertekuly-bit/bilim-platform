@@ -20,6 +20,7 @@ class FakeProvider:
         self.embed_calls: list[tuple[str, tuple[str, ...]]] = []
         self.batches: list[tuple[tuple[str, CompletionRequest], ...]] = []
         self.batch_status: dict[str, BatchStatus] = {}
+        self.cancelled: list[str] = []
         self._script: list[Any] = list(script)
         self.default_text = "ok"
 
@@ -67,3 +68,6 @@ class FakeProvider:
 
     async def fetch_batch(self, batch_id: str) -> BatchStatus:
         return self.batch_status.get(batch_id, BatchStatus(batch_id=batch_id, status="in_progress"))
+
+    async def cancel_batch(self, batch_id: str) -> None:
+        self.cancelled.append(batch_id)

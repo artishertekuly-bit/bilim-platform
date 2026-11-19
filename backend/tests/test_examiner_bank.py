@@ -8,6 +8,11 @@ import random
 import unittest
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from unittest import mock
+
+import app.examiner.bank.pipeline as pipeline_module
 
 from app.examiner.bank.checks import (
     DUPLICATE_THRESHOLD,
@@ -258,9 +263,12 @@ class BankFakeProvider(FakeProvider):
         super().__init__(name)
         self.correct_texts: set[str] = set()
         self.solver_errors: list[ProviderError] = []
+        self.generation_texts: list[str] = []  # Fast Lane: синхрон генерацияның жауаптары, ретімен
 
     async def complete(self, request: CompletionRequest) -> ProviderCompletion:
         self.calls.append(request)
+        if request.schema_name in {model.__name__ for model in GEN_MODELS.values()}:
+            return ProviderCompletion(self.generation_texts.pop(0), Usage(50, 0, 50), request.model)
         if self.solver_errors:
             raise self.solver_errors.pop(0)
         user = request.messages[-1].content
@@ -300,6 +308,9 @@ def gateway_config() -> dict:
 
 async def no_sleep(_: float) -> None:
     return None
+
+
+SUBMITTED_AT = datetime(2026, 11, 19, 8, 0, tzinfo=timezone.utc)
 
 
 class MemoryRepository:
@@ -342,7 +353,7 @@ class MemoryRepository:
         return dict(counts)
 
     async def record_batch(self, batch, requests):
-        self.batches[batch.batch_id] = batch
+        self.batches[batch.batch_id] = replace(batch, submitted_at=batch.submitted_at or SUBMITTED_AT)
         for request in requests:
             self.requests[request.custom_id] = {"record": request, "status": "pending", "reasons": []}
 
@@ -350,9 +361,7 @@ class MemoryRepository:
         return [b for b in self.batches.values() if b.status in ("submitted", "completed")]
 
     async def set_batch_status(self, batch_id, status):
-        b = self.batches[batch_id]
-        self.batches[batch_id] = BatchRecord(b.batch_id, b.provider, b.model_key, b.prompt_id, b.prompt_version,
-                                             b.request_count, status)
+        self.batches[batch_id] = replace(self.batches[batch_id], status=status)
 
     async def pending_requests(self, batch_id):
         return [row["record"] for row in self.requests.values()
@@ -496,6 +505,80 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         batches = await self.pipeline.submit(["kazakh6.md"], 2, max_requests=200)
         self.assertEqual({b.prompt_id for b in batches},
                          {"examiner.generation.sequence", "examiner.generation.error_step"})
+
+    # ---------------------------------------------------------- ұсақ партиялар, Fast Lane, watchdog
+
+    async def test_submit_splits_format_into_small_batches(self) -> None:
+        with mock.patch.object(pipeline_module, "MAX_BATCH_REQUESTS", 2):
+            batches = await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq"], max_requests=5)
+        self.assertEqual([b.request_count for b in batches], [2, 2, 1])
+        self.assertEqual(len({b.batch_id for b in batches}), 3)
+        self.assertEqual(len(self.repo.requests), 5)
+
+    def small_policy_pipeline(self) -> BankPipeline:
+        # Бір § пен форматқа X1, X2, X3 бір-бірден.
+        return BankPipeline(self.gateway, self.repo, policy=StockPolicy(concurrent_sessions_per_topic=1, safety=0.25),
+                            rng=random.Random(1))
+
+    def distinct_mcqs(self, count: int) -> list[str]:
+        return [mcq(stem=f"{index}-сұрақ: Қытайдан Жерорта теңізіне дейінгі жол қалай аталды?").model_dump_json()
+                for index in range(count)]
+
+    async def test_fast_lane_fills_topic_without_batch(self) -> None:
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        self.provider.generation_texts = self.distinct_mcqs(3)
+        report = await self.small_policy_pipeline().generate_now(
+            ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["mcq"])
+        self.assertEqual((report.accepted, report.rejected, report.failed), (3, 0, 0))
+        self.assertEqual(self.provider.batches, [])  # Batch API шақырылмады
+        self.assertTrue(all(b.batch_id.startswith("fast-") and b.status == "processed"
+                            for b in self.repo.batches.values()))
+        self.assertEqual({row["status"] for row in self.repo.requests.values()}, {"accepted"})
+        self.assertEqual({q.request.x_tier for q in self.repo.questions}, {"X1", "X2", "X3"})
+
+    async def test_fast_lane_second_round_replaces_rejected(self) -> None:
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        good = self.distinct_mcqs(3)
+        # JSON дұрыс, бірақ Т6-дан өтпейді (gateway қайта сұрамайды, оны контур қабылдамайды).
+        self.provider.generation_texts = [mcq(options=["а", "б"]).model_dump_json(), good[0], good[1], good[2]]
+        report = await self.small_policy_pipeline().generate_now(
+            ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["mcq"])
+        self.assertEqual((report.accepted, report.rejected), (3, 1))
+        self.assertEqual(len(self.repo.batches), 2)  # екінші айналым — жаңа жазба
+
+    async def test_fast_lane_rejects_unknown_topic(self) -> None:
+        with self.assertRaises(ValueError):
+            await self.pipeline.generate_now(["kazakh6.md"], 1, topics=["kazakh6.md#§99"], formats=["mcq"])
+
+    async def test_watchdog_cancels_only_old_in_progress_batches(self) -> None:
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
+        ids = await self.submit_mcq(2)
+        self.assertEqual(await self.pipeline.watchdog(now=SUBMITTED_AT + timedelta(hours=1)), [])
+        cancelled = await self.pipeline.watchdog(now=SUBMITTED_AT + timedelta(hours=5))
+        self.assertEqual(cancelled, ["primary-batch-1"])
+        self.assertEqual(self.provider.cancelled, ["primary-batch-1"])
+        # Тоқтатылған batch-тің біткен сұранысы банкке түседі, қалғаны failed болып, кейін қайта сұралады.
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        self.provider.batch_status["primary-batch-1"] = BatchStatus("primary-batch-1", "cancelled", (
+            BatchItemResult(ids[0], mcq().model_dump_json(), Usage(10, 0, 10)),))
+        report = await self.pipeline.process()
+        self.assertEqual((report.accepted, report.failed), (1, 1))
+        self.assertEqual(self.repo.batches["primary-batch-1"].status, "processed")
+        self.assertEqual(await self.pipeline.watchdog(now=SUBMITTED_AT + timedelta(hours=9)), [])
+
+    async def test_process_closes_only_stale_fast_records(self) -> None:
+        request = RequestRecord("fast-req", "fast-x", self.repo.subject, "kazakh6.md#§1", 1, "mcq", "X1", ("c1",))
+        await self.repo.record_batch(BatchRecord("fast-x", "primary", "strong", "examiner.generation.mcq", "v",
+                                                 1), [request])
+        fresh = await self.pipeline.process(now=SUBMITTED_AT + timedelta(minutes=5))
+        self.assertEqual(fresh.failed, 0)
+        self.assertEqual(self.repo.requests["fast-req"]["status"], "pending")
+        stale = await self.pipeline.process(now=SUBMITTED_AT + timedelta(hours=1))
+        self.assertEqual(stale.failed, 1)
+        self.assertEqual(self.repo.requests["fast-req"]["reasons"], ["Fast Lane үзілді"])
+        self.assertEqual(self.repo.batches["fast-x"].status, "processed")
 
 
 class CheckTests(unittest.IsolatedAsyncioTestCase):

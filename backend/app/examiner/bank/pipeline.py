@@ -4,19 +4,25 @@
   → Т6 құрылым (formats) → Т7 мазмұн (checks) → банкке жазу (repository)
 
 Контур екі қадаммен жүреді, сондықтан процесс кез келген жерде тоқтаса да, ештеңе жоғалмайды:
-  * `submit` — сұраныстарды Batch API-ға жібереді және оларды `generation_requests`-ке жазады;
+  * `submit` — сұраныстарды ұсақ партиялармен Batch API-ға жібереді және оларды `generation_requests`-ке
+    жазады;
   * `process` — дайын batch-терді алып, әр нәтижені тексереді және банкке жазады. Өңделген
     сұраныс қайта өңделмейді; уақытша қатеде сұраныс `pending` күйінде қалады.
+  * `watchdog` — мерзімінен ұзақ тұрып қалған batch-ті тоқтатады; біткен бөлігін `process` өңдейді.
+Fast Lane (`generate_now`) — сол тексерістер, бірақ синхрон шақырумен: бір §-тің қоры минуттарда
+толады. Оны емтиханнан бұрын мұғалім немесе әкімші іске қосады, оқушы оны ешқашан күтпейді.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from pydantic import ValidationError
@@ -41,6 +47,13 @@ from .prompts import GenerationTask, generation_messages, generation_prompt_ref
 logger = logging.getLogger("bilim.examiner.bank")
 
 EMBEDDING_KEY = "questions"
+
+MAX_BATCH_REQUESTS = 100                  # бір batch-тегі сұраныс: тұрып қалса, аз жоғалады
+WATCHDOG_MAX_AGE = timedelta(hours=4)     # одан ұзақ in_progress тұрған batch тоқтатылады
+FAST_PREFIX = "fast-"                     # Fast Lane жазбаларының batch_id-і (провайдерде мұндай batch жоқ)
+FAST_CONCURRENCY = 6                      # Fast Lane-де қатар жүретін генерация шақыруы
+FAST_ROUNDS = 2                           # тексерістен өтпегендердің орны қайта сұралатын айналым саны
+FAST_STALE = timedelta(minutes=30)        # үзілген Fast Lane жазбасы осыдан кейін жабылады
 
 
 # ---------------------------------------------------------------- деректер
@@ -77,6 +90,11 @@ class BatchRecord:
     prompt_version: str
     request_count: int
     status: str = "submitted"
+    submitted_at: datetime | None = None
+
+    @property
+    def is_fast(self) -> bool:
+        return self.batch_id.startswith(FAST_PREFIX)
 
     def handle(self) -> BatchHandle:
         return BatchHandle(
@@ -154,14 +172,153 @@ class BankPipeline:
         *,
         formats: Sequence[str] = CODE_FORMATS,
         max_requests: int | None = None,
+        topics: Sequence[str] | None = None,
     ) -> list[BatchRecord]:
-        """Жетпейтін қорды есептеп, әр формат үшін бір batch жібереді."""
+        """Жетпейтін қорды есептеп, Batch API-ға жібереді. Әр формат ұсақ партияларға бөлінеді
+        (ең көбі MAX_BATCH_REQUESTS): бір партия тұрып қалса, бүкіл кітап тоқтамайды."""
+        planned = await self._plan_requests(books, level, formats, max_requests, topics)
+        batches: list[BatchRecord] = []
+        for name, items in planned.items():
+            prompt = generation_prompt_ref(name)
+            for start in range(0, len(items), MAX_BATCH_REQUESTS):
+                part = items[start:start + MAX_BATCH_REQUESTS]
+                handle = await self._gateway.submit_batch(
+                    Task.GENERATION,
+                    prompt,
+                    [BatchRequest(request.custom_id, tuple(messages)) for request, messages in part],
+                    schema=GEN_MODELS[name],
+                )
+                batch = BatchRecord(
+                    batch_id=handle.batch_id, provider=handle.provider, model_key=handle.model_key,
+                    prompt_id=prompt.id, prompt_version=prompt.version, request_count=len(part),
+                )
+                await self._repo.record_batch(
+                    batch, [_with_batch(request, handle.batch_id) for request, _ in part]
+                )
+                logger.info("generation batch submitted", extra={"batch_id": handle.batch_id, "format": name,
+                                                                 "requests": len(part)})
+                batches.append(batch)
+        return batches
+
+    # ------------------------------------------------------------ Fast Lane
+
+    async def generate_now(
+        self,
+        books: Sequence[str],
+        level: int,
+        *,
+        topics: Sequence[str],
+        formats: Sequence[str] = CODE_FORMATS,
+        max_requests: int | None = None,
+        concurrency: int = FAST_CONCURRENCY,
+        rounds: int = FAST_ROUNDS,
+    ) -> ProcessReport:
+        """Fast Lane (ai_examiner §5.4): берілген §-тердің жетпейтін қорын синхрон шақырумен толтырады.
+
+        Batch кезегін күтпейді: сұраныстар қатар жіберіледі, әр нәтиже келген бойда Т6/Т7-ден өтіп
+        банкке жазылады. Тексерістен өтпегендердің орны келесі айналымда (ең көбі `rounds`) қайта
+        сұралады. Оқушының емтиханы бұл жолды ешқашан күтпейді (D64, D65): оны мұғалім немесе әкімші
+        емтиханнан бұрын іске қосады.
+        """
+        if not topics:
+            raise ValueError("Fast Lane-ге кемінде бір § беріледі")
+        report = ProcessReport()
+        limit = asyncio.Semaphore(max(1, concurrency))
+        # Т7-дің қайталау тексерісі бұрын жазылған сұрақтарға қарайды: нәтижелер бір-бірден өңделеді,
+        # әйтпесе қатар келген екі ұқсас сұрақтың екеуі де өтіп кетер еді.
+        processing = asyncio.Lock()
+        remaining = max_requests
+        for _ in range(max(1, rounds)):
+            planned = await self._plan_requests(books, level, formats, remaining, topics)
+            if not planned:
+                break
+            await self._record_fast_batches(planned)
+            items = [(name, request, messages) for name, rows in planned.items() for request, messages in rows]
+
+            async def run(name: str, request: RequestRecord, messages: list) -> None:
+                prompt = generation_prompt_ref(name)
+                async with limit:
+                    try:
+                        result = await self._gateway.complete(
+                            Task.GENERATION_FAST, prompt, messages, schema=GEN_MODELS[name]
+                        )
+                    except (LLMUnavailableError, LLMRequestError) as exc:
+                        async with processing:
+                            await self._finish(report, request, "failed", [f"Fast Lane: генерация орындалмады ({exc})"])
+                        return
+                async with processing:
+                    try:
+                        await self._process_item(report, request, result.text, result.model, prompt.version)
+                    except _Deferred:
+                        await self._finish(report, request, "failed", ["Fast Lane: Т7 тексерісі қолжетімсіз"])
+
+            await asyncio.gather(*(run(name, request, messages) for name, request, messages in items))
+            for batch_id in {request.batch_id for _, request, _ in items}:
+                await self._repo.set_batch_status(batch_id, "processed")
+            if remaining is not None:
+                remaining -= len(items)
+                if remaining <= 0:
+                    break
+        return report
+
+    async def _record_fast_batches(self, planned: dict[str, list[tuple[RequestRecord, list]]]) -> None:
+        """Fast Lane сұраныстары да `generation_requests`-ке жазылады (бақылау мен статистика үшін)."""
+        route_model = self._gateway.config.route(Task.GENERATION_FAST).model
+        provider = self._gateway.config.models[route_model].provider
+        for name, rows in planned.items():
+            prompt = generation_prompt_ref(name)
+            batch_id = f"{FAST_PREFIX}{uuid.uuid4().hex}"
+            batch = BatchRecord(batch_id=batch_id, provider=provider, model_key=route_model, prompt_id=prompt.id,
+                                prompt_version=prompt.version, request_count=len(rows))
+            stamped = [_with_batch(request, batch_id) for request, _ in rows]
+            await self._repo.record_batch(batch, stamped)
+            rows[:] = [(request, messages) for request, (_, messages) in zip(stamped, rows, strict=True)]
+
+    # ------------------------------------------------------------ watchdog
+
+    async def watchdog(self, max_age: timedelta = WATCHDOG_MAX_AGE, *, now: datetime | None = None) -> list[str]:
+        """Мерзімінен ұзақ тұрып қалған batch-терді тоқтатады. Біткен сұраныстарды `process` кейін өңдейді
+        (тоқтатылған batch-тің нәтижесі сақталады), ал орындалмағандарын келесі `submit` қайта сұрайды."""
+        now = now or datetime.now(timezone.utc)
+        cancelled: list[str] = []
+        for batch in await self._repo.open_batches():
+            if batch.status != "submitted" or batch.is_fast or batch.submitted_at is None:
+                continue
+            if now - batch.submitted_at < max_age:
+                continue
+            try:
+                status = await self._gateway.fetch_batch(batch.handle())
+                if status.status != "in_progress":
+                    continue  # нәтижесі дайын: оны process өңдейді
+                await self._gateway.cancel_batch(batch.handle())
+            except (LLMUnavailableError, LLMRequestError) as exc:
+                logger.warning("watchdog could not cancel %s: %s", batch.batch_id, exc)
+                continue
+            logger.info("generation batch cancelled by watchdog", extra={"batch_id": batch.batch_id})
+            cancelled.append(batch.batch_id)
+        return cancelled
+
+    # ------------------------------------------------------------ жоспар
+
+    async def _plan_requests(
+        self,
+        books: Sequence[str],
+        level: int,
+        formats: Sequence[str],
+        max_requests: int | None,
+        topics: Sequence[str] | None,
+    ) -> dict[str, list[tuple[RequestRecord, list]]]:
         formats = [name for name in formats if name in CODE_FORMATS and FORMAT_LEVEL[name] == level]
         if not formats:
             raise ValueError(f"{level}-деңгейде генерацияланатын код форматы жоқ")
         paragraphs = await self._repo.paragraphs(books)
         if not paragraphs:
             raise ValueError("Кітаптарда § табылмады: corpus.chunk_meta толтырылған ба?")
+        if topics is not None:
+            unknown = set(topics) - {paragraph.topic_id for paragraph in paragraphs}
+            if unknown:
+                raise ValueError(f"Бұл §-тер кітаптарда жоқ: {sorted(unknown)}")
+            paragraphs = [paragraph for paragraph in paragraphs if paragraph.topic_id in set(topics)]
         subjects = {paragraph.subject_id for paragraph in paragraphs}
         if len(subjects) != 1:
             raise ValueError("Бір іске қосуда тек бір пәннің кітаптары беріледі")
@@ -214,33 +371,22 @@ class BankPipeline:
                 )
                 planned[slot.format].append((request, generation_messages(task, reference_text(combo))))
                 count += 1
-
-        batches: list[BatchRecord] = []
-        for name, items in planned.items():
-            prompt = generation_prompt_ref(name)
-            handle = await self._gateway.submit_batch(
-                Task.GENERATION,
-                prompt,
-                [BatchRequest(request.custom_id, tuple(messages)) for request, messages in items],
-                schema=GEN_MODELS[name],
-            )
-            batch = BatchRecord(
-                batch_id=handle.batch_id, provider=handle.provider, model_key=handle.model_key,
-                prompt_id=prompt.id, prompt_version=prompt.version, request_count=len(items),
-            )
-            await self._repo.record_batch(
-                batch, [_with_batch(request, handle.batch_id) for request, _ in items]
-            )
-            logger.info("generation batch submitted", extra={"batch_id": handle.batch_id, "format": name,
-                                                             "requests": len(items)})
-            batches.append(batch)
-        return batches
+        return dict(planned)
 
     # ------------------------------------------------------------ process
 
-    async def process(self) -> ProcessReport:
+    async def process(self, *, now: datetime | None = None) -> ProcessReport:
         report = ProcessReport()
+        now = now or datetime.now(timezone.utc)
         for batch in await self._repo.open_batches():
+            if batch.is_fast:
+                # Fast Lane өз жазбасын өзі жабады. Ашық қалса, процесс үзілген: сұраныстары failed болады,
+                # ал жетпеген қорды келесі submit қайта сұрайды. Жүріп жатқанына тиіспеу үшін тек ескісі.
+                if batch.submitted_at is not None and now - batch.submitted_at >= FAST_STALE:
+                    for request in await self._repo.pending_requests(batch.batch_id):
+                        await self._finish(report, request, "failed", ["Fast Lane үзілді"])
+                    await self._repo.set_batch_status(batch.batch_id, "processed")
+                continue
             status = await self._gateway.fetch_batch(batch.handle())
             if status.status == "in_progress":
                 continue

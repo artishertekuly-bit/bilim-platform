@@ -196,6 +196,13 @@ class OpenAICompatProvider:
             raise to_provider_error(exc) from exc
         return BatchStatus(batch_id=batch_id, status=state, results=tuple(results))
 
+    async def cancel_batch(self, batch_id: str) -> None:
+        """Тоқтату сұралады; провайдер біткен сұраныстардың нәтижесін сақтайды (`cancelled` күйінде)."""
+        try:
+            await self._client.batches.cancel(batch_id)
+        except Exception as exc:  # noqa: BLE001
+            raise to_provider_error(exc) from exc
+
 
 def _batch_row(row: dict[str, Any]) -> BatchItemResult:
     custom_id = str(row.get("custom_id", ""))

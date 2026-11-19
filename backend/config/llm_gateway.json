@@ -71,7 +71,8 @@
     "explanation": { "model": "small", "mode": "sync", "temperature": 0.3, "max_output_tokens": 400, "timeout_s": 15 },
     "tutor_reply": { "model": "strong", "mode": "stream", "temperature": 0.7, "max_output_tokens": 900, "timeout_s": 60, "fallback": ["reserve"] },
     "examiner_dialog": { "model": "strong", "mode": "stream", "temperature": 0.3, "max_output_tokens": 600, "timeout_s": 60 },
-    "generation": { "model": "strong", "mode": "batch", "temperature": 0.7, "max_output_tokens": 4000, "timeout_s": 120, "fallback": ["reserve"] }
+    "generation": { "model": "strong", "mode": "batch", "temperature": 0.7, "max_output_tokens": 4000, "timeout_s": 120, "fallback": ["reserve"] },
+    "generation_fast": { "model": "strong", "mode": "sync", "temperature": 0.7, "max_output_tokens": 4000, "timeout_s": 120, "fallback": ["reserve"] }
   },
   "embeddings": {
     "answers": "answer_embedding",
