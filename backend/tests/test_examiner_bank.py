@@ -396,6 +396,11 @@ class AuditTests(unittest.TestCase):
         self.assertTrue(any(r.startswith("Т6: дұрыс нұсқа қалғандарынан едәуір ұзын") for r in findings["cue"]))
         self.assertEqual(findings["no_quote"], ("Т7: support_quote оқулық мәтінінде жоқ",))
 
+    def test_non_code_formats_are_skipped(self) -> None:
+        # ЖИ форматтарының пакетін аудит құра алмайды: оларды «оқылмады» деп шығарып жібермеуі керек.
+        ai = replace(bank_question(mcq(), qid="ai"), format="short_answer", content={"stem": "Атаңыз."}, key={})
+        self.assertEqual(audit([ai]), [])
+
     def test_broken_package_is_flagged_not_crashing(self) -> None:
         broken = replace(bank_question(mcq(), qid="broken"), content={"stem": "?"})
         self.assertEqual(audit([broken])[0].reasons, ("Т6: пакет құрылымы оқылмады (KeyError)",))

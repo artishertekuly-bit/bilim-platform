@@ -7,6 +7,8 @@
   * қайталау — бір § пен деңгейдегі белсенді сұрақтар арасында ≥ DUPLICATE_THRESHOLD (Т7):
     ертерек жасалғаны қалады, кейінгісі белгіленеді.
 MCQ-дің шешуші тексерісі (LLM) қайталанбайды: ол генерацияда сол модельмен өткен.
+Аудит тек код форматтарын тексереді (`GEN_MODELS`). ЖИ мен гибрид форматтарының (5-қадам) пакетін бұл
+модуль құра алмайды: оларды «оқылмады» деп шығарып жібермеу үшін олар өткізіледі.
 
 Белгіленген сұрақ өшірілмейді: `question_state.status = 'retired'`, себебі тарихқа жазылады
 (`question_state_history`), сондықтан оны қайта белсенді етуге болады.
@@ -22,7 +24,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .checks import DUPLICATE_THRESHOLD, cosine, quote_problem
-from .formats import Package, gen_from_package
+from .formats import GEN_MODELS, Package, gen_from_package
 
 
 @dataclass(frozen=True)
@@ -70,7 +72,9 @@ def question_problems(question: BankQuestion) -> list[str]:
 
 
 def audit(questions: Sequence[BankQuestion]) -> list[Finding]:
-    """Белгіленген сұрақтар және себептері. Қайталау тексерісінде алдымен белгіленбегендер ескеріледі."""
+    """Белгіленген сұрақтар және себептері. Қайталау тексерісінде алдымен белгіленбегендер ескеріледі.
+    Код форматы емес сұрақ (ЖИ, гибрид) тексерілмейді және белгіленбейді."""
+    questions = [q for q in questions if q.format in GEN_MODELS]
     reasons: dict[str, list[str]] = {q.question_id: question_problems(q) for q in questions}
     kept: dict[tuple[str, int], list[BankQuestion]] = {}
     for question in sorted(questions, key=lambda q: (q.created_at, q.question_id)):
