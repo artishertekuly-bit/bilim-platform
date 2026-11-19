@@ -3,7 +3,7 @@
   * Дәйексөз: модель көрсеткен үзінді оқулық мәтінінде шынымен бар ма (код, 0 токен).
   * MCQ шешуші тексеру: кіші модель кілтті көрмей, тек оқулық үзіндісі бойынша сұрақты шешеді.
     Кілттегі нұсқаны таппаса немесе бірнеше нұсқаны дұрыс деп санаса, пакет қабылданбайды.
-  * Қайталау: жаңа сұрақ сол topic_id мен level-дегі бар сұраққа ≥ 0.92 ұқсас болса, қабылданбайды.
+  * Қайталау: жаңа сұрақ сол topic_id мен level-дегі бар сұраққа ≥ 0.85 ұқсас болса, қабылданбайды.
 
 Т6 және детерминистік Т7 (рет, жұптар, интервал) — formats.py ішінде.
 """
@@ -20,7 +20,9 @@ from pydantic import BaseModel, Field
 from ...llm_gateway import LLMGateway, Message, PromptRef, Task, wrap_untrusted
 from .formats import Package, normalize_text
 
-DUPLICATE_THRESHOLD = 0.92
+# Бірінші сынақтағы калибрлеу (text-embedding-3-small, D61): сөзі өзгертілген, мағынасы бірдей MCQ жұптары
+# 0.87–0.89, мәтіні дерлік бірдей жұп 0.94, ал әртүрлі сұрақтардың ең ұқсасы 0.72 болды.
+DUPLICATE_THRESHOLD = 0.85
 SOLVER_PROMPT = PromptRef("examiner.bank.mcq_solver", "2026-11-19.1")
 MIN_QUOTE_FRAGMENT = 15
 _ELLIPSIS = re.compile(r"…|\.{3,}")

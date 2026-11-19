@@ -519,7 +519,10 @@ class CheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(cosine([1, 0], [1, 0]), 1.0)
         self.assertIsNone(duplicate_problem([1, 0], [[0, 1]]))
         self.assertIsNotNone(duplicate_problem([1, 0.1], [[1, 0]]))
-        self.assertGreater(DUPLICATE_THRESHOLD, 0.9)
+        # Мағынасы бірдей сұрақтар (≈ 0.87) ұсталады, әртүрлі сұрақтар (≈ 0.80 және төмен) өтеді.
+        self.assertIsNotNone(duplicate_problem([1, 0.55], [[1, 0]]))  # cos ≈ 0.876
+        self.assertIsNone(duplicate_problem([1, 0.75], [[1, 0]]))  # cos = 0.80
+        self.assertLess(DUPLICATE_THRESHOLD, 0.876)
 
     async def test_solver_unreadable_answer_fails_closed(self) -> None:
         provider = FakeProvider("primary", ["это не json"] * 3)
