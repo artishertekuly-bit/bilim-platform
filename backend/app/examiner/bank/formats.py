@@ -147,6 +147,32 @@ def _shuffle_not_identity(items: list[Any], rng: random.Random) -> list[int]:
 # Телефон экранына арналған шектер. Т6 кестесінде жоқ форматтардың шегі — бастапқы мән.
 STEM_LIMIT = 400
 
+# Тесттің сыртқы белгілері (Т6, D72): оқушы сұрақты білмей-ақ дұрыс нұсқаны таппауы керек.
+# Дұрыс нұсқа ең ұзын нұсқадан осыдан көп ұзын болса — белгі. Қысқа нұсқаларда (есім, жыл) айырма
+# салыстырмалы түрде үлкен болып көрінеді, сондықтан ең аз шек таңбамен де беріледі.
+LENGTH_CUE_RATIO = 0.15
+LENGTH_CUE_MIN_CHARS = 8
+# Абсолютті сөздер: олар тек қате нұсқаларда тұрса, «тек»-тен басталмаған нұсқа дұрыс екені білініп қалады.
+ABSOLUTE_WORDS = frozenset({
+    "тек", "ғана", "ешқашан", "әрқашан", "үнемі", "барлық", "барлығы", "бәрі", "мүлдем", "ешқандай", "ешбір",
+})
+
+
+def _option_cue_problems(options: list[str], correct_index: int) -> list[str]:
+    if len(options) < 2 or not 0 <= correct_index < len(options):
+        return []
+    problems = []
+    lengths = [len(normalize_text(option)) for option in options]
+    right = lengths[correct_index]
+    longest_other = max(length for index, length in enumerate(lengths) if index != correct_index)
+    if right - longest_other > max(LENGTH_CUE_MIN_CHARS, LENGTH_CUE_RATIO * longest_other):
+        problems.append(f"Т6: дұрыс нұсқа қалғандарынан едәуір ұзын ({right} / {longest_other} таңба)")
+    marked = [index for index, option in enumerate(options)
+              if set(re.findall(r"\w+", normalize_text(option))) & ABSOLUTE_WORDS]
+    if correct_index not in marked and len(marked) >= 2:
+        problems.append("Т6: «тек», «ешқашан» сияқты сөздер тек қате нұсқаларда")
+    return problems
+
 
 class MCQGen(GenBase):
     """8 · Кәдімгі тест: 4 нұсқа, біреуі дұрыс."""
@@ -170,6 +196,7 @@ class MCQGen(GenBase):
         problems += _duplicates(self.options, "нұсқа")
         if not 0 <= self.correct_index < len(self.options):
             problems.append("Т6: correct_index нұсқалар аралығында емес")
+        problems += _option_cue_problems(self.options, self.correct_index)
         return problems
 
     def to_package(self, rng: random.Random) -> Package:

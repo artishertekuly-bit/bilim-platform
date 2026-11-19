@@ -88,6 +88,24 @@ class FormatTests(unittest.TestCase):
         self.assertIn("Т6: correct_index нұсқалар аралығында емес", mcq(correct_index=4).problems())
         self.assertIn("Т7: support_quote тым қысқа", mcq(support_quote="жоқ").problems())
 
+    def test_mcq_length_cue(self) -> None:
+        # Бірінші сынақтағы нақты сұрақ: дұрыс нұсқа ұзын, қате нұсқалар «Тек»-тен басталады.
+        options = ["Адамзаттың өткен өміріндегі маңызды оқиғалар мен тұлғаларды зерттейді.",
+                   "Тек қазіргі заман оқиғаларын зерттейді.", "Тек тарихи тұлғалардың өмірбаянын зерттейді.",
+                   "Тек ежелгі жазба деректерді зерттейді."]
+        problems = mcq(options=options, correct_index=0).problems()
+        self.assertTrue(any(p.startswith("Т6: дұрыс нұсқа қалғандарынан едәуір ұзын") for p in problems), problems)
+        self.assertIn("Т6: «тек», «ешқашан» сияқты сөздер тек қате нұсқаларда", problems)
+        # Сол нұсқалар, бірақ ұзын нұсқа қате болса — белгі жоқ (абсолютті сөз дұрыс нұсқада тұр).
+        self.assertEqual(mcq(options=options, correct_index=1).problems(), [])
+
+    def test_mcq_short_options_tolerate_small_differences(self) -> None:
+        # Есімдерде 7 таңбалық айырма — белгі емес (LENGTH_CUE_MIN_CHARS).
+        self.assertEqual(mcq(options=["Әбілқайыр хан", "Абылай", "Тәуке", "Есім"], correct_index=0).problems(), [])
+        self.assertEqual(mcq().problems(), [])
+        # Абсолютті сөз бір ғана қате нұсқада — рұқсат.
+        self.assertEqual(mcq(options=["Ұлы Жібек жолы", "Тек тұз жолы", "Янтарь жолы", "Шай жолы"]).problems(), [])
+
     def test_matching_bijection_and_limits(self) -> None:
         gen = MatchingGen.model_validate({"stem": "Сәйкестендіріңіз", "pairs": [
             {"left": "Отырар", "right": "Сырдария"}, {"left": "Тараз", "right": "Талас"},
