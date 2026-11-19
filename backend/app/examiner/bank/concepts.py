@@ -5,10 +5,14 @@
 (мысалы, тазалау ережесі жаңарса), хэш өзгеріп, ұғымдар қайта шығарылады.
 
 Ұғымдар үш жерде қолданылады:
-  * норма: §-тің қоры чанк санынан емес, ұғым санынан есептеледі (planner.concept_targets);
-  * нысана: әр тест сұрағы бір ұғымға байланады, бір ұғымнан бір санатта бір ғана сұрақ;
+  * норма: §-тің қоры чанк санынан емес, ұғым тобының санынан есептеледі (planner.concept_targets);
+  * нысана: әр тест пен сәйкестендіру тапсырмасы бір ұғымға байланады; бір § пен форматта бір ұғым
+    тобынан бір ғана сұрақ, санатқа қарамай (D80);
   * алдағыш: §-тің ұғымдар тізімі промптқа беріледі, қате нұсқалар оқулықтың өз терминдерінен құралады.
 Ұғымы жоқ чанк (тек тапсырма, кеңес, әдебиет тізімі) генерацияға берілмейді.
+
+Ұғым тобы (D80): дәйексөздері бір сөйлемнен алынған ұғымдар («номадизм» мен «жайылымдық мал шаруашылығы»)
+бір фактіні сипаттайды, олардан шыққан сұрақтар бір-бірін қайталайды. Сондықтан олар бір топқа түседі.
 """
 
 from __future__ import annotations
@@ -31,6 +35,7 @@ CONCEPT_PROMPT = PromptRef("examiner.bank.concepts", "2026-11-19.1")
 MAX_CONCEPTS_PER_CHUNK = 12
 MAX_TERM_CHARS = 120
 EXTRACTION_CONCURRENCY = 6
+MIN_GROUP_QUOTE = 20      # қысқа дәйексөз («Томирис») көп сөйлемнің ішінде кездесіп, бәрін бір топқа жинамауы үшін
 
 CONCEPT_SYSTEM = (
     "Сен оқулық параграфының бір бөлігін талдайсың. Оқушы осы бөліктен білуге тиіс негізгі ұғымдарды тізімде: "
@@ -168,3 +173,33 @@ def topic_concepts(rows: Sequence[ChunkConcepts]) -> list[Concept]:
                     seen.add(concept.key)
                     result.append(concept)
     return result
+
+
+def concept_groups(rows: Sequence[ChunkConcepts]) -> dict[str, str]:
+    """Ұғым кілті → топ кілті (D80). Бір ұғымның дәйексөзі екіншісінің ішінде болса (бір сөйлем), олар бір
+    топ. Чанктар қабаттасатындықтан бір кілт бірнеше чанкта кездеседі: оның барлық дәйексөзі ескеріледі.
+    Топ кілті — `topic_concepts` ретіндегі топтың бірінші ұғымы."""
+    order = {concept.key: index for index, concept in enumerate(topic_concepts(rows))}
+    parent = {key: key for key in order}
+
+    def find(key: str) -> str:
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
+
+    quotes: list[tuple[str, str]] = []
+    for row in rows:
+        for concept in row.concepts:
+            if concept.quote:
+                text = normalize_text(concept.quote).strip(' ."')
+                if len(text) >= MIN_GROUP_QUOTE:
+                    quotes.append((concept.key, text))
+    for index, (key_a, text_a) in enumerate(quotes):
+        for key_b, text_b in quotes[index + 1:]:
+            if text_a in text_b or text_b in text_a:
+                root_a, root_b = find(key_a), find(key_b)
+                if root_a != root_b:
+                    first, second = sorted((root_a, root_b), key=order.__getitem__)
+                    parent[second] = first
+    return {key: find(key) for key in order}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import random
@@ -12,6 +13,8 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
+import asyncpg
+
 import app.examiner.bank.pipeline as pipeline_module
 
 from app.examiner.bank.audit import BankQuestion, audit
@@ -21,9 +24,18 @@ from app.examiner.bank.checks import (
     duplicate_problem,
     mcq_solver_problem,
     quote_problem,
+    repeat_problem,
 )
-from app.examiner.bank.concepts import ChunkConcepts, Concept
-from app.examiner.bank.context import Chunk, chunk_combinations, clean_chunk_text, entity_map, reference_text, strip_assignments
+from app.examiner.bank.concepts import ChunkConcepts, Concept, concept_groups
+from app.examiner.bank.context import (
+    Chunk,
+    chunk_combinations,
+    clean_chunk_text,
+    distant_partners,
+    entity_map,
+    reference_text,
+    strip_assignments,
+)
 from app.examiner.bank.formats import (
     GEN_MODELS,
     ErrorStepGen,
@@ -33,6 +45,7 @@ from app.examiner.bank.formats import (
     SequenceGen,
     SliderGen,
     gen_from_package,
+    normalize_text,
 )
 from app.examiner.bank.pipeline import (
     BankPipeline,
@@ -42,6 +55,7 @@ from app.examiner.bank.pipeline import (
     RequestRecord,
 )
 from app.examiner.bank.planner import StockPolicy, concept_targets, effective_composition, plan, stock_targets
+from app.examiner.bank.repository import PgBankRepository
 from app.examiner.bank.prompts import GenerationTask, generation_messages, generation_prompt_ref, load_prompt
 from app.llm_gateway import LLMGateway, Task, Usage, parse_config
 from app.llm_gateway.contracts import BatchItemResult, BatchStatus
@@ -108,6 +122,16 @@ class FormatTests(unittest.TestCase):
         self.assertEqual(mcq().problems(), [])
         # Абсолютті сөз бір ғана қате нұсқада — рұқсат.
         self.assertEqual(mcq(options=["Ұлы Жібек жолы", "Тек тұз жолы", "Янтарь жолы", "Шай жолы"]).problems(), [])
+
+    def test_mcq_distractor_that_is_part_of_the_answer(self) -> None:
+        # §16–17 X3: дұрысы «6–10-нан 20–50-ге дейін», ал «6–10» мен «20–50» қате нұсқа болып тұрды (D80).
+        part = mcq(stem="Қоныс әдетте қанша үйден құралды?",
+                   options=["6–10-нан 20–50-ге дейінгі үйлерден", "6–10 үйден", "100–300 үйден", "3–5 үйден"])
+        self.assertIn("Т6: қате нұсқа дұрыс жауаптың бір бөлігі (сандары)", part.problems())
+        swapped = mcq(stem="Кен орындарынан қанша мыс алынды?",
+                      options=["Жезқазғанда 100 мың, Имантайда 48 мың тонна", "Жезқазғанда 48 мың, Имантайда 100 мың тонна",
+                               "Жезқазғанда 50 мың, Имантайда 10 мың тонна", "Жезқазғанда 10 мың, Имантайда 50 мың тонна"])
+        self.assertNotIn("Т6: қате нұсқа дұрыс жауаптың бір бөлігі (сандары)", swapped.problems())
 
     def test_mcq_stem_echo_cue(self) -> None:
         # Бірінші Fast Lane сынағындағы нақты сұрақ: «палеолит» сөзі тек дұрыс нұсқада қайталанады.
@@ -264,6 +288,14 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(len(chunk_combinations(self.chunks(2), 3)), 1)
         self.assertEqual(chunk_combinations([], 1), [])
 
+    def test_x3_partner_prefers_distant_linked_chunk(self) -> None:
+        chunks = [Chunk(f"c{i}", i, f"мәтін {i}") for i in range(1, 6)]
+        entities = {"c1": frozenset({"Отырар"}), "c4": frozenset({"Отырар"}), "c2": frozenset({"Отырар"})}
+        # c2 — көрші (ортақ entity-сі болса да соңында), c4 — ортақ entity, c3 мен c5 — көрші емес, жақыны бірінші.
+        self.assertEqual([c.chunk_id for c in distant_partners(chunks, "c1", entities)], ["c4", "c3", "c5", "c2"])
+        self.assertEqual([c.chunk_id for c in distant_partners(chunks[:2], "c1")], ["c2"])  # тек көрші бар
+        self.assertEqual(distant_partners(chunks[:1], "c1"), [])
+
     def test_frequent_entity_is_not_a_link(self) -> None:
         ids = [f"c{i}" for i in range(1, 7)]
         links = [("Қазақстан", chunk_id) for chunk_id in ids] + [("Отырар", "c1"), ("Отырар", "c5")]
@@ -293,16 +325,51 @@ class PlannerTests(unittest.TestCase):
 
     def test_concept_targets_scale_and_cap_by_concept_count(self) -> None:
         self.assertEqual(concept_targets(0, 1, {}), {})
-        # 2 ұғым: сәйкестендіру өткізіледі (< 3), ал тест әр санатта 2-ден аспайды.
+        def total(targets: dict, fmt: str) -> int:
+            return sum(v for (name, _), v in targets.items() if name == fmt)
+
+        # 2 ұғым: сәйкестендіру өткізіледі (< 3), ал тест барлық санатта бірге 2-ден аспайды (D80).
         two = concept_targets(2, 1, {})
         self.assertNotIn(("matching", "X1"), two)
-        self.assertTrue(all(v <= 2 for (fmt, _), v in two.items() if fmt == "mcq"), two)
-        # 10 ұғым: базалық stock_targets-пен сәйкес (15 тест), ал 22 ұғымда қор көбірек (30 тест + 11 сәйкестендіру).
+        self.assertEqual(total(two, "mcq"), 2)
+        # Бір ұғымнан бір тест: 10 ұғым — 10 тест, 40 ұғым — шегі 30. X3 соңғы кезекте қысқарады.
         ten = concept_targets(10, 1, {})
-        self.assertEqual(sum(v for (fmt, _), v in ten.items() if fmt == "mcq"), 15)
+        self.assertEqual(total(ten, "mcq"), 10)
+        self.assertGreater(ten[("mcq", "X3")], 0)
+        self.assertEqual(total(concept_targets(40, 1, {}), "mcq"), 30)
         dense = concept_targets(22, 1, {})
-        self.assertEqual(sum(v for (fmt, _), v in dense.items() if fmt == "mcq"), 30)
-        self.assertEqual(sum(v for (fmt, _), v in dense.items() if fmt == "matching"), 11)
+        self.assertEqual(total(dense, "mcq"), 22)
+        self.assertEqual(total(dense, "matching"), 11)
+        # Қор саясаты үлкейсе де, ұғым санынан аспайды.
+        busy = concept_targets(6, 1, {}, StockPolicy(concurrent_sessions_per_topic=5))
+        self.assertEqual(total(busy, "mcq"), 6)
+        self.assertLessEqual(total(busy, "matching"), 6)
+
+
+class ConceptGroupTests(unittest.TestCase):
+    @staticmethod
+    def row(chunk_id: str, *items: tuple[str, str | None]) -> ChunkConcepts:
+        return ChunkConcepts(chunk_id, "t", "h", tuple(
+            Concept(key=normalize_text(term), term=term, quote=quote, chunk_id=chunk_id) for term, quote in items))
+
+    def test_concepts_from_one_sentence_share_a_group(self) -> None:
+        sentence = "Еуразияда көшпелі немесе номадизм деп аталған жайылымдық мал шаруашылығы дамыды."
+        renamed = "Көшпелі мал шаруашылығы ұғымын жайылымдық мал шаруашылығы деген атаумен ауыстырдық."
+        rows = [
+            self.row("c1", ("номадизм", sentence), ("жайылымдық мал шаруашылығы", sentence), ("Томирис", "Томирис")),
+            # Чанктар қабаттасады: сол кілт келесі чанкта басқа сөйлеммен келіп, үшінші ұғымды топқа тартады.
+            self.row("c2", ("жайылымдық мал шаруашылығы", renamed), ("атауды ауыстыру", renamed),
+                     ("Геродот", "Грек тарихшысы Геродот соғыстар тарихын жазды."), ("Аңыз", None)),
+        ]
+        groups = concept_groups(rows)
+        self.assertEqual(groups["номадизм"], "номадизм")
+        self.assertEqual(groups["жайылымдық мал шаруашылығы"], "номадизм")
+        self.assertEqual(groups["атауды ауыстыру"], "номадизм")
+        # Қысқа дәйексөз (< 20 таңба) мен дәйексөзі жоқ ұғым өз тобында қалады.
+        self.assertEqual(groups["томирис"], "томирис")
+        self.assertEqual(groups["аңыз"], "аңыз")
+        self.assertEqual(groups["геродот"], "геродот")
+        self.assertEqual(len(set(groups.values())), 4)
 
 
 # ------------------------------------------------------------------ промпт
@@ -396,6 +463,16 @@ class AuditTests(unittest.TestCase):
         self.assertTrue(any(r.startswith("Т6: дұрыс нұсқа қалғандарынан едәуір ұзын") for r in findings["cue"]))
         self.assertEqual(findings["no_quote"], ("Т7: support_quote оқулық мәтінінде жоқ",))
 
+    def test_audit_flags_same_stem_that_embedding_misses(self) -> None:
+        # Сұрағы бірдей, қате нұсқалары әртүрлі: embedding алыс, бірақ мазмұн қайталауы ұстайды (D80).
+        later = mcq(options=["Ұлы Жібек жолы", "Дала жолы", "Теңіз жолы", "Алтын жолы"])
+        questions = [
+            bank_question(mcq(), qid="first", minute=0, embedding=[1.0, 0.0]),
+            bank_question(later, qid="later", minute=1, embedding=[0.0, 1.0]),
+        ]
+        findings = {f.question.question_id: f.reasons for f in audit(questions)}
+        self.assertEqual(findings, {"later": ("Т7: бар сұрақпен мазмұны қайталанады (сұрақ мәтіні бірдей)",)})
+
     def test_non_code_formats_are_skipped(self) -> None:
         # ЖИ форматтарының пакетін аудит құра алмайды: оларды «оқылмады» деп шығарып жібермеуі керек.
         ai = replace(bank_question(mcq(), qid="ai"), format="short_answer", content={"stem": "Атаңыз."}, key={})
@@ -425,8 +502,9 @@ class BankFakeProvider(FakeProvider):
             if self.concept_responses:
                 items = self.concept_responses.pop(0)
             else:
+                # Дәйексөздер мәтінде жоқ (quote=None): ұғымдар топқа біріктірілмейді (D80).
                 tag = len(self.calls)
-                items = [{"term": f"Ұғым {i}-{tag}", "quote": QUOTE} for i in range(1, 11)]
+                items = [{"term": f"Ұғым {i}-{tag}", "quote": f"Ұғым {i}-{tag} түсіндірмесі"} for i in range(1, 11)]
             return ProviderCompletion(json.dumps({"concepts": items}), Usage(10, 0, 10), request.model)
         if request.schema_name in {model.__name__ for model in GEN_MODELS.values()}:
             return ProviderCompletion(self.generation_texts.pop(0), Usage(50, 0, 50), request.model)
@@ -550,6 +628,10 @@ class MemoryRepository:
     async def existing_embeddings(self, topic_id, level):
         return [q.embedding for q in self.questions if q.request.topic_id == topic_id and q.request.level == level]
 
+    async def existing_packages(self, topic_id, level, format_name):
+        return [(q.package.content, q.package.key) for q in self.questions
+                if (q.request.topic_id, q.request.level, q.request.format) == (topic_id, level, format_name)]
+
     async def accept(self, question):
         row = self.requests[question.request.custom_id]
         assert row["status"] == "pending"
@@ -626,7 +708,8 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(question.reference_context["chunk_ids"], ["c1"])
         self.assertEqual(question.embedding_model, "emb-model")
         reasons = {row["record"].custom_id: row["reasons"] for row in self.repo.requests.values()}
-        self.assertTrue(reasons[ids[1]][0].startswith("Т7: бар сұраққа тым ұқсас"))
+        # Сұрақ мәтіні бірдей: оны ақысыз мазмұн тексерісі шешуші мен embedding-тен бұрын ұстайды (D80).
+        self.assertEqual(reasons[ids[1]], ["Т7: бар сұрақпен мазмұны қайталанады (сұрақ мәтіні бірдей)"])
         self.assertEqual(reasons[ids[2]], ["Т7: support_quote оқулық мәтінінде жоқ"])
         self.assertEqual(self.repo.batches["primary-batch-1"].status, "processed")
         # Қайта шақыру ештеңені қайталамайды.
@@ -701,8 +784,15 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
                             rng=random.Random(1))
 
     def distinct_mcqs(self, count: int) -> list[str]:
-        return [mcq(stem=f"{index}-сұрақ: Қытайдан Жерорта теңізіне дейінгі жол қалай аталды?").model_dump_json()
-                for index in range(count)]
+        """Бір-бірін қайталамайтын тесттер: сұрағы да, дұрыс жауабы да әртүрлі (Т7 мазмұн қайталауы, D80).
+        Шешушінің үлгісі әр сұрақтың дұрыс жауабын таниды."""
+        texts = []
+        for index in range(count):
+            correct = f"Ұлы Жібек жолы ({index})"
+            self.provider.correct_texts.add(correct)
+            texts.append(mcq(stem=f"{index}-сұрақ: Қытайдан Жерорта теңізіне дейінгі жол қалай аталды?",
+                             options=[correct, "Тұз жолы", "Янтарь жолы", "Шай жолы"]).model_dump_json())
+        return texts
 
     async def test_fast_lane_fills_topic_without_batch(self) -> None:
         self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
@@ -727,6 +817,28 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
             ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["mcq"])
         self.assertEqual((report.accepted, report.rejected), (3, 1))
         self.assertEqual(len(self.repo.batches), 2)  # екінші айналым — жаңа жазба
+
+    async def test_fast_lane_survives_one_item_database_error(self) -> None:
+        # §16–17 сынағы: pooler байланысты жауып, бір элементтің база сұранысы құлады да, бүкіл Fast Lane тоқтады.
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        self.provider.generation_texts = self.distinct_mcqs(3)
+        original = self.repo.existing_packages
+        calls = {"n": 0}
+
+        async def flaky(*args):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise ConnectionError("connection was closed in the middle of operation")
+            return await original(*args)
+
+        self.repo.existing_packages = flaky  # type: ignore[method-assign]
+        report = await self.small_policy_pipeline().generate_now(
+            ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["mcq"], rounds=1)
+        self.assertEqual((report.accepted, report.failed), (2, 1))
+        self.assertEqual(dict(report.reasons), {"Fast Lane: өңдеу қатесі": 1})
+        statuses = sorted(row["status"] for row in self.repo.requests.values())
+        self.assertEqual(statuses, ["accepted", "accepted", "failed"])
 
     async def test_fast_lane_rejects_unknown_topic(self) -> None:
         with self.assertRaises(ValueError):
@@ -763,7 +875,8 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
     async def test_pipeline_binds_concepts_and_skips_empty_chunks(self) -> None:
         # c1 — 2 ұғым, c2 — бос (тек тапсырма: 0 ұғым). Тест тек c1-ден және әр санатта ең көбі 2 сұрақ.
         self.provider.concept_responses = [
-            [{"term": "Ұлы Жібек жолы", "quote": QUOTE}, {"term": "Отырар қаласы", "quote": QUOTE}],
+            [{"term": "Ұлы Жібек жолы", "quote": QUOTE},
+             {"term": "Отырар қаласы", "quote": "Отырар мен Тараз осы жолдың бойындағы ірі қалалар еді."}],
             [],
         ]
         await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq", "matching"])
@@ -771,13 +884,85 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         # 2 ұғым < 3 болғандықтан сәйкестендіру өткізіледі, ал тестте c2 мүлде қолданылмайды.
         self.assertEqual({r.format for r in records}, {"mcq"})
         self.assertEqual({r.chunk_ids for r in records}, {("c1",)})
-        for tier in ("X1", "X2", "X3"):
-            keys = [r.concept_key for r in records if r.x_tier == tier]
-            self.assertEqual(len(keys), len(set(keys)), tier)
-            self.assertLessEqual(len(keys), 2)
+        # Бір ұғымнан бір тест, санатқа қарамай (D80).
+        keys = [r.concept_key for r in records]
+        self.assertEqual(sorted(keys), ["отырар қаласы", "ұлы жібек жолы"])
         sent = self.provider.batches[-1][0][1].messages[-1].content
         self.assertIn('"нысана":', sent)
         self.assertIn('"§_ұғымдары":', sent)
+
+    async def three_concept_chunks(self) -> None:
+        """c1, c2, c3 — әрқайсысында мәтінде бар дәйексөзі бар 2 ұғым; c1-дің екі ұғымы бір сөйлемнен."""
+        self.repo.chunk_rows["kazakh6.md#§1"] = [
+            Chunk("c1", 1, SOURCE),
+            Chunk("c2", 2, "Сақтар жылқы өсірді. Олар темірден қару соқты және қорғандар тұрғызды."),
+            Chunk("c3", 3, "Үйсіндер Жетісуда өмір сүрді. Олардың астанасы Қызыл аңғар қаласы еді."),
+        ]
+        self.provider.concept_responses = [
+            [{"term": "Ұлы Жібек жолы", "quote": SOURCE.split(". ")[0]},
+             {"term": "Сауда жолы", "quote": "Ұлы Жібек жолы Қытайдан Жерорта теңізіне дейін созылған"}],
+            [{"term": "Сақтар", "quote": "Сақтар жылқы өсірді."},
+             {"term": "Қорғандар", "quote": "Олар темірден қару соқты және қорғандар тұрғызды."}],
+            [{"term": "Үйсіндер", "quote": "Үйсіндер Жетісуда өмір сүрді."},
+             {"term": "Қызыл аңғар", "quote": "Олардың астанасы Қызыл аңғар қаласы еді."}],
+        ]
+
+    async def test_one_mcq_per_concept_group_across_tiers(self) -> None:
+        # c1-дің «Ұлы Жібек жолы» мен «Сауда жолы» бір сөйлемнен: бір топ. 6 ұғым → 5 топ → 5 тест.
+        await self.three_concept_chunks()
+        await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq"])
+        records = [row["record"] for row in self.repo.requests.values()]
+        keys = [r.concept_key for r in records]
+        self.assertEqual(len(keys), 5)
+        self.assertEqual(len(set(keys)), 5)
+        self.assertFalse({"ұлы жібек жолы", "сауда жолы"} <= set(keys))
+        # X3 тестке нысананың чанкы мен онымен байланысты тағы бір чанк беріледі, X1 мен X2-ге — бір чанк.
+        home = {"ұлы жібек жолы": "c1", "сауда жолы": "c1", "сақтар": "c2", "қорғандар": "c2",
+                "үйсіндер": "c3", "қызыл аңғар": "c3"}
+        self.assertIn("X3", {r.x_tier for r in records})
+        for record in records:
+            self.assertEqual(len(record.chunk_ids), 2 if record.x_tier == "X3" else 1, record)
+            self.assertIn(home[record.concept_key], record.chunk_ids)
+        # X3 серігі көрші емес: көрші чанк LightRAG-те қабаттасып, нысананың абзацын қайталайды.
+        [x3] = [r for r in records if r.x_tier == "X3"]
+        self.assertEqual(x3.chunk_ids, ("c1", "c3"))
+        # Келесі іске қосу бос ұғым тобын таппайды: қор толы, ештеңе сұралмайды.
+        self.assertEqual(await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq"]), [])
+
+    async def test_matching_is_anchored_to_concept(self) -> None:
+        await self.three_concept_chunks()
+        await self.pipeline.submit(["kazakh6.md"], 1, formats=["matching"])
+        records = [row["record"] for row in self.repo.requests.values()]
+        self.assertTrue(records)
+        self.assertTrue(all(r.concept_key for r in records))
+        self.assertEqual(len({r.concept_key for r in records}), len(records))
+        sent = self.provider.batches[-1][0][1].messages[-1].content
+        self.assertIn('"нысана":', sent)
+        self.assertNotIn('"§_ұғымдары":', sent)
+
+    async def test_fast_lane_warms_cache_with_one_request_first(self) -> None:
+        # Әр форматтың бірінші сұранысы толық біткен соң ғана қалғандары басталады (D80).
+        events: list[str] = []
+        original = self.provider.complete
+
+        async def tracked(request: CompletionRequest) -> ProviderCompletion:
+            if request.schema_name == "MCQGen":
+                events.append("start")
+                await asyncio.sleep(0)
+                result = await original(request)
+                events.append("end")
+                return result
+            return await original(request)
+
+        self.provider.complete = tracked  # type: ignore[method-assign]
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        self.provider.generation_texts = self.distinct_mcqs(3)
+        report = await self.small_policy_pipeline().generate_now(
+            ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["mcq"])
+        self.assertEqual(report.accepted, 3)
+        self.assertEqual(events[:2], ["start", "end"])
+        self.assertEqual(events.count("start"), 3)
 
 
 class CheckTests(unittest.IsolatedAsyncioTestCase):
@@ -805,6 +990,90 @@ class CheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(duplicate_problem([1, 0.55], [[1, 0]]))  # cos ≈ 0.876
         self.assertIsNone(duplicate_problem([1, 0.75], [[1, 0]]))  # cos = 0.80
         self.assertLess(DUPLICATE_THRESHOLD, 0.876)
+
+    def test_quote_survives_ocr_hyphenation(self) -> None:
+        # «иуда-\n\nизм» — OCR тасымалы: модель сөзді дұрыс жазса да, дәйексөз табылады (D80).
+        reference = "Бұл аймақтардың діні зороастризм мен иуда-\n\nизм болды. Беғазы-Дәндібай 1946–\n1974 жылдары зерттелді."
+        def check(quote: str) -> str | None:
+            return quote_problem(mcq(support_quote=quote).to_package(random.Random(1)), reference)
+
+        self.assertIsNone(check("Бұл аймақтардың діні зороастризм мен иудаизм болды."))
+        self.assertIsNone(check("Беғазы-Дәндібай 1946– 1974 жылдары зерттелді."))
+        self.assertIsNotNone(check("Беғазы Дәндібай 19461974 жылдары зерттелді."))
+        self.assertEqual(normalize_text("қазақ­стан"), "қазақстан")
+
+    def test_repeat_problem_catches_same_stem_and_reused_matching_items(self) -> None:
+        stem = "Геродот Томирис пен Кир туралы оқиғаға қандай баға береді?"
+        first = mcq(stem=stem).to_package(random.Random(1))
+        second = mcq(stem=stem, options=["Аңыз деп айтады", "Нақты дерек деп айтады", "Жалған деп айтады",
+                                         "Ештеңе айтпайды"]).to_package(random.Random(2))
+        existing = [(first.content, first.key)]
+        self.assertEqual(repeat_problem(second, existing), "Т7: бар сұрақпен мазмұны қайталанады (сұрақ мәтіні бірдей)")
+        other = mcq(stem="Томирис қай тайпаның көсемі болды?", options=["Массагеттердің", "Сақтардың", "Үйсіндердің",
+                                                                        "Қаңлылардың"]).to_package(random.Random(3))
+        self.assertIsNone(repeat_problem(other, existing))
+        # Жалғауы ғана басқа сұрақ (§16–17): сөз бойынша 0.78, түбір бойынша бірдей.
+        place = mcq(stem="Ерте металл дәуіріндегі қоныстар көбіне қай жерлерде орналасты?",
+                    options=["Өзен жағалауларында", "Тау асуларында", "Шөл ортасында", "Орман ішінде"])
+        again = mcq(stem="Ерте металл дәуірінде қоныстар көбіне қай жерлерде орналасты?",
+                    options=["Өзен жағалауларында", "Құм төбелерінде", "Жартас үстінде", "Көл түбінде"])
+        placed = place.to_package(random.Random(1))
+        self.assertEqual(repeat_problem(again.to_package(random.Random(2)), [(placed.content, placed.key)]),
+                         "Т7: бар сұрақпен мазмұны қайталанады (сұрақ мәтіні бірдей)")
+        # Сұрағы басқа, дұрыс жауабы бірдей (≥ 3 сөз): сол факт қайта тексеріледі. Қысқа жауап ережеге ілінбейді.
+        mines = mcq(stem="Қазақстандағы кен орындары дұрыс көрсетілген нұсқаны таңдаңыз.",
+                    options=["Жезқазған – мыс, Атасу – қалайы, Степняк – алтын",
+                             "Жезқазған – алтын, Атасу – мыс, Степняк – қалайы",
+                             "Жезқазған – қалайы, Атасу – алтын, Степняк – мыс",
+                             "Жезқазған – мыс, Атасу – алтын, Степняк – қалайы"]).to_package(random.Random(1))
+        centre = mcq(stem="Қазақстанның ежелден кен ісінің орталығы болғанын қандай дерек дәлелдейді?",
+                     options=["Жезқазғаннан мыс, Атасудан қалайы, Степняктан алтын алынған.",
+                              "Жезқазғаннан алтын, Атасудан мыс, Степняктан қалайы алынған.",
+                              "Жезқазғаннан қалайы, Атасудан алтын, Степняктан мыс алынған.",
+                              "Жезқазғаннан мыс, Атасудан алтын, Степняктан қалайы алынған."]).to_package(random.Random(2))
+        self.assertEqual(repeat_problem(centre, [(mines.content, mines.key)]),
+                         "Т7: бар сұрақпен мазмұны қайталанады (дұрыс жауабы бірдей)")
+        tin = mcq(stem="Қола алу үшін мысқа қандай металл қосылды?",
+                  options=["қалайы", "күміс", "темір", "алтын"]).to_package(random.Random(1))
+        tin_place = mcq(stem="Атасу жоталарынан қандай кен алынды?",
+                        options=["қалайы", "мыс", "алтын", "күміс"]).to_package(random.Random(2))
+        self.assertIsNone(repeat_problem(tin_place, [(tin.content, tin.key)]))
+
+        def matching(*pairs: tuple[str, str]):
+            return MatchingGen.model_validate({"stem": "Сәйкестендіріңіз", "pairs": [
+                {"left": left, "right": right} for left, right in pairs], **COMMON}).to_package(random.Random(1))
+
+        names = matching(("номадизм", "көшпелі"), ("көшпелі бақташылық", "жайылымдық мал бағу"),
+                         ("Ерте темір дәуірі", "Ежелгі Қазақстан"))
+        # Сол жұптар бағаны ауысып қайта келді — қайталау.
+        swapped = matching(("көшпелі", "номадизм"), ("жайылымдық мал бағу", "көшпелі бақташылық"),
+                           ("Қой", "басты түлік"))
+        self.assertEqual(repeat_problem(swapped, [(names.content, names.key)]),
+                         "Т7: бар сұрақпен мазмұны қайталанады (сәйкестендіру элементтері)")
+        # Бір тұлғалар, бірақ басқа байланыс (атағы → еңбегі): өтеді.
+        titles = matching(("Геродот", "грек тарихшысы"), ("Полиэн", "антикалық автор"), ("I Дарий", "парсы патшасы"),
+                          ("Аршақ", "Парфия негізін қалаушы"))
+        deeds = matching(("Геродот", "грек-парсы соғыстары"), ("Полиэн", "сақ жеріне ену"),
+                         ("О. Ысмағұлов", "сақтардың арғы тегі"), ("I Дарий", "сақ көсемін тұтқындау"))
+        self.assertIsNone(repeat_problem(deeds, [(titles.content, titles.key)]))
+
+    async def test_repository_retries_reads_once_on_lost_connection(self) -> None:
+        class FlakyPool:
+            def __init__(self, failures: int) -> None:
+                self.failures, self.calls = failures, 0
+
+            async def fetch(self, query, *args):
+                self.calls += 1
+                if self.calls <= self.failures:
+                    raise asyncpg.exceptions.ConnectionDoesNotExistError("connection was closed")
+                return [{"ok": True}]
+
+        once = FlakyPool(1)
+        self.assertEqual(await PgBankRepository(once)._fetch("select 1"), [{"ok": True}])  # type: ignore[arg-type]
+        self.assertEqual(once.calls, 2)
+        twice = FlakyPool(2)
+        with self.assertRaises(asyncpg.exceptions.ConnectionDoesNotExistError):
+            await PgBankRepository(twice)._fetch("select 1")  # type: ignore[arg-type]
 
     async def test_solver_unreadable_answer_fails_closed(self) -> None:
         provider = FakeProvider("primary", ["это не json"] * 3)

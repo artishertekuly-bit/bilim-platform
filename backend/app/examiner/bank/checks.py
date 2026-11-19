@@ -4,6 +4,9 @@
   * MCQ шешуші тексеру: кіші модель кілтті көрмей, тек оқулық үзіндісі бойынша сұрақты шешеді.
     Кілттегі нұсқаны таппаса немесе бірнеше нұсқаны дұрыс деп санаса, пакет қабылданбайды.
   * Қайталау: жаңа сұрақ сол topic_id мен level-дегі бар сұраққа ≥ 0.85 ұқсас болса, қабылданбайды.
+  * Мазмұн қайталауы (код, 0 токен, D80): embedding қате нұсқалары әртүрлі, бірақ сұрағы бірдей тестті
+    ажыратпайды (бір сұраққа екі түрлі алдағыш жиыны), сондықтан сұрақ мәтіні мен сәйкестендірудің
+    элементтері тікелей салыстырылады.
 
 Т6 және детерминистік Т7 (рет, жұптар, интервал) — formats.py ішінде.
 """
@@ -13,7 +16,8 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -26,6 +30,20 @@ DUPLICATE_THRESHOLD = 0.85
 SOLVER_PROMPT = PromptRef("examiner.bank.mcq_solver", "2026-11-19.1")
 MIN_QUOTE_FRAGMENT = 15
 _ELLIPSIS = re.compile(r"…|\.{3,}")
+# Тест сұрағы сөздердің түбірі бойынша салыстырылады (алғашқы STEM_CHARS әріп): қазақ тіліндегі жалғау
+# («дәуіріндегі» / «дәуірінде») сөзді басқа етпейді. §16–17-де жалғауы ғана басқа екі сұрақ түбір бойынша 1.0
+# (сөз бойынша 0.78), §20–21-де бір ұғымның сөзі өзгертілген екі сұрағы 0.55, ал «0-сұрақ: …» / «1-сұрақ: …»
+# сияқты бір сөзі ғана басқа сұрақтар 0.80 болды.
+STEM_CHARS = 5
+STEM_REPEAT_THRESHOLD = 0.85
+# Сұрағы басқа, бірақ дұрыс жауабы бірдей тест сол фактіні қайта тексереді («Жезқазған – мыс, Атасу – қалайы,
+# Степняк – алтын» §16–17-де үш тестте). Қысқа жауап (бір-екі сөз: «қалайы») әртүрлі фактінің жауабы бола
+# алады, сондықтан ереже кемінде ANSWER_MIN_WORDS сөзді жауапқа ғана қолданылады.
+ANSWER_REPEAT_THRESHOLD = 0.8
+ANSWER_MIN_WORDS = 3
+# Сәйкестендіру: жаңа тапсырманың элементтерінің (екі бағаны бірге) осы үлесі бар тапсырмада болса —
+# қайталау. Бір тұлғалар әртүрлі байланыста (тұлға → атағы, тұлға → еңбегі) 0.4-ке дейін қиылысты.
+ITEM_REPEAT_SHARE = 0.6
 
 
 def quote_problem(package: Package, reference_text: str) -> str | None:
@@ -90,6 +108,47 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
     return dot / norm if norm else 0.0
+
+
+def _stems(text: str) -> set[str]:
+    return {word[:STEM_CHARS] for word in re.findall(r"\w+", normalize_text(text))}
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def _correct_text(content: Mapping[str, Any], key: Mapping[str, Any]) -> str:
+    wanted = key.get("correct_option_id")
+    return next((str(o.get("text", "")) for o in content.get("options", [])
+                 if isinstance(o, Mapping) and o.get("id") == wanted), "")
+
+
+def _items(content: Mapping[str, Any]) -> set[str]:
+    return {normalize_text(str(item.get("text", ""))).strip(' ."')
+            for side in ("left", "right") for item in content.get(side, []) if isinstance(item, Mapping)} - {""}
+
+
+def repeat_problem(package: Package, existing: Sequence[tuple[Mapping[str, Any], Mapping[str, Any]]]) -> str | None:
+    """`existing` — сол § пен деңгейдегі, сол форматтағы бар сұрақтардың (`question_content`, кілт) жұптары."""
+    if package.format == "mcq":
+        stem = _stems(str(package.content.get("stem", "")))
+        answer_text = _correct_text(package.content, package.key)
+        answer = _stems(answer_text) if len(answer_text.split()) >= ANSWER_MIN_WORDS else set()
+        for content, key in existing:
+            if _jaccard(stem, _stems(str(content.get("stem", "")))) >= STEM_REPEAT_THRESHOLD:
+                return "Т7: бар сұрақпен мазмұны қайталанады (сұрақ мәтіні бірдей)"
+            other_text = _correct_text(content, key)
+            if answer and len(other_text.split()) >= ANSWER_MIN_WORDS \
+                    and _jaccard(answer, _stems(other_text)) >= ANSWER_REPEAT_THRESHOLD:
+                return "Т7: бар сұрақпен мазмұны қайталанады (дұрыс жауабы бірдей)"
+    elif package.format == "matching":
+        items = _items(package.content)
+        for content, _ in existing:
+            other = _items(content)
+            if items and other and len(items & other) / min(len(items), len(other)) >= ITEM_REPEAT_SHARE:
+                return "Т7: бар сұрақпен мазмұны қайталанады (сәйкестендіру элементтері)"
+    return None
 
 
 def duplicate_problem(embedding: Sequence[float], existing: Sequence[Sequence[float]]) -> str | None:

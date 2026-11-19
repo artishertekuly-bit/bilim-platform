@@ -7,14 +7,21 @@ pooler-ы транзакция режимінде дайындалған сұр�
 Домен (`examiner.tier` т.б.) мен `vector` типіндегі параметрлер негізгі типке келтіріледі
 (`$1::text`, `$2::smallint`): asyncpg белгісіз типті анықтау үшін каталогқа қосымша сұраныс
 жібермейді.
+
+Pooler бос тұрған байланысты өз жағынан жабуы мүмкін, ал asyncpg оны қолданар алдында тексермейді
+(«connection was closed in the middle of operation», D80). Сондықтан оқу сұраныстары мен қайталанса
+нәтижесі өзгермейтін жаңартулар (`set_batch_status`, `reject`) байланыс қатесінде жаңа байланыспен бір рет
+қайталанады. Транзакциялы жазулар (`record_batch`, `accept`) қайталанбайды: олардың сәтсіздігін контур өңдейді.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
+from typing import TypeVar
 
 import asyncpg
 
@@ -24,13 +31,29 @@ from .context import Chunk, clean_chunk_text
 from .pipeline import BatchRecord, NewQuestion, Paragraph, RequestRecord
 
 DATABASE_URL_ENV = "EXAMINER_DATABASE_URL"
+# Бос байланыс осыдан ұзақ пулда тұрмайды: pooler жапқан байланысқа тап болу ықтималдығы азаяды.
+MAX_INACTIVE_CONNECTION_S = 60.0
+TRANSIENT_DB_ERRORS = (asyncpg.PostgresConnectionError, asyncpg.InterfaceError, ConnectionError, OSError)
+
+logger = logging.getLogger("bilim.examiner.bank")
+_T = TypeVar("_T")
 
 
 async def create_pool(dsn: str | None = None, *, min_size: int = 1, max_size: int = 5) -> asyncpg.Pool:
     dsn = dsn or os.getenv(DATABASE_URL_ENV, "").strip()
     if not dsn:
         raise RuntimeError(f"{DATABASE_URL_ENV} берілмеген (examiner_svc рөлінің қосылу жолы)")
-    return await asyncpg.create_pool(dsn, min_size=min_size, max_size=max_size, statement_cache_size=0)
+    return await asyncpg.create_pool(dsn, min_size=min_size, max_size=max_size, statement_cache_size=0,
+                                     max_inactive_connection_lifetime=MAX_INACTIVE_CONNECTION_S)
+
+
+async def _retry_once(operation: Callable[[], Awaitable[_T]]) -> _T:
+    """Байланыс қатесінде бір рет қайталайды: пул үзілген байланысты тастап, жаңасын береді."""
+    try:
+        return await operation()
+    except TRANSIENT_DB_ERRORS as exc:
+        logger.warning("database connection lost, retrying once: %s", type(exc).__name__)
+        return await operation()
 
 
 def _vector(values: Sequence[float]) -> str:
@@ -57,10 +80,18 @@ class PgBankRepository:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
 
+    async def _fetch(self, query: str, *args: object) -> list[asyncpg.Record]:
+        """Тек оқу сұранысы (select): қайталау қауіпсіз."""
+        return await _retry_once(lambda: self._pool.fetch(query, *args))
+
+    async def _execute_idempotent(self, query: str, *args: object) -> str:
+        """Қайталанса нәтижесі өзгермейтін жаңарту (күйді нақты мәнге қою)."""
+        return await _retry_once(lambda: self._pool.execute(query, *args))
+
     # ------------------------------------------------------------ корпус
 
     async def paragraphs(self, books: Sequence[str]) -> list[Paragraph]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select topic_id, subject_id::text, book, book_title, paragraph_no, paragraph_title
             from corpus.paragraphs
@@ -72,7 +103,7 @@ class PgBankRepository:
         return [Paragraph(**dict(row)) for row in rows]
 
     async def paragraph_chunks(self, topic_id: str) -> list[Chunk]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select chunk_id, order_in_paragraph, content
             from corpus.chunk_text
@@ -84,7 +115,7 @@ class PgBankRepository:
         return [Chunk(row["chunk_id"], row["order_in_paragraph"], clean_chunk_text(row["content"])) for row in rows]
 
     async def chunks(self, chunk_ids: Sequence[str]) -> list[Chunk]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             "select chunk_id, order_in_paragraph, content from corpus.chunk_text where chunk_id = any($1::text[])",
             list(chunk_ids),
         )
@@ -96,7 +127,7 @@ class PgBankRepository:
                 for chunk_id in chunk_ids]
 
     async def entity_links(self, chunk_ids: Sequence[str]) -> list[tuple[str, str]]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             "select entity, chunk_id from corpus.entity_chunk_links where chunk_id = any($1::text[])",
             list(chunk_ids),
         )
@@ -105,7 +136,7 @@ class PgBankRepository:
     # ------------------------------------------------------------ ұғымдар (D76)
 
     async def chunk_concepts(self, topic_id: str) -> dict[str, ChunkConcepts]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select chunk_id, topic_id, text_hash, concepts, extractor_model, prompt_version
             from examiner.chunk_concepts
@@ -165,7 +196,7 @@ class PgBankRepository:
 
     async def used_concepts(self, subject_id: str, level: int) -> dict[tuple[str, str, str], set[str]]:
         """Белсенді сұрақтар мен өңделмеген сұраныстарда қолданылған ұғым кілттері (D76)."""
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select topic_id, format, x_tier, concept_key from (
               select q.topic_id, q.format::text as format, s.x_tier::text as x_tier, q.concept_key
@@ -191,14 +222,14 @@ class PgBankRepository:
     # ------------------------------------------------------------ банк
 
     async def format_applicability(self, subject_id: str) -> dict[str, bool]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             "select format, applicable from examiner.format_applicability where subject_id = $1::uuid", subject_id
         )
         return {row["format"]: row["applicable"] for row in rows}
 
     async def stock(self, subject_id: str, level: int) -> dict[tuple[str, str, str], int]:
         """Белсенді сұрақтар мен әлі өңделмеген сұраныстар (ai_examiner §5.4)."""
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select topic_id, format, x_tier, sum(n)::int as n from (
               select q.topic_id, q.format::text as format, s.x_tier::text as x_tier, count(*) as n
@@ -242,7 +273,7 @@ class PgBankRepository:
             )
 
     async def open_batches(self) -> list[BatchRecord]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select batch_id, provider, model_key, prompt_id, prompt_version, request_count, status, submitted_at
             from examiner.generation_batches
@@ -253,7 +284,7 @@ class PgBankRepository:
         return [BatchRecord(**dict(row)) for row in rows]
 
     async def set_batch_status(self, batch_id: str, status: str) -> None:
-        await self._pool.execute(
+        await self._execute_idempotent(
             """
             update examiner.generation_batches
             set status = $2,
@@ -266,7 +297,7 @@ class PgBankRepository:
         )
 
     async def pending_requests(self, batch_id: str) -> list[RequestRecord]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select custom_id, batch_id, subject_id::text, topic_id, level::int as level, format::text as format,
                    x_tier::text as x_tier, chunk_ids, concept_key
@@ -278,7 +309,7 @@ class PgBankRepository:
         return [RequestRecord(**{**dict(row), "chunk_ids": tuple(row["chunk_ids"])}) for row in rows]
 
     async def existing_embeddings(self, topic_id: str, level: int) -> list[list[float]]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select content_embedding::text as embedding
             from examiner.questions
@@ -288,6 +319,22 @@ class PgBankRepository:
             level,
         )
         return [_parse_vector(row["embedding"]) for row in rows]
+
+    async def existing_packages(self, topic_id: str, level: int, format_name: str) -> list[tuple[dict, dict]]:
+        """Т7 мазмұн қайталауына (D80): § пен деңгейдегі сол форматтың барлық сұрағының (`question_content`,
+        кілт) жұбы. Аясы `existing_embeddings`-пен бірдей: шығарылған сұрақ та қайта жасалмайды."""
+        rows = await self._fetch(
+            """
+            select question_content, ecd_evidence
+            from examiner.questions
+            where topic_id = $1 and level = $2::smallint and format::text = $3
+            """,
+            topic_id,
+            level,
+            format_name,
+        )
+        return [(_json(row["question_content"]), _json(_json(row["ecd_evidence"]).get("code_check_target")))
+                for row in rows]
 
     async def accept(self, question: NewQuestion) -> str:
         """Пакет, оның күйі және сұраныстың нәтижесі бір транзакцияда жазылады."""
@@ -330,7 +377,7 @@ class PgBankRepository:
     # ------------------------------------------------------------ аудит (D73)
 
     async def active_questions(self) -> list[BankQuestion]:
-        rows = await self._pool.fetch(
+        rows = await self._fetch(
             """
             select q.question_id::text as question_id, q.topic_id, q.level::int as level, q.format::text as format,
                    s.x_tier::text as x_tier, q.created_at, q.question_content, q.ecd_skill, q.ecd_evidence,
@@ -367,7 +414,7 @@ class PgBankRepository:
         return result == "UPDATE 1"
 
     async def reject(self, custom_id: str, status: str, reasons: Sequence[str]) -> None:
-        await self._pool.execute(
+        await self._execute_idempotent(
             """
             update examiner.generation_requests
             set status = $2, reject_reasons = $3::text[], processed_at = now()

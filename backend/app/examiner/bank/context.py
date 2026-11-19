@@ -143,3 +143,26 @@ def chunk_combinations(
     result.sort(key=lambda combo: (position[combo[-1].chunk_id] - position[combo[0].chunk_id],
                                    position[combo[0].chunk_id]))
     return result
+
+
+def distant_partners(
+    chunks: Sequence[Chunk], anchor_id: str, entities: Mapping[str, frozenset[str]] | None = None
+) -> list[Chunk]:
+    """X3 тестке нысананың чанкымен бірге берілетін екінші чанктың кандидаттары, жақсысы бірінші (D80).
+
+    Қатар тұрған чанктар LightRAG-те қабаттасады: көршінің басы нысана чанкының соңын қайталайды, сонда
+    «екі үзінді» іс жүзінде бір абзац болып шығады. Сондықтан алдымен көрші емес чанктар (ортақ entity-сі
+    көбі, сосын жақыны), тек олар жоқ болса — көршілер.
+    """
+    ordered = sorted(chunks, key=lambda chunk: chunk.order)
+    position = {chunk.chunk_id: index for index, chunk in enumerate(ordered)}
+    if anchor_id not in position:
+        return []
+    entities = entities or {}
+    own = entities.get(anchor_id, frozenset())
+
+    def rank(chunk: Chunk) -> tuple[int, int, int]:
+        distance = abs(position[chunk.chunk_id] - position[anchor_id])
+        return (distance == 1, -len(own & entities.get(chunk.chunk_id, frozenset())), distance)
+
+    return sorted((chunk for chunk in ordered if chunk.chunk_id != anchor_id), key=rank)

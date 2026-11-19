@@ -4,8 +4,8 @@
 сұрақтар ескі ережемен банкте қалады. Аудит оларды қазіргі кодпен қайта өлшейді:
   * Т6 және детерминистік Т7 — пакеттен қайта құрылған генератор моделінің `problems()`-і;
   * дәйексөз — сақталған `reference_context` мәтінінде бар ма (Т7);
-  * қайталау — бір § пен деңгейдегі белсенді сұрақтар арасында ≥ DUPLICATE_THRESHOLD (Т7):
-    ертерек жасалғаны қалады, кейінгісі белгіленеді.
+  * қайталау — бір § пен деңгейдегі белсенді сұрақтар арасында ≥ DUPLICATE_THRESHOLD және сол форматтағы
+    мазмұн қайталауы (`repeat_problem`, D80) (Т7): ертерек жасалғаны қалады, кейінгісі белгіленеді.
 MCQ-дің шешуші тексерісі (LLM) қайталанбайды: ол генерацияда сол модельмен өткен.
 Аудит тек код форматтарын тексереді (`GEN_MODELS`). ЖИ мен гибрид форматтарының (5-қадам) пакетін бұл
 модуль құра алмайды: оларды «оқылмады» деп шығарып жібермеу үшін олар өткізіледі.
@@ -23,7 +23,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .checks import DUPLICATE_THRESHOLD, cosine, quote_problem
+from .checks import DUPLICATE_THRESHOLD, cosine, quote_problem, repeat_problem
 from .formats import GEN_MODELS, Package, gen_from_package
 
 
@@ -78,12 +78,20 @@ def audit(questions: Sequence[BankQuestion]) -> list[Finding]:
     reasons: dict[str, list[str]] = {q.question_id: question_problems(q) for q in questions}
     kept: dict[tuple[str, int], list[BankQuestion]] = {}
     for question in sorted(questions, key=lambda q: (q.created_at, q.question_id)):
-        if reasons[question.question_id] or question.embedding is None:
+        if reasons[question.question_id]:
             continue
         group = kept.setdefault((question.topic_id, question.level), [])
-        best = max((cosine(question.embedding, other.embedding) for other in group if other.embedding), default=0.0)
+        package = Package(format=question.format, content=question.content, key=question.key,
+                          ecd_skill=question.ecd_skill, evidence=question.evidence,
+                          support_quote=question.support_quote)
+        repeat = repeat_problem(package, [(other.content, other.key) for other in group
+                                          if other.format == question.format])
+        best = max((cosine(question.embedding, other.embedding) for other in group if other.embedding),
+                   default=0.0) if question.embedding is not None else 0.0
         if best >= DUPLICATE_THRESHOLD:
             reasons[question.question_id].append(f"Т7: бар сұраққа тым ұқсас ({best:.2f})")
+        elif repeat:
+            reasons[question.question_id].append(repeat)
         else:
             group.append(question)
     return [Finding(q, tuple(reasons[q.question_id])) for q in questions if reasons[q.question_id]]

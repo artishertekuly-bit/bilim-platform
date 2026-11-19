@@ -38,9 +38,16 @@ FORMAT_LEVEL: dict[str, int] = {
 }
 
 
+# OCR тасымалы (D80): «иуда-\n\nизм» → «иудаизм». Тек жол соңындағы дефис және екі жағында да әріп:
+# «1946–\n1974», «Беғазы-Дәндібай» өзгермейді. Жұмсақ тасымал белгісі (U+00AD) әрқашан алынады.
+_OCR_HYPHEN = re.compile(r"(?<=[^\W\d_])-[ \t]*\n\s*(?=[^\W\d_])")
+
+
 def normalize_text(text: str) -> str:
-    """Салыстыру үшін: Unicode NFC, кіші әріп, тырнақша мен сызықша бірізді, бос орын біреу."""
-    text = unicodedata.normalize("NFC", text).casefold()
+    """Салыстыру үшін: Unicode NFC, OCR тасымалы біріктірілген, кіші әріп, тырнақша мен сызықша бірізді,
+    бос орын біреу."""
+    text = unicodedata.normalize("NFC", text).replace("­", "")
+    text = _OCR_HYPHEN.sub("", text).casefold()
     text = re.sub(r"[«»“”„\"']", '"', text)
     text = re.sub(r"[–—−]", "-", text)
     return re.sub(r"\s+", " ", text).strip()
@@ -222,6 +229,23 @@ def _option_cue_problems(options: list[str], correct_index: int) -> list[str]:
     return problems
 
 
+_NUMBER = re.compile(r"\d+")
+
+
+def _partial_answer_problem(options: list[str], correct_index: int) -> str | None:
+    """Қате нұсқаның сандары дұрыс нұсқа сандарының қатаң ішкі жиыны болса, ол дұрыс жауаптың бір бөлігі:
+    дұрысы «6–10-нан 20–50-ге дейінгі үйлер», қатесі «6–10 үйден» — оқушы оны да шын деп таңдайды (D80).
+    Сандары бірдей, орны ауысқан нұсқа («Жезқазғанда 48, Имантайда 100») — әділ алдағыш, ол ілінбейді."""
+    if not 0 <= correct_index < len(options):
+        return None
+    right = set(_NUMBER.findall(options[correct_index]))
+    for index, option in enumerate(options):
+        numbers = set(_NUMBER.findall(option))
+        if index != correct_index and numbers and numbers < right:
+            return "Т6: қате нұсқа дұрыс жауаптың бір бөлігі (сандары)"
+    return None
+
+
 class MCQGen(GenBase):
     """8 · Кәдімгі тест: 4 нұсқа, біреуі дұрыс."""
 
@@ -248,6 +272,9 @@ class MCQGen(GenBase):
         echo = _stem_echo_problem(self.stem, self.options, self.correct_index)
         if echo:
             problems.append(echo)
+        partial = _partial_answer_problem(self.options, self.correct_index)
+        if partial:
+            problems.append(partial)
         return problems
 
     def to_package(self, rng: random.Random) -> Package:

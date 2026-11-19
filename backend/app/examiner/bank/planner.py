@@ -1,9 +1,10 @@
 """Банк қорын жоспарлау: қай § пен форматқа қанша сұрақ жетпейді (ai_examiner.md §5.4, Е3, D76).
 
 Түнгі қор ережесі: `бос қор ≥ бір мезгілдегі ең көп сессия × бір сессиядағы сұрақ саны × 1.2`.
-Ұғымдары шығарылған §-те қор чанк санынан емес, ұғым санынан есептеледі (`concept_targets`, D76):
-  * тест — `1.5 × ұғым саны` (5-тен 30-ға дейін), бірақ әр санатта ұғым санынан аспайды
-    (бір ұғымнан бір санатта бір ғана сұрақ);
+Ұғымдары шығарылған §-те қор чанк санынан емес, ұғым тобының санынан есептеледі (`concept_targets`,
+D76, D80):
+  * тест — ұғым тобының саны (5-тен 30-ға дейін), бірақ барлық санатта бірге ұғым санынан аспайды:
+    бір ұғымнан бір § пен форматта бір ғана сұрақ (X2 мен X3 бір ұғымнан бірдей сұрақ құрып жібереді);
   * сәйкестендіру — `ceil(ұғым саны / 2)` (3-тен 12-ге дейін); §-те 3 ұғымнан аз болса, өткізіледі;
   * басқа форматтар — базалық қор ұғым санына пропорционалды масштабталады.
 
@@ -27,13 +28,15 @@ COMPOSITION: dict[int, dict[str, int]] = {
 
 BASELINE_SESSIONS = 2.4       # 2 қатар сессия × 1.2
 BASELINE_CONCEPTS = 10        # stock_targets осы ұғым санына сәйкес
-MCQ_PER_CONCEPT = 1.5
+MCQ_PER_CONCEPT = 1.0
 MCQ_MIN = 5
 MCQ_MAX = 30
 MATCHING_PER_CONCEPT = 0.5
 MATCHING_MIN = 3
 MATCHING_MAX = 12
 MIN_MATCHING_CONCEPTS = 3     # сәйкестендіруге кемінде 3 жұп керек (Т6)
+# Әр сұрағы бір ұғымға байланатын форматтар: олардың қоры ұғым санынан аспайды (D80).
+ANCHORED_FORMATS = frozenset({"mcq", "matching"})
 
 
 @dataclass(frozen=True)
@@ -106,9 +109,8 @@ def concept_targets(
     sessions = policy.concurrent_sessions_per_topic * policy.safety
     if sessions < 1.0:
         targets = stock_targets(level, {name: True for name in composition}, policy, composition)
-        for tier in ("X1", "X2", "X3"):
-            if ("mcq", tier) in targets:
-                targets[("mcq", tier)] = min(targets[("mcq", tier)], concept_count)
+        for name in ANCHORED_FORMATS & set(composition):
+            _cap_by_concepts(targets, name, concept_count)
         return {k: v for k, v in targets.items() if v > 0}
     policy_scale = sessions / BASELINE_SESSIONS
     concept_scale = min(2.0, max(0.5, concept_count / BASELINE_CONCEPTS))
@@ -142,15 +144,25 @@ def concept_targets(
             x2 = math.ceil(x2_base * policy_scale - 1e-9) if x2_base else 0
             x3 = math.ceil(x3_base * policy_scale - 1e-9) if x3_base else 0
 
-        if name == "mcq":
-            # Бір § пен санатта бір ұғымнан бір ғана тест сұрағы (D76).
-            x1 = min(x1, concept_count)
-            x2 = min(x2, concept_count)
-            x3 = min(x3, concept_count)
         for tier, value in (("X1", x1), ("X2", x2), ("X3", x3)):
             if value > 0:
                 targets[(name, tier)] = value
-    return targets
+        if name in ANCHORED_FORMATS:
+            _cap_by_concepts(targets, name, concept_count)
+    return {k: v for k, v in targets.items() if v > 0}
+
+
+def _cap_by_concepts(targets: dict[tuple[str, str], int], name: str, concept_count: int) -> None:
+    """Форматтың барлық санаттағы қоры ұғым санынан аспайды (D80). Артығы алдымен X2-ден (ең үлкен
+    үлес), сосын X1-ден алынады; X3 — деңгей боссы, ол соңғы кезекте қысқарады."""
+    excess = sum(targets.get((name, tier), 0) for tier in ("X1", "X2", "X3")) - concept_count
+    for tier in ("X2", "X1", "X3"):
+        if excess <= 0:
+            return
+        value = targets.get((name, tier), 0)
+        cut = min(value, excess)
+        targets[(name, tier)] = value - cut
+        excess -= cut
 
 
 def plan(
