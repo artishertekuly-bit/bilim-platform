@@ -30,7 +30,7 @@
 
 Ережені сервис рөлдерінің құқықтары қамтамасыз етеді: әр сервис тек өз схемасына қол жеткізеді. `examiner_svc` `tutor` пен `games` схемаларын көрмейді, `tutor_svc` — `examiner` пен `games` схемаларын, `games_svc` — `examiner` пен `tutor` схемаларын. `rag` пен `corpus` схемалары Supabase API-ына ашылмайды.
 
-Іске асыру: [service_schemas_and_roles](../../supabase/migrations/20261118190557_service_schemas_and_roles.sql), [examiner_tables](../../supabase/migrations/20261118190708_examiner_tables.sql), [corpus_chunk_meta](../../supabase/migrations/20261119090000_corpus_chunk_meta.sql). Рөлдер `NOLOGIN` болып құрылады; пароль мен `LOGIN` migration-нан тыс бір рет қойылады.
+Іске асыру: [service_schemas_and_roles](../../supabase/migrations/20261118190557_service_schemas_and_roles.sql), [examiner_tables](../../supabase/migrations/20261118190708_examiner_tables.sql), [corpus_chunk_meta](../../supabase/migrations/20261119040000_corpus_chunk_meta.sql), [corpus_read_policies](../../supabase/migrations/20261119043254_corpus_read_policies.sql). Рөлдер `NOLOGIN` болып құрылады; пароль мен `LOGIN` migration-нан тыс бір рет қойылады.
 
 ---
 
