@@ -14,9 +14,11 @@
 
 | Шекара | Іске асыру | Префикс | Деректер |
 |---|---|---|---|
-| Examiner | FastAPI сервисі, `examiner_svc` рөлі | `/api/examiner/v1` | `examiner` схемасы; `rag` — тек оқу |
-| Tutor | FastAPI сервисі, `tutor_svc` рөлі | `/api/tutor/v1` | `tutor` схемасы; `rag` — тек оқу |
-| Ойындар | FastAPI сервисі, `games_svc` рөлі ([geimifikatsiya §7](geimifikatsiya.md)) | `/api/games/v1` | `games` схемасы; `rag` — тек оқу |
+| Examiner | FastAPI модулі, `examiner_svc` рөлі | `/api/examiner/v1` | `examiner` схемасы; `rag` — тек оқу |
+| Tutor | FastAPI модулі, `tutor_svc` рөлі | `/api/tutor/v1` | `tutor` схемасы; `rag` — тек оқу |
+| Ойындар | FastAPI модулі, `games_svc` рөлі ([geimifikatsiya §7](geimifikatsiya.md)) | `/api/games/v1` | `games` схемасы; `rag` — тек оқу |
+
+- **Деплой (D68):** бастапқы кезеңде үш модуль бір FastAPI қосымшасында ([main.py](../../backend/app/main.py)) және бір контейнерде жүреді. Әр модульдің өз connection pool-ы мен өз рөлі бар, сондықтан деректер қоры деңгейіндегі бөлу (D15) сақталады. Модульдер бір-бірін импорттамайды, мұны архитектура тесті тексереді; ортақ код — тек `llm_gateway` пен кіріс сүзгісі. Жүктеме өскенде модуль код өзгертпей бөлек сервиске шығарылады.
 | Платформа | Supabase: кестелер RLS-пен, күрделі әрекеттер RPC арқылы | `/rest/v1`, `/rest/v1/rpc` | `public` схемасы |
 
 - `examiner` пен `tutor` схемалары Supabase API-ына ашылмайды (D15). Сондықтан мұғалім панелі мен ата-ана беті емтихан нәтижесін Examiner API арқылы алады, ал Tutor-ға «бұғатты ашу» командасын Tutor API арқылы жібереді ([karta §4.1](platforma-kartasy.md)).
@@ -65,7 +67,7 @@
 | 404 | `NOT_FOUND` | Ресурс жоқ немесе байланыс жоқ (§2.1) |
 | 409 | `ACTIVE_SESSION_EXISTS` | Оқушының аяқталмаған сессиясы бар (D36); `details.session_id` |
 | 409 | `ALREADY_ANSWERED`, `DUPLICATE_REQUEST` | Тапсырмаға жауап берілген; id қайталанды, бірақ мазмұны басқа |
-| 409 | `BANK_NOT_READY` | Масштабқа банкте сұрақ жетпейді, сессия басталмады (D64); `details.missing` |
+| 409 | `BANK_NOT_READY` | Масштабқа банкте осы оқушыға Е2-ден өткен сұрақ `n`-ге жетпейді, сессия басталмады (D64, D65); `details.missing` |
 | 409 | `LEVEL_NOT_AVAILABLE`, `SESSION_NOT_COMPLETED` | Деңгей әлі ашылмаған (D62); нәтиже аяқталмаған сессияға сұралды |
 | 410 | `SESSION_CLOSED` | Сессия аяқталған немесе тасталған |
 | 503 | `SERVICE_UNAVAILABLE` | Examiner базасы қолжетімсіз; `Retry-After` бар |
@@ -89,6 +91,7 @@
 | Tutor хабарламасы | Минутына 6; бір хабарлама ≤ 2000 таңба |
 | Емтихандағы мәтін жауабы | ≤ 2000 таңба; Кейс пен Фейнман ≤ 3000 таңба |
 | Сынып кодын тексеру | Сағатына 10 әрекет (§5.2) |
+| LLM шығыны | Оқушыға тәуліктік токен лимиті: Tutor мен Дебат. Емтиханға қолданылмайды, оның шығынын сессия құрылымы шектейді ([ortaq §2.3](ortaq-infraqurylym.md), D70) |
 
 ---
 
@@ -97,13 +100,13 @@
 ### 3.1. Сессияның өмірі
 
 ```
-preparing → active → completed
-                   ↘ blocked     (2-ші бұзушылық, examiner §7.2)
-                   ↘ abandoned   (оқушы шықты немесе белсенділік жоқ, D36)
+active → completed
+       ↘ blocked     (2-ші бұзушылық, examiner §7.2)
+       ↘ abandoned   (оқушы шықты немесе белсенділік жоқ, D36)
 ```
 
-- `preparing` — банкте сұрақ жетпей, Е3 бойынша генерация жүріп жатыр ([examiner §5.4](ai_examiner.md)). Клиент `GET /sessions/{session_id}` сұранысын `Retry-After` бойынша қайталайды.
-- Сессия басталғанда `X.1` пен `X.2` тапсырмаларының бәрі бір транзакцияда бекітіледі (Е1, `FOR UPDATE SKIP LOCKED`). `X.3` оның шарты орындалғанда бекітіледі.
+- `preparing` күйі жоқ (D64): банк жетпесе, сессия жасалмайды, `POST /sessions` `409 BANK_NOT_READY` қайтарады ([examiner §5.4](ai_examiner.md)).
+- Сессия басталғанда `X.1` пен `X.2` тапсырмаларының бәрі бір транзакцияда бекітіледі (Е1 басымдығымен, `FOR UPDATE SKIP LOCKED`, D65). `X.3` оның шарты орындалғанда бекітіледі.
 - Құрам мен рет — [bagalau §2.3](bagalau-zhuiesi.md). Клиент ретті өзгерте алмайды.
 - Соңғы тапсырмаға жауап берілгенде сессия өзі аяқталады; бөлек «аяқтау» сұранысы жоқ.
 
@@ -122,7 +125,26 @@ preparing → active → completed
 | POST | `/sessions/{session_id}/items/{item_id}/turns` | Диалог қадамы (SSE) | Сократ, «ЖИ-ді оқыт» |
 | POST | `/sessions/{session_id}/abandon` | Сессиядан шығу (D36) | Сессия |
 | GET | `/sessions/{session_id}/result` | Нәтиже | Сессия нәтижесі |
+| POST | `/sessions/{session_id}/items/{item_id}/appeal` | Бағаға шағым: `{ client_request_id, text }`, тек ЖИ бағалаған тапсырмаға; растау кезегінің басына түседі (D69) | Сессия нәтижесі |
 | GET | `/me/profile` | Пәндер бойынша `P1…P4` және `F` | Профиль |
+
+**Деңгей картасы** — `GET /levels`:
+
+```ts
+interface LevelCard {
+  level: Level;
+  title: string;
+  formats: Format[];
+  tasks: number;             // n
+  minutes: number;
+  available: boolean;        // деңгей ашық па (D62)
+  availability: "ready" | "low_stock" | "unavailable";  // D65, examiner §5.4
+  note: string | null;       // деңгей жабық немесе қор жетпесе — экрандағы түсініктеме
+  last: LevelResult | null;  // осы масштабтағы соңғы нәтиже
+}
+```
+
+- `ready` — бос қор жетеді; `low_stock` — сессия басталады, бірақ Е1 бойынша бұрын бекітілген сұрақтар қайта беріледі; `unavailable` — сессия басталмайды, экран «дайындалып жатыр» деп көрсетеді.
 
 ### 3.3. DTO: сессия және тапсырма
 
@@ -148,7 +170,7 @@ interface Scope { type: "topic" | "chapter" | "subject"; id: string; title: stri
 
 interface ExamSession {
   session_id: string;
-  status: "preparing" | "active" | "completed" | "blocked" | "abandoned";
+  status: "active" | "completed" | "blocked" | "abandoned";
   level: Level;
   scope: Scope;
   progress: { answered: number; total: number };  // total = n; X.3 берілсе +1
@@ -250,7 +272,7 @@ interface SessionResult {
   p: number;                 // 0–100, bagalau §4.2
   threshold: 80 | 85 | 75;
   mastered: boolean;
-  is_final: boolean;         // ЖИ бағасы мұғалім растауын күтсе — false (D16)
+  is_final: boolean;         // ЖИ бағасы мұғалім растауын күтсе — false, p — алдын ала (D16, D69)
   breakdown: { format: Format; block: "A" | "D" | null; tasks: number; score: number; max: number }[];
   total: { score: number; max: number };
   x3: { status: "not_eligible" | "passed" | "failed"; reason?: string };
@@ -275,6 +297,7 @@ interface SubjectProfile {
   subject: { id: string; title: string; grade: number };
   levels: [LevelResult, LevelResult, LevelResult, LevelResult];
   f: number | null;          // тек төрт деңгей түгел тапсырылғанда (bagalau §4.3)
+  f_is_final: boolean;       // бір деңгейдің нәтижесі алдын ала болса — false (D69)
 }
 
 interface StudentProfile { subjects: SubjectProfile[] }
@@ -289,7 +312,7 @@ interface StudentProfile { subjects: SubjectProfile[] }
 |---|---|---|---|
 | GET | `/teacher/classes/{class_id}/profiles` | Сынып оқушыларының сыныптың пәні бойынша `P1…P4` кестесі (D38) | Сынып · профильдер |
 | GET | `/teacher/classes/{class_id}/rating` | `F` бойынша рейтинг, тек толық профилі барлар (D23); `full_count`, `total` | Сынып · рейтинг |
-| GET | `/teacher/review-queue?class_id=` | Растауды күтетін ЖИ бағалары (D16) және дәйексөзі табылмаған жауаптар (Т9) | Растау |
+| GET | `/teacher/review-queue?class_id=` | Растауды күтетін ЖИ бағалары (D16), §3.9-дағы ретпен сұрыпталған (D69) | Растау |
 | GET | `/teacher/grades/{grade_id}` | Тапсырма, рубрика, оқушының жауабы, ЖИ балы, дәйексөздер | Бағаны растау |
 | POST | `/teacher/grades/{grade_id}/confirm` | ЖИ бағасын растау | Бағаны растау |
 | POST | `/teacher/grades/{grade_id}/override` | `{ client_request_id, new_score, reason }`: `new_score` — тапсырманың `s` балы (0–4), себеп міндетті → `grade_overrides` (Т11) | Бағаны растау |
@@ -306,11 +329,13 @@ interface ReviewItem {
   answer_text: string;
   ai_score: number;
   evidence_quotes: { text: string; start: number; end: number }[];  // жауаптағы орны, белгілеу үшін
-  reason: "d16_confirmation" | "t9_missing_quote";
+  reason: "t9_missing_quote" | "borderline" | "appeal" | "gold_sample" | "d16_confirmation";
 }
 ```
 
-- Барлық ЖИ бағасы расталған немесе түзетілген соң сессияның нәтижесі `is_final = true` болады.
+- **Кезектің реті (D69):** `t9_missing_quote` (дәйексөзі табылмаған, Т9) → `borderline` (`s ∈ {2, 3}` немесе `X.3`-ті шешетін баға) → `appeal` (оқушының шағымы) → `gold_sample` (алтын жиынға 15–20% стратификацияланған кездейсоқ іріктеу) → `d16_confirmation` (қалғаны).
+- Мерзім өткенде баға автоматты расталмайды: D16 өзгермейді.
+- Барлық ЖИ бағасы расталған немесе түзетілген соң сессияның нәтижесі `is_final = true` болады. Формат өлшеу шегінен өткенде ([ortaq §6](ortaq-infraqurylym.md)) оның әлі расталмаған бағалары да ресми болады, ал мұғалімнің түзетуі (`grade_overrides`) кейін де ашық қалады.
 
 ### 3.10. Эндпоинт: ата-ана
 
@@ -332,7 +357,8 @@ interface ReviewItem {
 | GET | `/conversations/current?subject_id=` | Пән бойынша ағымдағы диалог және соңғы хабарламалар; диалог жоқ болса, жасалады |
 | GET | `/conversations/{conversation_id}/messages?before=&limit=` | Хабарламалар тарихы, беттеп |
 | POST | `/conversations/{conversation_id}/messages` | Хабарлама жіберу; жауап SSE арқылы келеді |
-| POST | `/teacher/students/{student_id}/unblock` | Мұғалім бұғатты ашады ([personarag §6.3](lightrag_personarag.md)) |
+| POST | `/teacher/students/{student_id}/unblock` | Мұғалім бұғатты мерзімінен бұрын ашады ([personarag §6.3](lightrag_personarag.md)) |
+| POST | `/teacher/students/{student_id}/lock` | Мұғалім диалогты өзі ашқанша жабады (`blocked_reason = "teacher"`, D70) |
 
 ### 4.2. DTO
 
@@ -341,8 +367,8 @@ interface Conversation {
   conversation_id: string;
   subject: { id: string; title: string; grade: number };
   messages: TutorMessage[];        // соңғы 30
-  blocked_until: string | null;    // үйде — таймердің соңы
-  blocked_reason: "cooldown" | "teacher" | null;  // teacher — мұғалім ашқанша
+  blocked_until: string | null;    // cooldown — таймердің соңы
+  blocked_reason: "cooldown" | "teacher" | null;  // teacher — мұғалім ашқанша (D70)
 }
 
 interface TutorMessage { message_id: string; role: "student" | "tutor"; text: string; created_at: string }
@@ -359,7 +385,7 @@ event: error    data: {"code": "RATE_LIMITED", "message": "…"}
 
 - Клиентке тек мәтін барады. Тегтер (`analytic_core`), күй, сценарий, мәнер және `M` мәндері ішкі дерек болып қалады: UI-ға олар керек емес, ал оларды көрген оқушы жүйені алдауды үйренуі мүмкін.
 - `suggestions` — жауап түймелері, ең көбі 3, міндетті емес.
-- Дабыл мен бұғат ережесі — [personarag §6.3](lightrag_personarag.md): сабақ үстінде диалог мұғалім ашқанша бұғатталады (`blocked_reason = "teacher"`, `blocked_until = null`), үйде — салқындау таймері біткенше (`"cooldown"`). Бұғаттан басқа жағдайда Tutor әрқашан қолжетімді (D39).
+- Дабыл мен бұғат ережесі — [personarag §6.3](lightrag_personarag.md) (D70): бірінші Hard Alert-те диалог 30 минутқа бұғатталады (`"cooldown"`). Мұғалім `lock` жіберсе немесе 24 сағат ішінде екінші Hard Alert болса, диалог мұғалім ашқанша жабылады (`"teacher"`, `blocked_until = null`). Бұғаттан басқа жағдайда Tutor әрқашан қолжетімді (D39).
 
 ---
 
@@ -499,6 +525,7 @@ class LLMResult:
 - OpenAPI сервистің Pydantic модельдерінен шығады. TypeScript типтері одан `openapi-typescript` арқылы `src/integrations/api/` ішіне генерацияланады; қолмен жазылған DTO типі болмайды.
 - CI OpenAPI өзгерісін алдыңғы нұсқамен салыстырады: `/v1` ішінде үйлесімсіз өзгеріс (өрісті алу, типін өзгерту) өтпейді.
 - **Кілт ағып кетпеуі:** оқушыға баратын әр DTO-да тыйым салынған өрістердің жоқтығын тест тексереді: `question_id`, `key`, `correct*`, `rubric*`, `reference_context`, `accepted_*`, `interval*`, `socratic_checkpoints` ([ortaq §4](ortaq-infraqurylym.md)).
+- **Ойын хабарламалары (D67):** ойынның Realtime Broadcast хабарламалары да осылай тексеріледі: ортақ арнада `answer_key`, `reference_context` және басқа ойыншылардың жасырын дерегі (мысалы, қарсыластың кемелері) жоқ.
 - **Рұқсат матрицасы:** әр эндпоинт төрт рөлмен және «байланысы жоқ мұғалім / ата-ана» жағдайымен тексеріледі (§2.1).
 - **Телефон желісі:** баяу желі мен үзілісті эмуляциялап, `client_request_id` арқылы қайталау тексеріледі (§2.3, §2.5).
 
@@ -512,7 +539,7 @@ class LLMResult:
 2. **Сессия өмірі (D36).** Оқушыда бір уақытта бір ғана белсенді сессия болады: бұл Е1 бекітулерін жеңілдетеді және екі вкладкада қатар тапсыруға жол бермейді. Оқушы «Шығу» батырмасын басса немесе 60 минут ешнәрсе істемесе, сессия `abandoned` болады және ресми `P` бермейді. Бұл оқушыға жаза емес, өйткені деңгейді қайта тапсыруға бәрібір болады; ал толық емес сессияның `P`-сын толық сессиямен салыстыруға келмейді. Сессияда берілген сұрақтар Е2 бойынша «көрілді» деп саналады.
 3. **`X.3` және ЖИ бағасы (D37).** `X.3` шарты алдын ала берілген ЖИ бағасымен тексеріледі, әйтпесе оқушы мұғалімнің растауын сағаттап күтер еді. Мұғалім кейін бағаны 3-тен төмен түзетсе, сол `X.3` нәтижесі рейтингте тең балды шешуге қолданылмайды.
 4. **Бірнеше сынып (D38).** Оқушы бірнеше сыныпқа қосыла алады, өйткені әр пәннің өз мұғалімі болады. `classes` кестесіне `subject_id` қосылады, ал мұғалім тек сол пән бойынша нәтижені көреді. Профильде бір мұғалім картасының орнына «Мұғалімдер» тізімі тұрады.
-5. **Tutor әрқашан қолжетімді (D39).** Tutor-ға сабақ кестесі немесе тәулік уақыты бойынша шектеу қойылмайды. Дабыл мен бұғат ережесі [personarag §6.3](lightrag_personarag.md)-тегідей өзгеріссіз қалады: сабақ үстінде — мұғалім ашқанша, үйде — салқындау таймері (15–30 мин) біткенше. Жүйенің «сабақ үстінде» екенін қалай анықтайтыны Tutor-ды іске асыру кезінде шешіледі (§10, 7-қадам).
+5. **Tutor әрқашан қолжетімді (D39).** Tutor-ға сабақ кестесі немесе тәулік уақыты бойынша шектеу қойылмайды. Дабыл мен бұғат ережесі [personarag §6.3](lightrag_personarag.md)-тегідей өзгеріссіз қалады: сабақ үстінде — мұғалім ашқанша, үйде — салқындау таймері (15–30 мин) біткенше. Кейін бұғат ережесі сабақ кестесіне байланбайтын бір ережеге біріздендірілді (D70, §4.2), сондықтан «сабақ үстінде» екенін анықтаудың қажеті қалмады.
 6. **Tutor-дың бейресми прогресі (D40).** Бөлек экран жасалмайды. Оқушы прогресін Тьютордан «не үйрендік?» деп сұрағанда көреді ([personarag §6.1](lightrag_personarag.md), `META_REFLECTION`).
 7. **«Диалогтар жеке қалады» мәтіні (D41).** Сыныпқа қосылу экранына «мұғалімге тек қауіпсіздік ережесін бұзған хабарлама жіберіледі» деген сөйлем қосылды: дабылдың дәлелі ретінде сол хабарлама мұғалімге көрінеді ([ortaq §5](ortaq-infraqurylym.md)).
 
@@ -524,7 +551,7 @@ class LLMResult:
 1. ✅ LLM gateway (§7) және оның логы.
 2. ✅ `examiner` пен `tutor` схемалары, сервис рөлдері, Examiner кестелері (Supabase-ке қолданылды).
 3. ✅ Сұрақ банкі: генерация контуры, Т6 және Т7 тексерулері, `format_applicability`; 1–2-деңгейдің код форматтары. `corpus` базаға қолданылды, бірінші сынақ генерациясы өтті (D61). Оқулықтардың банкін толық толтыру әлі алда.
-4. ✅ Examiner сессиясы код форматтарымен (D62–D64): сессия өмірі, Е1 және Е2, нәтиже, профиль; фронтендте `/exam` экрандары.
+4. ✅ Examiner сессиясы код форматтарымен (D62–D64): сессия өмірі, Е1 және Е2, нәтиже, профиль; фронтендте `/exam` экрандары. D65 (Е1 басымдығы, сессиядағы араластыру, `availability`) кодқа әлі енгізілмеген: қазір Е1 қатаң, ал картада `bank_ready` өрісі бар.
 5. Examiner-дің ЖИ форматтары, диалог және мұғалімнің растау кезегі.
 6. Платформа: `classes`, `lessons` кестесін қайта құру, чат рұқсаты, курстарды алу. Кестелерді өшіру бөлек бекітіледі ([karta §6.2](platforma-kartasy.md)).
 7. Tutor.
