@@ -40,9 +40,16 @@ from ...llm_gateway import (
 )
 from ...llm_gateway.prompting import strip_json_fence
 from .checks import duplicate_problem, mcq_solver_problem, quote_problem, repeat_problem
-from .concepts import ChunkConcepts, Concept, concept_groups, ensure_concepts, topic_concepts
+from .concepts import (
+    DEFAULT_CONCEPT_TYPE,
+    ChunkConcepts,
+    Concept,
+    concept_groups,
+    ensure_concepts,
+    topic_concepts,
+)
 from .context import COMBO_SIZE, Chunk, chunk_combinations, distant_partners, entity_map, reference_text
-from .formats import CODE_FORMATS, FORMAT_LEVEL, GEN_MODELS, Package
+from .formats import CODE_FORMATS, FORMAT_LEVEL, GEN_MODELS, Package, normalize_text, word_stems
 from .planner import ANCHORED_FORMATS, StockPolicy, plan
 from .prompts import GenerationTask, generation_messages, generation_prompt_ref
 
@@ -59,6 +66,12 @@ FAST_STALE = timedelta(minutes=30)        # үзілген Fast Lane жазба�
 # X3 тест (D80): бір үзінді + §-тің басқа бөліктерінің ұғымдары «жақын алдағыштар көзі» ретінде (8–12).
 # Екінші толық чанк берілгенде модель оны елемей, нысананың үзіндісінен ғана сұрақ құрды (0/6).
 X3_NEAR_CONCEPTS = 12
+# Тізімге тек нысанамен бір типті ұғымдар кіреді. Олар кемінде осынша болмаса, ұғым X3 тестке нысана
+# болмайды: ол X1/X2-ге қалады, ал X3 нормасының жетпеген бөлігі X2-ге беріледі.
+X3_MIN_NEAR = 3
+# X3 нысанасы — нақты атау. «Ерте металл дәуірінің тұрғындарының кәсіптері» сияқты сипаттама — санат:
+# оның әр мүшесі (суармалы егіншілік, кен өндіру) дұрыс жауап бола алады.
+X3_MAX_TARGET_WORDS = 3
 
 
 # ---------------------------------------------------------------- деректер
@@ -370,6 +383,7 @@ class BankPipeline:
         content_chunks_by_topic: dict[str, list[Chunk]] = {}
         concepts_by_topic: dict[str, list[Concept]] = {}
         groups_by_topic: dict[str, dict[str, str]] = {}
+        chunk_keys_by_topic: dict[str, dict[str, set[str]]] = {}
         counts_by_topic: dict[str, int] = {}
         for paragraph in paragraphs:
             topic_id = paragraph.topic_id
@@ -382,22 +396,12 @@ class BankPipeline:
             if rows is not None:
                 concepts_by_topic[topic_id] = topic_concepts(rows)
                 groups_by_topic[topic_id] = concept_groups(rows)
+                chunk_keys_by_topic[topic_id] = {row.chunk_id: {c.key for c in row.concepts} for row in rows}
                 counts_by_topic[topic_id] = len(set(groups_by_topic[topic_id].values()))
                 non_empty = {row.chunk_id for row in rows if row.concepts}
                 content_chunks_by_topic[topic_id] = [chunk for chunk in chunks if chunk.chunk_id in non_empty]
             else:
                 content_chunks_by_topic[topic_id] = [chunk for chunk in chunks if chunk.text.strip()]
-
-        slots = plan(
-            list(by_topic),
-            level,
-            applicable,
-            have,
-            self._policy,
-            formats,
-            concepts_by_topic=counts_by_topic if counts_by_topic else None,
-        )
-        used = await self._repo.used_concepts(subject_id, level)
 
         combos_cache: dict[tuple[str, int], list[tuple[Chunk, ...]]] = {}
         entities_cache: dict[str, dict[str, frozenset[str]]] = {}
@@ -423,13 +427,28 @@ class BankPipeline:
         concept_cursor: dict[tuple[str, str], int] = {}
         anchor_combo_cursor: dict[tuple[str, str, str], int] = defaultdict(int)
 
-        def next_concept(topic_id: str, name: str) -> Concept | None:
+        def next_concept(topic_id: str, name: str, eligible: dict[str, tuple[str, ...]] | None = None) -> Concept | None:
+            """Келесі бос ұғым тобының ұғымы. `eligible` берілсе (X3 тест), тек жақын алдағышы жеткілікті ұғым."""
             concepts = concepts_by_topic[topic_id]
             groups = groups_by_topic[topic_id]
             key = (topic_id, name)
             if key not in used_groups:
+                # Банктегі сұрақтың кілті ұғымдардың ескі шығаруынан болуы мүмкін (промпт нұсқасы өзгерді):
+                # дәл кілт табылмаса, атауы сөз түбірлері бойынша бірдей ұғымның тобы алынады.
+                by_stems: dict[frozenset[str], str] = {}
+                for concept in concepts:
+                    stems = frozenset(word_stems(concept.key))
+                    if len(stems) >= 2:
+                        by_stems.setdefault(stems, groups.get(concept.key, concept.key))
+
+                def group_of(used_key: str) -> str:
+                    if used_key in groups:
+                        return groups[used_key]
+                    stems = frozenset(word_stems(used_key))
+                    return by_stems.get(stems, used_key) if len(stems) >= 2 else used_key
+
                 keys = [concept for (topic, fmt, _), values in used.items() if (topic, fmt) == key for concept in values]
-                used_groups[key] = {groups.get(concept, concept) for concept in keys}
+                used_groups[key] = {group_of(concept) for concept in keys}
                 concept_cursor[key] = 0
             content_ids = {chunk.chunk_id for chunk in content_chunks_by_topic.get(topic_id, [])}
             for offset in range(len(concepts)):
@@ -437,6 +456,8 @@ class BankPipeline:
                 candidate = concepts[index]
                 group = groups.get(candidate.key, candidate.key)
                 if group in used_groups[key] or candidate.chunk_id not in content_ids:
+                    continue
+                if eligible is not None and len(eligible.get(candidate.key, ())) < X3_MIN_NEAR:
                     continue
                 used_groups[key].add(group)
                 concept_cursor[key] = index + 1
@@ -460,13 +481,22 @@ class BankPipeline:
             return combo
 
         async def near_concepts(topic_id: str, anchor: Concept) -> tuple[str, ...]:
-            """X3 тесттің жақын алдағыштар көзі (D80): §-тің басқа чанктарының ұғымдары, нысананың тобынсыз.
-            Чанктар `distant_partners` ретімен (көрші емес, ортақ entity-сі көбі), олардан кезекпен бір-бірден."""
+            """X3 тесттің жақын алдағыштар көзі (D80): §-тің басқа чанктарындағы нысанамен бір типті ұғымдар,
+            нысананың тобынсыз. Чанктар `distant_partners` ретімен (көрші емес, ортақ entity-сі көбі), олардан
+            кезекпен бір-бірден.
+            Нысананың өз үзіндісінде де кездесетін ұғым кірмейді: ол сол үзіндідегі шын дерек, сұраққа екінші
+            дұрыс жауап болуы мүмкін («тұрғындар мал шаруашылығымен ... айналысты» мен «суармалы егіншілікпен
+            айналысты» бір үзіндіде). Ол үзіндіден шығарылған ұғымның тобы да, атауы мәтінде табылатын ұғым да."""
             groups = groups_by_topic[topic_id]
             own_group = groups.get(anchor.key, anchor.key)
+            anchor_groups = {groups.get(key, key) for key in chunk_keys_by_topic[topic_id].get(anchor.chunk_id, ())}
+            anchor_text = next((normalize_text(chunk.text) for chunk in content_chunks_by_topic[topic_id]
+                                if chunk.chunk_id == anchor.chunk_id), "")
             by_chunk: dict[str, list[Concept]] = defaultdict(list)
             for concept in concepts_by_topic[topic_id]:
-                by_chunk[concept.chunk_id].append(concept)
+                if (concept.kind == anchor.kind and groups.get(concept.key, concept.key) not in anchor_groups
+                        and concept.key not in anchor_text):
+                    by_chunk[concept.chunk_id].append(concept)
             partners = distant_partners(content_chunks_by_topic[topic_id], anchor.chunk_id, await entities_for(topic_id))
             queues = [list(by_chunk.get(chunk.chunk_id, [])) for chunk in partners]
             seen = {own_group}
@@ -483,6 +513,49 @@ class BankPipeline:
                     if len(terms) >= X3_NEAR_CONCEPTS:
                         break
             return tuple(terms)
+
+        near_cache: dict[str, dict[str, tuple[str, ...]]] = {}
+
+        async def near_by_concept(topic_id: str) -> dict[str, tuple[str, ...]]:
+            """Әр ұғымның жақын алдағыштары. X3 тестке нысана болмайтын ұғымның тізімі бос: «ұғым» типті
+            (қалғанының бәрі, тізімі аралас) және атауы X3_MAX_TARGET_WORDS сөзден ұзын (сипаттама)."""
+            if topic_id not in near_cache:
+                near_cache[topic_id] = {
+                    concept.key: (await near_concepts(topic_id, concept)
+                                  if concept.kind != DEFAULT_CONCEPT_TYPE
+                                  and len(concept.term.split()) <= X3_MAX_TARGET_WORDS else ())
+                    for concept in concepts_by_topic[topic_id]
+                }
+            return near_cache[topic_id]
+
+        # X3 тесттің нысанасы — жақын алдағышы жеткілікті ұғым ғана (D80). Ондай ұғым тобы X3 нормасынан аз
+        # болса, норманың артығы X2-ге беріледі (planner), ал қалған ұғымдар X1/X2-ге кетеді.
+        x3_limits: dict[tuple[str, str], int] = {}
+        if "mcq" in formats:
+            for topic_id in concepts_by_topic:
+                groups = groups_by_topic[topic_id]
+                x3_limits[(topic_id, "mcq")] = len({
+                    groups.get(key, key) for key, terms in (await near_by_concept(topic_id)).items()
+                    if len(terms) >= X3_MIN_NEAR
+                })
+
+        slots = plan(
+            list(by_topic),
+            level,
+            applicable,
+            have,
+            self._policy,
+            formats,
+            concepts_by_topic=counts_by_topic if counts_by_topic else None,
+            x3_limits=x3_limits,
+        )
+        used = await self._repo.used_concepts(subject_id, level)
+
+        # X3 бір § пен форматта алдымен жоспарланады: нысанаға жарайтын ұғымдарды X1/X2 алып қоймасын.
+        first_index: dict[tuple[str, str], int] = {}
+        for index, slot in enumerate(slots):
+            first_index.setdefault((slot.topic_id, slot.format), index)
+        slots.sort(key=lambda slot: (first_index[(slot.topic_id, slot.format)], slot.tier != "X3"))
 
         planned: dict[str, list[tuple[RequestRecord, list]]] = defaultdict(list)
         cursor: dict[tuple[str, str], int] = {}
@@ -507,18 +580,20 @@ class BankPipeline:
                 tuple(concept.term for concept in topic_concept_list)
                 if slot.format == "mcq" and topic_concept_list else ()
             )
+            eligible = (await near_by_concept(slot.topic_id)
+                        if anchored and slot.format == "mcq" and slot.tier == "X3" else None)
             for _ in range(slot.missing):
                 if max_requests is not None and count >= max_requests:
                     break
                 concept: Concept | None = None
                 near: tuple[str, ...] = ()
                 if anchored:
-                    concept = next_concept(slot.topic_id, slot.format)
+                    concept = next_concept(slot.topic_id, slot.format, eligible)
                     if concept is None:
                         break
                     combo = await anchored_context(slot.topic_id, slot.format, concept)
-                    if slot.format == "mcq" and slot.tier == "X3":
-                        near = await near_concepts(slot.topic_id, concept)
+                    if eligible is not None:
+                        near = eligible[concept.key]
                 else:
                     combo = combos[cursor[key] % len(combos)]
                     cursor[key] += 1
@@ -544,6 +619,7 @@ class BankPipeline:
                     # X3-те §-тің барлық ұғымы емес, нысанаға жақын қысқа тізім беріледі (D80).
                     topic_concepts=() if near else distractors,
                     near_concepts=near,
+                    concept_type=concept.kind if near and concept else None,
                 )
                 planned[slot.format].append((request, generation_messages(task, reference_text(combo))))
                 count += 1
@@ -627,7 +703,8 @@ class BankPipeline:
             problem = repeat_problem(package, existing)
         if problem is None and request.format == "mcq":
             try:
-                problem = await mcq_solver_problem(self._gateway, package, reference)
+                problem = await mcq_solver_problem(self._gateway, package, reference,
+                                                   variant=self._variant(Task.MCQ_SOLVER_CHECK, request))
             except LLMUnavailableError as exc:
                 logger.warning("mcq solver unavailable: %s", exc)
                 raise _Deferred from exc

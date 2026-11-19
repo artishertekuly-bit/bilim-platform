@@ -56,6 +56,7 @@ class GenerationTask:
     concept: str | None = None
     topic_concepts: tuple[str, ...] = ()
     near_concepts: tuple[str, ...] = ()   # X3 тест: жақын алдағыштар көзі (D80)
+    concept_type: str | None = None       # нысананың типі; жақын алдағыштар да сол типті
 
 
 def generation_messages(task: GenerationTask, reference: str) -> list[Message]:
@@ -76,6 +77,8 @@ def generation_messages(task: GenerationTask, reference: str) -> list[Message]:
             request["§_ұғымдары"] = others
     near = [term for term in task.near_concepts if term != task.concept]
     if near:
+        if task.concept_type:
+            request["нысана_типі"] = task.concept_type
         request["жақын_алдағыштар"] = near
     return [
         Message("system", system),

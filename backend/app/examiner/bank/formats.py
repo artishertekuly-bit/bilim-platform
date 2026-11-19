@@ -255,6 +255,22 @@ def _partial_answer_problem(options: list[str], correct_index: int) -> str | Non
     return None
 
 
+NAMED_OPTION_MIN_CHARS = 4  # «Ақ», «Иә» сияқты қысқа нұсқа сұрақтың кез келген сөзінің басынан табыла береді
+
+
+def _named_in_stem_problem(stem: str, options: list[str], correct_index: int) -> str | None:
+    """Қате нұсқа сұрақ мәтінінің өзінде аталса, оқушы оны бірден сызып тастайды: «Тұрандықтар қай халықпен
+    жауласты?» деген сұрақта «тұрандықтар» — алдағыш емес (D80). Нұсқа сөз басынан, жалғауымен бірге ізделеді
+    («тұрандықтардың»)."""
+    text = normalize_text(stem)
+    for index, option in enumerate(options):
+        name = normalize_text(option).strip(" .,;:!?\"«»()")
+        if (index != correct_index and len(name) >= NAMED_OPTION_MIN_CHARS
+                and re.search(r"(?<!\w)" + re.escape(name), text)):
+            return "Т6: қате нұсқа сұрақ мәтінінде аталған"
+    return None
+
+
 class MCQGen(GenBase):
     """8 · Кәдімгі тест: 4 нұсқа, біреуі дұрыс."""
 
@@ -284,6 +300,9 @@ class MCQGen(GenBase):
         partial = _partial_answer_problem(self.options, self.correct_index)
         if partial:
             problems.append(partial)
+        named = _named_in_stem_problem(self.stem, self.options, self.correct_index)
+        if named:
+            problems.append(named)
         return problems
 
     def to_package(self, rng: random.Random) -> Package:

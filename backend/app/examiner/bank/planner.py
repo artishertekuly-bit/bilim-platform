@@ -174,18 +174,26 @@ def plan(
     formats: Iterable[str] = CODE_FORMATS,
     *,
     concepts_by_topic: Mapping[str, int] | None = None,
+    x3_limits: Mapping[tuple[str, str], int] | None = None,
 ) -> list[Slot]:
     """`have` — (topic_id, формат, санат) → белсенді сұрақ пен өңделмеген сұраныс саны.
     `concepts_by_topic` берілген §-терге норма ұғым санынан (`concept_targets`), қалғанына
-    базалық `stock_targets`-тен есептеледі."""
+    базалық `stock_targets`-тен есептеледі.
+    `x3_limits` — (topic_id, формат) → X3-ке нысана бола алатын ұғым тобының саны (D80). X3 нормасы одан
+    аспайды, артығы X2 нормасына қосылады: форматтың жалпы қоры өзгермейді."""
     fallback = stock_targets(level, applicable, policy, formats)
     slots: list[Slot] = []
     for topic_id in topic_ids:
-        targets = (
+        targets = dict(
             concept_targets(concepts_by_topic[topic_id], level, applicable, policy, formats)
             if concepts_by_topic is not None and topic_id in concepts_by_topic
             else fallback
         )
+        for (limit_topic, name), limit in (x3_limits or {}).items():
+            x3 = targets.get((name, "X3"), 0)
+            if limit_topic == topic_id and x3 > limit:
+                targets[(name, "X3")] = limit
+                targets[(name, "X2")] = targets.get((name, "X2"), 0) + x3 - limit
         for (name, tier), target in targets.items():
             missing = target - have.get((topic_id, name, tier), 0)
             if missing > 0:

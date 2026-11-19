@@ -26,7 +26,7 @@ from typing import TypeVar
 import asyncpg
 
 from .audit import BankQuestion
-from .concepts import ChunkConcepts, Concept
+from .concepts import ChunkConcepts, Concept, concept_type
 from .context import Chunk, clean_chunk_text
 from .pipeline import BatchRecord, NewQuestion, Paragraph, RequestRecord
 
@@ -148,7 +148,8 @@ class PgBankRepository:
         for row in rows:
             chunk_id = row["chunk_id"]
             concepts = tuple(
-                Concept(key=item["key"], term=item["term"], quote=item.get("quote"), chunk_id=chunk_id)
+                Concept(key=item["key"], term=item["term"], quote=item.get("quote"), chunk_id=chunk_id,
+                        kind=concept_type(item.get("type")))
                 for item in _json_list(row["concepts"])
                 if isinstance(item, dict) and item.get("key") and item.get("term")
             )
@@ -184,7 +185,7 @@ class PgBankRepository:
                     row.topic_id,
                     row.text_hash,
                     json.dumps(
-                        [{"key": c.key, "term": c.term, "quote": c.quote} for c in row.concepts],
+                        [{"key": c.key, "term": c.term, "type": c.kind, "quote": c.quote} for c in row.concepts],
                         ensure_ascii=False,
                     ),
                     row.extractor_model,

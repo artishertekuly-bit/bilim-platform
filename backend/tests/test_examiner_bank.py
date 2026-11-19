@@ -26,7 +26,15 @@ from app.examiner.bank.checks import (
     quote_problem,
     repeat_problem,
 )
-from app.examiner.bank.concepts import ChunkConcepts, Concept, concept_groups
+from app.examiner.bank.concepts import (
+    ChunkConcepts,
+    Concept,
+    ConceptItem,
+    concept_groups,
+    parse_concepts,
+    resolve_type,
+    topic_concepts,
+)
 from app.examiner.bank.context import (
     Chunk,
     chunk_combinations,
@@ -132,6 +140,23 @@ class FormatTests(unittest.TestCase):
                       options=["Жезқазғанда 100 мың, Имантайда 48 мың тонна", "Жезқазғанда 48 мың, Имантайда 100 мың тонна",
                                "Жезқазғанда 50 мың, Имантайда 10 мың тонна", "Жезқазғанда 10 мың, Имантайда 50 мың тонна"])
         self.assertNotIn("Т6: қате нұсқа дұрыс жауаптың бір бөлігі (сандары)", swapped.problems())
+
+    def test_mcq_distractor_named_in_the_stem(self) -> None:
+        # §20–21 X3 сынағы: «тұрандықтар» сұрақтың өзінде аталып, қате нұсқа болып тұрды (D80).
+        reason = "Т6: қате нұсқа сұрақ мәтінінде аталған"
+        named = mcq(stem="Парсы деректерінде тұрандықтардың үнемі қай халықпен жауласқаны көрсетіледі?",
+                    options=["Отырықшы ирандықтар", "Андрондықтар", "Сақтар", "Тұрандықтар"])
+        self.assertIn(reason, named.problems())
+        # Дұрыс нұсқа сұрақта аталса — бұл ереже емес (ол үшін stem echo бар); қысқа нұсқа ескерілмейді.
+        right = mcq(stem="Ұлы Жібек жолы Қытайдан қай теңізге дейін созылды?",
+                    options=["Ұлы Жібек жолы", "Тұз жолы", "Янтарь жолы", "Шай жолы"])
+        self.assertNotIn(reason, right.problems())
+        short = mcq(stem="Қола дәуірінде қай металл алғаш балқытылды? Ақ мыс па?",
+                    options=["Мыс", "Ақ", "Темір", "Алтын"])
+        self.assertNotIn(reason, short.problems())
+        # Сөздің ортасынан табылған нұсқа ілінбейді: «ауыл» ≠ «тауыл».
+        inner = mcq(stem="Тауылда қандай кәсіп дамыды?", options=["Егіншілік", "Ауыл", "Аңшылық", "Балық аулау"])
+        self.assertNotIn(reason, inner.problems())
 
     def test_mcq_stem_echo_cue(self) -> None:
         # Бірінші Fast Lane сынағындағы нақты сұрақ: «палеолит» сөзі тек дұрыс нұсқада қайталанады.
@@ -323,6 +348,18 @@ class PlannerTests(unittest.TestCase):
         slots = {(s.topic_id, s.format, s.tier): s.missing for s in plan(["t1"], 1, {}, have, formats=["mcq"])}
         self.assertEqual(slots, {("t1", "mcq", "X2"): 5, ("t1", "mcq", "X3"): 3})
 
+    def test_plan_moves_x3_beyond_limit_to_x2(self) -> None:
+        # X3-ке нысана бола алатын ұғым тобы аз болса, норманың артығы X2-ге (D80); жалпы қор сол күйі.
+        def slots(limits: dict | None) -> dict:
+            return {s.tier: s.missing for s in plan(["t1"], 1, {}, {}, StockPolicy(x3_per_session=3), ["mcq"],
+                                                    concepts_by_topic={"t1": 10}, x3_limits=limits)}
+        free, limited = slots(None), slots({("t1", "mcq"): 1})
+        self.assertGreater(free["X3"], 1)
+        self.assertEqual(limited["X3"], 1)
+        self.assertEqual(limited["X2"], free["X2"] + free["X3"] - 1)
+        self.assertEqual(sum(limited.values()), sum(free.values()))
+        self.assertNotIn("X3", slots({("t1", "mcq"): 0}))
+
     def test_concept_targets_scale_and_cap_by_concept_count(self) -> None:
         self.assertEqual(concept_targets(0, 1, {}), {})
         def total(targets: dict, fmt: str) -> int:
@@ -379,6 +416,27 @@ class ConceptGroupTests(unittest.TestCase):
         self.assertEqual(groups["жайылымдық бақташылық"], "жайылымды бақташылық")
         # Бір сөзді атауда түбір тым жалпы: «сақтар» мен «сақташылар» бөлек қалады.
         self.assertNotEqual(groups["сақтар"], groups["сақташылар"])
+
+    def test_concept_type_is_normalized(self) -> None:
+        chunk = Chunk("c1", 1, "Сақтар жылқы өсірді.")
+        concepts = parse_concepts([ConceptItem(term="Сақтар", type=" «Тұлға» ", quote="Сақтар жылқы өсірді."),
+                                   ConceptItem(term="Жылқы", type="жануар", quote="жылқы"),
+                                   ConceptItem(term="Өсіру", quote="өсірді")], chunk)
+        self.assertEqual([c.kind for c in concepts], ["тұлға", "ұғым", "ұғым"])
+
+    def test_concept_type_is_decided_by_vote_across_chunks(self) -> None:
+        self.assertEqual(resolve_type(["кәсіп", "ұғым"]), "кәсіп")       # тең: нақты тип басым
+        self.assertEqual(resolve_type(["ұғым", "кәсіп", "ұғым"]), "ұғым")
+        self.assertEqual(resolve_type(["ұғым", "кәсіп", "кәсіп"]), "кәсіп")
+        self.assertEqual(resolve_type(["зат", "кәсіп"]), "зат")           # нақты типтер тең: біріншісі
+        self.assertEqual(resolve_type(["ұғым"]), "ұғым")
+
+        def row(chunk_id: str, kind: str) -> ChunkConcepts:
+            return ChunkConcepts(chunk_id, "t", "h", (Concept("мал шаруашылығы", "Мал шаруашылығы", None, chunk_id, kind),))
+
+        # §20–21: бірінші кездескен чанкта «ұғым», екіншісінде «кәсіп» — ұғым «кәсіп» болады.
+        [concept] = topic_concepts([row("c1", "ұғым"), row("c2", "кәсіп")])
+        self.assertEqual((concept.chunk_id, concept.kind), ("c1", "кәсіп"))
 
 
 # ------------------------------------------------------------------ промпт
@@ -513,7 +571,10 @@ class BankFakeProvider(FakeProvider):
             else:
                 # Дәйексөздер мәтінде жоқ (quote=None): ұғымдар топқа біріктірілмейді (D80).
                 tag = len(self.calls)
-                items = [{"term": f"Ұғым {i}-{tag}", "quote": f"Ұғым {i}-{tag} түсіндірмесі"} for i in range(1, 11)]
+                # «Ұғым 1-2» мен «Ұғым 2-1» түбірлері бірдей болып, бір топқа түсер еді: «Ұғым 2а» сияқты атау.
+                # Типі нақты («зат»): екі чанкты §-те X3 тестке нысана бар.
+                items = [{"term": f"Ұғым {tag}{'абвгдежзик'[i - 1]}", "type": "зат",
+                          "quote": f"Ұғым {i}-{tag} түсіндірмесі"} for i in range(1, 11)]
             return ProviderCompletion(json.dumps({"concepts": items}), Usage(10, 0, 10), request.model)
         if request.schema_name in {model.__name__ for model in GEN_MODELS.values()}:
             return ProviderCompletion(self.generation_texts.pop(0), Usage(50, 0, 50), request.model)
@@ -814,7 +875,8 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(b.batch_id.startswith("fast-") and b.status == "processed"
                             for b in self.repo.batches.values()))
         self.assertEqual({row["status"] for row in self.repo.requests.values()}, {"accepted"})
-        self.assertEqual({q.request.x_tier for q in self.repo.questions}, {"X1", "X2", "X3"})
+        # Бір чанкты §-те X3 тестке жақын алдағыш жоқ: X3-тің орны X2-ге берілді (D80).
+        self.assertEqual(sorted(q.request.x_tier for q in self.repo.questions), ["X1", "X2", "X2"])
 
     async def test_fast_lane_second_round_replaces_rejected(self) -> None:
         self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
@@ -915,6 +977,10 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
             [{"term": "Үйсіндер", "quote": "Үйсіндер Жетісуда өмір сүрді."},
              {"term": "Қызыл аңғар", "quote": "Олардың астанасы Қызыл аңғар қаласы еді."}],
         ]
+        # Бәрі бір нақты типті: X3 тестке әр ұғымның жақын алдағышы жеткілікті (тип сүзгісі бөлек тексеріледі).
+        for items in self.provider.concept_responses:
+            for item in items:
+                item["type"] = "жер"
 
     async def test_one_mcq_per_concept_group_across_tiers(self) -> None:
         # c1-дің «Ұлы Жібек жолы» мен «Сауда жолы» бір сөйлемнен: бір топ. 6 ұғым → 5 топ → 5 тест.
@@ -930,17 +996,144 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
                 "үйсіндер": "c3", "қызыл аңғар": "c3"}
         for record in records:
             self.assertEqual(record.chunk_ids, (home[record.concept_key],), record)
-        # X3-ке §-тің барлық ұғымы емес, басқа чанктардан жақын алдағыштар тізімі: алдымен көрші емес c1,
-        # нысананың өз чанкы (c3) мен бір топтағы «Сауда жолы» кірмейді.
+        # X3 алдымен жоспарланады да, бірінші ұғымды алады. Оған §-тің барлық ұғымы емес, басқа чанктардан
+        # жақын алдағыштар тізімі беріледі: алдымен көрші емес c3, нысананың өз чанкы (c1) мен бір топтағы
+        # «Сауда жолы» кірмейді.
         [x3] = [r for r in records if r.x_tier == "X3"]
+        self.assertEqual(x3.concept_key, "ұлы жібек жолы")
         sent = {custom_id: request for batch in self.provider.batches for custom_id, request in batch}
         payload = json.loads(sent[x3.custom_id].messages[-1].content.split("Тапсырма:\n", 1)[1])
-        self.assertEqual(payload["жақын_алдағыштар"], ["Ұлы Жібек жолы", "Сақтар", "Қорғандар"])
+        self.assertEqual(payload["жақын_алдағыштар"], ["Үйсіндер", "Сақтар", "Қызыл аңғар", "Қорғандар"])
+        self.assertEqual(payload["нысана_типі"], "жер")
         self.assertNotIn("§_ұғымдары", payload)
         x1 = next(r for r in records if r.x_tier == "X1")
         self.assertIn("§_ұғымдары", json.loads(sent[x1.custom_id].messages[-1].content.split("Тапсырма:\n", 1)[1]))
         # Келесі іске қосу бос ұғым тобын таппайды: қор толы, ештеңе сұралмайды.
         self.assertEqual(await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq"]), [])
+
+    async def test_x3_targets_only_concepts_with_three_same_type_neighbours(self) -> None:
+        # Тек «Сақтар»-дың басқа чанктарда бір типті 3 көршісі бар (c2-нің тұлғалары): X3 тек соған. c2-нің
+        # тұлғалары бір-бірінің чанкында, олар үшін көрші — тек «Сақтар». X3 нормасының артығы X2-ге кетеді.
+        self.repo.chunk_rows["kazakh6.md#§1"] = [
+            Chunk("c1", 1, "Сақтар егіншілікпен айналысты."),
+            Chunk("c2", 2, "Үйсіндер, ғұндар мен қаңлылар Жетісу мен Сырдарияда өмір сүрді."),
+            Chunk("c3", 3, "Қызыл аңғар маңында мал шаруашылығы дамыды."),
+        ]
+        self.provider.concept_responses = [
+            [{"term": "Сақтар", "type": "тұлға", "quote": "-"}, {"term": "Егіншілік", "type": "кәсіп", "quote": "-"}],
+            [{"term": "Үйсіндер", "type": "тұлға", "quote": "-"}, {"term": "Ғұндар", "type": "Тұлға", "quote": "-"},
+             {"term": "Қаңлылар", "type": "тұлға", "quote": "-"}],
+            [{"term": "Қызыл аңғар", "type": "жер", "quote": "-"},
+             {"term": "Мал шаруашылығы", "type": "кәсіп", "quote": "-"}],
+        ]
+        pipeline = BankPipeline(self.gateway, self.repo, policy=StockPolicy(x3_per_session=3), rng=random.Random(1))
+        await pipeline.submit(["kazakh6.md"], 1, formats=["mcq"])
+        records = [row["record"] for row in self.repo.requests.values()]
+        self.assertEqual(len(records), 7)  # 7 ұғым → 7 тест: жалпы қор өзгермеді
+        [x3] = [r for r in records if r.x_tier == "X3"]
+        self.assertEqual(x3.concept_key, "сақтар")
+        sent = {custom_id: request for batch in self.provider.batches for custom_id, request in batch}
+        payload = json.loads(sent[x3.custom_id].messages[-1].content.split("Тапсырма:\n", 1)[1])
+        self.assertEqual(payload["нысана_типі"], "тұлға")
+        self.assertEqual(payload["жақын_алдағыштар"], ["Үйсіндер", "Ғұндар", "Қаңлылар"])
+        # Кәсіп пен жер X3-ке түспейді, бірақ X1/X2-ден қалмайды.
+        others = {r.concept_key for r in records if r.x_tier != "X3"}
+        self.assertTrue({"егіншілік", "мал шаруашылығы", "қызыл аңғар"} <= others)
+
+    async def test_x3_near_list_skips_facts_of_the_target_passage_and_long_names(self) -> None:
+        # §16–17 X3 сынағы: «суармалы егіншілік» басқа чанктан алынды, бірақ нысананың үзіндісінде де шын дерек
+        # болып, екінші дұрыс жауап болды; нысана «...тұрғындарының кәсіптері» — нақты атау емес, санат (D80).
+        self.repo.chunk_rows["kazakh6.md#§1"] = [
+            Chunk("c1", 1, "Сақтар мен ғұндар жылқы өсірді. Үйсін тайпасы Жетісуда болды."),
+            Chunk("c2", 2, "Үйсін тайпалары, ғұндар мен қаңлылар Жетісуда өмір сүрді."),
+            Chunk("c3", 3, "Массагеттер, дулаттар мен алшындар бірлесті."),
+        ]
+        kind = "тұлға"
+        self.provider.concept_responses = [
+            [{"term": "Сақтар", "type": kind, "quote": "-"}, {"term": "Үйсін тайпалары", "type": kind, "quote": "-"}],
+            [{"term": "Үйсін тайпалары", "type": kind, "quote": "-"}, {"term": "Ғұндар", "type": kind, "quote": "-"},
+             {"term": "Қаңлылар", "type": kind, "quote": "-"}],
+            [{"term": "Массагеттер", "type": kind, "quote": "-"}, {"term": "Дулаттар", "type": kind, "quote": "-"},
+             {"term": "Алшындар", "type": kind, "quote": "-"},
+             {"term": "Жетісудағы көшпелі тайпалардың бірлестігі", "type": kind, "quote": "-"}],
+        ]
+        pipeline = BankPipeline(self.gateway, self.repo, policy=StockPolicy(x3_per_session=3), rng=random.Random(1))
+        await pipeline.submit(["kazakh6.md"], 1, formats=["mcq"])
+        records = [row["record"] for row in self.repo.requests.values()]
+        x3 = {r.concept_key: r for r in records if r.x_tier == "X3"}
+        self.assertIn("сақтар", x3)
+        sent = {custom_id: request for batch in self.provider.batches for custom_id, request in batch}
+        payload = json.loads(sent[x3["сақтар"].custom_id].messages[-1].content.split("Тапсырма:\n", 1)[1])
+        # «Үйсін тайпалары» c1-ден де шығарылған, «ғұндар» c1-дің мәтінінде бар: екеуі де тізімге кірмейді.
+        self.assertEqual(payload["жақын_алдағыштар"],
+                         ["Массагеттер", "Қаңлылар", "Дулаттар", "Алшындар", "Жетісудағы көшпелі тайпалардың бірлестігі"])
+
+    async def test_long_concept_name_is_not_an_x3_target(self) -> None:
+        # 4 сөзді атаудың c2-де бір типті 3 көршісі бар, бірақ ол сипаттама: X3 жоқ, ұғым X1/X2-ге кетеді.
+        # c2-нің ұғымдарына көрші — тек c1-дің ұзын атауы (1 < 3): олар да X3-ке нысана емес.
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, "Ерте металл дәуірі тұрғындары көп кәсіппен айналысты."),
+                                                 Chunk("c2", 2, "Егіншілік, аңшылық пен кен ісі дамыды.")]
+        self.provider.concept_responses = [
+            [{"term": "Ерте металл дәуірі тұрғындарының кәсіптері", "type": "кәсіп", "quote": "-"}],
+            [{"term": "Егіншілік", "type": "кәсіп", "quote": "-"}, {"term": "Аңшылық", "type": "кәсіп", "quote": "-"},
+             {"term": "Кен ісі", "type": "кәсіп", "quote": "-"}],
+        ]
+        await BankPipeline(self.gateway, self.repo, policy=StockPolicy(x3_per_session=3),
+                           rng=random.Random(1)).submit(["kazakh6.md"], 1, formats=["mcq"])
+        records = [row["record"] for row in self.repo.requests.values()]
+        self.assertEqual(len(records), 4)
+        self.assertNotIn("X3", {r.x_tier for r in records})
+        self.assertIn("ерте металл дәуірі тұрғындарының кәсіптері", {r.concept_key for r in records})
+
+    async def test_x3_solver_runs_on_its_own_route_variant(self) -> None:
+        # X3 тестте шешуші бір үзіндіде екі дұрыс нұсқа барын `low` режимде көрмеді: оған `mcq_x3` нұсқасы (D80).
+        config = gateway_config()
+        config["routes"]["mcq_solver_check"]["variants"] = {
+            "mcq_x3": {"reasoning_effort": "medium", "max_output_tokens": 777}}
+        gateway = LLMGateway(parse_config(config, {"KEY": "k"}), providers={"primary": self.provider},
+                             sink=MemorySink(), sleep=no_sleep, rng=lambda: 0.0)
+        await self.three_concept_chunks()
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        self.provider.generation_texts = self.distinct_mcqs(10)
+        report = await BankPipeline(gateway, self.repo, rng=random.Random(1)).generate_now(
+            ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["mcq"], rounds=1)
+        # Дәйексөз тек c1-де: шешушіге c1-дің жалғыз сұранысы — X3 жетеді.
+        self.assertEqual(report.accepted, 1)
+        self.assertEqual([q.request.x_tier for q in self.repo.questions], ["X3"])
+        budgets = [call.max_output_tokens for call in self.provider.calls if call.schema_name == "SolverAnswer"]
+        self.assertEqual(budgets, [777])
+        x1 = replace(self.repo.questions[0].request, x_tier="X1")
+        pipeline = BankPipeline(gateway, self.repo, rng=random.Random(1))
+        self.assertEqual(pipeline._variant(Task.MCQ_SOLVER_CHECK, x1), "mcq")
+        self.assertEqual(gateway.config.route(Task.MCQ_SOLVER_CHECK, "mcq").max_output_tokens, 100)
+
+    async def test_generic_concept_type_is_never_an_x3_target(self) -> None:
+        # «ұғым» — қалғанының бәрі: бір типті көршісі көп болса да, тізімі аралас, X3 тестке нысана емес.
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, "Жеке меншік пайда болды."),
+                                                 Chunk("c2", 2, "Теңсіздік, билік пен еңбек бөлінісі күшейді.")]
+        self.provider.concept_responses = [
+            [{"term": "Жеке меншік", "type": "ұғым", "quote": "-"}],
+            [{"term": "Теңсіздік", "type": "ұғым", "quote": "-"}, {"term": "Билік", "type": "ұғым", "quote": "-"},
+             {"term": "Еңбек бөлінісі", "type": "ұғым", "quote": "-"}],
+        ]
+        await BankPipeline(self.gateway, self.repo, policy=StockPolicy(x3_per_session=3),
+                           rng=random.Random(1)).submit(["kazakh6.md"], 1, formats=["mcq"])
+        records = [row["record"] for row in self.repo.requests.values()]
+        self.assertEqual(len(records), 4)
+        self.assertNotIn("X3", {r.x_tier for r in records})
+
+    async def test_used_key_from_older_extraction_still_blocks_its_concept(self) -> None:
+        # Ұғым промпты жаңарып, атау «жайылымды» → «жайылымдық» болып өзгерді: банктегі сұрақтың ұғымы
+        # сөз түбірлері бойынша танылады, оған екінші тест құрылмайды.
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, "Жайылымдық бақташылық дамыды. Сақтар өмір сүрді.")]
+        self.provider.concept_responses = [[{"term": "Жайылымдық бақташылық", "quote": "-"},
+                                             {"term": "Сақтар", "quote": "-"}]]
+        old = RequestRecord("old", "b0", self.repo.subject, "kazakh6.md#§1", 1, "mcq", "X1", ("c1",),
+                            concept_key="жайылымды бақташылық")
+        self.repo.requests["old"] = {"record": old, "status": "pending", "reasons": []}
+        await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq"])
+        fresh = [row["record"].concept_key for custom_id, row in self.repo.requests.items() if custom_id != "old"]
+        self.assertEqual(fresh, ["сақтар"])
 
     async def test_x3_uses_its_own_route_variant_in_a_separate_batch(self) -> None:
         # MCQ X3 ойлау режимі бөлек (mcq_x3, D80): Batch API-да ол бөлек batch болып жіберіледі.

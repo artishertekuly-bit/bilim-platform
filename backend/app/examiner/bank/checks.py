@@ -85,10 +85,14 @@ def solver_messages(package: Package, reference_text: str) -> list[Message]:
     return [Message("system", system), Message("user", user)]
 
 
-async def mcq_solver_problem(gateway: LLMGateway, package: Package, reference_text: str) -> str | None:
-    """None — тексерістен өтті. Модель форматты бұзса, тексеріс өтпеді деп саналады."""
+async def mcq_solver_problem(
+    gateway: LLMGateway, package: Package, reference_text: str, *, variant: str | None = None
+) -> str | None:
+    """None — тексерістен өтті. Модель форматты бұзса, тексеріс өтпеді деп саналады.
+    `variant` — маршрут нұсқасы: X3 тестте қате нұсқалар нысанаға жақын, шешуші көбірек ойланады (D80)."""
     result = await gateway.complete(
-        Task.MCQ_SOLVER_CHECK, SOLVER_PROMPT, solver_messages(package, reference_text), schema=SolverAnswer
+        Task.MCQ_SOLVER_CHECK, SOLVER_PROMPT, solver_messages(package, reference_text), schema=SolverAnswer,
+        variant=variant,
     )
     if not isinstance(result.parsed, SolverAnswer):
         return "Т7: шешуші модель жауабы оқылмады"
