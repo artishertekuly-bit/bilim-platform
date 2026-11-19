@@ -1,7 +1,8 @@
 """Банкті толтыру контуры (ai_examiner.md §5.1).
 
-  жоспар (planner) → контекст пен чанк комбинациясы (context) → Batch API (gateway)
-  → Т6 құрылым (formats) → Т7 мазмұн (checks) → банкке жазу (repository)
+  ұғымдар (concepts) → жоспар (planner) → контекст пен чанк комбинациясы (context)
+  → Batch API / Fast Lane (gateway) → Т6 құрылым (formats) → Т7 мазмұн (checks)
+  → банкке жазу (repository)
 
 Контур екі қадаммен жүреді, сондықтан процесс кез келген жерде тоқтаса да, ештеңе жоғалмайды:
   * `submit` — сұраныстарды ұсақ партиялармен Batch API-ға жібереді және оларды `generation_requests`-ке
@@ -21,7 +22,7 @@ import random
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
@@ -39,6 +40,7 @@ from ...llm_gateway import (
 )
 from ...llm_gateway.prompting import strip_json_fence
 from .checks import duplicate_problem, mcq_solver_problem, quote_problem
+from .concepts import ChunkConcepts, Concept, ensure_concepts, topic_concepts
 from .context import COMBO_SIZE, Chunk, chunk_combinations, entity_map, reference_text
 from .formats import CODE_FORMATS, FORMAT_LEVEL, GEN_MODELS, Package
 from .planner import StockPolicy, plan
@@ -79,6 +81,7 @@ class RequestRecord:
     format: str
     x_tier: str
     chunk_ids: tuple[str, ...]
+    concept_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,9 @@ class BankRepository(Protocol):
     async def paragraph_chunks(self, topic_id: str) -> list[Chunk]: ...
     async def chunks(self, chunk_ids: Sequence[str]) -> list[Chunk]: ...
     async def entity_links(self, chunk_ids: Sequence[str]) -> list[tuple[str, str]]: ...
+    async def chunk_concepts(self, topic_id: str) -> dict[str, ChunkConcepts]: ...
+    async def save_chunk_concepts(self, rows: Sequence[ChunkConcepts]) -> None: ...
+    async def used_concepts(self, subject_id: str, level: int) -> dict[tuple[str, str, str], set[str]]: ...
     async def format_applicability(self, subject_id: str) -> dict[str, bool]: ...
     async def stock(self, subject_id: str, level: int) -> dict[tuple[str, str, str], int]: ...
     async def record_batch(self, batch: BatchRecord, requests: Sequence[RequestRecord]) -> None: ...
@@ -187,6 +193,7 @@ class BankPipeline:
                     prompt,
                     [BatchRequest(request.custom_id, tuple(messages)) for request, messages in part],
                     schema=GEN_MODELS[name],
+                    variant=name,
                 )
                 batch = BatchRecord(
                     batch_id=handle.batch_id, provider=handle.provider, model_key=handle.model_key,
@@ -240,7 +247,7 @@ class BankPipeline:
                 async with limit:
                     try:
                         result = await self._gateway.complete(
-                            Task.GENERATION_FAST, prompt, messages, schema=GEN_MODELS[name]
+                            Task.GENERATION_FAST, prompt, messages, schema=GEN_MODELS[name], variant=name
                         )
                     except (LLMUnavailableError, LLMRequestError) as exc:
                         async with processing:
@@ -263,9 +270,9 @@ class BankPipeline:
 
     async def _record_fast_batches(self, planned: dict[str, list[tuple[RequestRecord, list]]]) -> None:
         """Fast Lane сұраныстары да `generation_requests`-ке жазылады (бақылау мен статистика үшін)."""
-        route_model = self._gateway.config.route(Task.GENERATION_FAST).model
-        provider = self._gateway.config.models[route_model].provider
         for name, rows in planned.items():
+            route_model = self._gateway.config.route(Task.GENERATION_FAST, name).model
+            provider = self._gateway.config.models[route_model].provider
             prompt = generation_prompt_ref(name)
             batch_id = f"{FAST_PREFIX}{uuid.uuid4().hex}"
             batch = BatchRecord(batch_id=batch_id, provider=provider, model_key=route_model, prompt_id=prompt.id,
@@ -328,23 +335,113 @@ class BankPipeline:
         applicable = await self._repo.format_applicability(subject_id)
         formats = [name for name in formats if applicable.get(name, True)]
         have = await self._repo.stock(subject_id, level)
-        slots = plan(list(by_topic), level, applicable, have, self._policy, formats)
+
+        # Әр §-тің ұғымдарын шығарып (сақталғаны болса, базадан алып), мазмұны жоқ чанктарды сүземіз (D76).
+        chunks_by_topic: dict[str, list[Chunk]] = {}
+        content_chunks_by_topic: dict[str, list[Chunk]] = {}
+        concepts_by_topic: dict[str, list[Concept]] = {}
+        counts_by_topic: dict[str, int] = {}
+        for paragraph in paragraphs:
+            topic_id = paragraph.topic_id
+            chunks = await self._repo.paragraph_chunks(topic_id)
+            chunks_by_topic[topic_id] = chunks
+            if not chunks:
+                content_chunks_by_topic[topic_id] = []
+                continue
+            title = f"§{paragraph.paragraph_no}" + (f". {paragraph.paragraph_title}" if paragraph.paragraph_title else "")
+            rows = await ensure_concepts(self._gateway, self._repo, topic_id, title, chunks)
+            if rows is not None:
+                concepts = topic_concepts(rows)
+                concepts_by_topic[topic_id] = concepts
+                counts_by_topic[topic_id] = len(concepts)
+                non_empty = {row.chunk_id for row in rows if row.concepts}
+                content_chunks_by_topic[topic_id] = [chunk for chunk in chunks if chunk.chunk_id in non_empty]
+            else:
+                content_chunks_by_topic[topic_id] = [chunk for chunk in chunks if chunk.text.strip()]
+
+        slots = plan(
+            list(by_topic),
+            level,
+            applicable,
+            have,
+            self._policy,
+            formats,
+            concepts_by_topic=counts_by_topic if counts_by_topic else None,
+        )
+        used = await self._repo.used_concepts(subject_id, level)
 
         planned: dict[str, list[tuple[RequestRecord, list]]] = defaultdict(list)
         combos_by_key: dict[tuple[str, str], list] = {}
-        # Чанк комбинациялары § пен формат бойынша кезекпен беріледі: бір §-тің X1, X2, X3 сұраныстары
-        # әртүрлі мәтіннен жасалады (әйтпесе модель бірдей сұрақ жазып, дубликат тексерісі оны тоқтатады).
         cursor: dict[tuple[str, str], int] = {}
+        concept_cursor: dict[str, int] = {}
         count = 0
         for slot in slots:
+            if max_requests is not None and count >= max_requests:
+                break
             paragraph = by_topic[slot.topic_id]
+            topic_concept_list = concepts_by_topic.get(slot.topic_id)
+            all_terms = tuple(c.term for c in topic_concept_list) if topic_concept_list else ()
+
+            if slot.format == "mcq" and topic_concept_list is not None:
+                if not topic_concept_list:
+                    continue
+                chunk_by_id = {c.chunk_id: c for c in chunks_by_topic[slot.topic_id]}
+                used_in_tier = used.setdefault((slot.topic_id, "mcq", slot.tier), set())
+                if slot.topic_id not in concept_cursor:
+                    concept_cursor[slot.topic_id] = sum(
+                        n for (t, name, _), n in have.items() if (t, name) == (slot.topic_id, "mcq")
+                    )
+                for _ in range(slot.missing):
+                    if max_requests is not None and count >= max_requests:
+                        break
+                    chosen: Concept | None = None
+                    start_pos = concept_cursor[slot.topic_id]
+                    for offset in range(len(topic_concept_list)):
+                        candidate = topic_concept_list[(start_pos + offset) % len(topic_concept_list)]
+                        if candidate.key not in used_in_tier and candidate.chunk_id in chunk_by_id:
+                            chosen = candidate
+                            concept_cursor[slot.topic_id] = start_pos + offset + 1
+                            break
+                    if chosen is None:
+                        break
+                    used_in_tier.add(chosen.key)
+                    combo = (chunk_by_id[chosen.chunk_id],)
+                    request = RequestRecord(
+                        custom_id=uuid.uuid4().hex,
+                        batch_id="",
+                        subject_id=subject_id,
+                        topic_id=slot.topic_id,
+                        level=level,
+                        format=slot.format,
+                        x_tier=slot.tier,
+                        chunk_ids=(chosen.chunk_id,),
+                        concept_key=chosen.key,
+                    )
+                    task = GenerationTask(
+                        format=slot.format,
+                        level=level,
+                        tier=slot.tier,
+                        book_title=paragraph.book_title,
+                        paragraph_no=paragraph.paragraph_no,
+                        paragraph_title=paragraph.paragraph_title,
+                        concept=chosen.term,
+                        topic_concepts=all_terms,
+                    )
+                    planned[slot.format].append((request, generation_messages(task, reference_text(combo))))
+                    count += 1
+                continue
+
             key = (slot.topic_id, slot.format)
             if key not in combos_by_key:
-                chunks = await self._repo.paragraph_chunks(slot.topic_id)
-                links = await self._repo.entity_links([chunk.chunk_id for chunk in chunks]) if chunks else []
+                content_chunks = content_chunks_by_topic.get(slot.topic_id, [])
+                links = await self._repo.entity_links([chunk.chunk_id for chunk in content_chunks]) if content_chunks else []
                 combos_by_key[key] = (
-                    chunk_combinations(chunks, COMBO_SIZE[slot.format], entity_map(links, [c.chunk_id for c in chunks]))
-                    if chunks else []
+                    chunk_combinations(
+                        content_chunks,
+                        COMBO_SIZE[slot.format],
+                        entity_map(links, [c.chunk_id for c in content_chunks]),
+                    )
+                    if content_chunks else []
                 )
                 cursor[key] = sum(n for (topic, name, _), n in have.items() if (topic, name) == key)
             combos = combos_by_key[key]
@@ -366,8 +463,13 @@ class BankPipeline:
                     chunk_ids=tuple(chunk.chunk_id for chunk in combo),
                 )
                 task = GenerationTask(
-                    format=slot.format, level=level, tier=slot.tier, book_title=paragraph.book_title,
-                    paragraph_no=paragraph.paragraph_no, paragraph_title=paragraph.paragraph_title,
+                    format=slot.format,
+                    level=level,
+                    tier=slot.tier,
+                    book_title=paragraph.book_title,
+                    paragraph_no=paragraph.paragraph_no,
+                    paragraph_title=paragraph.paragraph_title,
+                    topic_concepts=all_terms if slot.format == "mcq" else (),
                 )
                 planned[slot.format].append((request, generation_messages(task, reference_text(combo))))
                 count += 1
@@ -494,7 +596,4 @@ class BankPipeline:
 
 
 def _with_batch(request: RequestRecord, batch_id: str) -> RequestRecord:
-    return RequestRecord(
-        custom_id=request.custom_id, batch_id=batch_id, subject_id=request.subject_id, topic_id=request.topic_id,
-        level=request.level, format=request.format, x_tier=request.x_tier, chunk_ids=request.chunk_ids,
-    )
+    return replace(request, batch_id=batch_id)

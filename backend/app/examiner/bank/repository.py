@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import json
 import os
+from collections import defaultdict
 from collections.abc import Sequence
 
 import asyncpg
 
 from .audit import BankQuestion
+from .concepts import ChunkConcepts, Concept
 from .context import Chunk, clean_chunk_text
 from .pipeline import BatchRecord, NewQuestion, Paragraph, RequestRecord
 
@@ -43,6 +45,12 @@ def _json(value: object) -> dict:
     if isinstance(value, str):
         value = json.loads(value)
     return value if isinstance(value, dict) else {}
+
+
+def _json_list(value: object) -> list:
+    if isinstance(value, str):
+        value = json.loads(value)
+    return value if isinstance(value, list) else []
 
 
 class PgBankRepository:
@@ -94,6 +102,92 @@ class PgBankRepository:
         )
         return [(row["entity"], row["chunk_id"]) for row in rows]
 
+    # ------------------------------------------------------------ ұғымдар (D76)
+
+    async def chunk_concepts(self, topic_id: str) -> dict[str, ChunkConcepts]:
+        rows = await self._pool.fetch(
+            """
+            select chunk_id, topic_id, text_hash, concepts, extractor_model, prompt_version
+            from examiner.chunk_concepts
+            where topic_id = $1
+            """,
+            topic_id,
+        )
+        result: dict[str, ChunkConcepts] = {}
+        for row in rows:
+            chunk_id = row["chunk_id"]
+            concepts = tuple(
+                Concept(key=item["key"], term=item["term"], quote=item.get("quote"), chunk_id=chunk_id)
+                for item in _json_list(row["concepts"])
+                if isinstance(item, dict) and item.get("key") and item.get("term")
+            )
+            result[chunk_id] = ChunkConcepts(
+                chunk_id=chunk_id,
+                topic_id=row["topic_id"],
+                text_hash=row["text_hash"],
+                concepts=concepts,
+                extractor_model=row["extractor_model"],
+                prompt_version=row["prompt_version"],
+            )
+        return result
+
+    async def save_chunk_concepts(self, rows: Sequence[ChunkConcepts]) -> None:
+        if not rows:
+            return
+        await self._pool.executemany(
+            """
+            insert into examiner.chunk_concepts
+              (chunk_id, topic_id, text_hash, concepts, extractor_model, prompt_version, extracted_at)
+            values ($1, $2, $3, $4::jsonb, $5, $6, now())
+            on conflict (chunk_id) do update set
+              topic_id = excluded.topic_id,
+              text_hash = excluded.text_hash,
+              concepts = excluded.concepts,
+              extractor_model = excluded.extractor_model,
+              prompt_version = excluded.prompt_version,
+              extracted_at = now()
+            """,
+            [
+                (
+                    row.chunk_id,
+                    row.topic_id,
+                    row.text_hash,
+                    json.dumps(
+                        [{"key": c.key, "term": c.term, "quote": c.quote} for c in row.concepts],
+                        ensure_ascii=False,
+                    ),
+                    row.extractor_model,
+                    row.prompt_version,
+                )
+                for row in rows
+            ],
+        )
+
+    async def used_concepts(self, subject_id: str, level: int) -> dict[tuple[str, str, str], set[str]]:
+        """Белсенді сұрақтар мен өңделмеген сұраныстарда қолданылған ұғым кілттері (D76)."""
+        rows = await self._pool.fetch(
+            """
+            select topic_id, format, x_tier, concept_key from (
+              select q.topic_id, q.format::text as format, s.x_tier::text as x_tier, q.concept_key
+              from examiner.questions q
+              join examiner.question_state s on s.question_id = q.question_id
+              where q.subject_id = $1::uuid and q.level = $2::smallint and s.status = 'active'
+                and q.concept_key is not null
+              union
+              select topic_id, format::text, x_tier::text, concept_key
+              from examiner.generation_requests
+              where subject_id = $1::uuid and level = $2::smallint and status = 'pending'
+                and concept_key is not null
+            ) x
+            """,
+            subject_id,
+            level,
+        )
+        used: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+        for row in rows:
+            used[(row["topic_id"], row["format"], row["x_tier"])].add(row["concept_key"])
+        return dict(used)
+
     # ------------------------------------------------------------ банк
 
     async def format_applicability(self, subject_id: str) -> dict[str, bool]:
@@ -139,10 +233,11 @@ class PgBankRepository:
             await connection.executemany(
                 """
                 insert into examiner.generation_requests
-                  (custom_id, batch_id, subject_id, topic_id, level, format, x_tier, chunk_ids)
-                values ($1, $2, $3::uuid, $4, $5::smallint, $6::text, $7::text, $8::text[])
+                  (custom_id, batch_id, subject_id, topic_id, level, format, x_tier, chunk_ids, concept_key)
+                values ($1, $2, $3::uuid, $4, $5::smallint, $6::text, $7::text, $8::text[], $9)
                 """,
-                [(r.custom_id, r.batch_id, r.subject_id, r.topic_id, r.level, r.format, r.x_tier, list(r.chunk_ids))
+                [(r.custom_id, r.batch_id, r.subject_id, r.topic_id, r.level, r.format, r.x_tier, list(r.chunk_ids),
+                  r.concept_key)
                  for r in requests],
             )
 
@@ -174,7 +269,7 @@ class PgBankRepository:
         rows = await self._pool.fetch(
             """
             select custom_id, batch_id, subject_id::text, topic_id, level::int as level, format::text as format,
-                   x_tier::text as x_tier, chunk_ids
+                   x_tier::text as x_tier, chunk_ids, concept_key
             from examiner.generation_requests
             where batch_id = $1 and status = 'pending'
             """,
@@ -203,9 +298,10 @@ class PgBankRepository:
                 """
                 insert into examiner.questions
                   (subject_id, topic_id, level, format, question_content, ecd_skill, ecd_evidence,
-                   reference_context, generator_model, prompt_version, content_embedding, content_embedding_model)
+                   reference_context, generator_model, prompt_version, content_embedding, content_embedding_model,
+                   concept_key)
                 values ($1::uuid, $2, $3::smallint, $4::text, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9, $10,
-                        ($11::text)::extensions.vector, $12)
+                        ($11::text)::extensions.vector, $12, $13)
                 returning question_id::text
                 """,
                 request.subject_id, request.topic_id, request.level, request.format,
@@ -213,7 +309,7 @@ class PgBankRepository:
                 json.dumps(package.ecd_evidence, ensure_ascii=False),
                 json.dumps(question.reference_context, ensure_ascii=False),
                 question.generator_model, question.prompt_version,
-                _vector(question.embedding), question.embedding_model,
+                _vector(question.embedding), question.embedding_model, request.concept_key,
             )
             await connection.execute(
                 "insert into examiner.question_state (question_id, x_tier, change_reason) values ($1::uuid, $2::text, 'generation')",

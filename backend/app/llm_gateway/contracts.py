@@ -22,6 +22,7 @@ class Task(StrEnum):
     EXAMINER_DIALOG = "examiner_dialog"
     GENERATION = "generation"  # Batch API
     GENERATION_FAST = "generation_fast"  # Fast Lane: мұғалім сұраған § синхрон толтырылады (ai_examiner §5.4)
+    CONCEPT_EXTRACTION = "concept_extraction"  # §-тің ұғымдары, әр чанк бір рет (D76)
 
 
 class Priority(IntEnum):
@@ -46,6 +47,7 @@ TASK_PRIORITY: dict[Task, Priority] = {
     Task.MCQ_SOLVER_CHECK: Priority.BACKGROUND,
     Task.GENERATION: Priority.BACKGROUND,
     Task.GENERATION_FAST: Priority.BACKGROUND,  # генерация ресми бағалау мен Tutor-ды ешқашан озбайды
+    Task.CONCEPT_EXTRACTION: Priority.BACKGROUND,
 }
 
 # Резерв провайдер тек Tutor мен генерация үшін (ortaq §2.4).

@@ -21,6 +21,7 @@ PROMPT_DIR = Path(__file__).with_name("templates")
 _FRONT_MATTER = re.compile(r"\A---\s*\nversion:\s*(?P<version>\S+)\s*\n---\s*\n", re.MULTILINE)
 
 LEVEL_NAMES = {1: "1 · Білу", 2: "2 · Қолдану", 3: "3 · Пайымдау", 4: "4 · Қолдану + Пайымдау"}
+MAX_DISTRACTOR_CONCEPTS = 30
 
 
 @dataclass(frozen=True)
@@ -52,18 +53,26 @@ class GenerationTask:
     book_title: str
     paragraph_no: str
     paragraph_title: str | None
+    concept: str | None = None
+    topic_concepts: tuple[str, ...] = ()
 
 
 def generation_messages(task: GenerationTask, reference: str) -> list[Message]:
     system = load_prompt("system").body
     rules = load_prompt(task.format).body
     title = f"§{task.paragraph_no}" + (f". {task.paragraph_title}" if task.paragraph_title else "")
-    request = {
+    request: dict[str, object] = {
         "оқулық": task.book_title,
         "тақырып": title,
         "деңгей": LEVEL_NAMES[task.level],
         "санат": task.tier,
     }
+    if task.concept:
+        request["нысана"] = task.concept
+    if task.topic_concepts:
+        others = [term for term in task.topic_concepts if term != task.concept][:MAX_DISTRACTOR_CONCEPTS]
+        if others:
+            request["§_ұғымдары"] = others
     return [
         Message("system", system),
         Message("system", rules),

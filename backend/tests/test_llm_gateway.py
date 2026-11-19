@@ -360,6 +360,22 @@ class EmbeddingAndBatchTests(GatewayTestCase):
                 Task.GENERATION, PROMPT, [BatchRequest("q1", tuple(MESSAGES)), BatchRequest("q1", tuple(MESSAGES))]
             )
 
+    async def test_route_variant_overrides_model_and_effort(self) -> None:
+        data = copy.deepcopy(base_config())
+        data["models"]["strong"] = {"provider": "primary", "model": "strong-model"}
+        data["routes"]["generation_fast"]["variants"] = {
+            "mcq": {"model": "small", "reasoning_effort": "high"},
+            "matching": {"model": "strong", "reasoning_effort": "low"},
+        }
+        gateway = self.make(data)
+        self.primary.push("ok", "ok")
+        mcq_res = await gateway.complete(Task.GENERATION_FAST, PROMPT, MESSAGES, variant="mcq")
+        match_res = await gateway.complete(Task.GENERATION_FAST, PROMPT, MESSAGES, variant="matching")
+        self.assertEqual(mcq_res.model, "small-model")
+        self.assertEqual(match_res.model, "strong-model")
+        self.assertEqual(self.primary.calls[0].reasoning_effort, "high")
+        self.assertEqual(self.primary.calls[1].reasoning_effort, "low")
+
 
 class LimitTests(unittest.IsolatedAsyncioTestCase):
     async def test_priority_gate_serves_higher_priority_first(self) -> None:

@@ -12,7 +12,7 @@ import json
 import os
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +98,17 @@ class ModelConfig:
 
 
 @dataclass(frozen=True)
+class RouteVariant:
+    """Маршруттың бір бөлігіне (мысалы, генерацияда бір форматқа) басқа модель не баптау (D75).
+    Берілмеген өріс маршруттың өзінен алынады."""
+
+    model: str | None = None
+    reasoning_effort: str | None = None
+    max_output_tokens: int | None = None
+    timeout_s: float | None = None
+
+
+@dataclass(frozen=True)
 class RouteConfig:
     task: Task
     model: str
@@ -110,6 +121,26 @@ class RouteConfig:
     format_retries: int = 2
     strict_schema: bool = False
     reasoning_effort: str | None = None  # ойлау модельдері үшін; басқа модельдерде ескерілмейді
+    variants: Mapping[str, RouteVariant] = field(default_factory=dict)
+
+    def resolve(self, variant: str | None) -> RouteConfig:
+        """Нұсқасы бар болса, оның мәндері қойылған маршрут; жоқ болса — маршрут өзгеріссіз."""
+        override = self.variants.get(variant) if variant else None
+        if override is None:
+            return self
+        return replace(
+            self,
+            model=override.model or self.model,
+            reasoning_effort=override.reasoning_effort or self.reasoning_effort,
+            max_output_tokens=override.max_output_tokens or self.max_output_tokens,
+            timeout_s=override.timeout_s or self.timeout_s,
+            variants={},
+        )
+
+    @property
+    def model_keys(self) -> frozenset[str]:
+        """Маршруттың негізгі модельдері (нұсқалармен бірге): резервті ажырату үшін."""
+        return frozenset({self.model, *(v.model for v in self.variants.values() if v.model)})
 
 
 REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high"})
@@ -124,8 +155,8 @@ class GatewayConfig:
     chars_per_token: float = 2.5
     embedding_timeout_s: float = 30.0
 
-    def route(self, task: Task) -> RouteConfig:
-        return self.routes[task]
+    def route(self, task: Task, variant: str | None = None) -> RouteConfig:
+        return self.routes[task].resolve(variant)
 
 
 def _require(data: Mapping[str, Any], key: str, where: str) -> Any:
@@ -256,6 +287,7 @@ def _parse_route(task: Task, item: Mapping[str, Any], models: Mapping[str, Model
             "format_retries",
             "strict_schema",
             "reasoning_effort",
+            "variants",
         },
         where,
     )
@@ -305,6 +337,13 @@ def _parse_route(task: Task, item: Mapping[str, Any], models: Mapping[str, Model
 
     max_output_tokens = _positive_or_none(item.get("max_output_tokens"), f"{where}.max_output_tokens")
 
+    raw_variants = item.get("variants") or {}
+    if raw_variants and task is Task.OFFICIAL_GRADING:
+        raise ConfigError(f"{where}: ресми бағалау маршрутында нұсқа болмайды (бекітілген модель)")
+    variants = {
+        name: _parse_variant(raw, models, fallback, f"{where}.variants.{name}") for name, raw in raw_variants.items()
+    }
+
     return RouteConfig(
         task=task,
         model=model_key,
@@ -317,6 +356,32 @@ def _parse_route(task: Task, item: Mapping[str, Any], models: Mapping[str, Model
         format_retries=format_retries,
         strict_schema=bool(item.get("strict_schema", False)),
         reasoning_effort=reasoning_effort,
+        variants=variants,
+    )
+
+
+def _parse_variant(
+    raw: Mapping[str, Any], models: Mapping[str, ModelConfig], fallback: tuple[str, ...], where: str
+) -> RouteVariant:
+    _unknown_keys(raw, {"model", "reasoning_effort", "max_output_tokens", "timeout_s"}, where)
+    model_key = raw.get("model")
+    if model_key is not None:
+        model = models.get(model_key)
+        if model is None or model.kind != "chat":
+            raise ConfigError(f"{where}: '{model_key}' chat моделі жоқ")
+        if any(models[key].provider == model.provider for key in fallback):
+            raise ConfigError(f"{where}: резерв модель нұсқа моделінен басқа провайдерде болуы керек")
+    effort = raw.get("reasoning_effort")
+    if effort is not None and effort not in REASONING_EFFORTS:
+        raise ConfigError(f"{where}: reasoning_effort {sorted(REASONING_EFFORTS)} мәндерінің бірі болуы керек")
+    timeout_s = raw.get("timeout_s")
+    if timeout_s is not None and float(timeout_s) <= 0:
+        raise ConfigError(f"{where}: timeout_s оң сан болуы керек")
+    return RouteVariant(
+        model=model_key,
+        reasoning_effort=effort,
+        max_output_tokens=_positive_or_none(raw.get("max_output_tokens"), f"{where}.max_output_tokens"),
+        timeout_s=float(timeout_s) if timeout_s is not None else None,
     )
 
 

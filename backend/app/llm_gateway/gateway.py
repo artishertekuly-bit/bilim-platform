@@ -118,9 +118,11 @@ class LLMGateway:
         messages: Sequence[Message],
         *,
         schema: type[BaseModel] | None = None,
+        variant: str | None = None,
     ) -> LLMResult:
-        """Синхрон шақыру. `schema` берілсе, жауап сол Pydantic модельге тексеріледі (bagalau Т5)."""
-        route = self._route(task, "sync")
+        """Синхрон шақыру. `schema` берілсе, жауап сол Pydantic модельге тексеріледі (bagalau Т5).
+        `variant` — маршруттың нұсқасы (мысалы, генерацияда формат атауы, D75); жоқ болса, маршрут өзі."""
+        route = self._route(task, "sync", variant)
         messages = tuple(messages)
         validate_messages(messages)
         json_schema = schema.model_json_schema() if schema is not None else None
@@ -273,9 +275,10 @@ class LLMGateway:
         requests: Sequence[BatchRequest],
         *,
         schema: type[BaseModel] | None = None,
+        variant: str | None = None,
     ) -> BatchHandle:
         """Пакет генерациясы (Batch API). Нәтижесі `fetch_batch` арқылы алынады."""
-        route = self._route(task, "batch")
+        route = self._route(task, "batch", variant)
         requests = tuple(requests)
         if not requests:
             raise ValueError("Batch бос")
@@ -351,11 +354,11 @@ class LLMGateway:
         if status.results is not None and handle.batch_id not in self._completed_batches:
             self._completed_batches.add(handle.batch_id)
             usage = sum((result.usage for result in status.results), Usage())
-            route = self._config.route(handle.task)
+            route = self._config.routes[handle.task]
             self._record(
                 task=handle.task.value, provider=provider.name, model_name=model.model or model.model_spec,
                 prompt=handle.prompt, usage=usage, started=self._clock(), pricing=model.pricing,
-                outcome=f"batch_{status.status}", attempts=1, fallback_used=handle.model_key != route.model,
+                outcome=f"batch_{status.status}", attempts=1, fallback_used=handle.model_key not in route.model_keys,
                 batch=True,
             )
         return status
@@ -490,8 +493,8 @@ class LLMGateway:
             await self._sleep(backoff_delay(attempt, policy, retry_after=failure.retry_after, rng=self._rng))
         raise AssertionError("unreachable")
 
-    def _route(self, task: Task, mode: str) -> RouteConfig:
-        route = self._config.route(task)
+    def _route(self, task: Task, mode: str, variant: str | None = None) -> RouteConfig:
+        route = self._config.route(task, variant)
         if route.mode != mode:
             raise ValueError(
                 f"'{task.value}' тапсырмасы '{route.mode}' режимінде; оны '{mode}' әдісімен шақыруға болмайды"

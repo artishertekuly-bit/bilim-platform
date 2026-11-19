@@ -27,6 +27,55 @@ COMBO_SIZE: dict[str, int] = {
 _HEADER = re.compile(r"^\s*\[[^\]]*\]\s*")
 _HEADING_MARKS = re.compile(r"^#{1,6}\s*", re.MULTILINE)
 
+# Оқулықтың әдістемелік бөліктері (D77): тапсырма, талқылау сұрақтары, баяндама мен слайд талаптары,
+# әдебиет тізімі. Олар §-тің мазмұны емес, бірақ модель олардан да сұрақ құрып жібереді.
+_TASK_HEADING = re.compile(
+    r"^(қосымша тапсырма|үй тапсырмасы|тапсырма|сұрақтар|жұп болып|жұппен жұмыс|топпен жұмыс|топтық жұмыс"
+    r"|дәптермен жұмыс|ойлан|бекіт|кері байланыс|пайдаланылған әдебиет|әдебиеттер)",
+    re.IGNORECASE,
+)
+_TASK_PHRASE = re.compile(r"қойылатын талаптар", re.IGNORECASE)
+# 2-жақ көпше бұйрық рай: «дайындаңдар», «жазыңдар», «беріңдер». Алдында кемінде 3 әріп:
+# «аңдар», «шыңдар», «таңдар» сияқты зат есімдер ілінбеуі үшін. Ашық райдың осы шағы
+# («білесіңдер», «ойлайсыңдар») бұйрық емес: кіріспе мәтін оқушыға солай жүгінеді.
+_IMPERATIVE = re.compile(r"(?<!\w)\w{3,}(?<!с[ыі])(ңдар|ңдер|ңыздар|ңіздер)(?!\w)", re.IGNORECASE)
+# Тапсырма жолы қысқа; бұйрық сөзі бар ұзын абзац — мазмұн (мысалы, тарихи тұлғаның сөзі).
+MAX_TASK_LINE = 300
+_LIST_ITEM = re.compile(r"^(\d{1,2}[.)]|[•\-–*])\s*")
+_BIBLIOGRAPHY = re.compile(r"[–-]\s*(Алматы|Астана|Нұр-Сұлтан|Москва|М\.|Л\.|СПб\.?)\s*[,:]?\s*\d{4}")
+MIN_CONTENT_CHARS = 80
+
+
+def _plain(line: str) -> str:
+    return re.sub(r"[*_`]+", "", line).strip()
+
+
+def strip_assignments(text: str) -> str:
+    """Тапсырма блоктарын, талқылау сұрақтарын және әдебиет тізімін алып тастайды. Тапсырма тақырыбынан
+    кейінгі тізім, сұрақ пен бұйрық жолдары да блоктың бөлігі; мазмұнды жол блокты жабады."""
+    kept: list[str] = []
+    in_task = False
+    for line in text.split("\n"):
+        plain = _plain(line)
+        if not plain:
+            kept.append(line)
+            continue
+        # Тақырып қысқа жол: «Бекітілген шарт бойынша…» сияқты мазмұн жолы тақырып болып саналмайды.
+        heading = (len(plain) <= 60 and bool(_TASK_HEADING.match(plain))) or bool(_TASK_PHRASE.search(plain))
+        imperative = len(plain) <= MAX_TASK_LINE and bool(_IMPERATIVE.search(plain))
+        question = plain.endswith("?")
+        listed = bool(_LIST_ITEM.match(plain))
+        if heading or imperative or _BIBLIOGRAPHY.search(plain):
+            in_task = in_task or heading or imperative
+            continue
+        if in_task and (listed or question or len(plain) < 60):
+            continue
+        if question and len(plain) < 200:
+            continue  # жеке тұрған талқылау сұрағы
+        in_task = False
+        kept.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
 
 @dataclass(frozen=True)
 class Chunk:
@@ -36,10 +85,11 @@ class Chunk:
 
 
 def clean_chunk_text(content: str) -> str:
-    """Чанктың басындағы «[Оқулық | Тарау | Тақырып]» жолы мен markdown белгілерін алып тастайды."""
+    """Чанктың басындағы «[Оқулық | Тарау | Тақырып]» жолын, markdown белгілерін және тапсырма
+    блоктарын (strip_assignments) алып тастайды."""
     text = _HEADER.sub("", content, count=1)
     text = _HEADING_MARKS.sub("", text)
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
+    return strip_assignments(re.sub(r"\n{3,}", "\n\n", text).strip())
 
 
 def reference_text(chunks: Sequence[Chunk]) -> str:

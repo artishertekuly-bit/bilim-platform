@@ -22,7 +22,8 @@ from app.examiner.bank.checks import (
     mcq_solver_problem,
     quote_problem,
 )
-from app.examiner.bank.context import Chunk, chunk_combinations, clean_chunk_text, entity_map, reference_text
+from app.examiner.bank.concepts import ChunkConcepts, Concept
+from app.examiner.bank.context import Chunk, chunk_combinations, clean_chunk_text, entity_map, reference_text, strip_assignments
 from app.examiner.bank.formats import (
     GEN_MODELS,
     ErrorStepGen,
@@ -40,7 +41,7 @@ from app.examiner.bank.pipeline import (
     Paragraph,
     RequestRecord,
 )
-from app.examiner.bank.planner import StockPolicy, effective_composition, plan, stock_targets
+from app.examiner.bank.planner import StockPolicy, concept_targets, effective_composition, plan, stock_targets
 from app.examiner.bank.prompts import GenerationTask, generation_messages, generation_prompt_ref, load_prompt
 from app.llm_gateway import LLMGateway, Task, Usage, parse_config
 from app.llm_gateway.contracts import BatchItemResult, BatchStatus
@@ -129,11 +130,25 @@ class FormatTests(unittest.TestCase):
         self.assertNotEqual([item["text"] for item in package.content["right"]], ["Сырдария", "Талас", "Сайрам"])
 
         long = MatchingGen.model_validate({"stem": "x", "pairs": [
-            {"left": "Өте ұзын атауы бар қала", "right": "а"}, {"left": "б", "right": "а"},
+            {"left": "Өте ұзын атауы бар тарихи ескерткіш", "right": "а"}, {"left": "б", "right": "а"},
             {"left": "в", "right": "г"}], **COMMON})
         problems = long.problems()
-        self.assertIn("Т6: сол элемент 1 20 таңбадан ұзын", problems)
+        self.assertIn("Т6: сол элемент 1 30 таңбадан ұзын", problems)
         self.assertIn("Т7: оң элемент қайталанады", problems)
+
+    def test_text_reference_and_deixis_rejected(self) -> None:
+        for bad in (
+            "Мәтінде қандай сауда жолы туралы айтылған?",
+            "Мәтін бойынша Отырар қай жолдың бойында орналасты?",
+            "Бұл кезең тарихта қалай аталады?",
+            "Осы тайпалар қай өңірді мекендеді?",
+        ):
+            self.assertIn("Т6: сұрақ оқулық мәтініне сілтейді (оқушы мәтінді көрмейді)", mcq(stem=bad).problems(), bad)
+        for good in (
+            "Қытайдан Жерорта теңізіне дейінгі сауда жолы қалай аталған?",
+            "Б.з.б. 529 жылы Кир сақтарға жорық жасады. Бұл жорық немен аяқталды?",
+        ):
+            self.assertEqual(mcq(stem=good).problems(), [], good)
 
     def test_sequence_key_restores_order(self) -> None:
         steps = ["Түрік қағанаты құрылды", "Батыс түрік қағанаты бөлінді", "Түргеш қағанаты құрылды",
@@ -215,6 +230,24 @@ class ContextTests(unittest.TestCase):
         content = "[Оқулық: Қ | Тақырып: §1. X | Тармақ: Y]\n### §1. X\n\nМәтін.\n\n\n\nТағы."
         self.assertEqual(clean_chunk_text(content), "§1. X\n\nМәтін.\n\nТағы.")
 
+    def test_strip_assignments_removes_tasks_questions_and_bibliography(self) -> None:
+        raw = (
+            "Савроматтар Еділ мен Жайық аралығын мекендеген.\n\n"
+            "Қосымша тапсырма\n"
+            "1. Картадан савроматтардың аумағын көрсетіңдер.\n"
+            "2. Савроматтар мен сақтардың ұқсастығы неде?\n\n"
+            "Геродот савроматтар туралы жазба дерек қалдырып, олардың тұрмыс-тіршілігін сипаттаған.\n\n"
+            "Пайдаланылған әдебиеттер:\n"
+            "Ақышев К.А. Ежелгі Қазақстан. – Алматы, 2017."
+        )
+        cleaned = strip_assignments(raw)
+        self.assertIn("Савроматтар Еділ мен Жайық", cleaned)
+        self.assertIn("Геродот савроматтар туралы", cleaned)
+        self.assertNotIn("Қосымша тапсырма", cleaned)
+        self.assertNotIn("көрсетіңдер", cleaned)
+        self.assertNotIn("ұқсастығы неде?", cleaned)
+        self.assertNotIn("Алматы, 2017", cleaned)
+
     def test_pairs_are_adjacent_or_share_entity(self) -> None:
         chunks = self.chunks(4)
         pairs = chunk_combinations(chunks, 2)
@@ -258,6 +291,19 @@ class PlannerTests(unittest.TestCase):
         slots = {(s.topic_id, s.format, s.tier): s.missing for s in plan(["t1"], 1, {}, have, formats=["mcq"])}
         self.assertEqual(slots, {("t1", "mcq", "X2"): 5, ("t1", "mcq", "X3"): 3})
 
+    def test_concept_targets_scale_and_cap_by_concept_count(self) -> None:
+        self.assertEqual(concept_targets(0, 1, {}), {})
+        # 2 ұғым: сәйкестендіру өткізіледі (< 3), ал тест әр санатта 2-ден аспайды.
+        two = concept_targets(2, 1, {})
+        self.assertNotIn(("matching", "X1"), two)
+        self.assertTrue(all(v <= 2 for (fmt, _), v in two.items() if fmt == "mcq"), two)
+        # 10 ұғым: базалық stock_targets-пен сәйкес (15 тест), ал 22 ұғымда қор көбірек (30 тест + 11 сәйкестендіру).
+        ten = concept_targets(10, 1, {})
+        self.assertEqual(sum(v for (fmt, _), v in ten.items() if fmt == "mcq"), 15)
+        dense = concept_targets(22, 1, {})
+        self.assertEqual(sum(v for (fmt, _), v in dense.items() if fmt == "mcq"), 30)
+        self.assertEqual(sum(v for (fmt, _), v in dense.items() if fmt == "matching"), 11)
+
 
 # ------------------------------------------------------------------ промпт
 
@@ -279,6 +325,16 @@ class PromptTests(unittest.TestCase):
     def test_every_code_format_has_template(self) -> None:
         for name in GEN_MODELS:
             self.assertTrue(load_prompt(name).body)
+
+    def test_prompt_includes_target_concept_and_distractors(self) -> None:
+        task = GenerationTask(
+            "mcq", 1, "X1", "Қазақстан тарихы, 5-сынып", "1", "Кіріспе",
+            concept="Ұлы Жібек жолы", topic_concepts=("Ұлы Жібек жолы", "Отырар", "Тараз"),
+        )
+        messages = generation_messages(task, SOURCE)
+        payload = json.loads(messages[-1].content.split("Тапсырма:\n", 1)[1])
+        self.assertEqual(payload["нысана"], "Ұлы Жібек жолы")
+        self.assertEqual(payload["§_ұғымдары"], ["Отырар", "Тараз"])
 
 
 # ------------------------------------------------------------------ банк аудиті (D73)
@@ -356,9 +412,17 @@ class BankFakeProvider(FakeProvider):
         self.correct_texts: set[str] = set()
         self.solver_errors: list[ProviderError] = []
         self.generation_texts: list[str] = []  # Fast Lane: синхрон генерацияның жауаптары, ретімен
+        self.concept_responses: list[list[dict]] = []
 
     async def complete(self, request: CompletionRequest) -> ProviderCompletion:
         self.calls.append(request)
+        if request.schema_name == "ConceptList":
+            if self.concept_responses:
+                items = self.concept_responses.pop(0)
+            else:
+                tag = len(self.calls)
+                items = [{"term": f"Ұғым {i}-{tag}", "quote": QUOTE} for i in range(1, 11)]
+            return ProviderCompletion(json.dumps({"concepts": items}), Usage(10, 0, 10), request.model)
         if request.schema_name in {model.__name__ for model in GEN_MODELS.values()}:
             return ProviderCompletion(self.generation_texts.pop(0), Usage(50, 0, 50), request.model)
         if self.solver_errors:
@@ -414,9 +478,28 @@ class MemoryRepository:
             Paragraph("kazakh6.md#§1", self.subject, "kazakh6.md", "Қазақстан тарихы, 6-сынып", "1", "Жібек жолы"),
         ]
         self.chunk_rows = {"kazakh6.md#§1": [Chunk("c1", 1, SOURCE), Chunk("c2", 2, "Екінші үзінді мәтіні.")]}
+        self.concepts: dict[str, dict[str, ChunkConcepts]] = {}
         self.batches: dict[str, BatchRecord] = {}
         self.requests: dict[str, dict] = {}
         self.questions: list[NewQuestion] = []
+
+    async def chunk_concepts(self, topic_id):
+        return dict(self.concepts.get(topic_id, {}))
+
+    async def save_chunk_concepts(self, rows):
+        for row in rows:
+            self.concepts.setdefault(row.topic_id, {})[row.chunk_id] = row
+
+    async def used_concepts(self, subject_id, level):
+        used: dict = defaultdict(set)
+        for q in self.questions:
+            if q.request.subject_id == subject_id and q.request.level == level and q.request.concept_key:
+                used[(q.request.topic_id, q.request.format, q.request.x_tier)].add(q.request.concept_key)
+        for row in self.requests.values():
+            r = row["record"]
+            if row["status"] == "pending" and r.subject_id == subject_id and r.level == level and r.concept_key:
+                used[(r.topic_id, r.format, r.x_tier)].add(r.concept_key)
+        return dict(used)
 
     async def paragraphs(self, books):
         return [p for p in self.paragraph_list if p.book in books]
@@ -671,6 +754,25 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stale.failed, 1)
         self.assertEqual(self.repo.requests["fast-req"]["reasons"], ["Fast Lane үзілді"])
         self.assertEqual(self.repo.batches["fast-x"].status, "processed")
+
+    async def test_pipeline_binds_concepts_and_skips_empty_chunks(self) -> None:
+        # c1 — 2 ұғым, c2 — бос (тек тапсырма: 0 ұғым). Тест тек c1-ден және әр санатта ең көбі 2 сұрақ.
+        self.provider.concept_responses = [
+            [{"term": "Ұлы Жібек жолы", "quote": QUOTE}, {"term": "Отырар қаласы", "quote": QUOTE}],
+            [],
+        ]
+        await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq", "matching"])
+        records = [row["record"] for row in self.repo.requests.values()]
+        # 2 ұғым < 3 болғандықтан сәйкестендіру өткізіледі, ал тестте c2 мүлде қолданылмайды.
+        self.assertEqual({r.format for r in records}, {"mcq"})
+        self.assertEqual({r.chunk_ids for r in records}, {("c1",)})
+        for tier in ("X1", "X2", "X3"):
+            keys = [r.concept_key for r in records if r.x_tier == tier]
+            self.assertEqual(len(keys), len(set(keys)), tier)
+            self.assertLessEqual(len(keys), 2)
+        sent = self.provider.batches[-1][0][1].messages[-1].content
+        self.assertIn('"нысана":', sent)
+        self.assertIn('"§_ұғымдары":', sent)
 
 
 class CheckTests(unittest.IsolatedAsyncioTestCase):

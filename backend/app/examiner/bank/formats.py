@@ -93,6 +93,9 @@ class GenBase(BaseModel):
 
     def common_problems(self) -> list[str]:
         problems = []
+        context = _text_reference_problem(getattr(self, "stem", ""))
+        if context:
+            problems.append(context)
         if not self.ecd_skill.strip():
             problems.append("Т6: ecd_skill бос")
         if not self.evidence.strip():
@@ -171,6 +174,29 @@ def _words(text: str) -> set[str]:
     return set(re.findall(r"\w+", normalize_text(text)))
 
 
+# Оқушы мәтінді көрмейді (D77): сұрақ мәтінге сілтемесіз түсінікті болуы керек.
+#   * «мәтінде», «мәтін бойынша», «үзіндіде», «жоғарыдағы», «бұған дейін» — кез келген жерде;
+#   * «бұл кезең», «осы тайпалар» — тек бірінші сөйлемде: екінші сөйлемдегі «бұл» сұрақтың өз
+#     сөйлеміне сілтейді («Б.з.б. 529 жылы Кир жорық жасады. Бұл жорық немен аяқталды?»).
+# «Аталған» тізімде жоқ: «қалай аталған?» — қалыпты сұрақ.
+TEXT_REFERENCE = re.compile(
+    r"(?<![\w-])(мәтін|мәтінде|мәтіндегі|мәтіннен|мәтінге|үзінді|үзіндіде|үзіндідегі|үзіндіден"
+    r"|жоғарыда|жоғарыдағы|бұған дейін|бұдан бұрын)(?![\w-])",
+    re.IGNORECASE,
+)
+DEIXIS = re.compile(r"(?<![\w-])(бұл|осы|мұндағы)\s+\w+", re.IGNORECASE)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def _text_reference_problem(stem: str) -> str | None:
+    text = unicodedata.normalize("NFC", stem or "").strip()
+    if not text:
+        return None
+    if TEXT_REFERENCE.search(text) or DEIXIS.search(_SENTENCE_END.split(text, maxsplit=1)[0]):
+        return "Т6: сұрақ оқулық мәтініне сілтейді (оқушы мәтінді көрмейді)"
+    return None
+
+
 def _stem_echo_problem(stem: str, options: list[str], correct_index: int) -> str | None:
     if len(options) < 2 or not 0 <= correct_index < len(options):
         return None
@@ -236,15 +262,17 @@ class MCQGen(GenBase):
 class MatchingPair(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    left: str = Field(description="Сол жақ элемент: 1–3 сөз, ең көбі 20 таңба (есім, күн, жер, ұғым). Сөйлем емес.")
-    right: str = Field(description="Оң жақ элемент: 1–3 сөз, ең көбі 20 таңба (есім, күн, жер, ұғым). Сөйлем емес.")
+    left: str = Field(description="Сол жақ элемент: 1–4 сөз, ең көбі 30 таңба (есім, күн, жер, ұғым). "
+                                  "Толық атау, сөйлем емес.")
+    right: str = Field(description="Оң жақ элемент: 1–4 сөз, ең көбі 30 таңба (есім, күн, жер, ұғым). "
+                                   "Толық атау, сөйлем емес.")
 
 
 class MatchingGen(GenBase):
-    """I-1 · Сәйкестендіру: ≤ 5 жұп, әр элемент ≤ 20 таңба (Т6)."""
+    """I-1 · Сәйкестендіру: ≤ 5 жұп, әр элемент ≤ 30 таңба (Т6, D77: ұяшықта 2–3 жолға тасымалданады)."""
 
     format_name: ClassVar[str] = "matching"
-    ITEM_LIMIT: ClassVar[int] = 20
+    ITEM_LIMIT: ClassVar[int] = 30
 
     stem: str = Field(description="Тапсырманың нұсқауы.")
     pairs: list[MatchingPair] = Field(description="3–5 дұрыс жұп.")

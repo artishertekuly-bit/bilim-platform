@@ -22,14 +22,16 @@
       "model": "${LLM_SMALL_MODEL:-gpt-5.4-mini}",
       "rpm": 500,
       "tpm": 200000,
-      "max_concurrency": 16
+      "max_concurrency": 16,
+      "pricing": { "input_per_mtok": 0.75, "cached_input_per_mtok": 0.075, "output_per_mtok": 4.5, "batch_discount": 0.5 }
     },
     "strong": {
       "provider": "primary",
       "model": "${LLM_STRONG_MODEL:-gpt-5.4}",
       "rpm": 500,
       "tpm": 100000,
-      "max_concurrency": 16
+      "max_concurrency": 16,
+      "pricing": { "input_per_mtok": 2.5, "cached_input_per_mtok": 0.25, "output_per_mtok": 15.0, "batch_discount": 0.5 }
     },
     "grading": {
       "provider": "primary",
@@ -59,7 +61,8 @@
       "model": "${LLM_ANSWER_EMBEDDING_MODEL:-text-embedding-3-small}",
       "rpm": 1000,
       "tpm": 500000,
-      "max_concurrency": 8
+      "max_concurrency": 8,
+      "pricing": { "input_per_mtok": 0.02, "output_per_mtok": 0 }
     }
   },
   "routes": {
@@ -71,8 +74,21 @@
     "explanation": { "model": "small", "mode": "sync", "temperature": 0.3, "reasoning_effort": "low", "max_output_tokens": 2000, "timeout_s": 20 },
     "tutor_reply": { "model": "strong", "mode": "stream", "temperature": 0.7, "reasoning_effort": "low", "max_output_tokens": 3000, "timeout_s": 60, "fallback": ["reserve"] },
     "examiner_dialog": { "model": "strong", "mode": "stream", "temperature": 0.3, "reasoning_effort": "low", "max_output_tokens": 3000, "timeout_s": 60 },
-    "generation": { "model": "strong", "mode": "batch", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"] },
-    "generation_fast": { "model": "strong", "mode": "sync", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"] }
+    "generation": {
+      "model": "strong", "mode": "batch", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"],
+      "variants": {
+        "mcq": { "model": "small", "reasoning_effort": "high" },
+        "matching": { "model": "strong", "reasoning_effort": "low" }
+      }
+    },
+    "generation_fast": {
+      "model": "strong", "mode": "sync", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"],
+      "variants": {
+        "mcq": { "model": "small", "reasoning_effort": "high" },
+        "matching": { "model": "strong", "reasoning_effort": "low" }
+      }
+    },
+    "concept_extraction": { "model": "small", "mode": "sync", "reasoning_effort": "low", "max_output_tokens": 4000, "timeout_s": 90 }
   },
   "embeddings": {
     "answers": "answer_embedding",

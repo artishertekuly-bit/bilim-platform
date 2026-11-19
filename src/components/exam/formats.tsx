@@ -149,7 +149,7 @@ export function MatchingTask({ content, locked, onChange }: FormatProps<Matching
     }
   };
 
-  const cell = 'flex w-full min-h-14 items-center gap-2 rounded-[14px] px-3 py-2.5 text-left text-base font-medium text-[#111111]';
+  const cell = 'flex w-full min-h-14 items-center gap-2 rounded-[14px] px-3 py-2.5 text-left text-[15px] leading-snug font-medium text-[#111111]';
   const badge = (n: number) => (
     <span
       aria-label={`Жұп ${n}`}
@@ -166,49 +166,48 @@ export function MatchingTask({ content, locked, onChange }: FormatProps<Matching
         hint="Алдымен сол жақтан элементті, содан кейін оң жақтан оның жұбын түртіңіз. Жұпты ажырату үшін қайта түртіңіз."
       />
       <div className="grid grid-cols-2 gap-2.5">
-        <div className="flex flex-col gap-2.5">
-          {content.left.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              disabled={locked}
-              aria-pressed={selected === item.id}
-              onClick={() => tapLeft(item.id)}
-              className={cn(
-                cell,
-                selected === item.id
-                  ? 'border-2 border-[#111111] bg-white shadow-[0_0_0_3px_#DDD5C8]'
-                  : pairs[item.id]
-                    ? 'border border-[#CFCBC3] bg-[#EFECE6]'
-                    : 'border border-[#E2E0DB] bg-white',
-              )}
-            >
-              <span className="flex-1 break-words">{item.text}</span>
-              {pairs[item.id] ? badge(number(item.id)) : null}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-col gap-2.5">
-          {content.right.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              disabled={locked}
-              onClick={() => tapRight(item.id)}
-              className={cn(
-                cell,
-                owner[item.id]
-                  ? 'border border-[#CFCBC3] bg-[#EFECE6]'
-                  : selected
-                    ? 'border border-dashed border-[#8C877E] bg-white'
-                    : 'border border-[#E2E0DB] bg-white',
-              )}
-            >
-              {owner[item.id] ? badge(number(owner[item.id])) : null}
-              <span className="flex-1 break-words">{item.text}</span>
-            </button>
-          ))}
-        </div>
+        {content.left.map((item, idx) => {
+          const right = content.right[idx];
+          return (
+            <div key={item.id} className="contents">
+              <button
+                type="button"
+                disabled={locked}
+                aria-pressed={selected === item.id}
+                onClick={() => tapLeft(item.id)}
+                className={cn(
+                  cell,
+                  selected === item.id
+                    ? 'border-2 border-[#111111] bg-white shadow-[0_0_0_3px_#DDD5C8]'
+                    : pairs[item.id]
+                      ? 'border border-[#CFCBC3] bg-[#EFECE6]'
+                      : 'border border-[#E2E0DB] bg-white',
+                )}
+              >
+                <span className="flex-1 break-words">{item.text}</span>
+                {pairs[item.id] ? badge(number(item.id)) : null}
+              </button>
+              {right ? (
+                <button
+                  type="button"
+                  disabled={locked}
+                  onClick={() => tapRight(right.id)}
+                  className={cn(
+                    cell,
+                    owner[right.id]
+                      ? 'border border-[#CFCBC3] bg-[#EFECE6]'
+                      : selected
+                        ? 'border border-dashed border-[#8C877E] bg-white'
+                        : 'border border-[#E2E0DB] bg-white',
+                  )}
+                >
+                  {owner[right.id] ? badge(number(owner[right.id])) : null}
+                  <span className="flex-1 break-words">{right.text}</span>
+                </button>
+              ) : <div />}
+            </div>
+          );
+        })}
       </div>
       <div className="flex items-center justify-between">
         <span role="status" className="text-sm text-[#5E5E5E]">
