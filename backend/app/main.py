@@ -36,6 +36,8 @@ from .ai_storage import (
 )
 from concurrent.futures import ThreadPoolExecutor
 from .api.learning_analysis_api import router as learning_analysis_router
+from .examiner.session.api import close_service as close_examiner_service
+from .examiner.session.api import install as install_examiner_api
 from .dependencies.auth import get_current_user_id, require_author_role
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -120,6 +122,7 @@ def _build_allow_origin_regex() -> str | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
+    await close_examiner_service()
 
 
 app = FastAPI(
@@ -143,6 +146,7 @@ app.add_middleware(
 )
 
 app.include_router(learning_analysis_router)
+install_examiner_api(app)
 
 
 def _utc_iso() -> str:
