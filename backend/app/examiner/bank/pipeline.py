@@ -56,6 +56,9 @@ FAST_PREFIX = "fast-"                     # Fast Lane жазбаларының b
 FAST_CONCURRENCY = 6                      # Fast Lane-де қатар жүретін генерация шақыруы
 FAST_ROUNDS = 2                           # тексерістен өтпегендердің орны қайта сұралатын айналым саны
 FAST_STALE = timedelta(minutes=30)        # үзілген Fast Lane жазбасы осыдан кейін жабылады
+# X3 тест (D80): бір үзінді + §-тің басқа бөліктерінің ұғымдары «жақын алдағыштар көзі» ретінде (8–12).
+# Екінші толық чанк берілгенде модель оны елемей, нысананың үзіндісінен ғана сұрақ құрды (0/6).
+X3_NEAR_CONCEPTS = 12
 
 
 # ---------------------------------------------------------------- деректер
@@ -185,28 +188,40 @@ class BankPipeline:
         (ең көбі MAX_BATCH_REQUESTS): бір партия тұрып қалса, бүкіл кітап тоқтамайды."""
         planned = await self._plan_requests(books, level, formats, max_requests, topics)
         batches: list[BatchRecord] = []
-        for name, items in planned.items():
+        for name, rows in planned.items():
             prompt = generation_prompt_ref(name)
-            for start in range(0, len(items), MAX_BATCH_REQUESTS):
-                part = items[start:start + MAX_BATCH_REQUESTS]
-                handle = await self._gateway.submit_batch(
-                    Task.GENERATION,
-                    prompt,
-                    [BatchRequest(request.custom_id, tuple(messages)) for request, messages in part],
-                    schema=GEN_MODELS[name],
-                    variant=name,
-                )
-                batch = BatchRecord(
-                    batch_id=handle.batch_id, provider=handle.provider, model_key=handle.model_key,
-                    prompt_id=prompt.id, prompt_version=prompt.version, request_count=len(part),
-                )
-                await self._repo.record_batch(
-                    batch, [_with_batch(request, handle.batch_id) for request, _ in part]
-                )
-                logger.info("generation batch submitted", extra={"batch_id": handle.batch_id, "format": name,
-                                                                 "requests": len(part)})
-                batches.append(batch)
+            # Бір batch — бір модель мен ойлау режимі: санатқа бөлек нұсқасы барлар (mcq_x3) бөлек жіберіледі.
+            by_variant: dict[str, list[tuple[RequestRecord, list]]] = defaultdict(list)
+            for request, messages in rows:
+                by_variant[self._variant(Task.GENERATION, request)].append((request, messages))
+            for variant, items in by_variant.items():
+                for start in range(0, len(items), MAX_BATCH_REQUESTS):
+                    batches.append(await self._submit_part(name, variant, prompt, items[start:start + MAX_BATCH_REQUESTS]))
         return batches
+
+    def _variant(self, task: Task, request: RequestRecord) -> str:
+        """Маршрут нұсқасы: санатқа бөлек нұсқа бапталса (`mcq_x3`, D80) — сол, әйтпесе формат атауы (D75)."""
+        tiered = f"{request.format}_{request.x_tier.lower()}"
+        return tiered if tiered in self._gateway.config.routes[task].variants else request.format
+
+    async def _submit_part(
+        self, name: str, variant: str, prompt: PromptRef, part: list[tuple[RequestRecord, list]]
+    ) -> BatchRecord:
+        handle = await self._gateway.submit_batch(
+            Task.GENERATION,
+            prompt,
+            [BatchRequest(request.custom_id, tuple(messages)) for request, messages in part],
+            schema=GEN_MODELS[name],
+            variant=variant,
+        )
+        batch = BatchRecord(
+            batch_id=handle.batch_id, provider=handle.provider, model_key=handle.model_key,
+            prompt_id=prompt.id, prompt_version=prompt.version, request_count=len(part),
+        )
+        await self._repo.record_batch(batch, [_with_batch(request, handle.batch_id) for request, _ in part])
+        logger.info("generation batch submitted", extra={"batch_id": handle.batch_id, "format": name,
+                                                         "variant": variant, "requests": len(part)})
+        return batch
 
     # ------------------------------------------------------------ Fast Lane
 
@@ -253,7 +268,8 @@ class BankPipeline:
                 async with limit:
                     try:
                         result = await self._gateway.complete(
-                            Task.GENERATION_FAST, prompt, messages, schema=GEN_MODELS[name], variant=name
+                            Task.GENERATION_FAST, prompt, messages, schema=GEN_MODELS[name],
+                            variant=self._variant(Task.GENERATION_FAST, request),
                         )
                     except (LLMUnavailableError, LLMRequestError) as exc:
                         async with processing:
@@ -280,15 +296,20 @@ class BankPipeline:
     async def _record_fast_batches(self, planned: dict[str, list[tuple[RequestRecord, list]]]) -> None:
         """Fast Lane сұраныстары да `generation_requests`-ке жазылады (бақылау мен статистика үшін)."""
         for name, rows in planned.items():
-            route_model = self._gateway.config.route(Task.GENERATION_FAST, name).model
-            provider = self._gateway.config.models[route_model].provider
             prompt = generation_prompt_ref(name)
-            batch_id = f"{FAST_PREFIX}{uuid.uuid4().hex}"
-            batch = BatchRecord(batch_id=batch_id, provider=provider, model_key=route_model, prompt_id=prompt.id,
-                                prompt_version=prompt.version, request_count=len(rows))
-            stamped = [_with_batch(request, batch_id) for request, _ in rows]
-            await self._repo.record_batch(batch, stamped)
-            rows[:] = [(request, messages) for request, (_, messages) in zip(stamped, rows, strict=True)]
+            by_variant: dict[str, list[RequestRecord]] = defaultdict(list)
+            for request, _ in rows:
+                by_variant[self._variant(Task.GENERATION_FAST, request)].append(request)
+            batch_of: dict[str, str] = {}
+            for variant, requests in by_variant.items():
+                route_model = self._gateway.config.route(Task.GENERATION_FAST, variant).model
+                provider = self._gateway.config.models[route_model].provider
+                batch_id = f"{FAST_PREFIX}{uuid.uuid4().hex}"
+                batch = BatchRecord(batch_id=batch_id, provider=provider, model_key=route_model, prompt_id=prompt.id,
+                                    prompt_version=prompt.version, request_count=len(requests))
+                await self._repo.record_batch(batch, [_with_batch(request, batch_id) for request in requests])
+                batch_of.update({request.custom_id: batch_id for request in requests})
+            rows[:] = [(_with_batch(request, batch_of[request.custom_id]), messages) for request, messages in rows]
 
     # ------------------------------------------------------------ watchdog
 
@@ -422,17 +443,11 @@ class BankPipeline:
                 return candidate
             return None
 
-        async def anchored_context(topic_id: str, name: str, tier: str, anchor: Concept) -> tuple[Chunk, ...]:
-            """Нысананың чанкы; комбинация керек форматта — сол чанкы бар комбинация; X3 тестте — нысананың
-            чанкы мен онымен қабаттаспайтын басқа абзац (`distant_partners`)."""
+        async def anchored_context(topic_id: str, name: str, anchor: Concept) -> tuple[Chunk, ...]:
+            """Нысананың чанкы; комбинация керек форматта — сол чанкы бар комбинация."""
             content = content_chunks_by_topic[topic_id]
             anchor_chunk = next(chunk for chunk in content if chunk.chunk_id == anchor.chunk_id)
             counter = (topic_id, name, anchor.chunk_id)
-            if name == "mcq" and tier == "X3":
-                partners = distant_partners(content, anchor.chunk_id, await entities_for(topic_id))
-                if not partners:
-                    return (anchor_chunk,)
-                return tuple(sorted((anchor_chunk, partners[0]), key=lambda chunk: chunk.order))
             size = COMBO_SIZE[name]
             if size <= 1:
                 return (anchor_chunk,)
@@ -443,6 +458,31 @@ class BankPipeline:
             combo = options[anchor_combo_cursor[counter] % len(options)]
             anchor_combo_cursor[counter] += 1
             return combo
+
+        async def near_concepts(topic_id: str, anchor: Concept) -> tuple[str, ...]:
+            """X3 тесттің жақын алдағыштар көзі (D80): §-тің басқа чанктарының ұғымдары, нысананың тобынсыз.
+            Чанктар `distant_partners` ретімен (көрші емес, ортақ entity-сі көбі), олардан кезекпен бір-бірден."""
+            groups = groups_by_topic[topic_id]
+            own_group = groups.get(anchor.key, anchor.key)
+            by_chunk: dict[str, list[Concept]] = defaultdict(list)
+            for concept in concepts_by_topic[topic_id]:
+                by_chunk[concept.chunk_id].append(concept)
+            partners = distant_partners(content_chunks_by_topic[topic_id], anchor.chunk_id, await entities_for(topic_id))
+            queues = [list(by_chunk.get(chunk.chunk_id, [])) for chunk in partners]
+            seen = {own_group}
+            terms: list[str] = []
+            while len(terms) < X3_NEAR_CONCEPTS and any(queues):
+                for queue in queues:
+                    while queue:
+                        concept = queue.pop(0)
+                        group = groups.get(concept.key, concept.key)
+                        if group not in seen:
+                            seen.add(group)
+                            terms.append(concept.term)
+                            break
+                    if len(terms) >= X3_NEAR_CONCEPTS:
+                        break
+            return tuple(terms)
 
         planned: dict[str, list[tuple[RequestRecord, list]]] = defaultdict(list)
         cursor: dict[tuple[str, str], int] = {}
@@ -471,11 +511,14 @@ class BankPipeline:
                 if max_requests is not None and count >= max_requests:
                     break
                 concept: Concept | None = None
+                near: tuple[str, ...] = ()
                 if anchored:
                     concept = next_concept(slot.topic_id, slot.format)
                     if concept is None:
                         break
-                    combo = await anchored_context(slot.topic_id, slot.format, slot.tier, concept)
+                    combo = await anchored_context(slot.topic_id, slot.format, concept)
+                    if slot.format == "mcq" and slot.tier == "X3":
+                        near = await near_concepts(slot.topic_id, concept)
                 else:
                     combo = combos[cursor[key] % len(combos)]
                     cursor[key] += 1
@@ -498,7 +541,9 @@ class BankPipeline:
                     paragraph_no=paragraph.paragraph_no,
                     paragraph_title=paragraph.paragraph_title,
                     concept=concept.term if concept else None,
-                    topic_concepts=distractors,
+                    # X3-те §-тің барлық ұғымы емес, нысанаға жақын қысқа тізім беріледі (D80).
+                    topic_concepts=() if near else distractors,
+                    near_concepts=near,
                 )
                 planned[slot.format].append((request, generation_messages(task, reference_text(combo))))
                 count += 1

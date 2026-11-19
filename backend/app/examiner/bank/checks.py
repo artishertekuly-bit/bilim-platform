@@ -22,7 +22,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from ...llm_gateway import LLMGateway, Message, PromptRef, Task, wrap_untrusted
-from .formats import Package, normalize_text
+from .formats import Package, normalize_text, word_stems
 
 # Бірінші сынақтағы калибрлеу (text-embedding-3-small, D61): сөзі өзгертілген, мағынасы бірдей MCQ жұптары
 # 0.87–0.89, мәтіні дерлік бірдей жұп 0.94, ал әртүрлі сұрақтардың ең ұқсасы 0.72 болды.
@@ -30,11 +30,10 @@ DUPLICATE_THRESHOLD = 0.85
 SOLVER_PROMPT = PromptRef("examiner.bank.mcq_solver", "2026-11-19.1")
 MIN_QUOTE_FRAGMENT = 15
 _ELLIPSIS = re.compile(r"…|\.{3,}")
-# Тест сұрағы сөздердің түбірі бойынша салыстырылады (алғашқы STEM_CHARS әріп): қазақ тіліндегі жалғау
+# Тест сұрағы сөздердің түбірі бойынша салыстырылады (formats.word_stems): қазақ тіліндегі жалғау
 # («дәуіріндегі» / «дәуірінде») сөзді басқа етпейді. §16–17-де жалғауы ғана басқа екі сұрақ түбір бойынша 1.0
 # (сөз бойынша 0.78), §20–21-де бір ұғымның сөзі өзгертілген екі сұрағы 0.55, ал «0-сұрақ: …» / «1-сұрақ: …»
 # сияқты бір сөзі ғана басқа сұрақтар 0.80 болды.
-STEM_CHARS = 5
 STEM_REPEAT_THRESHOLD = 0.85
 # Сұрағы басқа, бірақ дұрыс жауабы бірдей тест сол фактіні қайта тексереді («Жезқазған – мыс, Атасу – қалайы,
 # Степняк – алтын» §16–17-де үш тестте). Қысқа жауап (бір-екі сөз: «қалайы») әртүрлі фактінің жауабы бола
@@ -110,8 +109,7 @@ def cosine(a: Sequence[float], b: Sequence[float]) -> float:
     return dot / norm if norm else 0.0
 
 
-def _stems(text: str) -> set[str]:
-    return {word[:STEM_CHARS] for word in re.findall(r"\w+", normalize_text(text))}
+_stems = word_stems
 
 
 def _jaccard(a: set[str], b: set[str]) -> float:

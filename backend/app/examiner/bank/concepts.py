@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from ...llm_gateway import LLMGateway, LLMRequestError, LLMUnavailableError, Message, PromptRef, Task, wrap_untrusted
 from .context import Chunk
-from .formats import normalize_text
+from .formats import normalize_text, word_stems
 
 logger = logging.getLogger("bilim.examiner.bank")
 
@@ -176,8 +176,10 @@ def topic_concepts(rows: Sequence[ChunkConcepts]) -> list[Concept]:
 
 
 def concept_groups(rows: Sequence[ChunkConcepts]) -> dict[str, str]:
-    """Ұғым кілті → топ кілті (D80). Бір ұғымның дәйексөзі екіншісінің ішінде болса (бір сөйлем), олар бір
-    топ. Чанктар қабаттасатындықтан бір кілт бірнеше чанкта кездеседі: оның барлық дәйексөзі ескеріледі.
+    """Ұғым кілті → топ кілті (D80). Бір топқа түседі:
+      * атауларының сөз түбірлері бірдей ұғымдар («жайылымды бақташылық» / «жайылымдық бақташылық»);
+      * бірінің дәйексөзі екіншісінің ішінде болатын ұғымдар (бір сөйлем). Чанктар қабаттасатындықтан бір
+        кілт бірнеше чанкта кездеседі: оның барлық дәйексөзі ескеріледі.
     Топ кілті — `topic_concepts` ретіндегі топтың бірінші ұғымы."""
     order = {concept.key: index for index, concept in enumerate(topic_concepts(rows))}
     parent = {key: key for key in order}
@@ -187,6 +189,22 @@ def concept_groups(rows: Sequence[ChunkConcepts]) -> dict[str, str]:
             parent[key] = parent[parent[key]]
             key = parent[key]
         return key
+
+    def union(key_a: str, key_b: str) -> None:
+        root_a, root_b = find(key_a), find(key_b)
+        if root_a != root_b:
+            first, second = sorted((root_a, root_b), key=order.__getitem__)
+            parent[second] = first
+
+    # Бір сөзді атауда түбір тым жалпы («сақтар» / «сақташылар» = «сақта»): тек кемінде екі түбірлі атау.
+    by_stems: dict[frozenset[str], str] = {}
+    for key in order:
+        stems = frozenset(word_stems(key))
+        if len(stems) >= 2:
+            if stems in by_stems:
+                union(by_stems[stems], key)
+            else:
+                by_stems[stems] = key
 
     quotes: list[tuple[str, str]] = []
     for row in rows:
@@ -198,8 +216,5 @@ def concept_groups(rows: Sequence[ChunkConcepts]) -> dict[str, str]:
     for index, (key_a, text_a) in enumerate(quotes):
         for key_b, text_b in quotes[index + 1:]:
             if text_a in text_b or text_b in text_a:
-                root_a, root_b = find(key_a), find(key_b)
-                if root_a != root_b:
-                    first, second = sorted((root_a, root_b), key=order.__getitem__)
-                    parent[second] = first
+                union(key_a, key_b)
     return {key: find(key) for key in order}

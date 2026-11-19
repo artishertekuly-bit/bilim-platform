@@ -371,6 +371,15 @@ class ConceptGroupTests(unittest.TestCase):
         self.assertEqual(groups["геродот"], "геродот")
         self.assertEqual(len(set(groups.values())), 4)
 
+    def test_concepts_with_same_word_stems_share_a_group(self) -> None:
+        # §16–17: «жайылымды» / «жайылымдық бақташылық» екі топ болып, бірдей X3 құрылды (D80).
+        rows = [self.row("c1", ("жайылымды бақташылық", None), ("Сақтар", None)),
+                self.row("c2", ("жайылымдық бақташылық", None), ("Сақташылар", None))]
+        groups = concept_groups(rows)
+        self.assertEqual(groups["жайылымдық бақташылық"], "жайылымды бақташылық")
+        # Бір сөзді атауда түбір тым жалпы: «сақтар» мен «сақташылар» бөлек қалады.
+        self.assertNotEqual(groups["сақтар"], groups["сақташылар"])
+
 
 # ------------------------------------------------------------------ промпт
 
@@ -916,18 +925,39 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(keys), 5)
         self.assertEqual(len(set(keys)), 5)
         self.assertFalse({"ұлы жібек жолы", "сауда жолы"} <= set(keys))
-        # X3 тестке нысананың чанкы мен онымен байланысты тағы бір чанк беріледі, X1 мен X2-ге — бір чанк.
+        # Әр санатқа нысананың бір чанкы беріледі (X3-ке де, D80).
         home = {"ұлы жібек жолы": "c1", "сауда жолы": "c1", "сақтар": "c2", "қорғандар": "c2",
                 "үйсіндер": "c3", "қызыл аңғар": "c3"}
-        self.assertIn("X3", {r.x_tier for r in records})
         for record in records:
-            self.assertEqual(len(record.chunk_ids), 2 if record.x_tier == "X3" else 1, record)
-            self.assertIn(home[record.concept_key], record.chunk_ids)
-        # X3 серігі көрші емес: көрші чанк LightRAG-те қабаттасып, нысананың абзацын қайталайды.
+            self.assertEqual(record.chunk_ids, (home[record.concept_key],), record)
+        # X3-ке §-тің барлық ұғымы емес, басқа чанктардан жақын алдағыштар тізімі: алдымен көрші емес c1,
+        # нысананың өз чанкы (c3) мен бір топтағы «Сауда жолы» кірмейді.
         [x3] = [r for r in records if r.x_tier == "X3"]
-        self.assertEqual(x3.chunk_ids, ("c1", "c3"))
+        sent = {custom_id: request for batch in self.provider.batches for custom_id, request in batch}
+        payload = json.loads(sent[x3.custom_id].messages[-1].content.split("Тапсырма:\n", 1)[1])
+        self.assertEqual(payload["жақын_алдағыштар"], ["Ұлы Жібек жолы", "Сақтар", "Қорғандар"])
+        self.assertNotIn("§_ұғымдары", payload)
+        x1 = next(r for r in records if r.x_tier == "X1")
+        self.assertIn("§_ұғымдары", json.loads(sent[x1.custom_id].messages[-1].content.split("Тапсырма:\n", 1)[1]))
         # Келесі іске қосу бос ұғым тобын таппайды: қор толы, ештеңе сұралмайды.
         self.assertEqual(await self.pipeline.submit(["kazakh6.md"], 1, formats=["mcq"]), [])
+
+    async def test_x3_uses_its_own_route_variant_in_a_separate_batch(self) -> None:
+        # MCQ X3 ойлау режимі бөлек (mcq_x3, D80): Batch API-да ол бөлек batch болып жіберіледі.
+        config = gateway_config()
+        config["routes"]["generation"]["variants"] = {"mcq": {"model": "small"},
+                                                      "mcq_x3": {"model": "strong", "reasoning_effort": "medium"}}
+        gateway = LLMGateway(parse_config(config, {"KEY": "k"}), providers={"primary": self.provider},
+                             sink=MemorySink(), sleep=no_sleep, rng=lambda: 0.0)
+        await self.three_concept_chunks()
+        batches = await BankPipeline(gateway, self.repo, rng=random.Random(1)).submit(["kazakh6.md"], 1, formats=["mcq"])
+        self.assertEqual(len(batches), 2)
+        tiers = {row["record"].custom_id: row["record"].x_tier for row in self.repo.requests.values()}
+        for batch in self.provider.batches:
+            models = {request.model for _, request in batch}
+            batch_tiers = {tiers[custom_id] for custom_id, _ in batch}
+            self.assertEqual(models, {"strong-model"} if batch_tiers == {"X3"} else {"small-model"}, batch_tiers)
+        self.assertIn({"X3"}, [{tiers[c] for c, _ in batch} for batch in self.provider.batches])
 
     async def test_matching_is_anchored_to_concept(self) -> None:
         await self.three_concept_chunks()

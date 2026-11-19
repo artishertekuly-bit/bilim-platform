@@ -55,6 +55,7 @@ class GenerationTask:
     paragraph_title: str | None
     concept: str | None = None
     topic_concepts: tuple[str, ...] = ()
+    near_concepts: tuple[str, ...] = ()   # X3 тест: жақын алдағыштар көзі (D80)
 
 
 def generation_messages(task: GenerationTask, reference: str) -> list[Message]:
@@ -73,6 +74,9 @@ def generation_messages(task: GenerationTask, reference: str) -> list[Message]:
         others = [term for term in task.topic_concepts if term != task.concept][:MAX_DISTRACTOR_CONCEPTS]
         if others:
             request["§_ұғымдары"] = others
+    near = [term for term in task.near_concepts if term != task.concept]
+    if near:
+        request["жақын_алдағыштар"] = near
     return [
         Message("system", system),
         Message("system", rules),

@@ -53,6 +53,15 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+# Сөз түбірі (D80): алғашқы STEM_CHARS әріп. Қазақ тіліндегі жалғау сөзді басқа етпейді:
+# «дәуіріндегі» / «дәуірінде», «жайылымды» / «жайылымдық».
+STEM_CHARS = 5
+
+
+def word_stems(text: str) -> set[str]:
+    return {word[:STEM_CHARS] for word in re.findall(r"\w+", normalize_text(text))}
+
+
 @dataclass(frozen=True)
 class Package:
     """Банкке жазылатын пакет. `content` — public, қалғаны — private (bagalau §3.2)."""

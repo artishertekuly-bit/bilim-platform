@@ -78,6 +78,7 @@
       "model": "strong", "mode": "batch", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"],
       "variants": {
         "mcq": { "model": "small", "reasoning_effort": "high" },
+        "mcq_x3": { "model": "small", "reasoning_effort": "medium" },
         "matching": { "model": "strong", "reasoning_effort": "low" }
       }
     },
@@ -85,6 +86,7 @@
       "model": "strong", "mode": "sync", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"],
       "variants": {
         "mcq": { "model": "small", "reasoning_effort": "high" },
+        "mcq_x3": { "model": "small", "reasoning_effort": "medium" },
         "matching": { "model": "strong", "reasoning_effort": "low" }
       }
     },
