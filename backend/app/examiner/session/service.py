@@ -4,9 +4,11 @@
 сол `client_request_id`-мен қайта келген сұранысқа бірінші жауап қайталанады.
 
 Е1: сессия басталғанда X1 мен X2 тапсырмаларының бәрі бекітіледі (`exam_item_leases`, infinity),
-сессия біткенде бекіту тағы T_tail = 2 сағат сақталады (D14). Таңдалған сұрақ `question_state`
-жолымен `FOR UPDATE SKIP LOCKED` арқылы құлыпталады: қатар басталған екі сессия бір сұрақты ала алмайды.
-Е2: сұрақ оқушыға «көрілді» деп сессия басталғанда жазылады (тасталған сессияда да, D36).
+сессия біткенде бекіту тағы T_tail = 2 сағат сақталады (D14). Е1 — басымдық (D65): алдымен бос сұрақ,
+ол жетпесе ең ерте бекітілген сұрақ қайта беріледі (selection.py). Бос сұрақ `question_state` жолымен
+`FOR UPDATE SKIP LOCKED` арқылы құлыпталады: қатар басталған екі сессия бір бос сұрақты ала алмайды.
+Қайта берілетін сұрақ құлыпталмайды; оның нұсқалары сессияда жеке араластырылады (shuffle.py).
+Е2: сұрақ оқушыға «көрілді» деп сессия басталғанда жазылады (тасталған сессияда да, D36). Е2 қатаң.
 """
 
 from __future__ import annotations
@@ -59,7 +61,8 @@ from .dto import (
 from .errors import ExaminerError, not_found, validation
 from .grading import AnswerInvalid, check_answer
 from .scoring import GradedItem, level_score, x3_eligible
-from .selection import Candidate, Picker, order_items
+from .selection import Candidate, Picker, level_availability, order_items
+from .shuffle import shuffle_content
 
 IDLE_MINUTES = 60          # D36
 LEASE_TAIL = "2 hours"     # T_tail, D14
@@ -201,30 +204,28 @@ class ExaminerService:
             scope = await self.resolve_scope(conn, scope_type, scope_id)
             applicable = await self._applicability(conn, scope.subject_id)
             last = await self._last_results(conn, student_id, scope)
-            stock = await self._stock(conn, scope)
-        cards = []
-        for level in (1, 2, 3, 4):
-            if level in AVAILABLE_LEVELS:
+            cards = []
+            for level in (1, 2, 3, 4):
+                previous = last.get(level, LevelResult(level=level, p=None, mastered=False, is_final=False,
+                                                       taken_at=None))
+                if level not in AVAILABLE_LEVELS:
+                    formats = ["Таймерлі блок", "Сократтық диалог", "Фейнман"] if level == 3 else ["Басымдық", "Кейс"]
+                    cards.append(LevelCard(
+                        level=level, title=LEVEL_TITLES[level], formats=formats, tasks=0, minutes=25,
+                        available=False, availability="unavailable",
+                        note="Бұл деңгей ЖИ бағалауымен бірге ашылады.", last=previous,
+                    ))
+                    continue
                 composition = build_composition(level, applicable)
-                need: dict[str, int] = {}
-                for slot in composition.slots:
-                    need[slot.tier] = need.get(slot.tier, 0) + 1
-                ready = all(stock.get((level, tier), 0) >= count for tier, count in need.items())
+                stock = await self._stock(conn, student_id, scope, level, level_formats(level, applicable))
+                availability = level_availability(composition.slots, stock)
                 cards.append(LevelCard(
                     level=level, title=LEVEL_TITLES[level],
                     formats=[FORMAT_TITLES[name] for name in composition.formats],
-                    tasks=composition.n, minutes=composition.minutes, available=True, bank_ready=ready,
-                    note=None if ready else "Бұл масштаб бойынша сұрақтар әлі дайындалып жатыр.",
-                    last=last.get(level, LevelResult(level=level, p=None, mastered=False, is_final=False,
-                                                     taken_at=None)),
-                ))
-            else:
-                formats = ["Таймерлі блок", "Сократтық диалог", "Фейнман"] if level == 3 else ["Басымдық", "Кейс"]
-                cards.append(LevelCard(
-                    level=level, title=LEVEL_TITLES[level], formats=formats, tasks=0, minutes=25,
-                    available=False, bank_ready=False, note="Бұл деңгей ЖИ бағалауымен бірге ашылады.",
-                    last=last.get(level, LevelResult(level=level, p=None, mastered=False, is_final=False,
-                                                     taken_at=None)),
+                    tasks=composition.n, minutes=composition.minutes, available=True, availability=availability,
+                    note="Бұл масштаб бойынша сұрақтар әлі дайындалып жатыр." if availability == "unavailable"
+                    else None,
+                    last=previous,
                 ))
         return LevelsResponse(scope=scope.dto(), levels=cards)
 
@@ -244,21 +245,26 @@ class ExaminerService:
         return {row["level"]: LevelResult(level=row["level"], p=row["p"], mastered=row["mastered"],
                                           is_final=row["is_final"], taken_at=row["ended_at"]) for row in rows}
 
-    async def _stock(self, conn: Any, scope: ResolvedScope) -> dict[tuple[int, str], int]:
-        """Масштабтағы бос белсенді сұрақтар (Е1 бойынша, Е2-сіз): экрандағы «дайын ба» белгісі үшін."""
+    async def _stock(self, conn: Any, student_id: str, scope: ResolvedScope, level: int,
+                     formats: Sequence[str]) -> dict[str, tuple[int, int]]:
+        """Санат → (Е2-ден өткен сұрақ, оның ішінде бос сұрақ): деңгей картасының `availability`-і (D65)."""
         rows = await conn.fetch(
             """
-            select q.level::int as level, s.x_tier::text as tier, count(*)::int as n
+            select s.x_tier::text as tier, count(*)::int as eligible,
+                   (count(*) filter (where l.question_id is null))::int as free
             from examiner.questions q
             join examiner.question_state s on s.question_id = q.question_id
             left join examiner.exam_item_leases l on l.question_id = q.question_id and l.leased_until > now()
-            where q.subject_id = $1::uuid and q.topic_id = any($2::text[]) and s.status = 'active'
-              and l.question_id is null
-            group by 1, 2
+            left join examiner.student_item_exposure e on e.question_id = q.question_id and e.student_id = $1::uuid
+            where q.subject_id = $2::uuid and q.level = $3::smallint and q.topic_id = any($4::text[])
+              and q.format::text = any($5::text[]) and s.status = 'active'
+              and (e.question_id is null
+                   or e.last_seen_at < now() - make_interval(days => ceil(e.n * 1.204 / $6::float8)::int))
+            group by 1
             """,
-            scope.subject_id, list(scope.topics),
+            student_id, scope.subject_id, level, list(scope.topics), list(formats), LAMBDA[level],
         )
-        return {(row["level"], row["tier"]): row["n"] for row in rows}
+        return {row["tier"]: (row["eligible"], row["free"]) for row in rows}
 
     # ============================================================== қайталанған сұраныс
 
@@ -302,9 +308,25 @@ class ExaminerService:
 
     @staticmethod
     async def _release_leases(conn: Any, session_id: Any) -> None:
+        """Сессия бітті: бекіту тағы T_tail сақталады. Қайта берілген сұрақты (D65) басқа белсенді сессия
+        әлі ұстап тұрса, бекіту соған ауысады және шексіз қалады."""
         await conn.execute(
-            f"update examiner.exam_item_leases set leased_until = now() + interval '{LEASE_TAIL}' "
-            "where session_id = $1::uuid",
+            f"""
+            update examiner.exam_item_leases l
+            set session_id = coalesce(o.session_id, l.session_id),
+                leased_until = case when o.session_id is null then now() + interval '{LEASE_TAIL}'
+                                    else 'infinity'::timestamptz end
+            from examiner.exam_item_leases cur
+            left join lateral (
+              select i.session_id
+              from examiner.session_items i
+              join examiner.sessions s on s.session_id = i.session_id
+              where i.question_id = cur.question_id and i.session_id <> cur.session_id
+                and s.status in ('preparing', 'active', 'blocked')
+              limit 1
+            ) o on true
+            where cur.session_id = $1::uuid and l.question_id = cur.question_id
+            """,
             str(session_id),
         )
 
@@ -360,14 +382,15 @@ class ExaminerService:
                           formats: Sequence[str], tiers: Sequence[str], exclude: Sequence[str] = ()) -> list[Candidate]:
         rows = await conn.fetch(
             """
-            select q.question_id::text as question_id, q.topic_id, q.format::text as format, s.x_tier::text as tier
+            select q.question_id::text as question_id, q.topic_id, q.format::text as format, s.x_tier::text as tier,
+                   case when l.question_id is not null then l.leased_at end as leased_at
             from examiner.questions q
             join examiner.question_state s on s.question_id = q.question_id
             left join examiner.exam_item_leases l on l.question_id = q.question_id and l.leased_until > now()
             left join examiner.student_item_exposure e on e.question_id = q.question_id and e.student_id = $1::uuid
             where q.subject_id = $2::uuid and q.level = $3::smallint and q.topic_id = any($4::text[])
               and q.format::text = any($5::text[]) and s.x_tier::text = any($6::text[])
-              and s.status = 'active' and l.question_id is null
+              and s.status = 'active'
               and not (q.question_id = any($8::text[]::uuid[]))
               and (e.question_id is null
                    or e.last_seen_at < now() - make_interval(days => ceil(e.n * 1.204 / $7::float8)::int))
@@ -375,10 +398,12 @@ class ExaminerService:
             student_id, scope.subject_id, level, list(scope.topics), list(formats), list(tiers), LAMBDA[level],
             list(exclude),
         )
-        return [Candidate(row["question_id"], row["topic_id"], row["format"], row["tier"]) for row in rows]
+        return [Candidate(row["question_id"], row["topic_id"], row["format"], row["tier"], row["leased_at"])
+                for row in rows]
 
     @staticmethod
     async def _lock(conn: Any, question_ids: Sequence[str]) -> set[str]:
+        """Бос сұрақтарды құлыптайды; басқа сессия алып үлгерген немесе құлыптаған сұрақ қайтарылмайды."""
         rows = await conn.fetch(
             """
             select s.question_id::text as question_id
@@ -396,19 +421,24 @@ class ExaminerService:
         tiers = sorted({slot.tier for slot in slots})
         picker = Picker(await self._candidates(conn, student_id, scope, level, formats, tiers), formats, self._rng)
         chosen: list[Candidate | None] = [picker.take(slot) for slot in slots]
-        locked: set[str] = set()
+        accepted: set[str] = set()
         for _ in range(LOCK_ROUNDS):
-            if any(candidate is None for candidate in chosen):
+            # Қайта берілетін сұрақ құлыпталмайды (D65); бос сұрақты басқа сессия алып үлгеруі мүмкін.
+            accepted |= {c.question_id for c in chosen if c is not None and c.reused}
+            pending = [c.question_id for c in chosen
+                       if c is not None and not c.reused and c.question_id not in accepted]
+            if pending:
+                accepted |= await self._lock(conn, pending)
+            if all(c is not None and c.question_id in accepted for c in chosen):
                 break
-            pending = [c.question_id for c in chosen if c is not None and c.question_id not in locked]
-            if not pending:
-                break
-            locked |= await self._lock(conn, pending)
-            chosen = [c if c is not None and c.question_id in locked else picker.take(slot)
+            chosen = [c if c is not None and c.question_id in accepted else picker.take(slot)
                       for slot, c in zip(slots, chosen, strict=True)]
-        if any(c is None or c.question_id not in locked for c in chosen):
+            if any(c is None for c in chosen):
+                break
+        accepted |= {c.question_id for c in chosen if c is not None and c.reused}
+        if any(c is None or c.question_id not in accepted for c in chosen):
             missing = [f"{slot.tier}/{slot.format}" for slot, c in zip(slots, chosen, strict=True)
-                       if c is None or c.question_id not in locked]
+                       if c is None or c.question_id not in accepted]
             raise ExaminerError(
                 409, "BANK_NOT_READY",
                 "Бұл масштаб бойынша сұрақ банкі әлі толмаған. Кейінірек қайталап көріңіз немесе басқа тақырып таңдаңыз.",
@@ -445,15 +475,20 @@ class ExaminerService:
             """,
             session_id, first_position, question_ids, [tier for tier, _ in items],
         )
-        # Е1: сессия жүріп жатқанда бекіту шексіз (ai_examiner §5.2).
+        # Е1: сессия жүріп жатқанда бекіту шексіз (ai_examiner §5.2). Қайта берілген сұрақтың бекітуі осы
+        # сессияға ауысады. Жолдар бір ретпен құлыпталуы үшін id сұрыпталады: қатар басталған екі сессия
+        # бір қайта берілген сұрақты бекітсе, бірі екіншісін күтеді, бірақ deadlock болмайды.
+        ordered = sorted(question_ids)
         await conn.execute(
             """
-            insert into examiner.exam_item_leases (question_id, session_id, leased_until)
-            select q, $2::uuid, 'infinity' from unnest($1::text[]::uuid[]) as q
+            insert into examiner.exam_item_leases (question_id, session_id, leased_at, leased_until)
+            select q, $2::uuid, now(), 'infinity' from unnest($1::text[]::uuid[]) with ordinality as x(q, o)
+            order by o
             on conflict (question_id) do update
-              set session_id = excluded.session_id, leased_until = excluded.leased_until
+              set session_id = excluded.session_id, leased_at = excluded.leased_at,
+                  leased_until = excluded.leased_until
             """,
-            question_ids, session_id,
+            ordered, session_id,
         )
         # Е2: сессияда берілген сұрақ «көрілді» (D36).
         await conn.execute(
@@ -463,7 +498,7 @@ class ExaminerService:
             on conflict (student_id, question_id) do update
               set n = examiner.student_item_exposure.n + 1, last_seen_at = now()
             """,
-            student_id, question_ids,
+            student_id, ordered,
         )
 
     # ============================================================== күйді оқу
@@ -503,7 +538,7 @@ class ExaminerService:
             """
             select i.item_id::text as item_id, i.position::int as position, i.tier::text as tier, i.block,
                    i.served_at, i.deadline_at, i.state, q.format::text as format, q.question_content,
-                   g.s::int as s
+                   q.ecd_evidence, g.s::int as s
             from examiner.session_items i
             join examiner.questions q on q.question_id = i.question_id
             left join examiner.effective_grades g on g.item_id = i.item_id
@@ -521,9 +556,12 @@ class ExaminerService:
         visible = row["status"] in ("active", "preparing")
 
         def dto(item: asyncpg.Record) -> SessionItem:
+            # Кілт тек араластыру үшін оқылады (жауапты ашып қоятын реттен қашу), клиентке бармайды.
+            key = (_loads(item["ecd_evidence"]) or {}).get("code_check_target") or {}
+            content = shuffle_content(item["format"], _loads(item["question_content"]), key, item["item_id"])
             return SessionItem(
                 item_id=item["item_id"], position=item["position"], tier=item["tier"], block=item["block"],
-                format=item["format"], content=_loads(item["question_content"]), served_at=item["served_at"],
+                format=item["format"], content=content, served_at=item["served_at"],
                 deadline_at=item["deadline_at"], state=item["state"],
             )
 
@@ -636,7 +674,7 @@ class ExaminerService:
                 candidate = picker.take_any("X3")
                 if candidate is None:
                     break
-                if await self._lock(conn, [candidate.question_id]):
+                if candidate.reused or await self._lock(conn, [candidate.question_id]):
                     await self._add_items(conn, student_id, session_id, [("X3", candidate.question_id)],
                                           len(items) + 1)
                     await conn.execute(

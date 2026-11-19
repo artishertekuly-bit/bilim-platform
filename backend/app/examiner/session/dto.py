@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 ScopeType = Literal["topic", "chapter", "subject"]
 Tier = Literal["X1", "X2", "X3"]
-SessionStatus = Literal["preparing", "active", "completed", "blocked", "abandoned"]
+SessionStatus = Literal["active", "completed", "blocked", "abandoned"]  # preparing жоқ (D64)
+Availability = Literal["ready", "low_stock", "unavailable"]
 
 
 # ------------------------------------------------------------------ сұраныстар
@@ -190,7 +191,9 @@ class LevelCard(BaseModel):
     tasks: int                  # X1 + X2
     minutes: int
     available: bool             # 4-қадамда тек 1–2-деңгей (D62)
-    bank_ready: bool            # банкте осы масштабқа жеткілікті сұрақ бар ма (D64)
+    # ready — бос қор жетеді; low_stock — басталады, бірақ бекітілген сұрақтар қайта беріледі;
+    # unavailable — оқушыға Е2-ден өткен сұрақ n-ге жетпейді, сессия басталмайды (D64, D65)
+    availability: Availability
     note: str | None
     last: LevelResult
 

@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import copy
 import random
 import unittest
+from datetime import datetime, timezone
 
 from app.examiner.bank.formats import (
     ErrorStepGen,
@@ -14,10 +16,11 @@ from app.examiner.bank.formats import (
     SequenceGen,
     SliderGen,
 )
-from app.examiner.session.composition import build_composition, level_formats, x1_count
+from app.examiner.session.composition import Slot, build_composition, level_formats, x1_count
 from app.examiner.session.grading import AnswerInvalid, check_answer
 from app.examiner.session.scoring import GradedItem, level_score, x3_eligible
-from app.examiner.session.selection import Candidate, Picker, order_items
+from app.examiner.session.selection import Candidate, Picker, level_availability, order_items
+from app.examiner.session.shuffle import shuffle_content
 
 COMMON = {"ecd_skill": "Дағды", "evidence": "Дәлел", "support_quote": "Оқулықтан алынған ұзын дәйексөз."}
 HISTORY = {"formula_builder": False, "slider": False}
@@ -166,6 +169,66 @@ class SelectionTests(unittest.TestCase):
         picker = Picker([Candidate("q", "§1", "mcq", "X2")], ["mcq", "matching"], random.Random(1))
         slot = build_composition(1, {}).slots[0]
         self.assertIsNone(picker.take(slot))  # X1 жоқ; X2 санатқа ауыспайды
+
+    def test_free_first_then_earliest_leased(self) -> None:
+        """D65: алдымен бос сұрақ, содан кейін ең ерте бекітілгені; өз форматы басқа форматтан бұрын."""
+        utc = timezone.utc
+        early, late = datetime(2026, 11, 19, 8, tzinfo=utc), datetime(2026, 11, 19, 9, tzinfo=utc)
+        candidates = [
+            Candidate("late", "§1", "mcq", "X1", late),
+            Candidate("free", "§1", "mcq", "X1"),
+            Candidate("early", "§1", "mcq", "X1", early),
+            Candidate("other", "§1", "matching", "X1"),
+        ]
+        picker = Picker(candidates, ["mcq", "matching"], random.Random(1))
+        slot = Slot("X1", "mcq")
+        taken = [picker.take(slot) for _ in range(4)]
+        self.assertEqual([c.question_id for c in taken], ["free", "early", "late", "other"])
+        self.assertTrue(taken[1].reused and not taken[0].reused)
+        self.assertIsNone(picker.take(slot))
+
+    def test_level_availability(self) -> None:
+        slots = build_composition(1, {}).slots  # X1 — 3, X2 — 5
+        self.assertEqual(level_availability(slots, {"X1": (3, 3), "X2": (6, 5)}), "ready")
+        self.assertEqual(level_availability(slots, {"X1": (3, 1), "X2": (6, 5)}), "low_stock")
+        self.assertEqual(level_availability(slots, {"X1": (3, 3), "X2": (4, 4)}), "unavailable")
+        self.assertEqual(level_availability(slots, {"X2": (9, 9)}), "unavailable")
+
+
+class ShuffleTests(unittest.TestCase):
+    def test_stable_per_item_and_differs_between_items(self) -> None:
+        pkg = package(MCQGen, stem="?", options=["a", "b", "c", "d", "e"], correct_index=0)
+        original = copy.deepcopy(pkg.content)
+        first = shuffle_content("mcq", pkg.content, pkg.ecd_evidence["code_check_target"], "item-1")
+        self.assertEqual(first, shuffle_content("mcq", pkg.content, pkg.ecd_evidence["code_check_target"], "item-1"))
+        orders = {tuple(o["id"] for o in shuffle_content("mcq", pkg.content, {}, f"item-{i}")["options"])
+                  for i in range(20)}
+        self.assertGreater(len(orders), 1)
+        self.assertEqual(sorted(o["id"] for o in first["options"]), sorted(o["id"] for o in pkg.content["options"]))
+        self.assertEqual(pkg.content, original)  # банктегі content өзгермейді
+
+    def test_sequence_never_shows_correct_order(self) -> None:
+        pkg = package(SequenceGen, stem="Ретте", steps=["бір", "екі", "үш"])
+        key = pkg.ecd_evidence["code_check_target"]
+        for i in range(50):
+            shown = shuffle_content("sequence", pkg.content, key, f"s-{i}")
+            self.assertNotEqual([step["id"] for step in shown["steps"]], key["order"])
+
+    def test_matching_never_aligned(self) -> None:
+        pkg = package(MatchingGen, stem="Сәйкестендір", pairs=[
+            {"left": "A", "right": "1"}, {"left": "B", "right": "2"}, {"left": "C", "right": "3"}])
+        key = pkg.ecd_evidence["code_check_target"]
+        partner = {pair["left_id"]: pair["right_id"] for pair in key["pairs"]}
+        for i in range(50):
+            shown = shuffle_content("matching", pkg.content, key, f"m-{i}")
+            aligned = all(partner[left["id"]] == right["id"] for left, right in zip(shown["left"], shown["right"]))
+            self.assertFalse(aligned)
+            self.assertEqual(check_answer("matching", shown, key, {"pairs": key["pairs"]}), 1)
+
+    def test_error_step_keeps_order(self) -> None:
+        pkg = package(ErrorStepGen, stem="Қатені тап", steps=["бір", "екі", "үш"], error_index=1, correction="2")
+        shown = shuffle_content("error_step", pkg.content, pkg.ecd_evidence["code_check_target"], "e-1")
+        self.assertEqual(shown["steps"], pkg.content["steps"])
 
 
 if __name__ == "__main__":

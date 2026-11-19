@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth-context';
 
 export type ScopeType = 'topic' | 'chapter' | 'subject';
 export type Tier = 'X1' | 'X2' | 'X3';
-export type SessionStatus = 'preparing' | 'active' | 'completed' | 'blocked' | 'abandoned';
+export type SessionStatus = 'active' | 'completed' | 'blocked' | 'abandoned';
 export type CodeFormat = 'mcq' | 'matching' | 'sequence' | 'error_step' | 'formula_builder' | 'slider';
 
 export interface Scope { type: ScopeType; id: string; title: string }
@@ -110,7 +110,9 @@ export interface LevelCard {
   tasks: number;
   minutes: number;
   available: boolean;
-  bank_ready: boolean;
+  /** ready — бос қор жетеді; low_stock — басталады, бірақ сұрақтар сыныптастармен ортақ болуы мүмкін;
+   *  unavailable — банк әлі толмаған, сессия басталмайды (D65). */
+  availability: 'ready' | 'low_stock' | 'unavailable';
   note: string | null;
   last: LevelResult;
 }

@@ -268,7 +268,7 @@ export default function ExamHomePage() {
         {levels.isError ? <Banner tone="bad">{(levels.error as Error).message}</Banner> : null}
         {levels.data?.levels.map((card) => {
           const status = levelStatus(card);
-          const enabled = card.available && card.bank_ready && !start.isPending;
+          const enabled = card.available && card.availability !== 'unavailable' && !start.isPending;
           return (
             <button
               key={card.level}
@@ -295,7 +295,7 @@ export default function ExamHomePage() {
                 <span className="text-[13px] text-[#5E5E5E]">
                   {card.available ? `${card.tasks} тапсырма · ≈${card.minutes} мин` : card.note}
                 </span>
-                {card.available && !card.bank_ready && card.note ? (
+                {card.available && card.availability === 'unavailable' && card.note ? (
                   <span className="text-[13px] font-medium text-[#5C3A08]">{card.note}</span>
                 ) : null}
               </span>
