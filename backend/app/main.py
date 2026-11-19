@@ -268,7 +268,7 @@ def healthcheck():
         "service": "bilimcorp-ai-bridge",
         "version": app.version,
         "env": APP_ENV,
-        "env_file_present": ENV_FILE.exists(),
+        "env_file_present": any(env_file.exists() for env_file in ENV_FILES),
         "allowed_origins": _build_allowed_origins(),
         "allow_origin_regex": _build_allow_origin_regex(),
         "cors_localhost_enabled": _is_development_env(),
