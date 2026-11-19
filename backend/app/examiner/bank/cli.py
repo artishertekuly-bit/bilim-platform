@@ -8,7 +8,8 @@
 оны мерзімді түрде (мысалы, сағат сайын) қайта шақыруға болады — өңделген сұраныс қайталанбайды.
 
 Қажетті env: EXAMINER_DATABASE_URL (examiner_svc), OPENAI_API_KEY, LLM_STRONG_MODEL және т.б.
-(backend/config/llm_gateway.json).
+(backend/config/llm_gateway.json). Жергілікті іске қосуда олар түбірдегі .env пен backend/.env-тен
+оқылады (main.py-дағыдай, процестің өз env-і басым).
 """
 
 from __future__ import annotations
@@ -17,11 +18,23 @@ import argparse
 import asyncio
 import json
 import logging
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from ...llm_gateway import get_gateway
 from .formats import CODE_FORMATS
 from .pipeline import BankPipeline
 from .repository import PgBankRepository, create_pool
+
+BACKEND_DIR = Path(__file__).resolve().parents[3]
+ENV_FILES = (BACKEND_DIR.parent / ".env", BACKEND_DIR / ".env")
+
+
+def _load_environment() -> None:
+    for env_file in ENV_FILES:
+        if env_file.exists():
+            load_dotenv(env_file, override=False)
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -57,6 +70,7 @@ def main() -> int:
     submit.add_argument("--max-requests", type=int)
     sub.add_parser("process", help="Дайын batch-терді өңдеп, банкке жазу")
     args = parser.parse_args()
+    _load_environment()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     return asyncio.run(_run(args))
 
