@@ -12,6 +12,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest import mock
 
 import asyncpg
@@ -38,6 +39,7 @@ from app.examiner.bank.concepts import (
 )
 from app.examiner.bank.context import (
     FULL_PARAGRAPH_FORMATS,
+    MAX_CONTEXT_CHUNKS,
     Chunk,
     chunk_combinations,
     clean_chunk_text,
@@ -429,6 +431,22 @@ class ContextTests(unittest.TestCase):
         self.assertIn("c4", ids)
         self.assertLess(len(win), len(huge))
         self.assertLessEqual(len(reference_text(win)), 1200)
+
+    def test_full_paragraph_window_fits_the_request_chunk_limit_of_the_schema(self) -> None:
+        # D82: базадағы CHECK 1–3 чанк болатын, толық § терезесі (§16–17-де 5 чанк) жазылмай, L3/L4 генерациясы
+        # құлайтын. Кодтағы шек пен соңғы миграциядағы шек бірдей, терезе одан аспайды.
+        tiny = [Chunk(f"c{i}", i, f"Сөйлем {i}.") for i in range(1, 101)]
+        self.assertEqual(len(full_paragraph_window(tiny, anchor_chunk_id="c50")), MAX_CONTEXT_CHUNKS)
+        self.assertIn("c50", [c.chunk_id for c in full_paragraph_window(tiny, anchor_chunk_id="c50")])
+        five = [Chunk(f"c{i}", i, f"Бөлім {i}: " + ("дерек " * 200)) for i in range(1, 6)]
+        self.assertEqual(len(full_paragraph_window(five)), 5)
+
+        migrations = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
+        defining = [path for path in sorted(migrations.glob("*.sql"))
+                    if "generation_requests_chunk_ids_check" in path.read_text(encoding="utf-8")
+                    or "cardinality(chunk_ids)" in path.read_text(encoding="utf-8")]
+        self.assertTrue(defining)
+        self.assertIn(f"between 1 and {MAX_CONTEXT_CHUNKS}", defining[-1].read_text(encoding="utf-8"))
 
 
 # ------------------------------------------------------------------ жоспарлаушы

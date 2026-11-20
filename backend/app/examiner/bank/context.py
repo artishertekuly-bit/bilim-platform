@@ -40,6 +40,9 @@ FULL_PARAGRAPH_FORMATS: frozenset[str] = frozenset({
     "priority",
 })
 MAX_FULL_PARAGRAPH_CHARS = 24_000
+# Бір сұраныстың ең көп чанкы: `examiner.generation_requests.chunk_ids` CHECK шегімен бірдей (D82). Бұрын шек
+# 3 болатын, сондықтан толық § терезесі (D79, §16–17-де 5 чанк) Fast Lane-де де, Batch-та да жазылмайтын.
+MAX_CONTEXT_CHUNKS = 64
 _MIN_OVERLAP_CHARS = 40
 
 _HEADER = re.compile(r"^\s*\[[^\]]*\]\s*")
@@ -149,7 +152,7 @@ def full_paragraph_window(
     ordered = sorted(chunks, key=lambda chunk: chunk.order)
     if not ordered:
         return ()
-    if len(reference_text(ordered)) <= max_chars:
+    if len(ordered) <= MAX_CONTEXT_CHUNKS and len(reference_text(ordered)) <= max_chars:
         return tuple(ordered)
 
     anchor_idx = 0
@@ -166,6 +169,8 @@ def full_paragraph_window(
         sides = ("left", "right") if prefer_left else ("right", "left")
         grew = False
         for side in sides:
+            if hi - lo + 1 >= MAX_CONTEXT_CHUNKS:
+                break
             if side == "left" and lo > 0:
                 if len(reference_text(ordered[lo - 1:hi + 1])) <= max_chars:
                     lo -= 1
