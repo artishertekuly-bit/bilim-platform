@@ -187,13 +187,15 @@ class ConfigValidationTests(unittest.TestCase):
         self.assertTrue(config.models[config.route(Task.OFFICIAL_GRADING).model].pinned)
 
     def test_open_formats_have_measured_generation_variants(self) -> None:
-        """D81: 5-қадамның 7 форматы §16–17 салыстыруы бойынша бөлінді; Batch пен Fast Lane бірдей."""
+        """D81: 5-қадамның 7 форматы мен `error_step` §16–17 салыстыруы бойынша бөлінді; Batch пен Fast Lane бірдей.
+        `sequence` mini-де аталу ретін алды, сондықтан негізгі маршрутта (strong medium) қалды."""
         env = {"OPENAI_API_KEY": "test", "LLM_RESERVE_API_KEY": "test", "LLM_RESERVE_MODEL": "reserve"}
         config = load_config(DEFAULT_CONFIG_PATH, env)
         expected = {
             "short_answer": ("small", "medium"), "true_false_fix": ("small", "medium"),
             "feynman": ("small", "medium"), "teach_ai": ("small", "medium"), "case_study": ("small", "medium"),
-            "socratic": ("strong", "low"), "priority": ("strong", "low"),
+            "error_step": ("small", "medium"),
+            "socratic": ("strong", "low"), "priority": ("strong", "low"), "sequence": ("strong", "medium"),
         }
         for task in (Task.GENERATION, Task.GENERATION_FAST):
             for name, (model, effort) in expected.items():

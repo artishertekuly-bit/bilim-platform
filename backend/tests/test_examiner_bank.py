@@ -344,6 +344,8 @@ class FormatTests(unittest.TestCase):
         self.assertIn("аталу ретіне сүйеме", body)
         for criterion in ("хронология", "себеп-салдар", "деңгей"):
             self.assertIn(criterion, body)
+        # Реттілік те (§16–17, mini): «оба үйілді, мәйітті қырынан жатқызды» — аталу реті, рәсімнің реті емес.
+        self.assertIn("аталу ретіне сүйеме", load_prompt("sequence").body)
 
 
 # ------------------------------------------------------------------ контекст
@@ -971,6 +973,27 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(by_tier), {"X1", "X2", "X3"})
         self.assertNotEqual(by_tier["X1"], by_tier["X2"])
         self.assertEqual({by_tier["X1"], by_tier["X2"]}, {("c1",), ("c2",)})
+
+    async def test_chunk_combination_formats_never_reuse_a_context(self) -> None:
+        # D81: §16–17-де sequence 4 чанк комбинациясына 14 сұраныс жоспарлап, әр мәтінді 3–4 рет қайталайтын.
+        self.repo.chunk_rows["kazakh6.md#§1"] = [
+            Chunk(f"c{i}", i, f"{SOURCE} {i}-үзіндінің өз дерегі.") for i in range(1, 5)
+        ]
+        # Қор нормасы комбинация санынан әлдеқайда көп болсын (10 қатар сессия).
+        pipeline = BankPipeline(self.gateway, self.repo, policy=StockPolicy(concurrent_sessions_per_topic=10),
+                                rng=random.Random(1))
+        targets = concept_targets(10, 2, {}, StockPolicy(concurrent_sessions_per_topic=10), ["sequence"])
+        self.assertGreater(sum(targets.values()), 6)
+        await pipeline.submit(["kazakh6.md"], 2, formats=["sequence", "error_step"])
+        for name in ("sequence", "error_step"):
+            contexts = [row["record"].chunk_ids for row in self.repo.requests.values()
+                        if row["record"].format == name]
+            self.assertTrue(contexts, name)
+            self.assertEqual(len(contexts), len(set(contexts)), name)
+            self.assertLessEqual(len(contexts), 6, name)  # C(4, 2)
+        before = len(self.repo.requests)
+        await pipeline.submit(["kazakh6.md"], 2, formats=["sequence", "error_step"])
+        self.assertEqual(len(self.repo.requests), before)  # жаңа мәтін комбинациясы жоқ: қайта жоспарланбайды
 
     async def test_planner_skips_full_stock(self) -> None:
         await self.submit_mcq(None)  # type: ignore[arg-type]

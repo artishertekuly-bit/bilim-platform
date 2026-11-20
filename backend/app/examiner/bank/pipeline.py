@@ -611,6 +611,13 @@ class BankPipeline:
                     if eligible is not None:
                         near = eligible[concept.key]
                 else:
+                    # Ұғымға байланбайтын формат (реттілік, қате қадам, формула, слайдер) бір чанк комбинациясынан
+                    # бір ғана сұрақ алады (D81): §16–17-де 4 комбинацияға 14 сұраныс жоспарланып, әр мәтін 3–4 рет
+                    # қайталанатын. Ұғымы шықпаған §-тің тест пен сәйкестендіруі (D76) бұрынғыша айналымда.
+                    if slot.format not in ANCHORED_FORMATS and cursor[key] >= len(combos):
+                        logger.info("%s for %s: all %d chunk combinations are used", slot.format, slot.topic_id,
+                                    len(combos))
+                        break
                     combo = combos[cursor[key] % len(combos)]
                     cursor[key] += 1
                 request = RequestRecord(

@@ -92,6 +92,7 @@
         "feynman": { "model": "small", "reasoning_effort": "medium" },
         "teach_ai": { "model": "small", "reasoning_effort": "medium" },
         "case_study": { "model": "small", "reasoning_effort": "medium" },
+        "error_step": { "model": "small", "reasoning_effort": "medium" },
         "socratic": { "model": "strong", "reasoning_effort": "low" },
         "priority": { "model": "strong", "reasoning_effort": "low" }
       }
@@ -107,6 +108,7 @@
         "feynman": { "model": "small", "reasoning_effort": "medium" },
         "teach_ai": { "model": "small", "reasoning_effort": "medium" },
         "case_study": { "model": "small", "reasoning_effort": "medium" },
+        "error_step": { "model": "small", "reasoning_effort": "medium" },
         "socratic": { "model": "strong", "reasoning_effort": "low" },
         "priority": { "model": "strong", "reasoning_effort": "low" }
       }
