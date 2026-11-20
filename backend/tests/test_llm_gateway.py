@@ -186,6 +186,22 @@ class ConfigValidationTests(unittest.TestCase):
         self.assertEqual(set(config.routes), set(Task))
         self.assertTrue(config.models[config.route(Task.OFFICIAL_GRADING).model].pinned)
 
+    def test_open_formats_have_measured_generation_variants(self) -> None:
+        """D81: 5-қадамның 7 форматы §16–17 салыстыруы бойынша бөлінді; Batch пен Fast Lane бірдей."""
+        env = {"OPENAI_API_KEY": "test", "LLM_RESERVE_API_KEY": "test", "LLM_RESERVE_MODEL": "reserve"}
+        config = load_config(DEFAULT_CONFIG_PATH, env)
+        expected = {
+            "short_answer": ("small", "medium"), "true_false_fix": ("small", "medium"),
+            "feynman": ("small", "medium"), "teach_ai": ("small", "medium"), "case_study": ("small", "medium"),
+            "socratic": ("strong", "low"), "priority": ("strong", "low"),
+        }
+        for task in (Task.GENERATION, Task.GENERATION_FAST):
+            for name, (model, effort) in expected.items():
+                route = config.route(task, name)
+                self.assertEqual((route.model, route.reasoning_effort), (model, effort), f"{task.value}/{name}")
+            self.assertEqual(config.route(task).model, "strong")
+            self.assertEqual(config.route(task).reasoning_effort, "medium")
+
 
 class RetryAndFallbackTests(GatewayTestCase):
     async def test_official_grading_waits_instead_of_falling_back(self) -> None:

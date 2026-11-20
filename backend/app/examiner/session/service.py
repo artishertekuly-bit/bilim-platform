@@ -37,7 +37,7 @@ from .composition import (
     code_formats_for_subject,
     level_formats,
 )
-from .dialog import DIALOG_PROMPT_REF, END_MARKER, MAX_DIALOG_TURNS, build_dialog_messages, strip_end_marker
+from .dialog import DIALOG_PROMPT_REF, MAX_DIALOG_TURNS, DialogStreamFilter, build_dialog_messages
 from .dto import (
     AbandonRequest,
     AnswerRequest,
@@ -1358,26 +1358,19 @@ class ExaminerService:
         queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
 
         async def _produce() -> None:
-            full_raw = ""
-            hold = ""
-            guard = len(END_MARKER)
+            # Ағын мен базадағы мәтін әрпі мен бос орнына дейін бірдей (D81): соңғы кесек strip()-пен кесілмейді.
+            stream_filter = DialogStreamFilter()
             try:
                 async with self._pool.acquire() as pconn:
                     async for piece in gw.stream(Task.EXAMINER_DIALOG, DIALOG_PROMPT_REF, messages):
                         if not piece:
                             continue
-                        full_raw += piece
-                        hold += piece
-                        if len(hold) > guard:
-                            emit = hold[:-guard]
-                            hold = hold[-guard:]
-                            emit_clean = emit.replace(END_MARKER, "")
-                            if emit_clean:
-                                await queue.put(("token", {"text": emit_clean}))
-                    tail_clean, _ = strip_end_marker(hold)
-                    if tail_clean:
-                        await queue.put(("token", {"text": tail_clean}))
-                    clean_reply, saw_end = strip_end_marker(full_raw)
+                        chunk = stream_filter.feed(piece)
+                        if chunk:
+                            await queue.put(("token", {"text": chunk}))
+                    tail, clean_reply, saw_end = stream_filter.finish()
+                    if tail:
+                        await queue.put(("token", {"text": tail}))
                     dialog_complete = (turn_no >= MAX_DIALOG_TURNS) or saw_end
                     route_model = gw.config.route(Task.EXAMINER_DIALOG).model
                     model_name = gw.config.models[route_model].model or route_model

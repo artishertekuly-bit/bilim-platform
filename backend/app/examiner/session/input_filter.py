@@ -5,6 +5,11 @@
   2. Injection / дөрекілік эвристикасы: арзан regex іске қосылса ғана `Task.MODERATION` шақырылады.
   3. Модерация тарихи/ғылыми терминдерді («көтеріліс», «шабуыл», «өлім») академиялық
      контексте қауіпсіз (`SAFE`) деп таниды.
+  4. Модерация моделі қолжетімсіз не жауабы оқылмаса, regex ұстаған айқын бұйрық (`_INJECTION_RE`)
+     `PROMPT_INJECTION` болып бұғатталады; әлсіз белгі мен балағат regex-і жалғыз өзі страйк бермейді (D81).
+
+Бұйрық етістіктері «сен» және «сіз» формасында ұсталады: «қой», «қойыңыз», «беріңізші», «бағалаңыз» (D81).
+Етістіктен кейін `\\b` тұрады: баяндау формасы («берді», «бұзды», «бағалады») бұйрық болып саналмайды.
 """
 
 from __future__ import annotations
@@ -27,14 +32,26 @@ STEM_COPY_THRESHOLD = 0.80
 _REPEATED_CHAR = re.compile(r"(.)\1{5,}")
 _WORD_RE = re.compile(r"\w+")
 
+# Бұйрық райының жалғаулары: «сен» (жалғаусыз), «сіз» (-ыңыз/-іңіз/-ңыз/-ңіз), көпше (-ыңдар/-іңдер),
+# «-шы/-ші» демеулігімен («қойыңызшы»).
+_IMPERATIVE = r"(?:ыңыз|іңіз|ңыз|ңіз|ыңдар|іңдер|ңдар|ңдер)?(?:шы|ші)?\b"
+_GRADE = r"(?:4|төрт|100%?|толық|жоғары|максимал\w*)"
+
 _INJECTION_RE = re.compile(
     r"ignore\s+(?:all\s+)?(?:previous|prior|above)"
     r"|system\s+prompt|jailbreak|bypass"
-    r"|</?(?:textbook|question|rubric|student_answer|system)>"
-    r"|\bбалл\s*қой\b|\bжоғары\s*балл\b"
-    r"|\b(?:4|төрт|100%?)\s*(?:балл\s*)?(?:бер|қой)\b"
-    r"|(?:барлық|бүкіл)\s*(?:ережені|нұсқауды)\s*(?:ұмыт|елеме|бұз)"
-    r"|(?:менің|осы)\s+жауабымд[ыа]\s+дұрыс\s+деп\s+есепте",
+    r"|</?(?:textbook|question|rubric|student_answer|system|scenario|turn_note)>"
+    rf"|\b(?:балл\w*|балды|балын)\s*(?:қой|бер|қос){_IMPERATIVE}"
+    rf"|\b{_GRADE}\s*баға\w*\s*(?:бер|қой|қос){_IMPERATIVE}"
+    rf"|\b{_GRADE}\s*(?:балл\w*\s*|деп\s*)?бағала{_IMPERATIVE}"
+    rf"|(?:(?:барлық|бүкіл)\s*)?(?:ережені|ережелерді|нұсқауды|нұсқауларды)\s*(?:ұмыт|елеме|бұз){_IMPERATIVE}"
+    rf"|(?:менің|осы)\s+жауабымд[ыа]\s+дұрыс\s+деп\s+(?:есепте|сана){_IMPERATIVE}",
+    re.IGNORECASE,
+)
+# Әлсіз белгі: модельге тексертеді, бірақ модель жоқта бұғаттамайды. «4 қой» — «төрт қой» (мал) болуы мүмкін,
+# «жоғары балл» — бұйрық емес («жоғары балл алғым келеді»).
+_SUSPICIOUS_RE = re.compile(
+    rf"\b(?:4|төрт|100%?)\s*(?:бер|қой|қос){_IMPERATIVE}|\b(?:жоғары|толық|максимал\w*)\s*балл\w*",
     re.IGNORECASE,
 )
 
@@ -81,7 +98,18 @@ def check_code_filter(text: str, prompt_text: str = "") -> str | None:
 def needs_moderation_llm(text: str) -> bool:
     """Арзан regex эвристикасы (ai_examiner §7.1): іске қосылмаса, кіші модель шақырылмайды."""
     normalized = unicodedata.normalize("NFC", text or "")
-    return bool(_INJECTION_RE.search(normalized) or _ABUSE_RE.search(normalized))
+    return bool(_INJECTION_RE.search(normalized) or _SUSPICIOUS_RE.search(normalized) or _ABUSE_RE.search(normalized))
+
+
+def _explicit_injection(text: str) -> bool:
+    return bool(_INJECTION_RE.search(unicodedata.normalize("NFC", text or "")))
+
+
+def _fallback_decision(text: str) -> ModerationDecision:
+    """Модель жоқ кезде: айқын бұйрық бұғатталады, қалғаны өткізіледі (оны ресми бағалаушы бәрібір елемейді)."""
+    if _explicit_injection(text):
+        return ModerationDecision(category="PROMPT_INJECTION", reason="Бағалау жүйесіне бұйрық анықталды.")
+    return ModerationDecision(category="SAFE", reason="")
 
 
 class ModerationSchema(BaseModel):
@@ -104,10 +132,11 @@ async def moderate_text(gateway: LLMGateway | None, text: str, *, topic_context:
     if not needs_moderation_llm(text):
         return ModerationDecision(category="SAFE", reason="")
     if gateway is None:
-        return ModerationDecision(
-            category="PROMPT_INJECTION" if _INJECTION_RE.search(text) else "PROFANITY",
-            reason="Емтихан ережесін бұзатын мазмұн анықталды.",
-        )
+        if _explicit_injection(text):
+            return ModerationDecision(category="PROMPT_INJECTION", reason="Емтихан ережесін бұзатын мазмұн анықталды.")
+        if _ABUSE_RE.search(unicodedata.normalize("NFC", text or "")):
+            return ModerationDecision(category="PROFANITY", reason="Емтихан ережесін бұзатын мазмұн анықталды.")
+        return ModerationDecision(category="SAFE", reason="")
 
     system = (
         "Сен мектеп емтиханындағы оқушы жауабын тексеретін модераторсың.\n"
@@ -128,9 +157,12 @@ async def moderate_text(gateway: LLMGateway | None, text: str, *, topic_context:
             schema=ModerationSchema,
         )
     except (LLMUnavailableError, LLMRequestError) as exc:
-        logger.warning("moderation gateway call failed, defaulting SAFE: %s", type(exc).__name__)
-        return ModerationDecision(category="SAFE", reason="")
+        decision = _fallback_decision(text)
+        logger.warning("moderation gateway call failed (%s), regex fallback: %s", type(exc).__name__, decision.category)
+        return decision
 
     if isinstance(result.parsed, ModerationSchema):
         return ModerationDecision(category=result.parsed.category, reason=result.parsed.reason.strip())
-    return ModerationDecision(category="SAFE", reason="")
+    decision = _fallback_decision(text)
+    logger.warning("moderation answer unreadable, regex fallback: %s", decision.category)
+    return decision

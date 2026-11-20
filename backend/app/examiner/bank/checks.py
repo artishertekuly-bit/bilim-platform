@@ -30,6 +30,9 @@ DUPLICATE_THRESHOLD = 0.85
 SOLVER_PROMPT = PromptRef("examiner.bank.mcq_solver", "2026-11-19.1")
 MIN_QUOTE_FRAGMENT = 15
 _ELLIPSIS = re.compile(r"…|\.{3,}")
+# Толық параграфты көретін форматтар (D79) мәтіннің әр жеріндегі сөйлемдерді «…»-сыз қатар жазады (D81):
+# әр сөйлем мәтіннен бөлек ізделеді.
+_QUOTE_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 # Тест сұрағы сөздердің түбірі бойынша салыстырылады (formats.word_stems): қазақ тіліндегі жалғау
 # («дәуіріндегі» / «дәуірінде») сөзді басқа етпейді. §16–17-де жалғауы ғана басқа екі сұрақ түбір бойынша 1.0
 # (сөз бойынша 0.78), §20–21-де бір ұғымның сөзі өзгертілген екі сұрағы 0.55, ал «0-сұрақ: …» / «1-сұрақ: …»
@@ -48,10 +51,15 @@ ITEM_REPEAT_SHARE = 0.6
 def quote_problem(package: Package, reference_text: str) -> str | None:
     """Дәйексөз оқулық мәтінінде бар-жоғы. Бос орын, тырнақша мен сызықша айырмашылығы есептелмейді.
 
-    Модель бірнеше үзіндіні «…» белгісімен біріктіруі мүмкін: онда әр үзінді мәтіннен бөлек ізделеді,
-    ал ең ұзыны кемінде MIN_QUOTE_FRAGMENT таңба болады (дәлел ұсақ сөз тіркестерінен құралмауы үшін).
+    Модель бірнеше үзіндіні «…» белгісімен немесе мәтінде қатар тұрмаған сөйлемдерді жай біріктіруі мүмкін:
+    онда әр үзінді мен әр сөйлем мәтіннен бөлек ізделеді, ал ең ұзыны кемінде MIN_QUOTE_FRAGMENT таңба болады
+    (дәлел ұсақ сөз тіркестерінен құралмауы үшін).
     """
-    fragments = [part.strip(' ."') for part in _ELLIPSIS.split(normalize_text(package.support_quote))]
+    fragments = [
+        sentence.strip(' ."')
+        for part in _ELLIPSIS.split(normalize_text(package.support_quote))
+        for sentence in _QUOTE_SENTENCE_END.split(part)
+    ]
     fragments = [part for part in fragments if part]
     if not fragments:
         return "Т7: support_quote бос"

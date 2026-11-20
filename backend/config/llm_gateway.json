@@ -86,7 +86,14 @@
       "variants": {
         "mcq": { "model": "small", "reasoning_effort": "high" },
         "mcq_x3": { "model": "small", "reasoning_effort": "medium" },
-        "matching": { "model": "strong", "reasoning_effort": "low" }
+        "matching": { "model": "strong", "reasoning_effort": "low" },
+        "short_answer": { "model": "small", "reasoning_effort": "medium" },
+        "true_false_fix": { "model": "small", "reasoning_effort": "medium" },
+        "feynman": { "model": "small", "reasoning_effort": "medium" },
+        "teach_ai": { "model": "small", "reasoning_effort": "medium" },
+        "case_study": { "model": "small", "reasoning_effort": "medium" },
+        "socratic": { "model": "strong", "reasoning_effort": "low" },
+        "priority": { "model": "strong", "reasoning_effort": "low" }
       }
     },
     "generation_fast": {
@@ -94,7 +101,14 @@
       "variants": {
         "mcq": { "model": "small", "reasoning_effort": "high" },
         "mcq_x3": { "model": "small", "reasoning_effort": "medium" },
-        "matching": { "model": "strong", "reasoning_effort": "low" }
+        "matching": { "model": "strong", "reasoning_effort": "low" },
+        "short_answer": { "model": "small", "reasoning_effort": "medium" },
+        "true_false_fix": { "model": "small", "reasoning_effort": "medium" },
+        "feynman": { "model": "small", "reasoning_effort": "medium" },
+        "teach_ai": { "model": "small", "reasoning_effort": "medium" },
+        "case_study": { "model": "small", "reasoning_effort": "medium" },
+        "socratic": { "model": "strong", "reasoning_effort": "low" },
+        "priority": { "model": "strong", "reasoning_effort": "low" }
       }
     },
     "concept_extraction": { "model": "small", "mode": "sync", "reasoning_effort": "low", "max_output_tokens": 4000, "timeout_s": 90 }

@@ -43,6 +43,9 @@ FORMAT_LEVEL: dict[str, int] = {
     "case_study": 4,
 }
 
+# Т6 деиксисінде мәтінге емес, тапсырманың өзіне сілтеу (D81): «Бұл тапсырмада…» — кез келген форматта.
+TASK_SELF_REFERENCES: frozenset[str] = frozenset({"тапсырма"})
+
 
 # OCR тасымалы (D80): «иуда-\n\nизм» → «иудаизм». Тек жол соңындағы дефис және екі жағында да әріп:
 # «1946–\n1974», «Беғазы-Дәндібай» өзгермейді. Жұмсақ тасымал белгісі (U+00AD) әрқашан алынады.
@@ -109,6 +112,8 @@ class GenBase(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     format_name: ClassVar[str]
+    # Т6 деиксисінде мәтінге емес, тапсырманың өз бөлігіне сілтеу (D81): «бұл тапсырма», «бұл диалог» т.б.
+    SELF_REFERENCES: ClassVar[frozenset[str]] = TASK_SELF_REFERENCES
 
     ecd_skill: str = Field(description="Тапсырма тексеретін дағды, бір сөйлем.")
     evidence: str = Field(description="Дұрыс жауап оқушының қандай білімін дәлелдейді, бір сөйлем.")
@@ -118,7 +123,7 @@ class GenBase(BaseModel):
 
     def common_problems(self) -> list[str]:
         problems = []
-        context = _text_reference_problem(getattr(self, "stem", ""))
+        context = _text_reference_problem(getattr(self, "stem", ""), self.SELF_REFERENCES)
         if context:
             problems.append(context)
         if not self.ecd_skill.strip():
@@ -213,22 +218,39 @@ def _words(text: str) -> set[str]:
 #   * «бұл кезең», «осы тайпалар» — тек бірінші сөйлемде: екінші сөйлемдегі «бұл» сұрақтың өз
 #     сөйлеміне сілтейді («Б.з.б. 529 жылы Кир жорық жасады. Бұл жорық немен аяқталды?»).
 # «Аталған» тізімде жоқ: «қалай аталған?» — қалыпты сұрақ.
+# Тапсырманың өз бөлігіне сілтеу мәтінге сілтеу емес (D81): «Бұл тапсырмада…» — кез келген форматта, «Бұл
+# диалогта…», «Бұл ұғымды…», «Бұл жағдайда…» — сол бөлігі оқушыға көрсетілетін форматта (`SELF_REFERENCES`).
 TEXT_REFERENCE = re.compile(
     r"(?<![\w-])(мәтін|мәтінде|мәтіндегі|мәтіннен|мәтінге|үзінді|үзіндіде|үзіндідегі|үзіндіден"
     r"|жоғарыда|жоғарыдағы|бұған дейін|бұдан бұрын)(?![\w-])",
     re.IGNORECASE,
 )
-DEIXIS = re.compile(r"(?<![\w-])(бұл|осы|мұндағы)\s+\w+", re.IGNORECASE)
+DEIXIS = re.compile(r"(?<![\w-])(бұл|осы|мұндағы)\s+(\w+)", re.IGNORECASE)
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 
-def _text_reference_problem(stem: str) -> str | None:
+def _text_reference_problem(stem: str, self_references: frozenset[str] = TASK_SELF_REFERENCES) -> str | None:
     text = unicodedata.normalize("NFC", stem or "").strip()
     if not text:
         return None
-    if TEXT_REFERENCE.search(text) or DEIXIS.search(_SENTENCE_END.split(text, maxsplit=1)[0]):
+    first_sentence = _SENTENCE_END.split(text, maxsplit=1)[0]
+    deixis = [
+        match for match in DEIXIS.finditer(first_sentence)
+        if not any(match.group(2).casefold().startswith(word) for word in self_references)
+    ]
+    if TEXT_REFERENCE.search(text) or deixis:
         return "Т6: сұрақ оқулық мәтініне сілтейді (оқушы мәтінді көрмейді)"
     return None
+
+
+# Басымдық реті нұсқалардың оқулықта аталу ретіне сүйенбеуі керек (D81): оқушы мәтінді көрмейді, ал «аталу
+# реті» — пән білімі емес. «Оқулықтағы ретімен», «мәтінде берілген ретпен», «аталған ретпен»; ал «оқулықтағы
+# деректер бойынша хронологиялық ретпен» — объективті критерий, ол ұсталмайды.
+MENTION_ORDER = re.compile(
+    r"(?<![\w-])(?:(?:оқулық|мәтін|үзінді)\w*\s+(?:(?:берілген|аталған|көрсетілген|жазылған|келтірілген|тізілген)\s+)?"
+    r"|(?:аталу|аталған|аталуы|берілу)\s+)рет(?:і|імен|пен|ке|ін)?(?![\w-])",
+    re.IGNORECASE,
+)
 
 
 def _stem_echo_problem(stem: str, options: list[str], correct_index: int) -> str | None:
@@ -632,7 +654,7 @@ class TrueFalseFixGen(GenBase):
 
     def problems(self) -> list[str]:
         problems = self.common_problems()
-        statement_ref = _text_reference_problem(self.statement)
+        statement_ref = _text_reference_problem(self.statement, self.SELF_REFERENCES)
         if statement_ref:
             problems.append(statement_ref)
         if not self.stem.strip():
@@ -663,6 +685,7 @@ class PriorityGen(GenBase):
     """4 · Басымдық қою + негіздеу: код (рет) + ЖИ (негіздеме a ∈ 0..2)."""
 
     format_name: ClassVar[str] = "priority"
+    SELF_REFERENCES: ClassVar[frozenset[str]] = TASK_SELF_REFERENCES | {"жағдай"}
     OPTION_LIMIT: ClassVar[int] = 80
     SCENARIO_WORDS_LIMIT: ClassVar[int] = 80
 
@@ -675,9 +698,11 @@ class PriorityGen(GenBase):
 
     def problems(self) -> list[str]:
         problems = self.common_problems()
-        scenario_ref = _text_reference_problem(self.scenario)
+        scenario_ref = _text_reference_problem(self.scenario, self.SELF_REFERENCES)
         if scenario_ref:
             problems.append(scenario_ref)
+        if any(MENTION_ORDER.search(text) for text in (self.stem, self.scenario, self.reference_justification)):
+            problems.append("Т6: басымдық реті оқулықта аталу ретіне сүйенеді (объективті критерий керек)")
         if not self.stem.strip():
             problems.append("Т6: stem бос")
         if not self.scenario.strip():
@@ -727,6 +752,7 @@ class CaseStudyGen(GenBase):
     """5 · Кейс талдау: ≤ 120 сөз + 1–6 жол кесте, 0–4 рубрика (Т6)."""
 
     format_name: ClassVar[str] = "case_study"
+    SELF_REFERENCES: ClassVar[frozenset[str]] = TASK_SELF_REFERENCES | {"жағдай"}
     CASE_WORDS_LIMIT: ClassVar[int] = 120
     MAX_ROWS: ClassVar[int] = 6
 
@@ -739,7 +765,7 @@ class CaseStudyGen(GenBase):
 
     def problems(self) -> list[str]:
         problems = self.common_problems()
-        prompt_ref = _text_reference_problem(self.task_prompt)
+        prompt_ref = _text_reference_problem(self.task_prompt, self.SELF_REFERENCES)
         if prompt_ref:
             problems.append(prompt_ref)
         if not self.stem.strip():
@@ -791,6 +817,7 @@ class FeynmanGen(GenBase):
     """3 · Фейнман әдісі: өз сөзімен түсіндіру (≥ 40 сөз), 0–4 рубрика."""
 
     format_name: ClassVar[str] = "feynman"
+    SELF_REFERENCES: ClassVar[frozenset[str]] = TASK_SELF_REFERENCES | {"ұғым"}
 
     stem: str = Field(description="Тапсырма шарты.")
     concept: str = Field(description="Түсіндірілетін басты ұғым.")
@@ -801,7 +828,7 @@ class FeynmanGen(GenBase):
 
     def problems(self) -> list[str]:
         problems = self.common_problems()
-        aud_ref = _text_reference_problem(self.audience_prompt)
+        aud_ref = _text_reference_problem(self.audience_prompt, self.SELF_REFERENCES)
         if aud_ref:
             problems.append(aud_ref)
         if not self.stem.strip():
@@ -834,6 +861,7 @@ class SocraticGen(GenBase):
     """I-1 · Сократтық диалог: 2–3 бақылау нүктесі, 0–4 рубрика (Т6)."""
 
     format_name: ClassVar[str] = "socratic"
+    SELF_REFERENCES: ClassVar[frozenset[str]] = TASK_SELF_REFERENCES | {"диалог", "жағдай"}
 
     stem: str = Field(description="Диалог тақырыбы, 1 сөйлем.")
     situation: str = Field(description="Қысқа жағдай немесе сұрау, 1–2 сөйлем.")
@@ -844,7 +872,7 @@ class SocraticGen(GenBase):
     def problems(self) -> list[str]:
         problems = self.common_problems()
         for text in (self.situation, self.opening_question):
-            ref = _text_reference_problem(text)
+            ref = _text_reference_problem(text, self.SELF_REFERENCES)
             if ref:
                 problems.append(ref)
         if not self.stem.strip():
@@ -889,6 +917,7 @@ class TeachAiGen(GenBase):
     """2 · «ЖИ-ді оқыт»: қате түсінікті түзету диалогы, 0–4 рубрика."""
 
     format_name: ClassVar[str] = "teach_ai"
+    SELF_REFERENCES: ClassVar[frozenset[str]] = TASK_SELF_REFERENCES | {"диалог", "жағдай"}
 
     stem: str = Field(description="Тапсырма шарты.")
     situation: str = Field(description="Оқушыға көрінетін қысқа жағдай.")
@@ -899,7 +928,7 @@ class TeachAiGen(GenBase):
 
     def problems(self) -> list[str]:
         problems = self.common_problems()
-        sit_ref = _text_reference_problem(self.situation)
+        sit_ref = _text_reference_problem(self.situation, self.SELF_REFERENCES)
         if sit_ref:
             problems.append(sit_ref)
         for field_name in ("stem", "situation", "ai_persona", "misconception", "opening_message"):

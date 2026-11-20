@@ -306,6 +306,45 @@ class FormatTests(unittest.TestCase):
         self.assertIsNone(teach.socratic_checkpoints)
         self.assertIsNotNone(teach.rubric_0_4)
 
+    def test_self_reference_is_not_a_text_reference(self) -> None:
+        """D81: «Бұл диалогта…», «Бұл ұғымды…» — тапсырманың өз бөлігіне сілтеу, Т6 оны ұстамайды. Ал бөлігі
+        оқушыға көрсетілмейтін форматта («Бұл жағдайда…» тестте) және басқа деиксис бұрынғыдай ұсталады."""
+        text_ref = "Т6: сұрақ оқулық мәтініне сілтейді (оқушы мәтінді көрмейді)"
+        gens = {g.format_name: g for g in valid_gens()}
+
+        def problems(name: str, **fields) -> list[str]:
+            return gens[name].model_copy(update=fields).problems()
+
+        self.assertNotIn(text_ref, problems("socratic", stem="Бұл диалогта сіз қалалардың рөлін дәлелдейсіз."))
+        self.assertNotIn(text_ref, problems("teach_ai", situation="Бұл жағдайда сыныптасыңыз шатасып отыр."))
+        self.assertNotIn(text_ref, problems("feynman", audience_prompt="Бұл ұғымды 5-сынып оқушысына түсіндіріңіз."))
+        self.assertNotIn(text_ref, problems("case_study", task_prompt="Бұл жағдайда Отырардың рөлін талдаңыз."))
+        self.assertNotIn(text_ref, problems("mcq", stem="Бұл тапсырмада сауда жолының атауын табыңыз."))
+        self.assertIn(text_ref, problems("mcq", stem="Бұл жағдайда сауда жолы қалай аталды?"))
+        self.assertIn(text_ref, problems("feynman", audience_prompt="Бұл диалогта түсіндіріңіз."))
+        self.assertIn(text_ref, problems("socratic", situation="Бұл кезеңде қалалар өсті."))
+        self.assertIn(text_ref, problems("socratic", situation="Мәтіндегі қалалар туралы ойланыңыз."))
+
+    def test_priority_rejects_order_of_mention_in_the_textbook(self) -> None:
+        # D81: «оқулықтағы ретімен» — оқушы мәтінді көрмейді; рет объективті критерийге сүйенуі керек.
+        mention = "Т6: басымдық реті оқулықта аталу ретіне сүйенеді (объективті критерий керек)"
+        priority = next(g for g in valid_gens() if g.format_name == "priority")
+        for field, text in (
+            ("stem", "Қалаларды оқулықтағы ретімен орналастырыңыз."),
+            ("scenario", "Сіз конспект жасап отырсыз: қалаларды мәтінде берілген ретпен жазыңыз."),
+            ("reference_justification", "Қалалар дәл аталған ретпен тізіледі."),
+        ):
+            self.assertIn(mention, priority.model_copy(update={field: text}).problems(), field)
+        objective = priority.model_copy(update={
+            "stem": "Оқиғаларды оқулықтағы деректер бойынша хронологиялық ретпен орналастырыңыз."})
+        self.assertNotIn(mention, objective.problems())
+        self.assertEqual(priority.problems(), [])
+
+        body = load_prompt("priority").body
+        self.assertIn("аталу ретіне сүйеме", body)
+        for criterion in ("хронология", "себеп-салдар", "деңгей"):
+            self.assertIn(criterion, body)
+
 
 # ------------------------------------------------------------------ контекст
 
@@ -1491,6 +1530,17 @@ class CheckTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(check("Ұлы Жібек жолы Қытайдан басталды… Отырар мен Тараз осы жолдың бойындағы"),
                          "Т7: support_quote оқулық мәтінінде жоқ")
         self.assertEqual(check("Ұлы Жібек… жолы… Отырар мен"), "Т7: support_quote тым қысқа")
+
+    def test_quote_sentences_from_different_places_are_checked_one_by_one(self) -> None:
+        # D81: толық параграфты көретін форматтар мәтінде қатар тұрмаған сөйлемдерді «…»-сыз біріктіреді.
+        def check(quote: str) -> str | None:
+            return quote_problem(mcq(support_quote=quote).to_package(random.Random(1)), SOURCE)
+
+        first = "Ұлы Жібек жолы Қытайдан Жерорта теңізіне дейін созылған сауда жолы болды."
+        third = "Отырар мен Тараз осы жолдың бойындағы ірі қалалар еді."
+        self.assertIsNone(check(f"{first} {third}"))
+        self.assertIsNone(check(f"{third} {first}"))
+        self.assertEqual(check(f"{first} Отырар Қытайдың астанасы болды."), "Т7: support_quote оқулық мәтінінде жоқ")
 
     def test_duplicate_threshold(self) -> None:
         self.assertAlmostEqual(cosine([1, 0], [1, 0]), 1.0)
