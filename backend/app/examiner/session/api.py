@@ -93,6 +93,17 @@ def require_teacher_id(
     return user_id
 
 
+def require_parent_id(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> str:
+    """api §3.10: баланың профилі тек ата-анаға (байланысы сервисте тексеріледі)."""
+    user_id, role = get_current_user_with_role(authorization=authorization, x_user_id=x_user_id)
+    if role != "parent":
+        raise ExaminerError(403, "FORBIDDEN", "Бұл әрекет тек ата-анаға қолжетімді.")
+    return user_id
+
+
 # ------------------------------------------------------------------ каталог
 
 
@@ -220,6 +231,18 @@ async def profile(
     user_id: str = Depends(get_current_user_id), service: ExaminerService = Depends(get_service)
 ) -> StudentProfile:
     return await service.profile(user_id)
+
+
+# ------------------------------------------------------------------ ата-ана (api §3.10)
+
+
+@router.get("/parent/children/{student_id}/profile", response_model=StudentProfile)
+async def child_profile(
+    student_id: str,
+    parent_id: str = Depends(require_parent_id),
+    service: ExaminerService = Depends(get_service),
+) -> StudentProfile:
+    return await service.parent_child_profile(parent_id, _uuid(student_id))
 
 
 # ------------------------------------------------------------------ мұғалім (api §3.9)

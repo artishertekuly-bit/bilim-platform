@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import random
+import uuid
 from collections import defaultdict
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -888,6 +889,39 @@ class ExaminerService:
             raise validation("Тапсырмалар ретімен беріледі: алдымен ағымдағы тапсырмаға жауап беріңіз.")
         return item
 
+    async def _raise_alert(
+        self,
+        conn: Any,
+        *,
+        student_id: str,
+        category: str,
+        evidence_text: str,
+        severity: str,
+        context: dict[str, Any],
+    ) -> str | None:
+        """Мұғалімнің бір дабыл кірісіне жазады (ortaq §1, §5; D85): Examiner тек INSERT жасайды.
+
+        Дабыл жазылмаса да страйк сақталады: savepoint ішінде, қатесі тек логқа түседі."""
+        alert_id = str(uuid.uuid4())
+        try:
+            async with conn.transaction():
+                ready = await conn.fetchval("select to_regclass('public.security_alerts') is not null")
+                if not ready:
+                    return None
+                await conn.execute(
+                    """
+                    insert into public.security_alerts
+                      (alert_id, source_system, student_id, severity, category, evidence_text, context_ref)
+                    values ($1::uuid, 'examiner', $2::uuid, $3, $4, $5, $6::jsonb)
+                    """,
+                    alert_id, student_id, severity, category, evidence_text[:4000],
+                    json.dumps(context, ensure_ascii=False),
+                )
+        except asyncpg.PostgresError as exc:
+            logger.warning("security alert was not written: %s", type(exc).__name__)
+            return None
+        return alert_id
+
     async def _apply_strike(
         self,
         conn: Any,
@@ -904,12 +938,18 @@ class ExaminerService:
             session_id,
         )
         strike_no = min(2, int(active_count or 0) + 1)
+        alert_id = await self._raise_alert(
+            conn, student_id=student_id, category=category, evidence_text=evidence_text,
+            severity="soft" if strike_no == 1 else "hard",
+            context={"session_id": session_id, "item_id": str(item["item_id"]), "strike_no": strike_no},
+        )
         await conn.execute(
             """
-            insert into examiner.moderation_events (session_id, item_id, student_id, strike_no, category, evidence_text)
-            values ($1::uuid, $2::uuid, $3::uuid, $4::smallint, $5, $6)
+            insert into examiner.moderation_events
+              (session_id, item_id, student_id, strike_no, category, evidence_text, alert_id)
+            values ($1::uuid, $2::uuid, $3::uuid, $4::smallint, $5, $6, $7::uuid)
             """,
-            session_id, item["item_id"], student_id, strike_no, category, evidence_text[:4000],
+            session_id, item["item_id"], student_id, strike_no, category, evidence_text[:4000], alert_id,
         )
         if strike_no == 1:
             await conn.execute(
@@ -1699,6 +1739,20 @@ class ExaminerService:
 
     async def profile(self, student_id: str) -> StudentProfile:
         async with self._pool.acquire() as conn:
+            return StudentProfile(subjects=await self._profiles(conn, student_id))
+
+    async def parent_child_profile(self, parent_id: str, student_id: str) -> StudentProfile:
+        """api §3.10, D27: тек расталған байланыс бойынша, тек профиль (жауап, диалог, рейтинг жоқ)."""
+        async with self._pool.acquire() as conn:
+            linked = await conn.fetchval("select to_regclass('public.parent_student_links') is not null")
+            if linked:
+                linked = await conn.fetchval(
+                    "select exists (select 1 from public.parent_student_links "
+                    "where parent_id = $1::uuid and student_id = $2::uuid)",
+                    parent_id, student_id,
+                )
+            if not linked:
+                raise not_found("Бала табылмады.")
             return StudentProfile(subjects=await self._profiles(conn, student_id))
 
     async def _profiles(self, conn: Any, student_id: str, *, book: str | None = None) -> list[SubjectProfile]:
