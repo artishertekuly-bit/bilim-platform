@@ -414,9 +414,11 @@ event: error    data: {"code": "RATE_LIMITED", "message": "…"}
 | `create_class(title, subject_id)` | Мұғалім | → `{ class_id, join_code }` |
 | `rotate_join_code(class_id)` | Сынып мұғалімі | → `{ join_code }`; ескі код бірден жарамсыз болады |
 | `preview_class(code)` | Оқушы | → `{ class_id, title, subject, teacher_name }`; сағатына 10 әрекет |
-| `join_class(code)` | Оқушы | → `{ class_id }`; қайта қосылу қате емес |
+| `join_class(code)` | Оқушы | → `{ class_id }`; қайта қосылу қате емес; код табылмаса `null` (сәтсіз әрекет лимитке есептеледі, D83) |
 | `my_classes()` | Оқушы | → `[{ class_id, title, subject, teacher: { id, name } }]` (Профильдегі «Мұғалімдер» тізімі) |
 | `remove_class_member(class_id, student_id)` | Сынып мұғалімі | → `void` |
+| `teacher_classes()` | Мұғалім | → `[{ class_id, title, subject_id, subject, join_code, created_at, member_count }]` (D83) |
+| `class_roster(class_id?)` | Сынып мұғалімі | → `[{ class_id, student_id, full_name, avatar_url, joined_at }]`; `class_id` жоқ болса — барлық сыныбы (D83) |
 
 - `join_code` — 6 таңба: бас әріп пен сан, шатасатын таңбаларсыз (`0` / `O`, `1` / `I` / `L` жоқ). Клиент енгізілген мәтінді бас әріпке айналдырады.
 - QR-да тек код болады.

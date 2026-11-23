@@ -22,6 +22,7 @@ import {
   Sparkles,
   Sun,
   UserRound,
+  Users,
   WandSparkles,
 } from 'lucide-react';
 
@@ -91,6 +92,14 @@ const STUDENT_COURSE_TOOLS: SanaLauncherTool[] = [
     path: '/tests',
     icon: ClipboardList,
     badge: 'Тексеру',
+  },
+  {
+    id: 'student-classes',
+    title: 'Сыныптарым',
+    description: 'Сыныпқа кодпен қосылу, мұғалімдерім',
+    path: '/classes',
+    icon: Users,
+    badge: 'Сынып',
   },
 ];
 
@@ -241,6 +250,7 @@ function getDisplayEmail(email?: string | null): string {
 function getRoleLabel(role: UserRole): string {
   if (role === 'admin') return 'Админ';
   if (role === 'student') return 'Оқушы';
+  if (role === 'teacher') return 'Мұғалім';
 
   return 'Ескі аккаунт';
 }

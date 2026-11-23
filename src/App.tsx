@@ -63,6 +63,12 @@ const ExamSessionPage = lazy(() => import('./pages/exam/ExamSessionPage'));
 const ExamResultPage = lazy(() => import('./pages/exam/ExamResultPage'));
 const ExamProfilePage = lazy(() => import('./pages/exam/ExamProfilePage'));
 
+const TeacherHomePage = lazy(() => import('./pages/teacher/TeacherHomePage'));
+const TeacherClassPage = lazy(() => import('./pages/teacher/TeacherClassPage'));
+const TeacherReviewPage = lazy(() => import('./pages/teacher/TeacherReviewPage'));
+const TeacherGradePage = lazy(() => import('./pages/teacher/TeacherGradePage'));
+const StudentClassesPage = lazy(() => import('./pages/StudentClassesPage'));
+
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
 const UpdatePasswordPage = lazy(() => import('./pages/UpdatePasswordPage'));
@@ -77,9 +83,12 @@ const queryClient = new QueryClient({
   },
 });
 
-// Мұғалім және ата-ана рөлдері платформадан алынып тасталды: тек оқушы және админ (автор).
+// Мұғалім рөлі 6-қадамда қайтты (D25, D83): оған тек мұғалім панелі, профиль және құпиясөз беттері ашық.
+// Ата-ана рөлі әлі қосылмаған. Курс/тест авторы — тек админ.
 const ALL_ROLES: UserRole[] = ['student', 'admin'];
+const ACCOUNT_ROLES: UserRole[] = ['student', 'teacher', 'admin'];
 const STUDENT_ROLES: UserRole[] = ['student'];
+const TEACHER_ROLES: UserRole[] = ['teacher'];
 const ADMIN_ROLES: UserRole[] = ['admin'];
 const AUTHOR_ROLES: UserRole[] = ADMIN_ROLES;
 
@@ -334,11 +343,11 @@ const commonProtectedRoutes: AppRouteConfig[] = [
     element: <AiEntryPage />,
     allowedRoles: LEARNING_CONTENT_ROLES,
   },
-  { path: '/profile', element: <ProfileSettingsPage />, allowedRoles: ALL_ROLES },
+  { path: '/profile', element: <ProfileSettingsPage />, allowedRoles: ACCOUNT_ROLES },
   {
     path: '/setup-password',
     element: <SetupPasswordPage />,
-    allowedRoles: ALL_ROLES,
+    allowedRoles: ACCOUNT_ROLES,
     enforcePasswordSetup: false,
   },
   {
@@ -354,6 +363,15 @@ const examRoutes: AppRouteConfig[] = [
   { path: '/exam/session/:sessionId', element: <ExamSessionPage />, allowedRoles: LEARNING_CONTENT_ROLES },
   { path: '/exam/result/:sessionId', element: <ExamResultPage />, allowedRoles: LEARNING_CONTENT_ROLES },
   { path: '/exam/profile', element: <ExamProfilePage />, allowedRoles: LEARNING_CONTENT_ROLES },
+];
+
+// 6-қадам (D25, D33, D83): мұғалім панелі және оқушының сыныпқа қосылуы.
+const classRoutes: AppRouteConfig[] = [
+  { path: '/teacher', element: <TeacherHomePage />, allowedRoles: TEACHER_ROLES },
+  { path: '/teacher/classes/:classId', element: <TeacherClassPage />, allowedRoles: TEACHER_ROLES },
+  { path: '/teacher/review', element: <TeacherReviewPage />, allowedRoles: TEACHER_ROLES },
+  { path: '/teacher/grades/:gradeId', element: <TeacherGradePage />, allowedRoles: TEACHER_ROLES },
+  { path: '/classes', element: <StudentClassesPage />, allowedRoles: STUDENT_ROLES },
 ];
 
 const sharedContentRoutes: AppRouteConfig[] = [
@@ -531,6 +549,7 @@ const adminRoutes: AppRouteConfig[] = [
 const protectedRoutes: AppRouteConfig[] = [
   ...commonProtectedRoutes,
   ...examRoutes,
+  ...classRoutes,
   ...sharedContentRoutes,
   ...studentRoutes,
   ...authorRoutes,

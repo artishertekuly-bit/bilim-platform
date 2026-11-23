@@ -7,6 +7,7 @@ import {
   ExamScreen,
   LoadingBlock,
   PrimaryLink,
+  SecondaryLink,
   SectionLabel,
   SimpleHeader,
 } from '@/components/exam/ExamUi';
@@ -58,6 +59,10 @@ export default function ExamProfilePage() {
           </section>
         );
       })}
+      <section className="flex flex-col gap-2.5">
+        <SectionLabel>Мұғалімдер</SectionLabel>
+        <SecondaryLink to="/classes">Сыныпқа қосылу · Мұғалімдерім</SecondaryLink>
+      </section>
     </ExamScreen>
   );
 }

@@ -39,7 +39,14 @@ from app.examiner.session.dto import (
     SessionResult,
 )
 from app.examiner.session.input_filter import check_code_filter, moderate_text, needs_moderation_llm
-from app.examiner.session.review import confirm_grade, mark_false_positive, override_grade, recompute_session_result
+from app.examiner.session.review import (
+    confirm_grade,
+    fetch_grade_detail,
+    fetch_review_queue,
+    mark_false_positive,
+    override_grade,
+    recompute_session_result,
+)
 from app.examiner.session.service import ExaminerService
 from app.llm_gateway import LLMGateway, Task, Usage, parse_config
 from app.llm_gateway.providers import FakeProvider, ProviderError
@@ -478,15 +485,19 @@ class FakeReviewConn:
         self.vector_state = "candidate"
         self.overrides: list[tuple[int, str, str]] = []
         self.mod_event_revoked = False
+        self.classes_ready = True
+        self.teacher_linked = True  # оқушы мұғалімнің сыныбында және сынып пәні сессиянікімен бірдей
+        self.queries: list[str] = []
 
     @asynccontextmanager
     async def transaction(self):
         yield self
 
     async def fetchrow(self, sql: str, *args):
+        self.queries.append(sql)
         if "from examiner.request_log" in sql:
             return self.request_log.get((args[0], args[1]))
-        if "to_regclass('public.classes')" in sql:
+        if "public.class_members" in sql and not self.teacher_linked:
             return None
         if "from examiner.answer_log where item_id" in sql:
             return {"grade_id": "grade-1"}
@@ -530,13 +541,19 @@ class FakeReviewConn:
         return None
 
     async def fetchval(self, sql: str, *args):
+        self.queries.append(sql)
         if "to_regclass" in sql:
-            return False
+            return self.classes_ready
+        if "from public.classes where class_id" in sql:
+            return args[0] == "class-own"
         if "count(*)::int from examiner.moderation_events" in sql:
             return self.active_strikes
+        if "count(*)::int" in sql and "from examiner.answer_log al" in sql:
+            return 1 if self.teacher_linked else 0
         return None
 
     async def fetch(self, sql: str, *args):
+        self.queries.append(sql)
         if "from examiner.session_items i" in sql:
             return [
                 {"tier": "X1", "format": "short_answer", "block": None, "s": self.effective_score,
@@ -708,6 +725,48 @@ class ReviewAndModerationFlowTests(unittest.IsolatedAsyncioTestCase):
             FalsePositiveRequest(client_request_id=uuid.uuid4(), reason="Қате дабыл", new_score=4),
         )
         self.assertEqual((fp.strike_count, fp.effective_score, conn.session_status), (1, 4, "active"))
+
+    async def test_teacher_sees_only_own_class_students_in_the_class_subject(self) -> None:
+        # D83 (api §2.1, D38): сынып байланысы мен сыныптың пәні SQL-дің өзінде тексеріледі.
+        conn = FakeReviewConn()
+        queue = await fetch_review_queue(conn, "t1")
+        self.assertEqual(queue.total, 1)
+        queue_sql = [q for q in conn.queries if "from examiner.answer_log al" in q]
+        self.assertEqual(len(queue_sql), 2)  # count және тізім
+        for sql in queue_sql:
+            self.assertIn("c.teacher_id = $1::uuid", sql)
+            self.assertIn("cm.student_id = al.student_id", sql)
+            self.assertIn("c.subject_id = s.subject_id", sql)
+
+        conn.teacher_linked = False
+        for action in (
+            lambda: fetch_grade_detail(conn, "t1", "grade-1"),
+            lambda: confirm_grade(conn, "t1", "grade-1", ConfirmGradeRequest(client_request_id=uuid.uuid4())),
+            lambda: override_grade(conn, "t1", "grade-1", OverrideGradeRequest(
+                client_request_id=uuid.uuid4(), new_score=1, reason="Себеп")),
+            lambda: mark_false_positive(conn, "t1", "evt-1", FalsePositiveRequest(
+                client_request_id=uuid.uuid4(), reason="Қате дабыл")),
+        ):
+            with self.assertRaises(ExaminerError) as ctx:
+                await action()
+            self.assertEqual(ctx.exception.status, 404)
+        self.assertEqual(conn.grade_status, "provisional")  # бөтен баға өзгермеді
+        self.assertFalse(conn.mod_event_revoked)
+
+    async def test_review_queue_is_empty_without_class_tables_and_foreign_class_is_404(self) -> None:
+        conn = FakeReviewConn()
+        conn.classes_ready = False  # бұрын мұғалім бүкіл оқушының бағасын көретін
+        self.assertEqual((await fetch_review_queue(conn, "t1")).model_dump(), {"items": [], "total": 0})
+        with self.assertRaises(ExaminerError) as ctx:
+            await confirm_grade(conn, "t1", "grade-1", ConfirmGradeRequest(client_request_id=uuid.uuid4()))
+        self.assertEqual(ctx.exception.status, 404)
+
+        conn.classes_ready = True
+        with self.assertRaises(ExaminerError) as ctx:
+            await fetch_review_queue(conn, "t1", class_id="class-other")
+        self.assertEqual(ctx.exception.status, 404)
+        own = await fetch_review_queue(conn, "t1", class_id="class-own")
+        self.assertEqual(own.total, 1)
 
     async def test_strike_2_blocks_without_ended_at(self) -> None:
         conn = FakeReviewConn()

@@ -1,4 +1,8 @@
-"""Мұғалімнің растау, түзету және қате дабылды қалпына келтіру логикасы (api §3.9; D16, D37, D69, Т11)."""
+"""Мұғалімнің растау, түзету және қате дабылды қалпына келтіру логикасы (api §3.9; D16, D37, D69, Т11).
+
+Мұғалім тек өз сыныбындағы оқушының, тек сыныптың пәні бойынша бағасын көреді (api §2.1, D38, D83);
+байланысы жоқ баға мен оқиға `404` қайтарады.
+"""
 
 from __future__ import annotations
 
@@ -58,26 +62,24 @@ async def _remember(conn: Any, user_id: str, request_id: str, endpoint: str, req
     )
 
 
-async def _allowed_students(conn: Any, teacher_id: str, class_id: str | None) -> list[str] | None:
-    """6-қадамда `public.classes` құрылғанда ғана сынып бойынша сүзеді."""
-    has_classes = await conn.fetchval(
+async def _classes_ready(conn: Any) -> bool:
+    """Сынып кестелері жоқ болса, мұғалім ешкімді көрмейді (D83: бұрын бәрін көретін)."""
+    return bool(await conn.fetchval(
         "select to_regclass('public.classes') is not null and to_regclass('public.class_members') is not null"
-    )
-    if not has_classes:
-        if class_id is not None:
-            raise not_found("Сынып кестесі әлі қосылмаған.")
-        return None
-    rows = await conn.fetch(
-        """
-        select distinct cm.student_id::text as student_id
-        from public.classes c
-        join public.class_members cm on cm.class_id = c.id
-        where c.teacher_id = $1::uuid and ($2::uuid is null or c.id = $2::uuid)
-        """,
-        teacher_id,
-        class_id,
-    )
-    return [row["student_id"] for row in rows]
+    ))
+
+
+def _teacher_sees(teacher: str, student: str, subject: str, class_param: str = "null") -> str:
+    """api §2.1, D38: мұғалім тек өз сыныбындағы оқушыны және тек сыныптың пәні бойынша көреді."""
+    return f"""exists (
+            select 1
+            from public.class_members cm
+            join public.classes c on c.class_id = cm.class_id
+            where c.teacher_id = {teacher}::uuid
+              and cm.student_id = {student}
+              and c.subject_id = {subject}
+              and ({class_param}::uuid is null or c.class_id = {class_param}::uuid)
+        )"""
 
 
 async def recompute_session_result(conn: Any, session_id: str) -> tuple[float, bool, bool] | None:
@@ -142,65 +144,56 @@ async def fetch_review_queue(
     offset: int = 0,
 ) -> ReviewQueueResponse:
     """D69 басымдығымен мұғалімнің растау кезегі: Т9 → шекаралық → шағым → алтын жиын → D16."""
-    students = await _allowed_students(conn, teacher_id, class_id)
-    if students is not None and not students:
+    if not await _classes_ready(conn):
+        if class_id is not None:
+            raise not_found("Сынып табылмады.")
         return ReviewQueueResponse(items=[], total=0)
+    if class_id is not None:
+        owns = await conn.fetchval(
+            "select exists (select 1 from public.classes where class_id = $1::uuid and teacher_id = $2::uuid)",
+            class_id,
+            teacher_id,
+        )
+        if not owns:
+            raise not_found("Сынып табылмады.")
 
-    filter_sql = "and al.student_id = any($1::text[]::uuid[])" if students is not None else ""
-    count_params = [students] if students is not None else []
+    visible = _teacher_sees("$1", "al.student_id", "s.subject_id", "$2")
     total = await conn.fetchval(
         f"""
         select count(*)::int
         from examiner.answer_log al
-        where al.grade_status = 'provisional' {filter_sql}
+        join examiner.sessions s on s.session_id = al.session_id
+        where al.grade_status = 'provisional' and {visible}
         """,
-        *count_params,
+        teacher_id,
+        class_id,
     )
-
-    if students is not None:
-        query = f"""
-            select al.answer_id::text as grade_id, al.session_id::text as session_id,
-                   al.student_id::text as student_id, s.level::int as level, q.format::text as format,
-                   al.x_tier::text as x_tier, al.review_reason, al.s::int as original_score,
-                   eg.s::int as effective_score, al.grade_source,
-                   (al.appealed_at is not null) as appealed, al.created_at
-            from examiner.answer_log al
-            join examiner.sessions s on s.session_id = al.session_id
-            join examiner.questions q on q.question_id = al.question_id
-            join examiner.effective_grades eg on eg.grade_id = al.answer_id
-            where al.grade_status = 'provisional' {filter_sql}
-            order by case al.review_reason
-              when 't9_missing_quote' then 1
-              when 'borderline' then 2
-              when 'appeal' then 3
-              when 'gold_sample' then 4
-              else 5
-            end, al.appealed_at asc nulls last, al.created_at asc
-            limit $2::int offset $3::int
-        """
-        rows = await conn.fetch(query, students, limit, offset)
-    else:
-        query = """
-            select al.answer_id::text as grade_id, al.session_id::text as session_id,
-                   al.student_id::text as student_id, s.level::int as level, q.format::text as format,
-                   al.x_tier::text as x_tier, al.review_reason, al.s::int as original_score,
-                   eg.s::int as effective_score, al.grade_source,
-                   (al.appealed_at is not null) as appealed, al.created_at
-            from examiner.answer_log al
-            join examiner.sessions s on s.session_id = al.session_id
-            join examiner.questions q on q.question_id = al.question_id
-            join examiner.effective_grades eg on eg.grade_id = al.answer_id
-            where al.grade_status = 'provisional'
-            order by case al.review_reason
-              when 't9_missing_quote' then 1
-              when 'borderline' then 2
-              when 'appeal' then 3
-              when 'gold_sample' then 4
-              else 5
-            end, al.appealed_at asc nulls last, al.created_at asc
-            limit $1::int offset $2::int
-        """
-        rows = await conn.fetch(query, limit, offset)
+    rows = await conn.fetch(
+        f"""
+        select al.answer_id::text as grade_id, al.session_id::text as session_id,
+               al.student_id::text as student_id, s.level::int as level, q.format::text as format,
+               al.x_tier::text as x_tier, al.review_reason, al.s::int as original_score,
+               eg.s::int as effective_score, al.grade_source,
+               (al.appealed_at is not null) as appealed, al.created_at
+        from examiner.answer_log al
+        join examiner.sessions s on s.session_id = al.session_id
+        join examiner.questions q on q.question_id = al.question_id
+        join examiner.effective_grades eg on eg.grade_id = al.answer_id
+        where al.grade_status = 'provisional' and {visible}
+        order by case al.review_reason
+          when 't9_missing_quote' then 1
+          when 'borderline' then 2
+          when 'appeal' then 3
+          when 'gold_sample' then 4
+          else 5
+        end, al.appealed_at asc nulls last, al.created_at asc
+        limit $3::int offset $4::int
+        """,
+        teacher_id,
+        class_id,
+        limit,
+        offset,
+    )
 
     items = [
         ReviewQueueItem(
@@ -223,9 +216,11 @@ async def fetch_review_queue(
 
 
 async def _fetch_grade_row(conn: Any, teacher_id: str, grade_id: str) -> Any:
-    students = await _allowed_students(conn, teacher_id, None)
+    if not await _classes_ready(conn):
+        raise not_found("Баға табылмады.")
+    visible = _teacher_sees("$2", "al.student_id", "s.subject_id")
     row = await conn.fetchrow(
-        """
+        f"""
         select al.answer_id::text as grade_id, al.session_id::text as session_id, al.item_id::text as item_id,
                al.student_id::text as student_id, al.question_id::text as question_id, al.x_tier::text as x_tier,
                s.level::int as level, q.format::text as format, q.question_content, q.rubric_0_4,
@@ -236,12 +231,13 @@ async def _fetch_grade_row(conn: Any, teacher_id: str, grade_id: str) -> Any:
         join examiner.sessions s on s.session_id = al.session_id
         join examiner.questions q on q.question_id = al.question_id
         join examiner.effective_grades eg on eg.grade_id = al.answer_id
-        where al.answer_id = $1::uuid
+        where al.answer_id = $1::uuid and {visible}
         """,
         grade_id,
+        teacher_id,
     )
-    if row is None or (students is not None and row["student_id"] not in students):
-        raise not_found("Баға табылмады.")
+    if row is None:
+        raise not_found("Баға табылмады.")  # бөтен оқушының бағасы да 404 (api §2.1)
     return row
 
 
@@ -423,19 +419,23 @@ async def mark_false_positive(
     if replay is not None:
         return FalsePositiveResponse.model_validate(replay)
 
-    students = await _allowed_students(conn, teacher_id, None)
+    if not await _classes_ready(conn):
+        raise not_found("Модерация оқиғасы немесе дабыл табылмады.")
+    visible = _teacher_sees("$2", "me.student_id", "s.subject_id")
     event = await conn.fetchrow(
-        """
-        select event_id::text as event_id, session_id::text as session_id, item_id::text as item_id,
-               student_id::text as student_id, strike_no::int as strike_no, revoked_at
-        from examiner.moderation_events
-        where event_id = $1::uuid or alert_id = $1::uuid
-        order by created_at desc
+        f"""
+        select me.event_id::text as event_id, me.session_id::text as session_id, me.item_id::text as item_id,
+               me.student_id::text as student_id, me.strike_no::int as strike_no, me.revoked_at
+        from examiner.moderation_events me
+        join examiner.sessions s on s.session_id = me.session_id
+        where (me.event_id = $1::uuid or me.alert_id = $1::uuid) and {visible}
+        order by me.created_at desc
         limit 1
         """,
         alert_or_event_id,
+        teacher_id,
     )
-    if event is None or (students is not None and event["student_id"] not in students):
+    if event is None:
         raise not_found("Модерация оқиғасы немесе дабыл табылмады.")
     if event["revoked_at"] is None:
         await conn.execute(

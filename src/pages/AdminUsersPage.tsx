@@ -1,4 +1,5 @@
 import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   GraduationCap,
   RotateCcw,
@@ -18,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useUsers } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
+import { setUserRole } from '@/lib/classes-api';
 import t, { getLocale } from '@/lib/i18n';
 import { cn, limitText, removeNullCharacters } from '@/lib/utils';
 
@@ -34,7 +36,7 @@ type AdminUserRow = {
   createdAt?: string | null;
 };
 
-const ROLE_FILTERS: RoleFilter[] = ['all', 'admin', 'student'];
+const ROLE_FILTERS: RoleFilter[] = ['all', 'admin', 'teacher', 'student'];
 
 const MAX_ID_CHARS = 180;
 const MAX_NAME_CHARS = 160;
@@ -288,8 +290,50 @@ function UserCard({
           label={t('page.admin_users.field.created_at')}
           value={formatDate(item.createdAt)}
         />
+
+        {!isCurrentUser && userId && (normalizedRole === 'student' || normalizedRole === 'teacher') ? (
+          <TeacherRoleToggle userId={userId} fullName={fullName} role={normalizedRole} />
+        ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+/** D83: мұғалім рөлін тек әкімші береді (тіркелген адам әрқашан оқушы болып басталады). */
+function TeacherRoleToggle({
+  userId,
+  fullName,
+  role,
+}: {
+  userId: string;
+  fullName: string;
+  role: 'student' | 'teacher';
+}) {
+  const queryClient = useQueryClient();
+  const next = role === 'student' ? 'teacher' : 'student';
+  const change = useMutation({
+    mutationFn: () => setUserRole(userId, next),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+  });
+
+  const onClick = () => {
+    const text =
+      next === 'teacher'
+        ? `${fullName} мұғалім болсын ба? Ол сынып жасап, өз сыныбындағы оқушылардың нәтижесін көре алады.`
+        : `${fullName} қайта оқушы болсын ба? Оның сыныптары сақталады, бірақ мұғалім панеліне кіре алмайды.`;
+    if (window.confirm(text)) change.mutate();
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 pt-2">
+      <Button type="button" variant="outline" size="sm" disabled={change.isPending} onClick={onClick}>
+        <GraduationCap size={14} className="mr-1.5" />
+        {change.isPending ? 'Сақталуда…' : next === 'teacher' ? 'Мұғалім ету' : 'Оқушы ету'}
+      </Button>
+      {change.isError ? (
+        <p className="text-xs text-destructive">Рөл өзгермеді: {(change.error as Error).message}</p>
+      ) : null}
+    </div>
   );
 }
 
