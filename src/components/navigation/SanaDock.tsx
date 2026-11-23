@@ -12,6 +12,7 @@ import {
   Bot,
   ClipboardList,
   FileText,
+  Gamepad2,
   Home,
   Plus,
   UserRound,
@@ -46,6 +47,8 @@ export type SanaDockProps = {
   showCreate?: boolean;
   /** ЖИ батырмасы (әкімшіде ЖИ құралдары алынды, D19). */
   showAi?: boolean;
+  /** «Ойындар» бөлімі (оқушының төменгі мәзірі, D47). */
+  showGames?: boolean;
   courseId?: string | null;
   progress?: number | null;
   mainPaths?: Partial<SanaDockMainPaths>;
@@ -336,6 +339,7 @@ export default function SanaDock({
   mode = 'auto',
   showCreate = false,
   showAi = true,
+  showGames = false,
   courseId,
   progress,
   mainPaths,
@@ -437,6 +441,17 @@ export default function SanaDock({
             icon: Bot,
             aliases: ['/ai', '/ai-tutor', '/exam'],
             action: aiTools.length > 0 ? 'ai-launcher' : undefined,
+          } satisfies DockItem,
+        ]
+      : []),
+    ...(showGames
+      ? [
+          {
+            key: 'games',
+            label: 'Ойындар',
+            path: '/games',
+            icon: Gamepad2,
+            aliases: ['/games'],
           } satisfies DockItem,
         ]
       : []),

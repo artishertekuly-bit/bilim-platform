@@ -58,6 +58,12 @@ const TeacherReviewPage = lazy(() => import('./pages/teacher/TeacherReviewPage')
 const TeacherGradePage = lazy(() => import('./pages/teacher/TeacherGradePage'));
 const StudentClassesPage = lazy(() => import('./pages/StudentClassesPage'));
 
+// Ойындар (8-қадам, D42–D55, D89): бөлмелер мен бес ойын.
+const GamesHomePage = lazy(() => import('./pages/games/GamesHomePage'));
+const GameCreatePage = lazy(() => import('./pages/games/GameCreatePage'));
+const GameJoinPage = lazy(() => import('./pages/games/GameJoinPage'));
+const GameRoomPage = lazy(() => import('./pages/games/GameRoomPage'));
+
 const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
 const UpdatePasswordPage = lazy(() => import('./pages/UpdatePasswordPage'));
@@ -81,6 +87,7 @@ const PARENT_ROLES: UserRole[] = ['parent'];
 const ADMIN_ROLES: UserRole[] = ['admin'];
 
 const LEARNING_CONTENT_ROLES: UserRole[] = ['student', 'admin'];
+const GAME_ROLES: UserRole[] = ['student', 'teacher'];
 const LESSON_READER_ROLES: UserRole[] = ['student', 'teacher', 'admin'];
 
 type AppRouteConfig = {
@@ -372,6 +379,14 @@ const studentRoutes: AppRouteConfig[] = [
   { path: '/ai-tracker', element: <Navigate to="/ai-tutor" replace />, allowedRoles: STUDENT_ROLES },
 ];
 
+// Ойындар (geimifikatsiya §5): бөлмені оқушы да, мұғалім де ашады, ойнайтын — оқушы (D46).
+const gameRoutes: AppRouteConfig[] = [
+  { path: '/games', element: <GamesHomePage />, allowedRoles: GAME_ROLES },
+  { path: '/games/new/:gameType', element: <GameCreatePage />, allowedRoles: GAME_ROLES },
+  { path: '/games/join', element: <GameJoinPage />, allowedRoles: STUDENT_ROLES },
+  { path: '/games/rooms/:roomId', element: <GameRoomPage />, allowedRoles: GAME_ROLES },
+];
+
 const adminRoutes: AppRouteConfig[] = [
   { path: '/subjects', element: <AdminSubjectsPage />, allowedRoles: ADMIN_ROLES },
   { path: '/manage-lessons', element: <AdminLessonsPage />, allowedRoles: ADMIN_ROLES },
@@ -386,6 +401,7 @@ const protectedRoutes: AppRouteConfig[] = [
   ...classRoutes,
   ...sharedContentRoutes,
   ...studentRoutes,
+  ...gameRoutes,
   ...adminRoutes,
 ];
 

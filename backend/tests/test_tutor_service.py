@@ -667,6 +667,25 @@ class ArchitectureTests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn("from ..tutor", source, path.name)
             self.assertNotIn("app.tutor", source, path.name)
+            self.assertNotIn("games", source.replace("games_svc", ""), path.name)
+
+    def test_games_imports_only_shared_libraries(self) -> None:
+        # D68, D89: онлайн ойын сервисі Examiner-ден тек кіріс сүзгісін алады, Tutor-ды мүлде көрмейді.
+        # Офлайн банк генераторы (games/bank) Т6/Т7 тексерісін кітапхана ретінде қайта қолданады (D45).
+        import re
+        from pathlib import Path
+
+        app_dir = Path(__file__).resolve().parents[1] / "app"
+        allowed_online = {"examiner.session.input_filter"}
+        allowed_bank = allowed_online | {"examiner.bank.checks", "examiner.bank.context", "examiner.bank.formats"}
+        for path in (app_dir / "games").rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("tutor", source.replace("tutor_svc", ""), path.name)
+            used = set(re.findall(r"from \.+(examiner(?:\.\w+)+) import", source))
+            allowed = allowed_bank if path.parent.name == "bank" else allowed_online
+            self.assertLessEqual(used, allowed, path.name)
+        for path in (app_dir / "tutor").rglob("*.py"):
+            self.assertNotIn(".games", path.read_text(encoding="utf-8"), path.name)
 
 
 if __name__ == "__main__":

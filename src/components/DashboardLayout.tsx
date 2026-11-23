@@ -39,6 +39,7 @@ type ThemeValue = 'light' | 'dark' | 'system';
 type DockConfig = {
   showCreate: boolean;
   showAi: boolean;
+  showGames?: boolean;
   courseTools: SanaLauncherTool[];
   aiTools: SanaLauncherTool[];
   mainPaths: {
@@ -488,6 +489,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       return {
         showCreate: false,
         showAi: true,
+        showGames: true,
         courseTools: STUDENT_COURSE_TOOLS,
         aiTools: STUDENT_AI_TOOLS,
         mainPaths: {
@@ -616,6 +618,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <SanaDock
           mode="main"
           showAi={dockConfig.showAi}
+          showGames={dockConfig.showGames}
           showCreate={dockConfig.showCreate}
           courseTools={dockConfig.courseTools}
           aiTools={dockConfig.aiTools}

@@ -58,6 +58,14 @@ export default function TeacherHomePage() {
         </Card>
       </Link>
 
+      {/* Ойын бөлмесі (D46): мұғалім ойнамайды, картаны экраннан көрсетеді. */}
+      <Link to="/games" className="no-underline text-inherit">
+        <Card className="flex flex-col gap-0.5 px-4 py-4">
+          <span className="text-[15px] font-semibold">Ойын бөлмесін ашу</span>
+          <span className="text-[13px] text-[#5E5E5E]">Сынып оқушылары кодпен не QR арқылы кіреді</span>
+        </Card>
+      </Link>
+
       {attention.data && attention.data.length > 0 ? (
         <section className="flex flex-col gap-2.5">
           <SectionLabel>Назар аударуды қажет ететін оқушылар</SectionLabel>

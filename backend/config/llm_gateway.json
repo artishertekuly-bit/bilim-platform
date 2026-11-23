@@ -124,10 +124,13 @@
         "case_study": { "model": "small", "reasoning_effort": "medium" },
         "error_step": { "model": "small", "reasoning_effort": "medium" },
         "socratic": { "model": "strong", "reasoning_effort": "low" },
-        "priority": { "model": "strong", "reasoning_effort": "low" }
+        "priority": { "model": "strong", "reasoning_effort": "low" },
+        "game_mcq": { "model": "small", "reasoning_effort": "high" },
+        "game_debate": { "model": "small", "reasoning_effort": "medium" }
       }
     },
-    "concept_extraction": { "model": "small", "mode": "sync", "reasoning_effort": "low", "max_output_tokens": 4000, "timeout_s": 90 }
+    "concept_extraction": { "model": "small", "mode": "sync", "reasoning_effort": "low", "max_output_tokens": 4000, "timeout_s": 90 },
+    "game_judge": { "model": "strong", "mode": "sync", "temperature": 0.2, "reasoning_effort": "low", "max_output_tokens": 3000, "timeout_s": 60 }
   },
   "embeddings": {
     "answers": "answer_embedding",

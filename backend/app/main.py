@@ -42,6 +42,10 @@ from .tutor.api import PREFIX as TUTOR_PREFIX
 from .tutor.api import close_service as close_tutor_service
 from .tutor.api import install as install_tutor_api
 from .tutor.api import warm_service as warm_tutor_service
+from .games.api import PREFIX as GAMES_PREFIX
+from .games.api import close_service as close_games_service
+from .games.api import install as install_games_api
+from .games.api import start_background as start_games_background
 from .dependencies.auth import get_current_user_id, require_author_role
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -129,11 +133,17 @@ async def lifespan(app: FastAPI):
     warm = None
     if os.getenv("TUTOR_DATABASE_URL", "").strip() and os.getenv("TUTOR_WARMUP", "1") != "0":
         warm = asyncio.create_task(warm_tutor_service())
+    # Ойын таймерлері (D54): сервердің фондық циклі deadline өткен бөлмелерді жүргізеді.
+    games = None
+    if os.getenv("GAMES_DATABASE_URL", "").strip() and os.getenv("GAMES_SWEEPER", "1") != "0":
+        games = asyncio.create_task(start_games_background())
     yield
-    if warm is not None and not warm.done():
-        warm.cancel()
+    for task in (warm, games):
+        if task is not None and not task.done():
+            task.cancel()
     await close_examiner_service()
     await close_tutor_service()
+    await close_games_service()
 
 
 app = FastAPI(
@@ -159,12 +169,13 @@ app.add_middleware(
 app.include_router(learning_analysis_router)
 install_examiner_api(app)
 install_tutor_api(app)
+install_games_api(app)
 
 
 @app.exception_handler(RequestValidationError)
 async def _service_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Examiner мен Tutor-дың ортақ қате пішімі (api §2.4): 400 VALIDATION_ERROR. Басқа жолдарда — FastAPI әдепкісі."""
-    if not request.url.path.startswith((EXAMINER_PREFIX, TUTOR_PREFIX)):
+    """Examiner, Tutor мен Ойындардың ортақ қате пішімі (api §2.4): 400 VALIDATION_ERROR. Басқа жолдарда — әдепкісі."""
+    if not request.url.path.startswith((EXAMINER_PREFIX, TUTOR_PREFIX, GAMES_PREFIX)):
         return await request_validation_exception_handler(request, exc)
     fields = [".".join(str(part) for part in error.get("loc", ())[1:]) for error in exc.errors()]
     body = {"error": {"code": "VALIDATION_ERROR", "message": "Сұраныстың өрістері қате.", "details": {"fields": fields}}}

@@ -23,6 +23,7 @@ class Task(StrEnum):
     GENERATION = "generation"  # Batch API
     GENERATION_FAST = "generation_fast"  # Fast Lane: мұғалім сұраған § синхрон толтырылады (ai_examiner §5.4)
     CONCEPT_EXTRACTION = "concept_extraction"  # §-тің ұғымдары, әр чанк бір рет (D76)
+    GAME_JUDGE = "game_judge"  # Дебат аренасының ЖИ-төрешісі (geimifikatsiya §4.4, D51)
 
 
 class Priority(IntEnum):
@@ -42,6 +43,7 @@ TASK_PRIORITY: dict[Task, Priority] = {
     Task.TUTOR_REPLY: Priority.INTERACTIVE,
     Task.EXAMINER_DIALOG: Priority.INTERACTIVE,
     Task.EXPLANATION: Priority.INTERACTIVE,
+    Task.GAME_JUDGE: Priority.INTERACTIVE,
     # Фондық жұмыс.
     Task.SECOND_GRADING: Priority.BACKGROUND,
     Task.MCQ_SOLVER_CHECK: Priority.BACKGROUND,
