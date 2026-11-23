@@ -1,179 +1,149 @@
-// Ата-ана беті «Балам» (karta §2.1, D26, D27, D31): баласының P1…P4 профилі тек оқу режимінде.
-// Ата-ана Tutor диалогтарын, жауаптарды, рейтингті және дабылдарды көрмейді.
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+// Ата-ана · «Балам» (дизайн: Parent.dc.html; karta §2.1, D26, D27): баланың P1…P4 нәтижесі тек оқу режимінде,
+// баланың мұғалімдері және чат. Ата-ана Тьютор диалогтарын, жауаптарды, рейтингті және дабылдарды көрмейді.
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
-import { Banner, Card, Chip, ExamScreen, LoadingBlock, PrimaryButton, SectionLabel } from '@/components/exam/ExamUi';
+import AppShell from '@/components/bl/AppShell';
+import Avatar from '@/components/bl/Avatar';
+import { ButtonLink, Card, EmptyNote, ErrorNote, ListGroup, LoadingBlock, Page, PageTitle, Section, Segmented, StateCard } from '@/components/bl/ui';
 import { LevelGrid } from '@/components/exam/LevelGrid';
+import { chatKeys } from '@/lib/chat-ui';
+import { getChatContacts } from '@/lib/data/chat-actions';
 import { useExaminerApi } from '@/lib/examiner-api';
-import {
-  cancelParentLink,
-  myChildren,
-  outgoingParentRequests,
-  platformKeys,
-  requestParentLink,
-  type ChildRow,
-} from '@/lib/platform-api';
-import { formatDateTime, inputClass } from '@/lib/teacher-ui';
-import { cn } from '@/lib/utils';
+import { myChildren, outgoingParentRequests, platformKeys, type ChildRow } from '@/lib/platform-api';
+import { formatDateTime } from '@/lib/teacher-ui';
 
-const REQUEST_STATUS: Record<string, string> = {
-  pending: 'Баланың растауын күтеді',
-  accepted: 'Расталды',
-  declined: 'Бас тартты',
-  cancelled: 'Тоқтатылды',
-  expired: 'Мерзімі өтті',
-};
-
-function ChildProfile({ child }: { child: ChildRow }) {
+function ChildResults({ child }: { child: ChildRow }) {
   const api = useExaminerApi();
   const profile = useQuery({
     queryKey: ['examiner', 'parent', 'child', child.student_id],
     queryFn: () => api.parentChildProfile(child.student_id),
   });
   return (
-    <section className="flex flex-col gap-2.5">
-      <SectionLabel>{child.full_name}</SectionLabel>
-      {profile.isLoading ? <LoadingBlock /> : null}
-      {profile.isError ? <Banner tone="bad">{(profile.error as Error).message}</Banner> : null}
-      {profile.data && profile.data.subjects.length === 0 ? (
-        <Card className="px-4 py-3.5 text-sm text-[#5E5E5E]">Әзірге «Пән» көлеміндегі емтихан нәтижесі жоқ.</Card>
-      ) : null}
-      {profile.data?.subjects.map((subject) => (
-        <div key={subject.subject.book} className="flex flex-col gap-2">
-          <Card className="flex items-center justify-between gap-3 px-4 py-3.5">
-            <span className="flex flex-col gap-0.5">
-              <span className="text-[15px] font-semibold">
-                {subject.subject.title} · {subject.subject.grade}-сынып
-              </span>
-              <span className="text-[13px] text-[#5E5E5E]">
-                Жалпы балл (F){subject.f !== null && subject.f_is_final === false ? ' · алдын ала' : ''}
-              </span>
+    <Section label="Емтихан нәтижелері">
+      {profile.isLoading ? <LoadingBlock rows={2} /> : null}
+      {profile.isError ? <ErrorNote error={profile.error} onRetry={() => profile.refetch()} /> : null}
+      {profile.data && !profile.data.subjects.length ? <EmptyNote>Әзірге «Пән» көлеміндегі емтихан нәтижесі жоқ.</EmptyNote> : null}
+      {profile.data?.subjects.map((s) =>
+        s.levels.some((l) => l.p !== null) ? (
+          <Card key={s.subject.book} className="flex flex-col gap-2.5 p-3.5">
+            <span className="flex items-center justify-between gap-2">
+              <span className="text-base font-semibold">{s.subject.title}</span>
+              {s.f !== null ? (
+                <span className="text-sm font-semibold">
+                  F {Math.round(s.f)}%{s.f_is_final === false ? ' · алдын ала' : ''}
+                </span>
+              ) : null}
             </span>
-            <span className="text-2xl font-bold">{subject.f === null ? '—' : `${Math.round(subject.f)}%`}</span>
+            <LevelGrid levels={s.levels} />
           </Card>
-          <LevelGrid levels={subject.levels} />
-        </div>
-      ))}
-    </section>
+        ) : (
+          <div key={s.subject.book} className="flex items-center justify-between rounded-2xl border border-bl-line bg-white p-3.5">
+            <span className="text-base font-semibold">{s.subject.title}</span>
+            <span className="text-[13px] text-bl-ink2">Барлық деңгей өтпеді</span>
+          </div>
+        ),
+      )}
+    </Section>
   );
 }
 
 export default function ParentHomePage() {
-  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const children = useQuery({ queryKey: platformKeys.children, queryFn: myChildren });
   const requests = useQuery({ queryKey: platformKeys.outgoing, queryFn: outgoingParentRequests });
-  const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const contacts = useQuery({ queryKey: chatKeys.contacts, queryFn: getChatContacts });
+  const [childId, setChildId] = useState<string | null>(null);
 
-  const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: platformKeys.outgoing });
-    void queryClient.invalidateQueries({ queryKey: platformKeys.children });
-  };
-  const send = useMutation({
-    mutationFn: () => requestParentLink(email),
-    onSuccess: () => {
-      setEmail('');
-      setSent(true);
-      refresh();
-    },
-  });
-  const cancel = useMutation({ mutationFn: cancelParentLink, onSuccess: refresh });
+  useEffect(() => {
+    const list = children.data;
+    if (list?.length && (!childId || !list.some((c) => c.student_id === childId))) setChildId(list[0].student_id);
+  }, [children.data, childId]);
 
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!email.trim() || send.isPending) return;
-    setSent(false);
-    send.mutate();
-  };
-
-  const pending = requests.data?.filter((row) => row.status === 'pending') ?? [];
+  const child = children.data?.find((c) => c.student_id === childId) ?? null;
+  const teachers = (contacts.data ?? []).filter((c) => c.role === 'teacher');
+  const pending = (requests.data ?? []).filter((r) => r.status === 'pending');
 
   return (
-    <ExamScreen
-      header={
-        <header className="flex min-h-14 items-center gap-2 px-4 pb-1 pt-3">
-          <h1 className="m-0 flex-1 text-lg font-bold">Балам</h1>
-        </header>
-      }
-      footer={
-        <nav aria-label="Ата-ана мәзірі" className="grid grid-cols-3 gap-1.5">
-          {[
-            { to: '/parent', label: 'Балам', active: true },
-            { to: '/chat', label: 'Чат', active: false },
-            { to: '/profile', label: 'Баптаулар', active: false },
-          ].map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              aria-current={item.active ? 'page' : undefined}
-              className={cn(
-                'flex h-11 items-center justify-center rounded-xl text-sm font-semibold no-underline',
-                item.active ? 'bg-[#121212] text-white' : 'text-[#4A4A4A] hover:bg-[#ECE9E3]',
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      }
-    >
-      {children.isLoading ? <LoadingBlock /> : null}
-      {children.isError ? <Banner tone="bad">{(children.error as Error).message}</Banner> : null}
-      {children.data?.map((child) => <ChildProfile key={child.student_id} child={child} />)}
+    <AppShell>
+      <Page>
+        <PageTitle title="Балам" />
+        {children.isLoading ? <LoadingBlock rows={3} /> : null}
+        {children.isError ? <ErrorNote error={children.error} onRetry={() => children.refetch()} /> : null}
 
-      <section className="flex flex-col gap-2.5">
-        <SectionLabel>Баланы қосу</SectionLabel>
-        <Card className="p-4">
-          <form className="flex flex-col gap-3" onSubmit={onSubmit}>
-            <label className="flex flex-col gap-1.5 text-sm font-semibold">
-              Баланың платформадағы email-і
-              <input
-                type="email"
-                className={inputClass}
-                value={email}
-                maxLength={254}
-                autoComplete="off"
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </label>
-            <p className="m-0 text-[13px] leading-snug text-[#5E5E5E]">
-              Бала сұранысты өз аккаунтында («Сыныптарым» бетінде) 72 сағат ішінде растауы керек.
-            </p>
-            <PrimaryButton type="submit" disabled={!email.trim() || send.isPending}>
-              {send.isPending ? 'Жіберілуде…' : 'Сұраныс жіберу'}
-            </PrimaryButton>
-          </form>
-        </Card>
-        {send.isError ? <Banner tone="bad">{(send.error as Error).message}</Banner> : null}
-        {sent ? <Banner tone="good">Сұраныс жіберілді. Бала растағанда профилі осында шығады.</Banner> : null}
-        {cancel.isError ? <Banner tone="bad">{(cancel.error as Error).message}</Banner> : null}
-        {pending.map((row) => (
-          <Card key={row.id} className="flex items-center justify-between gap-3 px-4 py-3">
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-[15px] font-semibold">{row.child_email}</span>
-              <span className="text-[13px] text-[#5E5E5E]">
-                {REQUEST_STATUS[row.status]} · {formatDateTime(row.expires_at)} дейін
+        {children.data && !children.data.length ? (
+          <StateCard
+            title={pending.length ? 'Баланың растауын күтудеміз' : 'Бала әлі қосылмаған'}
+            text={
+              pending.length
+                ? `${pending.map((r) => r.child_email).join(', ')} сұранысты растағанда нәтижелері осында көрінеді.`
+                : 'Баланың Bilim аккаунтындағы email-ын енгізіңіз. Ол сұранысты өз Хабарламаларында растайды.'
+            }
+          >
+            <ButtonLink to="/parent/link">Баланы қосу</ButtonLink>
+          </StateCard>
+        ) : null}
+
+        {children.data && children.data.length > 1 ? (
+          <Segmented
+            label="Бала"
+            value={childId ?? ''}
+            onChange={setChildId}
+            options={children.data.map((c) => ({ id: c.student_id, label: c.full_name.split(/\s+/)[0] }))}
+          />
+        ) : null}
+
+        {child ? (
+          <>
+            <div className="flex items-center gap-3.5 rounded-2xl border border-bl-line bg-white p-3.5">
+              <Avatar name={child.full_name} url={child.avatar_url} size="md" />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-[17px] font-semibold">{child.full_name}</span>
+                <span className="text-sm text-bl-ink2">Байланыс расталды · {formatDateTime(child.linked_at)}</span>
               </span>
-            </span>
-            <button
-              type="button"
-              disabled={cancel.isPending}
-              onClick={() => cancel.mutate(row.id)}
-              className="h-9 rounded-lg px-3 text-sm font-semibold text-[#B42323] hover:bg-[#FBEAEA]"
-            >
-              Тоқтату
-            </button>
-          </Card>
-        ))}
-        {requests.data?.filter((row) => row.status !== 'pending').slice(0, 5).map((row) => (
-          <span key={row.id} className="flex items-center justify-between text-[13px] text-[#5E5E5E]">
-            {row.child_email}
-            <Chip tone="muted">{REQUEST_STATUS[row.status] ?? row.status}</Chip>
-          </span>
-        ))}
-      </section>
-    </ExamScreen>
+            </div>
+
+            <ChildResults key={child.student_id} child={child} />
+
+            <div className="flex gap-2.5 rounded-[14px] border border-bl-line bg-white px-4 py-3.5">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-px flex-none text-bl-ink3">
+                <rect x="5" y="11" width="14" height="10" rx="2" />
+                <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+              </svg>
+              <p className="m-0 text-sm leading-[1.45] text-bl-ink3">
+                Мұнда тек нәтижелер көрінеді. Баланың Тьютормен диалогтары мен емтихандағы жауаптары жеке болып қалады.
+              </p>
+            </div>
+
+            <Section label="Мұғалімдер">
+              {contacts.isError ? <ErrorNote error={contacts.error} onRetry={() => contacts.refetch()} /> : null}
+              {contacts.data && !teachers.length ? <EmptyNote>Бала сыныпқа қосылғанда мұғалімдері осында көрінеді.</EmptyNote> : null}
+              {teachers.length ? (
+                <ListGroup>
+                  {teachers.map((t) => (
+                    <div key={t.userId} className="flex items-center gap-3 px-3.5 py-3">
+                      <Avatar name={t.fullName} url={t.avatarUrl} tone="soft" />
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="truncate text-[15px] font-semibold">{t.fullName}</span>
+                        <span className="text-[13px] text-bl-ink2">Мұғалім</span>
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`${t.fullName} мұғалімге жазу`}
+                        onClick={() => navigate('/chat', { state: { with: t.userId } })}
+                        className="h-11 flex-none rounded-xl border-0 bg-bl-btn px-4 text-sm font-semibold text-white"
+                      >
+                        Жазу
+                      </button>
+                    </div>
+                  ))}
+                </ListGroup>
+              ) : null}
+            </Section>
+          </>
+        ) : null}
+      </Page>
+    </AppShell>
   );
 }

@@ -1,49 +1,78 @@
-// Мұғалімнің сабақтары (karta §3.2, §4.1, D20): өз сабақтарын жазады, өңдейді, жариялайды.
+// Менің сабақтарым (дизайн: TeacherLessons.dc.html; karta §3.2, §4.1, D20, D29):
+// «Жарияланған / Жоба / Жасырылған», жаңа сабақ, өңдеу.
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { Banner, Card, Chip, LoadingBlock, PrimaryLink, SectionLabel } from '@/components/exam/ExamUi';
+import { PlusIcon } from '@/components/bl/icons';
+import { EmptyNote, ErrorNote, LoadingBlock, Segmented } from '@/components/bl/ui';
 import TeacherScreen from '@/components/teacher/TeacherScreen';
 import { useAuth } from '@/lib/auth-context';
-import { LESSON_STATUS_TITLES, platformKeys, teacherLessons } from '@/lib/platform-api';
+import { platformKeys, teacherLessons, type LessonStatus } from '@/lib/platform-api';
 import { formatDateTime } from '@/lib/teacher-ui';
 
 export default function TeacherLessonsPage() {
   const { user } = useAuth();
-  const lessons = useQuery({
-    queryKey: platformKeys.teacherLessons,
-    queryFn: () => teacherLessons(user?.id ?? ''),
-    enabled: !!user?.id,
-  });
+  const [tab, setTab] = useState<LessonStatus>('published');
+  const lessons = useQuery({ queryKey: platformKeys.teacherLessons, queryFn: () => teacherLessons(user?.id ?? ''), enabled: !!user?.id });
+  const items = (lessons.data ?? []).filter((l) => l.status === tab);
+  const count = (s: LessonStatus) => (lessons.data ?? []).filter((l) => l.status === s).length;
 
   return (
-    <TeacherScreen title="Сабақтарым">
-      <PrimaryLink to="/teacher/lessons/new">Жаңа сабақ</PrimaryLink>
-      <p className="m-0 text-[13px] leading-snug text-[#5E5E5E]">
-        Сабақ — өмірлік дағдылар туралы дербес бірлік: онда тест, балл және прогресс жоқ. Жарияланған сабақты барлық
-        оқушы каталогтан көреді.
-      </p>
-      {lessons.isLoading ? <LoadingBlock /> : null}
-      {lessons.isError ? <Banner tone="bad">{(lessons.error as Error).message}</Banner> : null}
-      {lessons.data && lessons.data.length === 0 ? (
-        <Card className="px-4 py-3.5 text-sm text-[#5E5E5E]">Әзірге сабақ жоқ.</Card>
-      ) : null}
-      {lessons.data?.length ? (
-        <section className="flex flex-col gap-2.5">
-          <SectionLabel>Барлығы · {lessons.data.length}</SectionLabel>
-          {lessons.data.map((lesson) => (
-            <Link key={lesson.id} to={`/teacher/lessons/${lesson.id}/edit`} className="no-underline text-inherit">
-              <Card className="flex items-center justify-between gap-3 px-4 py-3.5">
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate text-[15px] font-semibold">{lesson.title}</span>
-                  <span className="text-[13px] text-[#5E5E5E]">Өзгертілді: {formatDateTime(lesson.updated_at)}</span>
-                </span>
-                <Chip tone={lesson.status === 'published' ? 'good' : 'muted'}>{LESSON_STATUS_TITLES[lesson.status]}</Chip>
-              </Card>
+    <TeacherScreen
+      title="Сабақтар"
+      right={
+        <Link
+          to="/teacher/lessons/new"
+          className="flex h-11 flex-none items-center gap-1.5 rounded-xl bg-bl-btn px-3.5 text-sm font-semibold text-white no-underline"
+        >
+          <PlusIcon size={16} />
+          Жаңа
+        </Link>
+      }
+    >
+      <Segmented<LessonStatus>
+        label="Сабақ күйі"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { id: 'published', label: `Жарияланған${lessons.data ? ` · ${count('published')}` : ''}` },
+          { id: 'draft', label: `Жоба${lessons.data ? ` · ${count('draft')}` : ''}` },
+          { id: 'hidden', label: 'Жасырылған' },
+        ]}
+      />
+
+      <div className="flex flex-col gap-2.5">
+        {lessons.isLoading ? <LoadingBlock rows={3} /> : null}
+        {lessons.isError ? <ErrorNote error={lessons.error} onRetry={() => lessons.refetch()} /> : null}
+        {items.map((l) => (
+          <div key={l.id} className="flex flex-col gap-2 rounded-2xl border border-bl-line bg-white px-4 py-3.5">
+            <Link to={`/lessons/${l.id}`} className="text-base font-semibold leading-[1.35] text-bl-ink no-underline">
+              {l.title}
             </Link>
-          ))}
-        </section>
-      ) : null}
+            <span className="text-[13px] text-bl-ink2">
+              {l.status === 'published' && l.published_at ? `Жарияланды · ${formatDateTime(l.published_at)}` : `Өзгертілді · ${formatDateTime(l.updated_at)}`}
+            </span>
+            {l.status === 'hidden' ? (
+              <span className="rounded-[10px] bg-bl-warnbg px-3 py-2.5 text-sm leading-[1.45] text-bl-warntext">
+                Сабақты әкімші жасырды. Оны тек әкімші қайта аша алады, себебін әкімшіден сұраңыз.
+              </span>
+            ) : null}
+            {l.status !== 'hidden' ? (
+              <Link
+                to={`/teacher/lessons/${l.id}/edit`}
+                className="flex h-10 items-center self-start rounded-[10px] border border-bl-field bg-white px-3.5 text-sm font-semibold text-bl-ink no-underline"
+              >
+                Өңдеу
+              </Link>
+            ) : null}
+          </div>
+        ))}
+        {lessons.data && !items.length ? <EmptyNote>Бұл бөлімде сабақ жоқ</EmptyNote> : null}
+      </div>
+      <p className="m-0 text-[13px] leading-[1.45] text-bl-ink2">
+        Сабақ — өмірлік дағдылар туралы дербес бірлік: онда тест, балл және прогресс жоқ. Жарияланған сабақты барлық оқушы каталогтан көреді.
+      </p>
     </TeacherScreen>
   );
 }

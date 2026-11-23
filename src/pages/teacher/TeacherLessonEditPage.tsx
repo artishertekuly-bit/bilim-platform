@@ -1,26 +1,17 @@
-// Сабақ редакторы (D20; api §5.1): жариялау шартын дерекқор да тексереді — атауы ≥ 5, мәтіні ≥ 20 таңба.
+// Сабақ редакторы (дизайн: TeacherLessonEditor.dc.html; D20, api §5.1): жариялау шартын дерекқор да тексереді —
+// атауы ≥ 5, мәтіні ≥ 20 таңба. Сабақта тест, балл және прогресс жоқ.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import { Badge, Banner, BareScreen, Button, ConfirmSheet, ErrorNote, Field, LoadingBlock, Segmented, StateCard, ButtonLink, TextArea, TextInput, TopBar } from '@/components/bl/ui';
 import SafeMarkdown from '@/components/common/SafeMarkdown';
-import { Banner, Card, Chip, LoadingBlock, PrimaryButton } from '@/components/exam/ExamUi';
-import TeacherScreen from '@/components/teacher/TeacherScreen';
 import { useAuth } from '@/lib/auth-context';
-import {
-  LESSON_STATUS_TITLES,
-  createLesson,
-  deleteLesson,
-  getLesson,
-  platformKeys,
-  updateLesson,
-  type LessonDraft,
-} from '@/lib/platform-api';
-import { inputClass } from '@/lib/teacher-ui';
-import { cn } from '@/lib/utils';
+import { LESSON_STATUS_TITLES, createLesson, deleteLesson, getLesson, platformKeys, updateLesson, type LessonDraft } from '@/lib/platform-api';
 
 const MIN_TITLE = 5;
 const MIN_BODY = 20;
+const MAX_TITLE = 200;
 
 export default function TeacherLessonEditPage() {
   const { lessonId } = useParams();
@@ -28,17 +19,14 @@ export default function TeacherLessonEditPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const lesson = useQuery({
-    queryKey: platformKeys.lesson(lessonId ?? 'new'),
-    queryFn: () => getLesson(lessonId ?? ''),
-    enabled: !isNew,
-  });
+  const lesson = useQuery({ queryKey: platformKeys.lesson(lessonId ?? 'new'), queryFn: () => getLesson(lessonId ?? ''), enabled: !isNew });
 
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [media, setMedia] = useState('');
-  const [preview, setPreview] = useState(false);
+  const [view, setView] = useState<'text' | 'preview'>('text');
   const [notice, setNotice] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (lesson.data) {
@@ -67,15 +55,15 @@ export default function TeacherLessonEditPage() {
         media_url: media.trim() || null,
         ...(nextStatus && !hidden ? { status: nextStatus } : {}),
       };
-      if (isNew) {
-        return createLesson(user?.id ?? '', { status: 'draft', ...draft } as LessonDraft);
-      }
+      if (isNew) return createLesson(user?.id ?? '', { status: 'draft', ...draft } as LessonDraft);
       await updateLesson(lessonId, draft);
       return lessonId;
     },
     onSuccess: (id, nextStatus) => {
       refresh();
-      setNotice(nextStatus === 'published' ? 'Сабақ жарияланды.' : nextStatus === 'draft' ? 'Сабақ жобаға қайтарылды.' : 'Сақталды.');
+      setNotice(
+        nextStatus === 'published' ? 'Жарияланды. Оқушылар оны каталогтан көреді.' : nextStatus === 'draft' ? 'Сабақ жобаға қайтарылды.' : 'Сақталды.',
+      );
       if (isNew) navigate(`/teacher/lessons/${id}/edit`, { replace: true });
     },
   });
@@ -86,135 +74,159 @@ export default function TeacherLessonEditPage() {
       navigate('/teacher/lessons', { replace: true });
     },
   });
-
   const busy = save.isPending || remove.isPending;
-  const error = (save.error ?? remove.error) as Error | null;
+
+  const footer =
+    isNew || lesson.data ? (
+      status === 'published' ? (
+        <>
+          <Button onClick={() => save.mutate(null)} disabled={!canPublish || !mediaValid} loading={save.isPending}>
+            Өзгерісті сақтау
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => save.mutate('draft')} disabled={busy}>
+            Жариялаудан алу
+          </Button>
+        </>
+      ) : (
+        <>
+          {!hidden ? (
+            <Button onClick={() => save.mutate('published')} disabled={!canPublish || !mediaValid} loading={save.isPending && save.variables === 'published'}>
+              Жариялау
+            </Button>
+          ) : null}
+          <Button variant={hidden ? 'primary' : 'ghost'} size={hidden ? 'lg' : 'sm'} onClick={() => save.mutate(null)} disabled={busy || !title.trim() || !mediaValid}>
+            {save.isPending && save.variables === null ? 'Сақталуда…' : hidden ? 'Сақтау' : 'Жоба ретінде сақтау'}
+          </Button>
+        </>
+      )
+    ) : null;
 
   return (
-    <TeacherScreen title={isNew ? 'Жаңа сабақ' : 'Сабақты өңдеу'} back="/teacher/lessons">
-      {lesson.isLoading ? <LoadingBlock /> : null}
-      {lesson.isError ? <Banner tone="bad">{(lesson.error as Error).message}</Banner> : null}
-      {!isNew && lesson.data === null ? <Banner tone="bad">Сабақ табылмады.</Banner> : null}
+    <BareScreen header={<TopBar back="/teacher/lessons" backLabel="Сабақтарға оралу" title={isNew ? 'Жаңа сабақ' : 'Сабақты өңдеу'} />} footer={footer}>
+      <div className="flex flex-col gap-4 px-4 pb-5 pt-2">
+        {lesson.isLoading ? <LoadingBlock rows={3} /> : null}
+        {lesson.isError ? <ErrorNote error={lesson.error} onRetry={() => lesson.refetch()} /> : null}
+        {!isNew && lesson.data === null ? (
+          <StateCard mark="404" title="Сабақ табылмады">
+            <ButtonLink to="/teacher/lessons">Сабақтарға оралу</ButtonLink>
+          </StateCard>
+        ) : null}
 
-      {isNew || lesson.data ? (
-        <>
-          {!isNew ? (
-            <span className="flex items-center gap-2">
-              <Chip tone={status === 'published' ? 'good' : 'muted'}>{LESSON_STATUS_TITLES[status]}</Chip>
-              {status === 'published' ? (
-                <Link to={`/lessons/${lessonId}`} className="text-sm font-semibold text-[#111111]">
-                  Оқушы көзімен қарау
-                </Link>
-              ) : null}
-            </span>
-          ) : null}
-          {hidden ? (
-            <Banner tone="warn">
-              Бұл сабақты әкімші жасырған. Мәтінді түзетуге болады, бірақ қайта ашуды тек әкімші шешеді.
-            </Banner>
-          ) : null}
-
-          <label className="flex flex-col gap-1.5 text-sm font-semibold">
-            Атауы
-            <input className={inputClass} value={title} maxLength={200} onChange={(event) => setTitle(event.target.value)} />
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm font-semibold">
-            Бейне сілтемесі (міндетті емес, https://…)
-            <input
-              className={cn(inputClass, !mediaValid && 'border-[#B42323]')}
-              value={media}
-              maxLength={500}
-              placeholder="https://"
-              onChange={(event) => setMedia(event.target.value)}
-            />
-          </label>
-
-          <div className="grid grid-cols-2 gap-1.5 rounded-[14px] bg-[#ECE9E3] p-1">
-            {[false, true].map((value) => (
-              <button
-                key={String(value)}
-                type="button"
-                aria-pressed={preview === value}
-                onClick={() => setPreview(value)}
-                className={cn('h-10 rounded-xl text-sm font-semibold', preview === value ? 'bg-white shadow-sm' : 'text-[#4A4A4A]')}
-              >
-                {value ? 'Алдын ала көру' : 'Мәтін'}
-              </button>
-            ))}
-          </div>
-          {preview ? (
-            <Card className="px-4 py-4">
-              <SafeMarkdown source={body || '_Мәтін әлі жоқ._'} />
-            </Card>
-          ) : (
-            <label className="flex flex-col gap-1.5 text-sm font-semibold">
-              Мәтіні (markdown: ## тақырып, **қалың**, - тізім)
-              <textarea
-                value={body}
-                rows={14}
-                maxLength={50000}
-                onChange={(event) => setBody(event.target.value)}
-                className="rounded-[14px] border border-[#D9D6D0] bg-white px-4 py-3 font-mono text-[14px] font-normal leading-relaxed outline-none focus:border-[#111111]"
-              />
-            </label>
-          )}
-          <p className="m-0 text-xs text-[#5E5E5E]">
-            Жариялау үшін атауы кемінде {MIN_TITLE}, мәтіні кемінде {MIN_BODY} таңба болсын. Қазір: {title.trim().length} /{' '}
-            {body.trim().length}.
-          </p>
-
-          {error ? <Banner tone="bad">{error.message}</Banner> : null}
-          {notice && !error ? <Banner tone="good">{notice}</Banner> : null}
-
-          <div className="flex flex-col gap-2">
-            {status === 'published' ? (
-              <>
-                <PrimaryButton disabled={busy || !canPublish || !mediaValid} onClick={() => save.mutate(null)}>
-                  Өзгерісті сақтау
-                </PrimaryButton>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => save.mutate('draft')}
-                  className="h-12 rounded-[14px] border border-[#D9D6D0] bg-white text-[15px] font-semibold disabled:opacity-60"
-                >
-                  Жариялаудан алу
-                </button>
-              </>
-            ) : (
-              <>
-                {!hidden ? (
-                  <PrimaryButton disabled={busy || !canPublish || !mediaValid} onClick={() => save.mutate('published')}>
-                    Жариялау
-                  </PrimaryButton>
+        {isNew || lesson.data ? (
+          <>
+            {!isNew ? (
+              <span className="flex items-center gap-2">
+                <Badge tone={status === 'published' ? 'good' : status === 'hidden' ? 'warn' : 'muted'}>{LESSON_STATUS_TITLES[status]}</Badge>
+                {status === 'published' ? (
+                  <Link to={`/lessons/${lessonId}`} className="text-sm font-semibold text-bl-ink">
+                    Оқушы көзімен қарау
+                  </Link>
                 ) : null}
-                <button
-                  type="button"
-                  disabled={busy || !title.trim() || !mediaValid}
-                  onClick={() => save.mutate(null)}
-                  className="h-12 rounded-[14px] border border-[#D9D6D0] bg-white text-[15px] font-semibold disabled:opacity-60"
-                >
-                  {save.isPending ? 'Сақталуда…' : 'Жоба ретінде сақтау'}
-                </button>
-              </>
-            )}
+              </span>
+            ) : null}
+            {hidden ? <Banner tone="warn">Бұл сабақты әкімші жасырған. Мәтінді түзетуге болады, бірақ қайта ашуды тек әкімші шешеді.</Banner> : null}
+
+            <div className="flex flex-col gap-2">
+              <label htmlFor="lesson-title" className="text-sm font-semibold">
+                Тақырыбы
+              </label>
+              <TextInput
+                id="lesson-title"
+                value={title}
+                maxLength={MAX_TITLE}
+                placeholder="Мысалы: Апталық бюджетті жоспарлау"
+                onChange={(e) => setTitle(e.target.value)}
+              />
+              <span className="self-end text-[13px] text-bl-ink2">
+                {title.length} / {MAX_TITLE}
+              </span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="lesson-body" className="text-sm font-semibold">
+                  Мазмұны
+                </label>
+                <div className="w-[200px]">
+                  <Segmented<'text' | 'preview'>
+                    label="Көрініс"
+                    size="sm"
+                    value={view}
+                    onChange={setView}
+                    options={[
+                      { id: 'text', label: 'Мәтін' },
+                      { id: 'preview', label: 'Көру' },
+                    ]}
+                  />
+                </div>
+              </div>
+              {view === 'preview' ? (
+                <div className="min-h-[260px] rounded-[14px] border border-bl-line bg-white px-4 py-3.5 text-base leading-[1.6]">
+                  <SafeMarkdown source={body || '_Мәтін әлі жоқ._'} />
+                </div>
+              ) : (
+                <TextArea
+                  id="lesson-body"
+                  value={body}
+                  maxLength={50000}
+                  onChange={(e) => setBody(e.target.value)}
+                  placeholder="Сабақтың мәтіні: түсінікті, қысқа бөлімдерге бөлінген. ## — бөлім атауы, - — тізім."
+                  className="min-h-[260px] resize-y leading-normal"
+                />
+              )}
+              <span className="text-[13px] text-bl-ink2">
+                Жариялау үшін атауы кемінде {MIN_TITLE}, мәтіні кемінде {MIN_BODY} таңба. Қазір: {title.trim().length} / {body.trim().length}.
+              </span>
+            </div>
+
+            <Field label="Бейне сілтемесі" htmlFor="lesson-media" hint="Міндетті емес. Тек https:// сілтемесі." error={!mediaValid ? 'Сілтеме https:// деп басталсын' : undefined}>
+              <TextInput
+                id="lesson-media"
+                type="url"
+                inputMode="url"
+                value={media}
+                maxLength={500}
+                placeholder="https://"
+                aria-invalid={!mediaValid || undefined}
+                onChange={(e) => setMedia(e.target.value)}
+              />
+            </Field>
+
+            <div className="flex gap-2.5 rounded-[14px] border border-bl-line bg-white px-4 py-3.5">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="mt-px flex-none text-bl-ink3">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 11v5" />
+                <path d="M12 7.5v.01" />
+              </svg>
+              <p className="m-0 text-sm leading-[1.45] text-bl-ink3">Сабақта тест, балл және прогресс жоқ. Ол емтихан нәтижесіне әсер етпейді.</p>
+            </div>
+
+            {save.isError || remove.isError ? <ErrorNote error={save.error ?? remove.error} /> : null}
+            {notice && !save.isError ? <Banner tone="good">{notice}</Banner> : null}
+
             {!isNew ? (
               <button
                 type="button"
+                onClick={() => setConfirmDelete(true)}
                 disabled={busy}
-                onClick={() => {
-                  if (window.confirm('Сабақ біржола өшіріледі: оқушылардың сақтауы мен жазбалары да өшеді. Жалғастырамыз ба?')) {
-                    remove.mutate();
-                  }
-                }}
-                className="h-11 rounded-[14px] text-[15px] font-semibold text-[#B42323] hover:bg-[#FBEAEA] disabled:opacity-60"
+                className="h-11 self-start border-0 bg-transparent p-0 text-[15px] font-semibold text-bl-danger disabled:opacity-60"
               >
                 Сабақты өшіру
               </button>
             ) : null}
-          </div>
-        </>
-      ) : null}
-    </TeacherScreen>
+          </>
+        ) : null}
+      </div>
+
+      <ConfirmSheet
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Сабақты өшіресіз бе?"
+        description="Сабақ біржола өшіріледі: оқушылардың сақтауы мен жеке жазбалары да өшеді. Мұны қайтару мүмкін емес."
+        confirmLabel="Иә, өшіру"
+        busy={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
+    </BareScreen>
   );
 }

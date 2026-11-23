@@ -1,207 +1,293 @@
-// Оқушының дабылдары (ortaq §5, api §5.4, D41, D70): мұғалім дәлел мәтінін көреді және шешім қабылдайды.
-// Examiner дабылы «қате дабыл» болса — Examiner API страйкты жояды, содан кейін дабыл `false_positive` болып жабылады.
+// Оқушы беті · дабыл (дизайн: TeacherStudent.dc.html; ortaq §5, api §5.4, D41, D70).
+// Мұғалім тек ереже бұзды деп белгіленген хабарламаны көреді. Емтихан дабылы «қате» болса —
+// Examiner API страйкты жояды және балды қалпына келтіреді; Тьютор дабылында бұғатты ашады не жабық қалдырады.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 
-import { Banner, Card, Chip, LoadingBlock, SectionLabel } from '@/components/exam/ExamUi';
+import Avatar from '@/components/bl/Avatar';
+import { Badge, Banner, ButtonLink, ConfirmSheet, ErrorNote, Field, ListGroup, ListRow, LoadingBlock, Section, Sheet, Button, TextArea } from '@/components/bl/ui';
+import { LevelGrid } from '@/components/exam/LevelGrid';
 import TeacherScreen from '@/components/teacher/TeacherScreen';
+import { classKeys, classRoster, removeClassMember, teacherClasses } from '@/lib/classes-api';
 import { useExaminerApi } from '@/lib/examiner-api';
-import {
-  ALERT_CATEGORY_TITLES,
-  ALERT_SOURCE_TITLES,
-  platformKeys,
-  resolveAlert,
-  studentAlerts,
-  type AlertRow,
-} from '@/lib/platform-api';
-import { formatDateTime, useStudentNames } from '@/lib/teacher-ui';
+import { ALERT_CATEGORY_TITLES, ALERT_SOURCE_TITLES, platformKeys, resolveAlert, studentAlerts, type AlertRow } from '@/lib/platform-api';
+import { formatDateTime } from '@/lib/teacher-ui';
 import { formatBlockedUntil, tutorKeys, useTutorApi } from '@/lib/tutor-api';
 
-// Tutor бұғаты (personarag §6.3, D70): бірінші Hard Alert — 30 минут, мұғалім ертерек аша не өзі ашқанша жаба алады.
-function TutorBlockPanel({ studentId }: { studentId: string }) {
-  const api = useTutorApi();
-  const queryClient = useQueryClient();
-  const state = useQuery({
-    queryKey: tutorKeys.block(studentId),
-    queryFn: () => api.teacherBlockState(studentId),
-    enabled: !!studentId,
-  });
-  const apply = (data: Awaited<ReturnType<typeof api.teacherBlockState>>) =>
-    queryClient.setQueryData(tutorKeys.block(studentId), data);
-  const unblock = useMutation({ mutationFn: () => api.teacherUnblock(studentId), onSuccess: apply });
-  const lock = useMutation({ mutationFn: () => api.teacherLock(studentId), onSuccess: apply });
-  const busy = unblock.isPending || lock.isPending;
-  const error = (state.error ?? unblock.error ?? lock.error) as Error | null;
-  const reason = state.data?.blocked_reason ?? null;
-
-  const status =
-    reason === 'teacher'
-      ? 'Сіз ашқанша жабық'
-      : reason === 'cooldown'
-        ? `Уақытша бұғатталған, ${formatBlockedUntil(state.data?.blocked_until ?? null)}-де өзі ашылады`
-        : 'Ашық';
-
-  return (
-    <Card className="flex flex-col gap-2.5 px-4 py-3.5">
-      <span className="flex flex-wrap items-center gap-2">
-        <span className="text-[15px] font-semibold">Тьютор</span>
-        {state.data ? <Chip tone={reason ? 'neutral' : 'good'}>{status}</Chip> : null}
-      </span>
-      {error ? <Banner tone="bad">{error.message}</Banner> : null}
-      {state.data ? (
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            disabled={busy || !reason}
-            onClick={() => unblock.mutate()}
-            className="h-10 rounded-xl bg-[#121212] text-sm font-semibold text-white disabled:opacity-40"
-          >
-            Бұғатты ашу
-          </button>
-          <button
-            type="button"
-            disabled={busy || reason === 'teacher'}
-            onClick={() => lock.mutate()}
-            className="h-10 rounded-xl border border-[#D9D6D0] bg-white text-sm font-semibold disabled:opacity-40"
-          >
-            Мен ашқанша жабу
-          </button>
-        </div>
-      ) : null}
-    </Card>
-  );
-}
-
-const STATUS_TITLES: Record<AlertRow['status'], string> = {
-  open: 'Ашық',
-  resolved: 'Шешілді',
-  false_positive: 'Қате дабыл',
+const PRIVACY: Record<string, string> = {
+  examiner: 'Сізге тек ереже бұзылды деп белгіленген жауап көрсетіледі.',
+  tutor: 'Диалогтың қалған бөлігі оқушының өзінде ғана қалады.',
+  games: 'Ойындағы басқа мәтіндер көрсетілмейді.',
 };
 
 function AlertCard({ alert, studentId }: { alert: AlertRow; studentId: string }) {
-  const api = useExaminerApi();
+  const examiner = useExaminerApi();
+  const tutor = useTutorApi();
   const queryClient = useQueryClient();
+  const [fpOpen, setFpOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const [falseOpen, setFalseOpen] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: platformKeys.alerts(studentId) });
     void queryClient.invalidateQueries({ queryKey: platformKeys.attention });
+    void queryClient.invalidateQueries({ queryKey: tutorKeys.block(studentId) });
   };
-  const resolve = useMutation({ mutationFn: () => resolveAlert(alert.alert_id, 'resolved'), onSuccess: refresh });
-  const falsePositive = useMutation({
+
+  const primary = useMutation({
     mutationFn: async () => {
-      if (alert.source_system === 'examiner') {
-        // Страйк жойылады, сессия бұғаттан шығады (examiner §7.2); бастапқы жазба сақталады.
-        await api.teacherFalsePositive(alert.alert_id, reason.trim());
+      if (alert.source_system === 'tutor') await tutor.teacherUnblock(studentId);
+      await resolveAlert(alert.alert_id, 'resolved');
+    },
+    onSuccess: () => {
+      setDone(alert.source_system === 'tutor' ? 'Тьютор ашылды.' : 'Дабыл жабылды.');
+      refresh();
+    },
+  });
+  const secondary = useMutation({
+    mutationFn: async () => {
+      if (alert.source_system === 'tutor') {
+        await tutor.teacherLock(studentId);
+        await resolveAlert(alert.alert_id, 'resolved');
+        return;
       }
+      if (alert.source_system === 'examiner') await examiner.teacherFalsePositive(alert.alert_id, reason.trim());
       await resolveAlert(alert.alert_id, 'false_positive');
     },
-    onSuccess: refresh,
+    onSuccess: () => {
+      setFpOpen(false);
+      setDone(
+        alert.source_system === 'tutor'
+          ? 'Диалог жабылды. Оны осы беттен кез келген уақытта аша аласыз.'
+          : alert.source_system === 'examiner'
+            ? 'Страйк жойылды, балл қайта есептелді.'
+            : 'Қате дабыл деп белгіленді.',
+      );
+      refresh();
+    },
   });
-  const busy = resolve.isPending || falsePositive.isPending;
-  const error = (resolve.error ?? falsePositive.error) as Error | null;
+  const busy = primary.isPending || secondary.isPending;
+  const error = (primary.error ?? secondary.error) as Error | null;
+
+  const source = ALERT_SOURCE_TITLES[alert.source_system] ?? alert.source_system;
+  const category = ALERT_CATEGORY_TITLES[alert.category] ?? alert.category;
+  const labels =
+    alert.source_system === 'tutor'
+      ? ['Бұғатты қазір ашу', 'Мен ашқанша жабық тұрсын']
+      : alert.source_system === 'examiner'
+        ? ['Дабыл дұрыс, жабу', 'Қате дабыл: балды қалпына келтіру']
+        : ['Дабыл дұрыс, жабу', 'Қате дабыл'];
 
   return (
-    <Card className="flex flex-col gap-2.5 px-4 py-3.5">
-      <span className="flex flex-wrap items-center gap-1.5">
-        <Chip tone={alert.status === 'open' ? 'neutral' : 'muted'}>{STATUS_TITLES[alert.status]}</Chip>
-        <Chip>{ALERT_SOURCE_TITLES[alert.source_system] ?? alert.source_system}</Chip>
-        <Chip>{ALERT_CATEGORY_TITLES[alert.category] ?? alert.category}</Chip>
-        {alert.severity === 'hard' ? <Chip>Қатаң</Chip> : null}
-        <span className="text-xs text-[#5E5E5E]">{formatDateTime(alert.created_at)}</span>
-      </span>
-      <blockquote className="m-0 whitespace-pre-wrap border-l-[3px] border-[#D9D6D0] pl-3 text-sm text-[#4A4A4A]">
-        {alert.evidence_text}
-      </blockquote>
-      {error ? <Banner tone="bad">{error.message}</Banner> : null}
-      {alert.status === 'open' ? (
-        <div className="flex flex-col gap-2">
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => resolve.mutate()}
-              className="h-10 rounded-xl bg-[#121212] text-sm font-semibold text-white disabled:opacity-60"
-            >
-              Шешілді
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setFalseOpen((value) => !value)}
-              className="h-10 rounded-xl border border-[#D9D6D0] bg-white text-sm font-semibold disabled:opacity-60"
-            >
-              Қате дабыл
-            </button>
-          </div>
-          {falseOpen ? (
-            <div className="flex flex-col gap-2">
-              <label className="flex flex-col gap-1 text-xs font-semibold text-[#5E5E5E]">
-                Себебі {alert.source_system === 'examiner' ? '(міндетті: страйк жойылады)' : ''}
-                <textarea
-                  rows={2}
-                  maxLength={1000}
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                  className="rounded-xl border border-[#D9D6D0] bg-white px-3 py-2 text-sm font-normal text-[#111111] outline-none focus:border-[#111111]"
-                />
-              </label>
-              <button
-                type="button"
-                disabled={busy || (alert.source_system === 'examiner' && reason.trim().length < 3)}
-                onClick={() => falsePositive.mutate()}
-                className="h-10 rounded-xl bg-[#121212] text-sm font-semibold text-white disabled:opacity-60"
-              >
-                {falsePositive.isPending ? 'Сақталуда…' : 'Қате дабыл деп жабу'}
-              </button>
-            </div>
-          ) : null}
+    <section className="flex flex-col gap-3 rounded-2xl border-2 border-bl-ink bg-white p-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="m-0 text-base font-bold">
+          {source} · {category}
+        </h2>
+        <span className="whitespace-nowrap text-[13px] text-bl-ink2">{formatDateTime(alert.created_at)}</span>
+      </div>
+      {alert.severity === 'hard' ? <Badge tone="warn">Қатаң дабыл</Badge> : null}
+      <div className="flex flex-col gap-1 rounded-xl bg-[#F1EFEA] px-3.5 py-3">
+        <span className="text-xs font-semibold text-bl-ink2">Белгіленген хабарлама</span>
+        <span className="whitespace-pre-wrap text-[15px] leading-[1.45]">{alert.evidence_text}</span>
+      </div>
+      <span className="text-[13px] leading-[1.4] text-bl-ink2">{PRIVACY[alert.source_system] ?? PRIVACY.games}</span>
+      {error ? <ErrorNote error={error} /> : null}
+      {done ? (
+        <div role="status" className="rounded-xl bg-bl-okbg px-3.5 py-3 text-sm font-semibold leading-[1.45] text-[#14532D]">
+          {done}
         </div>
-      ) : null}
-    </Card>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <Button size="md" onClick={() => primary.mutate()} loading={primary.isPending} disabled={busy}>
+            {labels[0]}
+          </Button>
+          <Button
+            variant="secondary"
+            size="md"
+            disabled={busy}
+            loading={secondary.isPending && alert.source_system === 'tutor'}
+            onClick={() => (alert.source_system === 'tutor' ? secondary.mutate() : setFpOpen(true))}
+          >
+            {labels[1]}
+          </Button>
+        </div>
+      )}
+
+      <Sheet
+        open={fpOpen}
+        onClose={() => setFpOpen(false)}
+        title="Қате дабыл"
+        description={
+          alert.source_system === 'examiner'
+            ? 'Страйк жойылады, тапсырманың балы қалпына келеді. Бастапқы жазба журналда сақталады.'
+            : 'Дабыл қате деп белгіленеді.'
+        }
+      >
+        <Field label="Себебі" htmlFor={`fp-${alert.alert_id}`} hint={alert.source_system === 'examiner' ? 'Міндетті, кемінде 3 таңба' : undefined}>
+          <TextArea
+            id={`fp-${alert.alert_id}`}
+            value={reason}
+            maxLength={1000}
+            onChange={(e) => setReason(e.target.value)}
+            className="min-h-[100px]"
+          />
+        </Field>
+        <Button
+          onClick={() => secondary.mutate()}
+          loading={secondary.isPending}
+          disabled={alert.source_system === 'examiner' && reason.trim().length < 3}
+        >
+          {alert.source_system === 'examiner' ? 'Балды қалпына келтіру' : 'Қате деп белгілеу'}
+        </Button>
+        <Button variant="secondary" size="md" onClick={() => setFpOpen(false)} disabled={secondary.isPending}>
+          Болдырмау
+        </Button>
+      </Sheet>
+    </section>
+  );
+}
+
+function TutorState({ studentId }: { studentId: string }) {
+  const api = useTutorApi();
+  const queryClient = useQueryClient();
+  const state = useQuery({ queryKey: tutorKeys.block(studentId), queryFn: () => api.teacherBlockState(studentId) });
+  const apply = (data: Awaited<ReturnType<typeof api.teacherBlockState>>) => queryClient.setQueryData(tutorKeys.block(studentId), data);
+  const unblock = useMutation({ mutationFn: () => api.teacherUnblock(studentId), onSuccess: apply });
+  const lock = useMutation({ mutationFn: () => api.teacherLock(studentId), onSuccess: apply });
+  const reason = state.data?.blocked_reason ?? null;
+  if (!state.data) return state.isError ? <ErrorNote error={state.error} /> : null;
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-bl-line bg-white px-4 py-3.5">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[15px] font-semibold">Тьютор</span>
+        <span className="text-[13px] text-bl-ink2">
+          {reason === 'teacher'
+            ? 'Сіз ашқанша жабық'
+            : reason === 'cooldown'
+              ? `Уақытша жабық, ${formatBlockedUntil(state.data.blocked_until)}-де өзі ашылады`
+              : 'Ашық'}
+        </span>
+      </span>
+      {reason ? (
+        <Button size="sm" full={false} onClick={() => unblock.mutate()} loading={unblock.isPending}>
+          Ашу
+        </Button>
+      ) : (
+        <Button variant="secondary" size="sm" full={false} onClick={() => lock.mutate()} loading={lock.isPending}>
+          Жабу
+        </Button>
+      )}
+    </div>
   );
 }
 
 export default function TeacherStudentAlertsPage() {
   const { studentId = '' } = useParams();
-  const names = useStudentNames();
-  const alerts = useQuery({
-    queryKey: platformKeys.alerts(studentId),
-    queryFn: () => studentAlerts(studentId),
-    enabled: !!studentId,
+  const navigate = useNavigate();
+  const api = useExaminerApi();
+  const queryClient = useQueryClient();
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  const roster = useQuery({ queryKey: classKeys.roster(), queryFn: () => classRoster() });
+  const classes = useQuery({ queryKey: classKeys.teacherClasses, queryFn: teacherClasses });
+  const entry = roster.data?.find((s) => s.student_id === studentId);
+  const cls = classes.data?.find((c) => c.class_id === entry?.class_id);
+  const alerts = useQuery({ queryKey: platformKeys.alerts(studentId), queryFn: () => studentAlerts(studentId), enabled: !!studentId });
+  const profiles = useQuery({
+    queryKey: ['examiner', 'teacher', 'class-profiles', cls?.class_id],
+    queryFn: () => api.teacherClassProfiles(cls!.class_id),
+    enabled: Boolean(cls),
   });
-  const open = alerts.data?.filter((alert) => alert.status === 'open') ?? [];
-  const closed = alerts.data?.filter((alert) => alert.status !== 'open') ?? [];
+  const profile = useMemo(() => profiles.data?.students.find((s) => s.student_id === studentId)?.profiles[0], [profiles.data, studentId]);
+
+  const remove = useMutation({
+    mutationFn: () => removeClassMember(cls!.class_id, studentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['classes'] });
+      navigate('/teacher', { replace: true });
+    },
+  });
+
+  const open = alerts.data?.filter((a) => a.status === 'open') ?? [];
+  const closed = alerts.data?.filter((a) => a.status !== 'open') ?? [];
 
   return (
-    <TeacherScreen title={names.get(studentId) ?? 'Оқушы'} back="/teacher">
-      <Banner tone="info">
-        Мұғалімге тек қауіпсіздік ережесін бұзған хабарлама жіберіледі. Тьютормен басқа диалогтар оқушының жеке
-        ісі болып қалады.
-      </Banner>
-      <TutorBlockPanel studentId={studentId} />
-      {alerts.isLoading ? <LoadingBlock /> : null}
-      {alerts.isError ? <Banner tone="bad">{(alerts.error as Error).message}</Banner> : null}
-      {alerts.data && alerts.data.length === 0 ? (
-        <Card className="px-4 py-3.5 text-sm text-[#5E5E5E]">Бұл оқушыда дабыл жоқ.</Card>
-      ) : null}
-      {open.length ? (
-        <section className="flex flex-col gap-2.5">
-          <SectionLabel>Назар аударуды қажет етеді · {open.length}</SectionLabel>
-          {open.map((alert) => <AlertCard key={alert.alert_id} alert={alert} studentId={studentId} />)}
+    <TeacherScreen title="Оқушы" back="/teacher" backLabel="Панельге оралу">
+      <div className="flex items-center gap-3.5">
+        <Avatar name={entry?.full_name} url={entry?.avatar_url} size="md" />
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate text-xl font-bold">{entry?.full_name ?? 'Оқушы'}</span>
+          {cls ? (
+            <span className="text-sm text-bl-ink2">
+              {cls.title} · {cls.subject}
+            </span>
+          ) : null}
+        </span>
+      </div>
+
+      {alerts.isLoading ? <LoadingBlock rows={2} /> : null}
+      {alerts.isError ? <ErrorNote error={alerts.error} onRetry={() => alerts.refetch()} /> : null}
+      {open.map((a) => (
+        <AlertCard key={a.alert_id} alert={a} studentId={studentId} />
+      ))}
+      {alerts.data && !open.length ? <Banner tone="info">Ашық дабыл жоқ.</Banner> : null}
+
+      <TutorState studentId={studentId} />
+
+      {profile ? (
+        <section className="flex flex-col gap-2.5 rounded-2xl border border-bl-line bg-white p-3.5">
+          <span className="text-base font-semibold">Емтихан · {profile.subject.title}</span>
+          <LevelGrid levels={profile.levels} />
+          <span className="text-[13px] text-bl-ink2">Тек сыныптың пәні бойынша. Тьютор диалогтары көрінбейді.</span>
         </section>
       ) : null}
+
+      <ListGroup>
+        <ListRow onClick={() => navigate('/chat', { state: { with: studentId } })}>Оқушыға жазу</ListRow>
+        <ListRow onClick={() => navigate('/chat', { state: { filter: 'parent' } })}>Ата-анасына жазу</ListRow>
+        {cls ? (
+          <ListRow danger onClick={() => setConfirmRemove(true)}>
+            Сыныптан шығару
+          </ListRow>
+        ) : null}
+      </ListGroup>
+      {remove.isError ? <ErrorNote error={remove.error} /> : null}
+
       {closed.length ? (
-        <section className="flex flex-col gap-2.5">
-          <SectionLabel>Жабылғандар</SectionLabel>
-          {closed.map((alert) => <AlertCard key={alert.alert_id} alert={alert} studentId={studentId} />)}
-        </section>
+        <Section label="Жабылған дабылдар">
+          <ListGroup>
+            {closed.map((a) => (
+              <div key={a.alert_id} className="flex flex-col gap-0.5 px-4 py-3">
+                <span className="text-sm font-semibold">
+                  {ALERT_SOURCE_TITLES[a.source_system] ?? a.source_system} · {ALERT_CATEGORY_TITLES[a.category] ?? a.category}
+                </span>
+                <span className="text-[13px] text-bl-ink2">
+                  {a.status === 'false_positive' ? 'Қате дабыл' : 'Шешілді'} · {formatDateTime(a.resolved_at ?? a.created_at)}
+                </span>
+              </div>
+            ))}
+          </ListGroup>
+        </Section>
       ) : null}
-      <Link to={`/chat?with=${studentId}`} className="text-center text-[15px] font-semibold text-[#111111]">
-        Оқушыға жазу
-      </Link>
+
+      {!entry && roster.data ? (
+        <ButtonLink to="/teacher" variant="secondary" size="md">
+          Панельге оралу
+        </ButtonLink>
+      ) : null}
+
+      <ConfirmSheet
+        open={confirmRemove}
+        onClose={() => setConfirmRemove(false)}
+        primary="confirm"
+        title="Оқушыны шығарасыз ба?"
+        description={`${entry?.full_name ?? 'Оқушы'} сыныптан шығады. Сіз оның нәтижесін көрмейсіз, чат жабылады. Оқушы кодпен қайта қосыла алады.`}
+        confirmLabel="Шығару"
+        busy={remove.isPending}
+        onConfirm={() => remove.mutate()}
+      />
     </TeacherScreen>
   );
 }

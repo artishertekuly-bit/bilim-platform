@@ -504,7 +504,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const normalizedEmail = requireEmail(email);
       const normalizedPassword = requirePassword(password);
       const normalizedFullName = requireFullName(fullName);
-      const normalizedRole: 'student' = 'student';
+      const normalizedRole = 'student' as const;
 
       const isMobileApp = Capacitor.isNativePlatform();
       const redirectUrl = isMobileApp

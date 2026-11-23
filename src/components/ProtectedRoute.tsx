@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
+import { AccessDeniedScreen } from '@/components/bl/SystemScreens';
 import { useAuth, type UserRole } from '@/lib/auth-context';
 
 interface ProtectedRouteProps {
@@ -83,7 +84,7 @@ export default function ProtectedRoute({
   // Егер user кэште немесе жадыда бар болса, парақшаны үзбей бірден көрсету
   if (user && session) {
     if (allowedRoles?.length && !allowedRoles.includes(user.role)) {
-      return <Navigate to="/dashboard" replace />;
+      return <AccessDeniedScreen />;
     }
     return <>{children}</>;
   }
@@ -102,7 +103,7 @@ export default function ProtectedRoute({
   }
 
   if (allowedRoles?.length && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />;
+    return <AccessDeniedScreen />;
   }
 
   return <>{children}</>;

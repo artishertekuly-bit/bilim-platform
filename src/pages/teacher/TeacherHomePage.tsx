@@ -1,162 +1,200 @@
-// Мұғалім панелі (karta §4.1): растау кезегі, сыныптар және жаңа сынып (api §5.2, D33, D38).
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+// Мұғалім панелі (дизайн: TeacherHome.dc.html; karta §4.1): сынып ауыстырғыш, назар аударатын оқушылар,
+// растау кезегі, деңгейлер бойынша сынып нәтижесі, сыныптар мен ойын бөлмесі.
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { Banner, Card, Chip, LoadingBlock, PrimaryButton, SectionLabel } from '@/components/exam/ExamUi';
+import { ChevronIcon, PlusIcon } from '@/components/bl/icons';
+import { ButtonLink, CountBadge, ErrorNote, ListGroup, ListRow, LoadingBlock, Segmented, Select, StateCard } from '@/components/bl/ui';
 import TeacherScreen from '@/components/teacher/TeacherScreen';
-import { classKeys, createClass, listSubjects, teacherClasses } from '@/lib/classes-api';
-import { useExaminerApi } from '@/lib/examiner-api';
+import { useAuth } from '@/lib/auth-context';
+import { classKeys, classRoster, teacherClasses } from '@/lib/classes-api';
+import { LEVEL_TITLES, useExaminerApi } from '@/lib/examiner-api';
 import { ALERT_CATEGORY_TITLES, attentionList, platformKeys } from '@/lib/platform-api';
-import { formatDateTime, inputClass, useStudentNames } from '@/lib/teacher-ui';
+import { formatDateTime } from '@/lib/teacher-ui';
+
+const CLASS_KEY = 'bilim.teacher.class';
+
+function readClass(): string | null {
+  try {
+    return window.localStorage.getItem(CLASS_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export default function TeacherHomePage() {
+  const { user } = useAuth();
   const api = useExaminerApi();
-  const queryClient = useQueryClient();
   const classes = useQuery({ queryKey: classKeys.teacherClasses, queryFn: teacherClasses });
-  const subjects = useQuery({ queryKey: classKeys.subjects, queryFn: listSubjects });
-  const queue = useQuery({
-    queryKey: ['examiner', 'teacher', 'queue', 'summary'],
-    queryFn: () => api.teacherReviewQueue(undefined, 1, 0),
-  });
-  const attention = useQuery({ queryKey: platformKeys.attention, queryFn: attentionList });
-  const names = useStudentNames();
+  const [classId, setClassId] = useState<string | null>(readClass);
 
-  const [title, setTitle] = useState('');
-  const [subjectId, setSubjectId] = useState('');
-  const [created, setCreated] = useState<{ title: string; code: string } | null>(null);
+  useEffect(() => {
+    const list = classes.data;
+    if (list?.length && (!classId || !list.some((c) => c.class_id === classId))) setClassId(list[0].class_id);
+  }, [classes.data, classId]);
 
-  const create = useMutation({
-    mutationFn: () => createClass(title.trim(), subjectId),
-    onSuccess: (result) => {
-      setCreated({ title: title.trim(), code: result.join_code });
-      setTitle('');
-      void queryClient.invalidateQueries({ queryKey: classKeys.teacherClasses });
-    },
-  });
-
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    if (!title.trim() || !subjectId || create.isPending) return;
-    setCreated(null);
-    create.mutate();
+  const pick = (id: string) => {
+    setClassId(id);
+    try {
+      window.localStorage.setItem(CLASS_KEY, id);
+    } catch {
+      /* жеке терезе */
+    }
   };
 
-  const pending = queue.data?.total ?? 0;
+  const current = classes.data?.find((c) => c.class_id === classId) ?? null;
+  const roster = useQuery({ queryKey: classKeys.roster(classId ?? undefined), queryFn: () => classRoster(classId as string), enabled: Boolean(classId) });
+  const attention = useQuery({ queryKey: platformKeys.attention, queryFn: attentionList });
+  const queue = useQuery({
+    queryKey: ['examiner', 'teacher', 'queue', 'summary', classId],
+    queryFn: () => api.teacherReviewQueue(classId ?? undefined, 1, 0),
+    enabled: Boolean(classId),
+  });
+  const profiles = useQuery({
+    queryKey: ['examiner', 'teacher', 'class-profiles', classId],
+    queryFn: () => api.teacherClassProfiles(classId as string),
+    enabled: Boolean(classId),
+  });
+
+  const names = useMemo(() => new Map((roster.data ?? []).map((s) => [s.student_id, s.full_name])), [roster.data]);
+  const attentionRows = (attention.data ?? []).filter((row) => names.has(row.student_id));
+
+  // Бірінші оқулық бойынша әр деңгейді тапсырған және меңгерген оқушылар саны.
+  const levelStats = useMemo(() => {
+    const data = profiles.data;
+    if (!data) return [];
+    const book = data.books[0]?.book;
+    return [1, 2, 3, 4].map((level) => {
+      let taken = 0;
+      let mastered = 0;
+      data.students.forEach((s) => {
+        const profile = s.profiles.find((p) => p.subject.book === book) ?? s.profiles[0];
+        const lv = profile?.levels.find((l) => l.level === level);
+        if (lv && lv.p !== null) taken += 1;
+        if (lv?.mastered) mastered += 1;
+      });
+      return { level, taken, mastered };
+    });
+  }, [profiles.data]);
+  const studentCount = profiles.data?.students.length ?? current?.member_count ?? 0;
+  const pct = (n: number) => `${studentCount ? Math.round((n / studentCount) * 100) : 0}%`;
+  const subjects = [...new Set((classes.data ?? []).map((c) => c.subject))].join(', ');
 
   return (
-    <TeacherScreen title="Мұғалім панелі">
-      <Link to="/teacher/review" className="no-underline text-inherit">
-        <Card className="flex items-center justify-between gap-3 px-4 py-4">
-          <span className="flex flex-col gap-0.5">
-            <span className="text-[15px] font-semibold">Бағаны растау</span>
-            <span className="text-[13px] text-[#5E5E5E]">
-              {queue.isError ? 'Кезек жүктелмеді' : 'ЖИ қойған, растауды күтетін бағалар'}
-            </span>
-          </span>
-          <span className="text-2xl font-bold">{queue.isLoading ? '…' : pending}</span>
-        </Card>
-      </Link>
+    <TeacherScreen title="Мұғалім панелі" subtitle={[user?.fullName, subjects].filter(Boolean).join(' · ')}>
+      {classes.isLoading ? <LoadingBlock rows={3} /> : null}
+      {classes.isError ? <ErrorNote error={classes.error} onRetry={() => classes.refetch()} /> : null}
 
-      {/* Ойын бөлмесі (D46): мұғалім ойнамайды, картаны экраннан көрсетеді. */}
-      <Link to="/games" className="no-underline text-inherit">
-        <Card className="flex flex-col gap-0.5 px-4 py-4">
-          <span className="text-[15px] font-semibold">Ойын бөлмесін ашу</span>
-          <span className="text-[13px] text-[#5E5E5E]">Сынып оқушылары кодпен не QR арқылы кіреді</span>
-        </Card>
-      </Link>
+      {classes.data && classes.data.length === 0 ? (
+        <StateCard title="Әзірге сынып жоқ" text="Сынып ашып, қосылу кодын оқушыларға беріңіз. Сонда олардың нәтижесі осында көрінеді.">
+          <ButtonLink to="/teacher/classes?new=1">Сынып ашу</ButtonLink>
+        </StateCard>
+      ) : null}
 
-      {attention.data && attention.data.length > 0 ? (
-        <section className="flex flex-col gap-2.5">
-          <SectionLabel>Назар аударуды қажет ететін оқушылар</SectionLabel>
-          {attention.data.map((row) => (
-            <Link key={row.student_id} to={`/teacher/students/${row.student_id}`} className="no-underline text-inherit">
-              <Card className="flex items-center justify-between gap-3 px-4 py-3.5">
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate text-[15px] font-semibold">{names.get(row.student_id) ?? 'Оқушы'}</span>
-                  <span className="text-[13px] text-[#5E5E5E]">
-                    {(row.last_category && ALERT_CATEGORY_TITLES[row.last_category]) || 'Дабыл'}
+      {classes.data && classes.data.length > 0 ? (
+        classes.data.length <= 3 ? (
+          <Segmented
+            label="Сынып"
+            value={classId ?? ''}
+            onChange={pick}
+            options={classes.data.map((c) => ({ id: c.class_id, label: c.title }))}
+          />
+        ) : (
+          <>
+            <label htmlFor="teacher-class" className="sr-only">
+              Сынып
+            </label>
+            <Select id="teacher-class" value={classId ?? ''} onChange={(e) => pick(e.target.value)}>
+              {classes.data.map((c) => (
+                <option key={c.class_id} value={c.class_id}>
+                  {c.title} · {c.subject}
+                </option>
+              ))}
+            </Select>
+          </>
+        )
+      ) : null}
+
+      {current ? (
+        <>
+          <section className="flex flex-col gap-2.5 rounded-2xl border border-bl-line bg-white p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="m-0 text-base font-semibold">Назар аударуды қажет ететін оқушылар</h2>
+              {attentionRows.length ? <CountBadge count={attentionRows.length} /> : null}
+            </div>
+            {attention.isError ? <ErrorNote error={attention.error} /> : null}
+            {attentionRows.map((row) => (
+              <Link
+                key={row.student_id}
+                to={`/teacher/students/${row.student_id}`}
+                className="flex min-h-[52px] items-center gap-2.5 border-t border-bl-soft py-2 text-bl-ink no-underline"
+              >
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-[15px] font-semibold">{names.get(row.student_id)}</span>
+                  <span className="text-[13px] leading-[1.35] text-bl-ink2">
+                    {(row.last_category && ALERT_CATEGORY_TITLES[row.last_category]) || 'Дабыл'} · {row.open_count} ашық
                     {row.last_alert_at ? ` · ${formatDateTime(row.last_alert_at)}` : ''}
                   </span>
                 </span>
-                <span className="rounded-full bg-[#FBEAEA] px-2.5 py-1 text-xs font-bold text-[#B42323]">
-                  {row.open_count}
-                </span>
-              </Card>
-            </Link>
-          ))}
-        </section>
+                <ChevronIcon />
+              </Link>
+            ))}
+            {attention.data && !attentionRows.length ? <p className="m-0 text-sm text-bl-ink2">Қазір назар аударатын оқушы жоқ</p> : null}
+          </section>
+
+          <section className="flex items-center gap-3 rounded-2xl border border-bl-line bg-white p-4">
+            <span className="flex flex-1 flex-col gap-1">
+              <span className="text-base font-semibold">Растау кезегі · {queue.isLoading ? '…' : queue.data?.total ?? 0}</span>
+              <span className="text-[13px] leading-[1.4] text-bl-ink2">ЖИ қойған бағалар және дәйексөзі табылмаған жауаптар</span>
+            </span>
+            <ButtonLink to="/teacher/review" size="sm" full={false}>
+              Қарау
+            </ButtonLink>
+          </section>
+
+          <section className="flex flex-col gap-3 rounded-2xl border border-bl-line bg-white p-4">
+            <div className="flex items-baseline justify-between">
+              <h2 className="m-0 text-base font-semibold">Сынып нәтижесі</h2>
+              <span className="text-[13px] text-bl-ink2">{studentCount} оқушы</span>
+            </div>
+            {profiles.isLoading ? <LoadingBlock rows={2} /> : null}
+            {profiles.isError ? <ErrorNote error={profiles.error} onRetry={() => profiles.refetch()} /> : null}
+            {levelStats.map((lv) => (
+              <div key={lv.level} className="flex flex-col gap-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="font-semibold">
+                    {lv.level} · {LEVEL_TITLES[lv.level]}
+                  </span>
+                  <span className="text-bl-ink3">
+                    тапсырды {lv.taken} · меңгерді {lv.mastered}
+                  </span>
+                </div>
+                <div aria-hidden="true" className="relative h-2 overflow-hidden rounded-full bg-[#F1EFEA]">
+                  <div className="absolute inset-y-0 left-0 rounded-full bg-bl-avatar" style={{ width: pct(lv.taken) }} />
+                  <div className="absolute inset-y-0 left-0 rounded-full bg-bl-ink" style={{ width: pct(lv.mastered) }} />
+                </div>
+              </div>
+            ))}
+            <ButtonLink to={`/teacher/classes/${current.class_id}`} variant="secondary" size="sm">
+              Толық кесте мен рейтинг
+            </ButtonLink>
+          </section>
+        </>
       ) : null}
-      {attention.isError ? <Banner tone="warn">Дабылдар жүктелмеді: {(attention.error as Error).message}</Banner> : null}
 
-      <section className="flex flex-col gap-2.5">
-        <SectionLabel>Сыныптарым</SectionLabel>
-        {classes.isLoading ? <LoadingBlock /> : null}
-        {classes.isError ? <Banner tone="bad">{(classes.error as Error).message}</Banner> : null}
-        {classes.data && classes.data.length === 0 ? (
-          <Card className="px-4 py-3.5 text-sm leading-snug text-[#5E5E5E]">
-            Әзірге сынып жоқ. Төменде сынып жасаңыз да, кодын оқушыларға беріңіз.
-          </Card>
-        ) : null}
-        {classes.data?.map((item) => (
-          <Link key={item.class_id} to={`/teacher/classes/${item.class_id}`} className="no-underline text-inherit">
-            <Card className="flex items-center justify-between gap-3 px-4 py-3.5">
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="truncate text-[15px] font-semibold">{item.title}</span>
-                <span className="text-[13px] text-[#5E5E5E]">
-                  {item.subject} · {item.member_count} оқушы
-                </span>
-              </span>
-              <Chip>{item.join_code}</Chip>
-            </Card>
-          </Link>
-        ))}
-      </section>
+      <ListGroup>
+        <ListRow to="/teacher/classes">Сыныптар мен кодтар</ListRow>
+        <ListRow to="/teacher/games">Ойын бөлмесін ашу · проектор</ListRow>
+      </ListGroup>
 
-      <section className="flex flex-col gap-2.5">
-        <SectionLabel>Жаңа сынып</SectionLabel>
-        <Card className="p-4">
-          <form className="flex flex-col gap-3" onSubmit={onSubmit}>
-            <label className="flex flex-col gap-1.5 text-sm font-semibold">
-              Атауы
-              <input
-                className={inputClass}
-                value={title}
-                maxLength={120}
-                placeholder="Мысалы: 5 «А» — Қазақстан тарихы"
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm font-semibold">
-              Пән
-              <select
-                className={inputClass}
-                value={subjectId}
-                onChange={(event) => setSubjectId(event.target.value)}
-              >
-                <option value="">Пәнді таңдаңыз</option>
-                {subjects.data?.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.name_kk}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <p className="m-0 text-[13px] leading-snug text-[#5E5E5E]">
-              Сыныптағы оқушылардың тек осы пән бойынша нәтижесін көресіз.
-            </p>
-            <PrimaryButton type="submit" disabled={!title.trim() || !subjectId || create.isPending}>
-              {create.isPending ? 'Жасалуда…' : 'Сынып жасау'}
-            </PrimaryButton>
-          </form>
-        </Card>
-        {create.isError ? <Banner tone="bad">{(create.error as Error).message}</Banner> : null}
-        {created ? (
-          <Banner tone="good">
-            «{created.title}» сыныбы жасалды. Қосылу коды: {created.code}
-          </Banner>
-        ) : null}
-      </section>
+      <Link
+        to="/teacher/lessons/new"
+        className="flex h-[52px] items-center justify-center gap-2 rounded-[14px] border border-dashed border-[#8C877E] bg-transparent text-[15px] font-semibold text-bl-ink no-underline"
+      >
+        <PlusIcon size={18} />
+        Жаңа сабақ жазу
+      </Link>
     </TeacherScreen>
   );
 }

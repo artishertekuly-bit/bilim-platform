@@ -14,6 +14,8 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider, useAuth, type UserRole } from '@/lib/auth-context';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { OfflineBanner } from '@/components/bl/SystemScreens';
+import { LogoMark } from '@/components/bl/icons';
 import { useAppDeepLink } from '@/lib/useAppDeepLink';
 
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
@@ -27,7 +29,6 @@ const ForgotPasswordPage = lazy(() => import('./pages/auth/PasswordPages').then(
 const NewPasswordPage = lazy(() => import('./pages/auth/PasswordPages').then((m) => ({ default: m.NewPasswordPage })));
 const SettingsPage = lazy(() => import('./pages/account/SettingsPage'));
 const AvatarEditPage = lazy(() => import('./pages/account/AvatarEditPage'));
-const AboutPage = lazy(() => import('./pages/AboutPage'));
 const DashboardRouter = lazy(() => import('./pages/DashboardRouter'));
 
 // Курстар, тесттер, рейтинг, жетістіктер, аналитика және ескі ЖИ емтихан/автор беттері алынды (D19, karta §6.1).
@@ -40,10 +41,9 @@ const StudentProfilePage = lazy(() => import('./pages/account/StudentProfilePage
 const NotificationsPage = lazy(() => import('./pages/account/NotificationsPage'));
 const JoinClassPage = lazy(() => import('./pages/account/JoinClassPage'));
 
-const AdminSubjectsPage = lazy(() => import('./pages/AdminSubjectsPage'));
-const AdminLessonsPage = lazy(() => import('./pages/AdminLessonsPage'));
-const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
-const AdminCmsPage = lazy(() => import('./pages/AdminCmsPage'));
+const AdminSubjectsPage = lazy(() => import('./pages/admin/AdminPages').then((m) => ({ default: m.AdminSubjectsPage })));
+const AdminLessonsPage = lazy(() => import('./pages/admin/AdminPages').then((m) => ({ default: m.AdminLessonsPage })));
+const AdminUsersPage = lazy(() => import('./pages/admin/AdminPages').then((m) => ({ default: m.AdminUsersPage })));
 
 const NotFound = lazy(() => import('./pages/NotFound'));
 
@@ -54,6 +54,7 @@ const TeacherLessonsPage = lazy(() => import('./pages/teacher/TeacherLessonsPage
 const TeacherLessonEditPage = lazy(() => import('./pages/teacher/TeacherLessonEditPage'));
 const TeacherStudentAlertsPage = lazy(() => import('./pages/teacher/TeacherStudentAlertsPage'));
 const ParentHomePage = lazy(() => import('./pages/parent/ParentHomePage'));
+const ParentLinkPage = lazy(() => import('./pages/parent/ParentLinkPage'));
 
 const ExamHomePage = lazy(() => import('./pages/exam/ExamHomePage'));
 const ExamPickerPage = lazy(() => import('./pages/exam/ExamPickerPage'));
@@ -64,6 +65,7 @@ const ExamProfilePage = lazy(() => import('./pages/exam/ExamProfilePage'));
 
 const TeacherHomePage = lazy(() => import('./pages/teacher/TeacherHomePage'));
 const TeacherClassPage = lazy(() => import('./pages/teacher/TeacherClassPage'));
+const TeacherClassesPage = lazy(() => import('./pages/teacher/TeacherClassesPage'));
 const TeacherReviewPage = lazy(() => import('./pages/teacher/TeacherReviewPage'));
 const TeacherGradePage = lazy(() => import('./pages/teacher/TeacherGradePage'));
 
@@ -110,11 +112,12 @@ type AppRouteConfig = {
  */
 function AppLoadingScreen() {
   return (
-    <div
-      aria-busy="true"
-      aria-live="polite"
-      className="fixed inset-0 z-50 bg-background/60 backdrop-blur-xl transition-all duration-300 animate-fade-in"
-    />
+    <div aria-busy="true" aria-live="polite" className="fixed inset-0 z-50 flex items-center justify-center bg-bl-bg">
+      <span className="flex h-11 w-11 animate-pulse items-center justify-center rounded-xl bg-bl-ink text-white">
+        <LogoMark size={24} />
+      </span>
+      <span className="sr-only">Жүктелуде…</span>
+    </div>
   );
 }
 
@@ -132,22 +135,16 @@ function RouteBlurTransitionVeil() {
   // Негізгі беттерді фонда алдын ала жүктеу (парақша ауысқанда кідіріс болмауы үшін)
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void import('./pages/DashboardRouter');
-      void import('./pages/lessons/LessonsCatalogPage');
-      void import('./pages/exam/ExamHomePage');
-      void import('./pages/ProfileSettingsPage');
       void import('./pages/TutorPage');
+      void import('./pages/exam/ExamHomePage');
+      void import('./pages/games/GamesHomePage');
+      void import('./pages/lessons/LessonsCatalogPage');
+      void import('./pages/account/StudentProfilePage');
     }, 600);
     return () => window.clearTimeout(timer);
   }, []);
 
-  return (
-    <div
-      key={pathname}
-      aria-hidden="true"
-      className="pointer-events-none fixed inset-0 z-30 bg-background/20 animate-blur-veil"
-    />
-  );
+  return null;
 }
 
 function getSessionProviders(session: Session | null): Set<string> {
@@ -323,7 +320,7 @@ const publicRoutes: AppRouteConfig[] = [
   { path: '/verify-email', element: <RegisterPage initialStep="code" /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/update-password', element: <NewPasswordPage mode="recovery" /> },
-  { path: '/about', element: <AboutPage /> },
+  { path: '/about', element: <Navigate to="/" replace /> },
   { path: '/auth/callback', element: <AuthCallbackPage /> },
 ];
 
@@ -368,6 +365,7 @@ const examRoutes: AppRouteConfig[] = [
 // 6-қадам (D25, D33, D83): мұғалім панелі және оқушының сыныпқа қосылуы.
 const classRoutes: AppRouteConfig[] = [
   { path: '/teacher', element: <TeacherHomePage />, allowedRoles: TEACHER_ROLES },
+  { path: '/teacher/classes', element: <TeacherClassesPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/classes/:classId', element: <TeacherClassPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/review', element: <TeacherReviewPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/grades/:gradeId', element: <TeacherGradePage />, allowedRoles: TEACHER_ROLES },
@@ -377,6 +375,7 @@ const classRoutes: AppRouteConfig[] = [
   { path: '/teacher/lessons/new', element: <TeacherLessonEditPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/lessons/:lessonId/edit', element: <TeacherLessonEditPage />, allowedRoles: TEACHER_ROLES },
   { path: '/parent', element: <ParentHomePage />, allowedRoles: PARENT_ROLES },
+  { path: '/parent/link', element: <ParentLinkPage />, allowedRoles: PARENT_ROLES },
 ];
 
 // Дербес сабақтар (D19–D21, api §5.1): каталогты оқушы көреді, сабақты мұғалім мен әкімші де ашады.
@@ -409,7 +408,7 @@ const adminRoutes: AppRouteConfig[] = [
   { path: '/subjects', element: <AdminSubjectsPage />, allowedRoles: ADMIN_ROLES },
   { path: '/manage-lessons', element: <AdminLessonsPage />, allowedRoles: ADMIN_ROLES },
   { path: '/moderation', element: <Navigate to="/manage-lessons" replace />, allowedRoles: ADMIN_ROLES },
-  { path: '/cms', element: <AdminCmsPage />, allowedRoles: ADMIN_ROLES },
+  { path: '/cms', element: <Navigate to="/manage-users" replace />, allowedRoles: ADMIN_ROLES },
   { path: '/manage-users', element: <AdminUsersPage />, allowedRoles: ADMIN_ROLES },
 ];
 
@@ -478,6 +477,7 @@ export default function App() {
             <DeepLinkHandler />
             <Toaster />
             <Sonner />
+            <OfflineBanner />
             <RouteBlurTransitionVeil />
 
             <Suspense fallback={<AppLoadingScreen />}>

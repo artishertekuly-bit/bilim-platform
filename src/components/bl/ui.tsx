@@ -576,6 +576,7 @@ export function ConfirmSheet({
   onConfirm,
   busy,
   destructive = true,
+  primary = 'cancel',
 }: {
   open: boolean;
   onClose: () => void;
@@ -586,7 +587,21 @@ export function ConfirmSheet({
   onConfirm: () => void;
   busy?: boolean;
   destructive?: boolean;
+  /** Қай батырма негізгі (қара): әдепкіде — «Болдырмау», қауіпсіз әрекетте — растау. */
+  primary?: 'cancel' | 'confirm';
 }) {
+  if (primary === 'confirm') {
+    return (
+      <Sheet open={open} onClose={onClose} title={title} description={description}>
+        <Button onClick={onConfirm} loading={busy}>
+          {confirmLabel}
+        </Button>
+        <Button variant="secondary" size="md" onClick={onClose} disabled={busy}>
+          {cancelLabel}
+        </Button>
+      </Sheet>
+    );
+  }
   return (
     <Sheet open={open} onClose={onClose} title={title} description={description}>
       <Button onClick={onClose} disabled={busy}>

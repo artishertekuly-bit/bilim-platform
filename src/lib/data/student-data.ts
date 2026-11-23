@@ -197,17 +197,6 @@ function isCoursePublished(course: CourseRowWithAccess | null | undefined) {
   return course?.status === 'published';
 }
 
-function isEntitlementCurrentlyActive(row: Pick<EntitlementRow, 'status' | 'valid_from' | 'valid_until'>) {
-  const now = Date.now();
-  const validFrom = new Date(row.valid_from).getTime();
-  const validUntil = row.valid_until ? new Date(row.valid_until).getTime() : null;
-
-  return (
-    row.status === 'active' &&
-    validFrom <= now &&
-    (validUntil === null || validUntil > now)
-  );
-}
 
 async function getActiveCourseEntitlementsSafe(_userId?: string) {
   return [] as EntitlementRow[];

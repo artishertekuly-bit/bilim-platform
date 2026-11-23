@@ -26,7 +26,7 @@ export default function ChatListPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const role = user?.role ?? 'student';
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useState<Filter>(() => (location.state as { filter?: Filter } | null)?.filter ?? 'all');
 
   const threads = useQuery({ queryKey: chatKeys.threads, queryFn: getMyChatThreads, refetchInterval: 30_000 });
   const contacts = useQuery({ queryKey: chatKeys.contacts, queryFn: getChatContacts });
