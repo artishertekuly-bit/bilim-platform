@@ -10,34 +10,36 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .ai_adapter import (
     evaluate_answer_for_bilimcorp,
     generate_questions_for_bilimcorp,
     generate_test_draft_for_bilimcorp,
-    tutor_reply_for_bilimcorp,
 )
 from .ai_storage import (
-    append_tutor_message_batch,
     create_ai_exam_attempt,
     create_ai_exam_record,
-    create_tutor_session_record,
     get_ai_exam_for_user,
     get_ai_exam_questions,
     get_latest_ai_exam_attempt_for_user,
-    get_tutor_session_for_user,
     list_ai_exam_attempts_for_user,
     list_ai_exams_for_user,
     list_published_ai_exams,
-    list_tutor_messages,
     update_ai_exam_status,
 )
 from concurrent.futures import ThreadPoolExecutor
 from .api.learning_analysis_api import router as learning_analysis_router
+from .examiner.session.api import PREFIX as EXAMINER_PREFIX
 from .examiner.session.api import close_service as close_examiner_service
 from .examiner.session.api import install as install_examiner_api
+from .tutor.api import PREFIX as TUTOR_PREFIX
+from .tutor.api import close_service as close_tutor_service
+from .tutor.api import install as install_tutor_api
 from .dependencies.auth import get_current_user_id, require_author_role
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -123,6 +125,7 @@ def _build_allow_origin_regex() -> str | None:
 async def lifespan(app: FastAPI):
     yield
     await close_examiner_service()
+    await close_tutor_service()
 
 
 app = FastAPI(
@@ -147,6 +150,17 @@ app.add_middleware(
 
 app.include_router(learning_analysis_router)
 install_examiner_api(app)
+install_tutor_api(app)
+
+
+@app.exception_handler(RequestValidationError)
+async def _service_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Examiner мен Tutor-дың ортақ қате пішімі (api §2.4): 400 VALIDATION_ERROR. Басқа жолдарда — FastAPI әдепкісі."""
+    if not request.url.path.startswith((EXAMINER_PREFIX, TUTOR_PREFIX)):
+        return await request_validation_exception_handler(request, exc)
+    fields = [".".join(str(part) for part in error.get("loc", ())[1:]) for error in exc.errors()]
+    body = {"error": {"code": "VALIDATION_ERROR", "message": "Сұраныстың өрістері қате.", "details": {"fields": fields}}}
+    return JSONResponse(body, status_code=400)
 
 
 def _utc_iso() -> str:
@@ -170,17 +184,6 @@ def _http_error(message: str, status_code: int = 400) -> HTTPException:
     return HTTPException(status_code=status_code, detail=message)
 
 
-def _public_tutor_session(session: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": session["id"],
-        "title": session.get("title"),
-        "lesson_id": session.get("lesson_id"),
-        "subject": session.get("subject"),
-        "topic": session.get("topic"),
-        "created_at": session.get("created_at"),
-    }
-
-
 def _public_attempt(attempt: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": attempt.get("id"),
@@ -192,32 +195,6 @@ def _public_attempt(attempt: dict[str, Any]) -> dict[str, Any]:
         "updated_at": attempt.get("updated_at"),
         "submitted_at": attempt.get("submitted_at"),
     }
-
-
-def _normalize_context(
-    payload_context: Any,
-    session: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    if isinstance(payload_context, dict):
-        context = dict(payload_context)
-    elif isinstance(payload_context, str) and payload_context.strip():
-        context = {"passage": payload_context.strip()}
-    else:
-        context = {}
-
-    if not session:
-        return context
-
-    if session.get("lesson_id") and not context.get("lesson_id"):
-        context["lesson_id"] = session["lesson_id"]
-    if session.get("subject") and not context.get("subject"):
-        context["subject"] = session["subject"]
-    if session.get("topic") and not context.get("topic"):
-        context["topic"] = session["topic"]
-    if session.get("initial_context") and not context.get("passage"):
-        context["passage"] = session["initial_context"]
-
-    return context
 
 
 def _normalize_mapped_evaluation_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -319,114 +296,6 @@ def api_evaluate_answer(
     except Exception:
         logger.exception("evaluate_answer failed")
         raise _http_error("Жауапты тексеруде серверлік қате пайда болды", 500)
-
-
-@app.post("/api/ai/tutor/session")
-def api_create_tutor_session(
-    payload: dict[str, Any],
-    user_id: str = Depends(get_current_user_id),
-):
-    topic = _clean_text(payload.get("topic"), 200)
-    subject = _clean_text(payload.get("subject"), 120)
-    lesson_id = _clean_text(payload.get("lesson_id") or payload.get("lessonId"), 120)
-    initial_context = _clean_text(
-        payload.get("initial_context") or payload.get("initialContext"),
-        4000,
-    )
-
-    title = topic or subject or "AI Tutor Session"
-
-    try:
-        session = create_tutor_session_record(
-            user_id=user_id,
-            title=title,
-            lesson_id=lesson_id or None,
-            subject=subject or None,
-            topic=topic or None,
-            initial_context=initial_context or None,
-        )
-    except Exception:
-        logger.exception("create_tutor_session failed")
-        raise _http_error(
-            "Tutor session құру кезінде серверлік қате пайда болды",
-            500,
-        )
-
-    return {
-        "session": _public_tutor_session(session),
-        "messages": [],
-    }
-
-
-@app.post("/api/ai/tutor/chat")
-def api_tutor_chat(
-    payload: dict[str, Any],
-    user_id: str = Depends(get_current_user_id),
-):
-    session_id = _clean_text(payload.get("session_id") or payload.get("sessionId"), 120)
-    message = _clean_text(payload.get("message"), 4000)
-
-    if not session_id:
-        raise _http_error("Tutor session_id қажет", 400)
-    if not message:
-        raise _http_error("Tutor хабарламасы бос болмауы керек", 400)
-
-    session = get_tutor_session_for_user(session_id=session_id, user_id=user_id)
-    if not session:
-        raise _http_error("Tutor session табылмады", 404)
-
-    session_messages = list_tutor_messages(session_id=session_id, user_id=user_id)
-    history = [
-        {"role": row.get("role", "user"), "content": row.get("content", "")}
-        for row in session_messages[-8:]
-    ]
-
-    context = _normalize_context(payload.get("context"), session)
-
-    try:
-        tutor_result = tutor_reply_for_bilimcorp(
-            {
-                "message": message,
-                "context": context,
-                "history": history,
-            }
-        )
-
-        reply = tutor_result.get("reply") or {}
-        reply_content = _clean_multiline_text(reply.get("content"), 12000)
-        if not reply_content:
-            raise _http_error("Tutor бос жауап қайтарды", 502)
-
-        append_tutor_message_batch(
-            session_id=session_id,
-            user_id=user_id,
-            messages=[
-                {"role": "user", "content": message},
-                {"role": "assistant", "content": reply_content},
-            ],
-        )
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        raise _http_error(str(exc), 400)
-    except Exception:
-        logger.exception("tutor_chat failed")
-        raise _http_error("Tutor чатында серверлік қате пайда болды", 500)
-
-    fresh_messages = list_tutor_messages(session_id=session_id, user_id=user_id)
-
-    return {
-        "session_id": session_id,
-        "reply": {
-            "id": reply.get("id"),
-            "role": "assistant",
-            "content": reply_content,
-            "created_at": reply.get("created_at") or _utc_iso(),
-        },
-        "messages": fresh_messages,
-        "used_model": tutor_result.get("used_model", "fallback"),
-        "fallback": bool(tutor_result.get("fallback")),
-    }
 
 
 @app.post("/api/ai/exams")

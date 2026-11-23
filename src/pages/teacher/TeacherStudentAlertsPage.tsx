@@ -16,6 +16,62 @@ import {
   type AlertRow,
 } from '@/lib/platform-api';
 import { formatDateTime, useStudentNames } from '@/lib/teacher-ui';
+import { formatBlockedUntil, tutorKeys, useTutorApi } from '@/lib/tutor-api';
+
+// Tutor бұғаты (personarag §6.3, D70): бірінші Hard Alert — 30 минут, мұғалім ертерек аша не өзі ашқанша жаба алады.
+function TutorBlockPanel({ studentId }: { studentId: string }) {
+  const api = useTutorApi();
+  const queryClient = useQueryClient();
+  const state = useQuery({
+    queryKey: tutorKeys.block(studentId),
+    queryFn: () => api.teacherBlockState(studentId),
+    enabled: !!studentId,
+  });
+  const apply = (data: Awaited<ReturnType<typeof api.teacherBlockState>>) =>
+    queryClient.setQueryData(tutorKeys.block(studentId), data);
+  const unblock = useMutation({ mutationFn: () => api.teacherUnblock(studentId), onSuccess: apply });
+  const lock = useMutation({ mutationFn: () => api.teacherLock(studentId), onSuccess: apply });
+  const busy = unblock.isPending || lock.isPending;
+  const error = (state.error ?? unblock.error ?? lock.error) as Error | null;
+  const reason = state.data?.blocked_reason ?? null;
+
+  const status =
+    reason === 'teacher'
+      ? 'Сіз ашқанша жабық'
+      : reason === 'cooldown'
+        ? `Уақытша бұғатталған, ${formatBlockedUntil(state.data?.blocked_until ?? null)}-де өзі ашылады`
+        : 'Ашық';
+
+  return (
+    <Card className="flex flex-col gap-2.5 px-4 py-3.5">
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="text-[15px] font-semibold">Тьютор</span>
+        {state.data ? <Chip tone={reason ? 'neutral' : 'good'}>{status}</Chip> : null}
+      </span>
+      {error ? <Banner tone="bad">{error.message}</Banner> : null}
+      {state.data ? (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={busy || !reason}
+            onClick={() => unblock.mutate()}
+            className="h-10 rounded-xl bg-[#121212] text-sm font-semibold text-white disabled:opacity-40"
+          >
+            Бұғатты ашу
+          </button>
+          <button
+            type="button"
+            disabled={busy || reason === 'teacher'}
+            onClick={() => lock.mutate()}
+            className="h-10 rounded-xl border border-[#D9D6D0] bg-white text-sm font-semibold disabled:opacity-40"
+          >
+            Мен ашқанша жабу
+          </button>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
 
 const STATUS_TITLES: Record<AlertRow['status'], string> = {
   open: 'Ашық',
@@ -125,6 +181,7 @@ export default function TeacherStudentAlertsPage() {
         Мұғалімге тек қауіпсіздік ережесін бұзған хабарлама жіберіледі. Тьютормен басқа диалогтар оқушының жеке
         ісі болып қалады.
       </Banner>
+      <TutorBlockPanel studentId={studentId} />
       {alerts.isLoading ? <LoadingBlock /> : null}
       {alerts.isError ? <Banner tone="bad">{(alerts.error as Error).message}</Banner> : null}
       {alerts.data && alerts.data.length === 0 ? (

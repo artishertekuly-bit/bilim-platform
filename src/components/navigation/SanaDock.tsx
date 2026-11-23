@@ -435,7 +435,7 @@ export default function SanaDock({
             label: 'ЖИ',
             path: resolvedMainPaths.ai,
             icon: Bot,
-            aliases: ['/ai', '/ai-practice', '/ai-tutor', '/ai-tracker', '/exam'],
+            aliases: ['/ai', '/ai-tutor', '/exam'],
             action: aiTools.length > 0 ? 'ai-launcher' : undefined,
           } satisfies DockItem,
         ]

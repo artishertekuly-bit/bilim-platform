@@ -39,10 +39,8 @@ const ProfileSettingsPage = lazy(() => import('./pages/ProfileSettingsPage'));
 const SetupPasswordPage = lazy(() => import('./pages/SetupPasswordPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
-// Tutor 7-қадамда қайта құрылғанша ескі Тьютор беттері қалады (karta §6.1).
-const AiPracticePage = lazy(() => import('./pages/AiPracticePage'));
-const AiTutorPage = lazy(() => import('./pages/AiTutorPage'));
-const AiTrackerPage = lazy(() => import('./pages/AiTrackerPage'));
+// AI Tutor v2 (7-қадам, D86): LightRAG + PersonaRAG. Ескі практика мен трекер алынды (D40).
+const TutorPage = lazy(() => import('./pages/TutorPage'));
 
 const TeacherLessonsPage = lazy(() => import('./pages/teacher/TeacherLessonsPage'));
 const TeacherLessonEditPage = lazy(() => import('./pages/teacher/TeacherLessonEditPage'));
@@ -124,7 +122,7 @@ function RouteBlurTransitionVeil() {
       void import('./pages/lessons/LessonsCatalogPage');
       void import('./pages/exam/ExamHomePage');
       void import('./pages/ProfileSettingsPage');
-      void import('./pages/AiTutorPage');
+      void import('./pages/TutorPage');
     }, 600);
     return () => window.clearTimeout(timer);
   }, []);
@@ -366,22 +364,12 @@ const sharedContentRoutes: AppRouteConfig[] = [
   { path: '/saved-lessons', element: <Navigate to="/lessons?tab=saved" replace />, allowedRoles: STUDENT_ROLES },
 ];
 
+// Tutor — оқушының ортасы (personarag §1, api §4). Жаттығу Examiner-де, бейресми прогресс — тьютордан
+// «Не үйрендік?» деп сұрағанда (D40), сондықтан ескі сілтемелер сол жаққа бағытталады.
 const studentRoutes: AppRouteConfig[] = [
-  {
-    path: '/ai-practice',
-    element: <AiPracticePage />,
-    allowedRoles: STUDENT_ROLES,
-  },
-  {
-    path: '/ai-tutor',
-    element: <AiTutorPage />,
-    allowedRoles: STUDENT_ROLES,
-  },
-  {
-    path: '/ai-tracker',
-    element: <AiTrackerPage />,
-    allowedRoles: STUDENT_ROLES,
-  },
+  { path: '/ai-tutor', element: <TutorPage />, allowedRoles: STUDENT_ROLES },
+  { path: '/ai-practice', element: <Navigate to="/exam" replace />, allowedRoles: STUDENT_ROLES },
+  { path: '/ai-tracker', element: <Navigate to="/ai-tutor" replace />, allowedRoles: STUDENT_ROLES },
 ];
 
 const adminRoutes: AppRouteConfig[] = [

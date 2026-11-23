@@ -359,6 +359,10 @@ interface ReviewItem {
 | POST | `/conversations/{conversation_id}/messages` | Хабарлама жіберу; жауап SSE арқылы келеді |
 | POST | `/teacher/students/{student_id}/unblock` | Мұғалім бұғатты мерзімінен бұрын ашады ([personarag §6.3](lightrag_personarag.md)) |
 | POST | `/teacher/students/{student_id}/lock` | Мұғалім диалогты өзі ашқанша жабады (`blocked_reason = "teacher"`, D70) |
+| GET | `/teacher/students/{student_id}/block` | Бұғаттың ағымдағы күйі: мұғалім панеліндегі түймелер үшін (D86) |
+
+- Оқушы эндпоинттері тек `student` рөліне ашық, мұғалім эндпоинттері тек `teacher` рөліне және тек өз сыныбындағы оқушыға (байланысы жоқ оқушы — `404`, §2.1). Мұғалім командалары `client_request_id` қабылдайды, бірақ олар табиғатынан қайталауға төзімді: нәтижесі — бұғаттың жаңа күйі (`BlockState`).
+- `TutorSubject.grade` — пән кітаптарының ең кіші сыныбы: граф сыныппен шектелмейді ([personarag §1](lightrag_personarag.md)).
 
 ### 4.2. DTO
 
@@ -374,6 +378,8 @@ interface Conversation {
 interface TutorMessage { message_id: string; role: "student" | "tutor"; text: string; created_at: string }
 
 interface SendMessageRequest { client_request_id: string; text: string }   // ≤ 2000 таңба
+
+interface BlockState { student_id: string; blocked_until: string | null; blocked_reason: "cooldown" | "teacher" | null }
 ```
 
 ```
@@ -558,5 +564,5 @@ class LLMResult:
 4. ✅ Examiner сессиясы код форматтарымен (D62–D64): сессия өмірі, Е1 және Е2, нәтиже, профиль; фронтендте `/exam` экрандары. Е1 басымдығы, сессиядағы араластыру және `availability` (D65) енгізілді.
 5. ✅ Examiner-дің ЖИ форматтары (1–4-деңгей, 13 формат), 3-сатылы бағалау (hash / D66 векторлық кэш / ресми ЖИ, Т8–Т9), кіріс сүзгісі мен 2-страйк модерация, SSE диалог (`/turns`), 2-саты түсіндірмесі, шағым (`/appeal`) және мұғалімнің растау кезегі (`D78`).
 6. ✅ Платформа: `classes`, `lessons` кестесін қайта құру, чат рұқсаты, курстарды алу (D83–D85). Кестелерді өшіру бөлек бекітіледі ([karta §6.2](platforma-kartasy.md)).
-7. Tutor.
+7. ✅ Tutor (D86): түйін қабаты, оқушы ағашы, екі шақыру контуры, §4 эндпоинттері, бұғат пен лимиттер; фронтендте `/ai-tutor` чаты және мұғалімнің бұғат түймелері. Тег классификаторының дәлдігі әлі өлшенбеген ([ortaq §6](ortaq-infraqurylym.md)).
 8. Ойындар: ойын банкі, бөлмелер, бес ойын ([geimifikatsiya.md](geimifikatsiya.md)).

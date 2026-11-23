@@ -10,7 +10,6 @@ import {
   BookOpen,
   Bookmark,
   Bot,
-  BrainCircuit,
   ChevronDown,
   ClipboardCheck,
   FileText,
@@ -21,7 +20,6 @@ import {
   Sun,
   UserRound,
   Users,
-  WandSparkles,
 } from 'lucide-react';
 
 import UserAvatar from '@/components/UserAvatar';
@@ -129,26 +127,10 @@ const STUDENT_AI_TOOLS: SanaLauncherTool[] = [
   {
     id: 'tutor',
     title: 'AI Тьютор',
-    description: 'Сұрақтар мен тақырыпты түсіндіру',
+    description: 'Тақырыпты түсіндіреді, баға қоймайды',
     path: '/ai-tutor',
     icon: Bot,
     badge: 'Тьютор',
-  },
-  {
-    id: 'practice',
-    title: 'AI Практика',
-    description: 'Жеке жаттығулар мен есептер',
-    path: '/ai-practice',
-    icon: WandSparkles,
-    badge: 'Практика',
-  },
-  {
-    id: 'tracker',
-    title: 'AI Оқу ізі',
-    description: 'Оқу талдауы мен ұсыныстар',
-    path: '/ai-tracker',
-    icon: BrainCircuit,
-    badge: 'Талдау',
   },
 ];
 
