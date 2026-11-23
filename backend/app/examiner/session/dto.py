@@ -267,6 +267,45 @@ class ReviewQueueResponse(BaseModel):
     total: int
 
 
+class ClassBook(BaseModel):
+    book: str
+    title: str
+    grade: int
+
+
+class ClassStudentProfiles(BaseModel):
+    student_id: str
+    profiles: list[SubjectProfile]  # тек сыныптың пәні бойынша, нәтижесі бар әр оқулыққа біреу
+
+
+class ClassProfilesResponse(BaseModel):
+    """api §3.9, D38: сынып оқушыларының сынып пәні бойынша P1…P4 кестесі."""
+
+    class_id: str
+    subject_id: str
+    subject_title: str
+    books: list[ClassBook]
+    students: list[ClassStudentProfiles]
+
+
+class RatingEntry(BaseModel):
+    rank: int
+    student_id: str
+    f: float
+    f_is_final: bool
+    x3_passed: int  # тең F-ті шешеді (bagalau §4.3, D37)
+
+
+class ClassRatingResponse(BaseModel):
+    """D23: F бойынша, тек толық профилі (төрт деңгей) барлар арасында, бір оқулық ішінде."""
+
+    class_id: str
+    book: str | None
+    total: int
+    full_count: int
+    entries: list[RatingEntry]
+
+
 class GradeOverrideDTO(BaseModel):
     override_id: str
     teacher_id: str

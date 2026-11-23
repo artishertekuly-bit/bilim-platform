@@ -174,6 +174,28 @@ export interface ReviewQueueResponse {
   total: number;
 }
 
+export interface ClassBook {
+  book: string;
+  title: string;
+  grade: number;
+}
+
+export interface ClassProfilesResponse {
+  class_id: string;
+  subject_id: string;
+  subject_title: string;
+  books: ClassBook[];
+  students: { student_id: string; profiles: SubjectProfile[] }[];
+}
+
+export interface ClassRatingResponse {
+  class_id: string;
+  book: string | null;
+  total: number;
+  full_count: number;
+  entries: { rank: number; student_id: string; f: number; f_is_final: boolean; x3_passed: number }[];
+}
+
 export interface GradeOverrideItem {
   override_id: string;
   teacher_id: string;
@@ -474,6 +496,13 @@ export function createExaminerApi(token: string | undefined) {
       post<ExamSession>(token, `/sessions/${sessionId}/abandon`, { client_request_id: clientRequestId }),
     result: (sessionId: string) => request<SessionResult>(token, `/sessions/${sessionId}/result`),
     profile: () => request<StudentProfile>(token, '/me/profile'),
+    teacherClassProfiles: (classId: string) =>
+      request<ClassProfilesResponse>(token, `/teacher/classes/${classId}/profiles`),
+    teacherClassRating: (classId: string, book?: string) =>
+      request<ClassRatingResponse>(
+        token,
+        `/teacher/classes/${classId}/rating${book ? `?book=${encodeURIComponent(book)}` : ''}`,
+      ),
     teacherReviewQueue: (classId?: string, limit = 50, offset = 0) =>
       request<ReviewQueueResponse>(
         token,

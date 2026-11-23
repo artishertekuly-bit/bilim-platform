@@ -2,8 +2,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 
+import { useMemo } from 'react';
+
 import UserAvatar from '@/components/UserAvatar';
 import { Banner, Card, LoadingBlock, SectionLabel } from '@/components/exam/ExamUi';
+import ClassAnalytics from '@/components/teacher/ClassAnalytics';
 import TeacherScreen from '@/components/teacher/TeacherScreen';
 import { classKeys, classRoster, removeClassMember, rotateJoinCode, teacherClasses } from '@/lib/classes-api';
 
@@ -13,10 +16,15 @@ export default function TeacherClassPage() {
   const classes = useQuery({ queryKey: classKeys.teacherClasses, queryFn: teacherClasses });
   const roster = useQuery({ queryKey: classKeys.roster(classId), queryFn: () => classRoster(classId), enabled: !!classId });
   const current = classes.data?.find((item) => item.class_id === classId);
+  const names = useMemo(
+    () => new Map((roster.data ?? []).map((student) => [student.student_id, student.full_name])),
+    [roster.data],
+  );
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: classKeys.teacherClasses });
     void queryClient.invalidateQueries({ queryKey: ['classes', 'roster'] });
+    void queryClient.invalidateQueries({ queryKey: ['examiner', 'teacher'] });
   };
 
   const rotate = useMutation({ mutationFn: () => rotateJoinCode(classId), onSuccess: refresh });
@@ -61,6 +69,8 @@ export default function TeacherClassPage() {
             </button>
           </Card>
           {rotate.isError ? <Banner tone="bad">{(rotate.error as Error).message}</Banner> : null}
+
+          <ClassAnalytics classId={classId} names={names} />
 
           <section className="flex flex-col gap-2.5">
             <SectionLabel>Оқушылар · {roster.data?.length ?? current.member_count}</SectionLabel>

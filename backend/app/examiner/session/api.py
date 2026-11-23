@@ -24,6 +24,8 @@ from .dto import (
     AnswerResult,
     AppealRequest,
     AppealResponse,
+    ClassProfilesResponse,
+    ClassRatingResponse,
     ConfirmGradeRequest,
     DialogTurnRequest,
     ExamSession,
@@ -221,6 +223,25 @@ async def profile(
 
 
 # ------------------------------------------------------------------ мұғалім (api §3.9)
+
+
+@router.get("/teacher/classes/{class_id}/profiles", response_model=ClassProfilesResponse)
+async def class_profiles_route(
+    class_id: str,
+    teacher_id: str = Depends(require_teacher_id),
+    service: ExaminerService = Depends(get_service),
+) -> ClassProfilesResponse:
+    return await service.teacher_class_profiles(teacher_id, _uuid(class_id))
+
+
+@router.get("/teacher/classes/{class_id}/rating", response_model=ClassRatingResponse)
+async def class_rating_route(
+    class_id: str,
+    book: str | None = Query(default=None, min_length=1, max_length=200),
+    teacher_id: str = Depends(require_teacher_id),
+    service: ExaminerService = Depends(get_service),
+) -> ClassRatingResponse:
+    return await service.teacher_class_rating(teacher_id, _uuid(class_id), book)
 
 
 @router.get("/teacher/review-queue", response_model=ReviewQueueResponse)

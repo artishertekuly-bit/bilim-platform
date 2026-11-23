@@ -42,6 +42,8 @@ from .dto import (
     AbandonRequest,
     AnswerRequest,
     AnswerResult,
+    ClassProfilesResponse,
+    ClassRatingResponse,
     AppealRequest,
     AppealResponse,
     Book,
@@ -80,6 +82,7 @@ from .dto import (
 from .errors import ExaminerError, not_found, validation
 from .grading import AnswerInvalid, check_answer, check_hybrid_answer, extract_text_answer
 from .input_filter import check_code_filter, moderate_text
+from .analytics import class_profiles, class_rating
 from .review import (
     confirm_grade,
     fetch_grade_detail,
@@ -1758,6 +1761,14 @@ class ExaminerService:
     ) -> ReviewQueueResponse:
         async with self._pool.acquire() as conn:
             return await fetch_review_queue(conn, teacher_id, class_id=class_id, limit=limit, offset=offset)
+
+    async def teacher_class_profiles(self, teacher_id: str, class_id: str) -> ClassProfilesResponse:
+        async with self._pool.acquire() as conn:
+            return await class_profiles(conn, teacher_id, class_id)
+
+    async def teacher_class_rating(self, teacher_id: str, class_id: str, book: str | None) -> ClassRatingResponse:
+        async with self._pool.acquire() as conn:
+            return await class_rating(conn, teacher_id, class_id, book)
 
     async def teacher_grade_detail(self, teacher_id: str, grade_id: str) -> TeacherGradeDetail:
         async with self._pool.acquire() as conn:

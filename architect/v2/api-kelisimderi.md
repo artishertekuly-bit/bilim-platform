@@ -311,7 +311,7 @@ interface StudentProfile { subjects: SubjectProfile[] }
 | Әдіс | Жол | Мақсаты | Экран |
 |---|---|---|---|
 | GET | `/teacher/classes/{class_id}/profiles` | Сынып оқушыларының сыныптың пәні бойынша `P1…P4` кестесі (D38) | Сынып · профильдер |
-| GET | `/teacher/classes/{class_id}/rating` | `F` бойынша рейтинг, тек толық профилі барлар (D23); `full_count`, `total` | Сынып · рейтинг |
+| GET | `/teacher/classes/{class_id}/rating?book=` | `F` бойынша рейтинг бір оқулық ішінде, тек толық профилі барлар (D23); `full_count`, `total`; `book` берілмесе — толық профилі ең көп оқулық (D84) | Сынып · рейтинг |
 | GET | `/teacher/review-queue?class_id=` | Растауды күтетін ЖИ бағалары (D16), §3.9-дағы ретпен сұрыпталған (D69) | Растау |
 | GET | `/teacher/grades/{grade_id}` | Тапсырма, рубрика, оқушының жауабы, ЖИ балы, дәйексөздер | Бағаны растау |
 | POST | `/teacher/grades/{grade_id}/confirm` | ЖИ бағасын растау | Бағаны растау |
