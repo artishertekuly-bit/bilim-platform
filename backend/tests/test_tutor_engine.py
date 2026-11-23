@@ -150,6 +150,16 @@ class GateTests(unittest.TestCase):
         both = Tags(toxicity_target="INTERPERSONAL_OR_PROFANITY", intent="META_REFLECTION")
         self.assertIs(E.gate(both), E.Gate.HARD_ALERT)
 
+    def test_prompt_injection_gate(self) -> None:
+        # D87: ереже/рөлді өзгерту әрекеті — дабылсыз бөлек маршрут, ANSWER не META болса да.
+        injection = Tags(toxicity_category="PROMPT_INJECTION", intent="ANSWER")
+        self.assertIs(E.gate(injection), E.Gate.PROMPT_INJECTION)
+        self.assertIs(E.gate(replace(injection, intent="META_REFLECTION")), E.Gate.PROMPT_INJECTION)
+        rude = replace(injection, toxicity_target="INTERPERSONAL_OR_PROFANITY")
+        self.assertIs(E.gate(rude), E.Gate.HARD_ALERT)
+        route = E.special_route("INJECTION")
+        self.assertEqual((route.scenario, route.style, route.graph_action), ("INJECTION", "CLEAR_EXPLAINER", "STAY"))
+
 
 class RouteTests(unittest.TestCase):
     def r(self, status: Status, **kw) -> str:

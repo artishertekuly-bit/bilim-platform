@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -16,8 +16,17 @@ from pydantic import BaseModel, Field
 from ..llm_gateway import Message, PromptRef, wrap_untrusted
 from .engine import BLOOM_ORDER, Tags
 
-TAGS_PROMPT_REF = PromptRef("tutor.tags", "2026-11-24.1")
+TAGS_PROMPT_REF = PromptRef("tutor.tags", "2026-11-24.2")
 MAX_TUTOR_CONTEXT_CHARS = 600
+
+# Оқуға ниетті сұраныс пен шаршауды ажырату (D87): тег моделі «Білмеймін, түсіндірші» дегенді FRUSTRATION деп
+# белгілесе, тьютор түсіндірудің орнына жұбату әңгімесін бастайды. Модель қателескенде Python түзетеді.
+_HELP_MARKERS = ("түсіндір", "айтып бер", "айтшы", "көмектес", "мысал", "қалай болды", "көрсетші", "үйретші")
+_FATIGUE_MARKERS = (
+    "шаршад", "жалықт", "басым ауыр", "қажыд", "мазам", "болды енді", "қойдым", "жек көр",
+    "ештеңе түсінбе", "түк түсінбе", "дым түсінбе", "ешнәрсе түсінбе", "керек емес",
+)
+_GAP_MARKERS = ("білмеймін", "білмедім", "есімде жоқ", "ұмыттым", "білмей")
 
 
 class TagSchema(BaseModel):
@@ -49,7 +58,10 @@ intent:
   TOPIC_EXPLORE — asks to explain or tell about a topic.
   ANSWER — answers the tutor's last question or continues the thread with own reasoning.
   META_REFLECTION — asks what we have learned so far / a summary of own progress («не үйрендік?»).
-  FRUSTRATION — tired or annoyed WITHOUT profanity («түк түсінбеймін», «басым ауырды»).
+  FRUSTRATION — ONLY clear emotional fatigue, refusal to continue or distress WITHOUT profanity
+    («Шаршадым, ештеңе түсінбеймін», «басым ауырды», «болды енді, жалықтым»).
+    A request for help or an explanation is NOT frustration, even with «білмеймін»: «Білмеймін, түсіндірші»,
+    «айтып берші», «қалай болды?» after a tutor question → ANSWER with error_type GAP; without a question → TOPIC_EXPLORE.
   SMALL_TALK — greeting, thanks, or chat unrelated to the subject.
 alignment: 1 if the message responds to the tutor's last question or there was no question; 0 if the student ignores the tutor's question and switches to a different topic.
 focal_node: id (n1…n8) of the candidate node the message is mainly about; null if none of the candidates fits.
@@ -112,6 +124,20 @@ def to_tags(parsed: TagSchema, alias_to_node: Mapping[str, int]) -> Tags:
         bloom_level=bloom,
         error_type=parsed.error_type,
     )
+
+
+def _has(text: str, markers: Sequence[str]) -> bool:
+    low = " ".join((text or "").lower().split())
+    return any(marker in low for marker in markers)
+
+
+def apply_help_guard(tags: Tags, text: str, *, tutor_asked: bool) -> Tags:
+    """Оқуға ниетті сұраныс шаршау емес (D87). Модель FRUSTRATION қойса да, мәтінде көмек сұрауы болып,
+    шаршау белгісі болмаса — тьютордың сұрағына жауап (ANSWER) не жаңа тақырып (TOPIC_EXPLORE)."""
+    if tags.intent != "FRUSTRATION" or not _has(text, _HELP_MARKERS) or _has(text, _FATIGUE_MARKERS):
+        return tags
+    error = "GAP" if tags.error_type == "NONE" and _has(text, _GAP_MARKERS) else tags.error_type
+    return replace(tags, intent="ANSWER" if tutor_asked else "TOPIC_EXPLORE", error_type=error)
 
 
 def tags_meta(parsed: TagSchema) -> dict:

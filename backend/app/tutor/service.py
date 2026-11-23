@@ -1,10 +1,12 @@
 """Tutor сервисі: диалог, екі шақыру контуры, бұғат және лимиттер (personarag §5–§7, api §4, D70, D86).
 
 Хабарламаның жолы:
-  0. Эмбеддинг (оқушы мәтіні + тьютордың соңғы сұрағы) → corpus.match_entities → n1…n8 үміткерлер.
+  0. Үміткерлер n1…n8: мәтінде аты аталған түйіндер (aliases.py, жадтағы кэш) + екі вектор бойынша
+     corpus.match_entities (оқушы мәтінінің өзі және тьютордың соңғы сұрағымен бірге) + алдыңғы фокус (D87).
   1. Тег қою (кіші модель, Structured Outputs). Сонымен қатар оқулық чанктары векторы бойынша алынады.
-  2. Кіріс қақпасы (§6) және маршрут (§5) — таза Python (engine.py).
-  3. Контекст: векторлық чанктар + фокус / алғышарт / көпір түйіндерінің §-тері.
+  2. Кіріс қақпасы (§6, PROMPT_INJECTION қоса) және маршрут (§5) — таза Python (engine.py).
+  3. Контекст: фокус / алғышарт / көпір түйіндерінің чанктары мен векторлық чанктар, тегтің кілт сөздері
+     бойынша басымдықпен. EMPATHY мен INJECTION-да оқулық берілмейді.
   4. Жауап — күшті модель, stream. Ағын біткен соң ағаш бір транзакцияда, FOR UPDATE-пен жаңартылады (§3.5):
      жауап үзілсе, ағаш өзгермейді, ал сол client_request_id-мен қайталау қайта есептейді.
 Клиент байланысты үзсе де, жауап фондық тапсырмада аяғына дейін жазылады (api §2.5).
@@ -36,17 +38,19 @@ from ..llm_gateway import (
 )
 from . import engine as E
 from . import retrieval as R
+from .aliases import AliasCache, is_short_reply, mentions
 from .dto import BlockState, Conversation, MessagesPage, SendMessageRequest, TutorMessage, TutorSubject
 from .errors import TutorError, not_found, unavailable
 from .prompts import (
     BLOCKED_TEXT,
+    NO_TEXTBOOK_SCENARIOS,
     REPLY_PROMPT_REF,
     SAFETY_TEXT,
     NodeLine,
     build_reply_messages,
     suggestions_for,
 )
-from .tags import TAGS_PROMPT_REF, Candidate, TagSchema, build_tags_messages, tags_meta, to_tags
+from .tags import TAGS_PROMPT_REF, Candidate, TagSchema, apply_help_guard, build_tags_messages, tags_meta, to_tags
 
 logger = logging.getLogger("bilim.tutor")
 
@@ -56,6 +60,9 @@ COOLDOWN = timedelta(minutes=30)
 SECOND_ALERT_WINDOW = timedelta(hours=24)
 EPISODIC_K = 3
 PENDING_WAIT_S = 90.0
+TUTOR_TAIL_CHARS = 500
+STUDENT_VECTOR_NODES = 3
+JOINT_VECTOR_NODES = 3
 CHARS_PER_TOKEN = 2.5
 DEFAULT_DAILY_TOKENS = 200_000
 ALERT_CATEGORIES = frozenset({"TOXIC", "TROLLING", "PROFANITY", "AGGRESSION"})
@@ -108,11 +115,23 @@ class TurnPlan:
 
 
 class TutorService:
-    def __init__(self, pool: asyncpg.Pool, *, gateway: LLMGateway | None = None, clock=None) -> None:
+    def __init__(
+        self,
+        pool: asyncpg.Pool,
+        *,
+        gateway: LLMGateway | None = None,
+        clock=None,
+        aliases: AliasCache | None = None,
+    ) -> None:
         self._pool = pool
         self._gateway_instance = gateway
         self._clock = clock or (lambda: datetime.now(UTC))
         self._bg_tasks: set[asyncio.Task[Any]] = set()
+        self._aliases = aliases or AliasCache(self._load_aliases)
+
+    async def _load_aliases(self) -> list[tuple[str, int]]:
+        async with self._pool.acquire() as conn:
+            return await R.alias_rows(conn)
 
     def _gateway(self) -> LLMGateway:
         if self._gateway_instance is None:
@@ -553,23 +572,39 @@ class TutorService:
         tutor_last = next((r["text"] for r in reversed(history) if r["role"] == "tutor"), "")
         episodic = [(r["role"], r["text"]) for r in history[-EPISODIC_K:]]
 
-        # 0-қадам: эмбеддинг. Қате болса, тьютор үміткерсіз (тек алдыңғы фокуспен) жалғасады.
-        vector: list[float] | None = None
-        try:
-            embed_input = (tutor_last[-500:] + "\n" + text).strip()
-            vector = (await gw.embed([embed_input], model_key="corpus"))[0]
-        except (LLMUnavailableError, LLMRequestError, ValueError) as exc:
-            logger.warning("tutor embedding failed: %s", type(exc).__name__)
+        # 0-қадам: үміткерлер (D87). Реті: мәтінде аты аталған түйіндер → оқушы мәтінінің векторы → алдыңғы
+        # фокус пен көпір → тьютордың соңғы сұрағымен біріккен вектор (§7.1) → алдыңғы фокустың алғышарттары.
+        # Эмбеддинг қате берсе, тьютор атаулар мен алдыңғы фокуспен жалғасады.
+        index = await self._aliases.get()
+        lexical = [m.node_id for m in index.match(text)] if index is not None else []
+        # Қысқа жауап («Иә», «Білмеймін, түсіндірші»): өз мәтінінің векторы кездейсоқ ұғымдар береді, сондықтан
+        # тек тьютордың сұрағымен біріккен вектор ізделеді, ал алдыңғы фокус пен үміткерлер сақталады (D87).
+        short = is_short_reply(text) and not lexical
+        prev_candidates = [int(i) for i in state.get("candidates") or [] if isinstance(i, int)]
+        student_vector, joint_vector = await self._embed(gw, text, tutor_last, joint_only=short)
 
         async with self._pool.acquire() as conn:
-            found = await R.vector_nodes(conn, vector)
-            extra_ids = [i for i in (prev_focus, active_bridge) if i]
+            by_student = [] if short else await R.vector_nodes(conn, student_vector)
+            by_joint = await R.vector_nodes(conn, joint_vector) if joint_vector is not student_vector else []
             prev_prereqs = (await R.prerequisites(conn, [prev_focus])).get(prev_focus, []) if prev_focus else []
-            extra = await R.nodes_by_id(conn, [*extra_ids, *prev_prereqs[:2]])
+            known = {n.node_id for n in [*by_student, *by_joint]}
+            kept = prev_candidates if short else []
+            wanted = [*lexical, prev_focus, active_bridge, *kept, *prev_prereqs[:2]]
+            extra = await R.nodes_by_id(conn, [i for i in wanted if i and i not in known])
+        info: dict[int, R.NodeInfo] = {**{n.node_id: n for n in [*by_student, *by_joint]}, **extra}
+        order = [
+            *lexical,
+            *(n.node_id for n in by_student[:STUDENT_VECTOR_NODES]),
+            prev_focus, active_bridge,
+            *kept,
+            *(n.node_id for n in by_joint[:JOINT_VECTOR_NODES]),
+            *prev_prereqs[:2],
+            *(n.node_id for n in [*by_student[STUDENT_VECTOR_NODES:], *by_joint[JOINT_VECTOR_NODES:]]),
+        ]
         ordered: list[R.NodeInfo] = []
-        for node in [*found, *(extra[i] for i in [*extra_ids, *prev_prereqs[:2]] if i in extra)]:
-            if node.node_id not in {n.node_id for n in ordered}:
-                ordered.append(node)
+        for node_id in order:
+            if node_id in info and all(n.node_id != node_id for n in ordered):
+                ordered.append(info[node_id])
         ordered = ordered[: R.MAX_CANDIDATES]
         candidates = [
             Candidate(f"n{i + 1}", n.node_id, n.name, n.entity_type, n.grade, n.paragraph_no)
@@ -581,7 +616,7 @@ class TutorService:
         # 1-қадам: тег, онымен қатар векторлық чанктар.
         async def _vector_chunks() -> list[tuple[str, str]]:
             async with self._pool.acquire() as cconn:
-                return await R.vector_chunks(cconn, vector)
+                return await R.vector_chunks(cconn, joint_vector)
 
         chunks_task = asyncio.create_task(_vector_chunks())
         try:
@@ -593,7 +628,7 @@ class TutorService:
             raise
         tokens = result.input_tokens + result.output_tokens
         parsed = result.parsed if isinstance(result.parsed, TagSchema) else TagSchema.model_validate_json(result.text)
-        tags = to_tags(parsed, alias_to_node)
+        tags = apply_help_guard(to_tags(parsed, alias_to_node), text, tutor_asked="?" in tutor_last[-300:])
 
         # 2-қадам: кіріс қақпасы.
         gate = E.gate(tags)
@@ -618,13 +653,20 @@ class TutorService:
             lengths=[int(r["n"]) for r in lengths],
         )
 
-        # 3-қадам: контекст.
+        # 3-қадам: контекст. 1-қадамның кілт сөздері — сүзгі емес, басымдық (D87).
         vector_chunks = await chunks_task
-        node_chunk_rows: list[tuple[str, str]] = []
-        if plan.chunk_entities and plan.scenario != "EMPATHY":
-            async with self._pool.acquire() as conn:
-                node_chunk_rows = await R.node_chunks(conn, plan.chunk_entities)
-        chunks = [] if plan.scenario == "EMPATHY" else R.merge_chunks(node_chunk_rows, vector_chunks)
+        chunks: list[str] = []
+        if plan.scenario not in NO_TEXTBOOK_SCENARIOS:
+            terms = R.keyword_terms(parsed.hl_keywords, parsed.ll_keywords)
+            # Аты аталған ұғымдар мен алдыңғы фокустың чанктары да кілт сөз бойынша таңдалады (D87).
+            extra_entities = [e for i in [*lexical, prev_focus] if i in info for e in info[i].entity_ids]
+            node_chunk_rows: list[tuple[str, str, int]] = []
+            if plan.chunk_entities or extra_entities:
+                async with self._pool.acquire() as conn:
+                    node_chunk_rows = await R.node_chunks(
+                        conn, plan.chunk_entities, terms, extra_entity_ids=extra_entities[:40]
+                    )
+            chunks = R.compose_chunks(node_chunk_rows, vector_chunks, terms)
 
         # 4-қадам: жауап ағыны.
         messages = build_reply_messages(
@@ -645,12 +687,15 @@ class TutorService:
             await queue.put(("token", {"text": piece}))
         reply_text = "".join(parts).rstrip() or "…"
         tokens += math.ceil((sum(len(m.content) for m in messages) + len(reply_text)) / CHARS_PER_TOKEN)
+        plan.next_state = self._settle_focus(plan, info, reply_text)
+        plan.next_state["candidates"] = [c.node_id for c in candidates]
 
         suggestions = suggestions_for(plan.scenario)
         meta = {
             "gate": plan.gate, "scenario": plan.scenario, "style": plan.style, "status": plan.status,
             "focal": plan.focal, "parent": plan.parent, "bridge": plan.bridge, "paste_suspect": plan.paste_suspect,
             "tags": tags_meta(parsed), "suggestions": suggestions,
+            "candidates": [c.name for c in candidates], "lexical": lexical, "chunks": len(chunks),
             "prompt_versions": {"tags": TAGS_PROMPT_REF.version, "reply": REPLY_PROMPT_REF.version},
         }
         async with self._pool.acquire() as conn:
@@ -664,6 +709,45 @@ class TutorService:
                 await self._complete(conn, tutor_message_id, reply_text, meta)
         await queue.put(("done", {"message_id": tutor_message_id, "suggestions": suggestions}))
         return tokens
+
+    async def _embed(
+        self, gw: LLMGateway, text: str, tutor_last: str, *, joint_only: bool = False
+    ) -> tuple[list[float] | None, list[float] | None]:
+        """Бір шақыруда екі вектор: оқушы мәтінінің өзі және тьютордың соңғы сұрағымен бірге (§7.1).
+
+        Тьютордың алдыңғы хабарламасы болмаса, екеуі бір вектор. `joint_only` (қысқа жауап) — тек біріккені,
+        оқушы мәтінінің векторы None. Қате болса — (None, None).
+        """
+        tail = tutor_last.strip()[-TUTOR_TAIL_CHARS:]
+        joint = f"{tail}\n{text}" if tail else text
+        inputs = [joint] if joint_only else [text] + ([joint] if tail else [])
+        try:
+            vectors = await gw.embed(inputs, model_key="corpus")
+        except (LLMUnavailableError, LLMRequestError, ValueError) as exc:
+            logger.warning("tutor embedding failed: %s", type(exc).__name__)
+            return None, None
+        if not vectors:
+            return None, None
+        if joint_only:
+            return None, vectors[0]
+        student = vectors[0]
+        return student, (vectors[1] if tail and len(vectors) > 1 else student)
+
+    @staticmethod
+    def _settle_focus(plan: TurnPlan, info: dict[int, R.NodeInfo], reply_text: str) -> dict[str, Any]:
+        """Келесі фокус (D87): 5, 6А, 9-сценарийлерде фокус аталық не көпір түйінге ауысады, бірақ тек жауап
+        шынымен сол ұғымға бұрылса. textbook_order алғышарттары әлі тексерілмеген, сондықтан жауапта аталмаған
+        аталыққа көшу диалогты бөтен тақырыпқа апарады («Абылай хан» → «Ресей»)."""
+        state = dict(plan.next_state)
+        if plan.parent is not None and state.get("focus") == plan.parent:
+            parent = info.get(plan.parent)
+            if parent is None or not mentions(reply_text, parent.name):
+                state["focus"] = plan.focal
+        if plan.bridge is not None and state.get("bridge") == plan.bridge:
+            bridge = info.get(plan.bridge)
+            if bridge is None or not mentions(reply_text, bridge.name):
+                state["bridge"] = None
+        return state
 
     async def _complete(self, conn: Any, tutor_message_id: str, text: str, meta: dict[str, Any]) -> None:
         await conn.execute(
@@ -700,6 +784,13 @@ class TutorService:
                 prerequisites=tuple(alias[p] for p in prereq.get(node_id, []) if p in alias),
             )
 
+        if gate is E.Gate.PROMPT_INJECTION:
+            # Рөл сақталады, оқулық пен түйін сипаттамасы берілмейді, ағаш өзгермейді (D87).
+            route = E.special_route("INJECTION", recent_styles)
+            return TurnPlan(
+                scenario=route.scenario, style=route.style, gate=gate.value,
+                next_state=self._next_state(prev_focus, None, recent_styles, route.style, next_unanswered),
+            )
         if gate is E.Gate.META_REFLECTION:
             route = E.special_route("META", recent_styles)
             async with self._pool.acquire() as conn:

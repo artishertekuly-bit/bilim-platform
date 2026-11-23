@@ -233,6 +233,18 @@ class RetryAndFallbackTests(GatewayTestCase):
         with self.assertRaises(LLMUnavailableError):
             await gateway.complete(Task.TUTOR_TAGS, PROMPT, MESSAGES)
 
+    async def test_unconfigured_reserve_warns_once_per_process(self) -> None:
+        data = base_config()
+        data["models"]["reserve"]["model"] = "${RESERVE_MODEL}"  # атауы берілмеген резерв
+        gateway = self.make(data, env={"PRIMARY_KEY": "test", "GRADING_MODEL": "g"}, reserve=False)
+        self.primary.push("бір", "екі", "үш")
+        with self.assertLogs("bilim.llm_gateway", level="WARNING") as logs:
+            for _ in range(3):
+                await gateway.complete(Task.TUTOR_TAGS, PROMPT, MESSAGES)
+        warnings = [r.getMessage() for r in logs.records if "Резерв" in r.getMessage()]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("${RESERVE_MODEL}", warnings[0])
+
     async def test_retry_after_header_is_respected(self) -> None:
         gateway = self.make()
         self.primary.push(unavailable(retry_after=2.5), "ok")

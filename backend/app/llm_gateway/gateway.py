@@ -104,6 +104,7 @@ class LLMGateway:
         self._rpm = {key: TokenBucket(m.rpm, clock=clock) for key, m in config.models.items() if m.rpm}
         self._tpm = {key: TokenBucket(m.tpm, clock=clock) for key, m in config.models.items() if m.tpm}
         self._completed_batches: set[str] = set()
+        self._skip_warned: set[tuple[str, str]] = set()
 
     @property
     def config(self) -> GatewayConfig:
@@ -521,7 +522,7 @@ class LLMGateway:
             if model.model is None:
                 if primary:
                     raise ConfigError(f"'{key}' моделінің атауы берілмеген: {model.model_spec}")
-                logger.warning("Резерв '%s' өткізілді: модель атауы берілмеген", key)
+                self._warn_skip(key, f"модель атауы берілмеген ({model.model_spec})")
                 continue
             try:
                 provider = self._provider(model.provider)
@@ -530,10 +531,19 @@ class LLMGateway:
                     raise ConfigError(
                         f"'{model.provider}' провайдерінің кілті немесе base_url берілмеген"
                     ) from None
-                logger.warning("Резерв '%s' өткізілді: '%s' провайдері бапталмаған", key, model.provider)
+                self._warn_skip(key, f"'{model.provider}' провайдерінің кілті берілмеген")
                 continue
             candidates.append((key, model, provider))
         return candidates
+
+    def _warn_skip(self, key: str, reason: str) -> None:
+        """Бапталмаған резерв — тұрақты күй, сондықтан ескерту процесте бір рет шығады, кейін тек debug."""
+        if (key, reason) in self._skip_warned:
+            logger.debug("Резерв '%s' өткізілді: %s", key, reason)
+            return
+        self._skip_warned.add((key, reason))
+        logger.warning("Резерв '%s' өткізілді: %s. Tutor мен генерация резервсіз жұмыс істейді "
+                       "(бұл ескерту бір рет шығады).", key, reason)
 
     def _estimate(self, messages: Sequence[Message], route: RouteConfig) -> int:
         return estimate_tokens(messages, self._config.chars_per_token) + (route.max_output_tokens or 0)

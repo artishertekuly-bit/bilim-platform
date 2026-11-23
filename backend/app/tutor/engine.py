@@ -136,14 +136,21 @@ class Tags:
 class Gate(StrEnum):
     NONE = "NONE"
     HARD_ALERT = "HARD_ALERT"
+    PROMPT_INJECTION = "PROMPT_INJECTION"
     META_REFLECTION = "META_REFLECTION"
     OPEN_EMPATHETIC_DIALOG = "OPEN_EMPATHETIC_DIALOG"
 
 
 def gate(tags: Tags) -> Gate:
-    """§6: негізгі матрицаға дейінгі сүзгі. Оқулықтағы «қырғын, сатқын» т.б. (HISTORICAL_CONTEXT) қауіпсіз."""
+    """§6: негізгі матрицаға дейінгі сүзгі. Оқулықтағы «қырғын, сатқын» т.б. (HISTORICAL_CONTEXT) қауіпсіз.
+
+    PROMPT_INJECTION (D87): оқушы тьютордың ережесін не рөлін өзгертпек. Дабыл жоқ, бірақ жауапқа оқулық
+    берілмейді және ағаш өзгермейді. Боғауызбен бірге келсе, Hard Alert басым.
+    """
     if tags.toxicity_target == "INTERPERSONAL_OR_PROFANITY":
         return Gate.HARD_ALERT
+    if tags.toxicity_category == "PROMPT_INJECTION":
+        return Gate.PROMPT_INJECTION
     if tags.intent == "META_REFLECTION":
         return Gate.META_REFLECTION
     if tags.intent == "FRUSTRATION":
@@ -267,6 +274,7 @@ SCENARIO_STYLE: dict[str, str] = {
     # Кіріс қақпасы мен фокуссыз хабарлама (матрицадан тыс).
     "META": "CLEAR_EXPLAINER",
     "EMPATHY": "EMPATHETIC_SCAFFOLDER",
+    "INJECTION": "CLEAR_EXPLAINER",
     "GENERAL": "CLEAR_EXPLAINER",
 }
 
@@ -352,7 +360,7 @@ def route(inp: RouteInput) -> Route:
 
 
 def special_route(kind: str, recent_styles: tuple[str, ...] = ()) -> Route:
-    """Кіріс қақпасы (META, EMPATHY) және фокуссыз хабарлама (GENERAL): ΔM = 0."""
+    """Кіріс қақпасы (META, EMPATHY, INJECTION) және фокуссыз хабарлама (GENERAL): ΔM = 0."""
     return Route(scenario=kind, style=apply_rhythm(SCENARIO_STYLE[kind], recent_styles))
 
 
