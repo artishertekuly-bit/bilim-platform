@@ -1,9 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
-  BookOpen,
-  ClipboardList,
-  Eye,
   FileText,
   GraduationCap,
   LayoutGrid,
@@ -31,14 +28,8 @@ type CmsItem = {
 const MAX_TITLE_CHARS = 120;
 const MAX_DESCRIPTION_CHARS = 260;
 
-const ALLOWED_CMS_PATHS = new Set([
-  '/subjects',
-  '/manage-courses',
-  '/manage-lessons',
-  '/manage-tests',
-  '/moderation',
-  '/manage-users',
-]);
+// Курс пен тест басқару алынды (D19).
+const ALLOWED_CMS_PATHS = new Set(['/subjects', '/manage-lessons', '/manage-users']);
 
 function cleanRawText(value: unknown): string {
   return removeNullCharacters(String(value ?? ''));
@@ -95,32 +86,11 @@ function getCmsItems(): CmsItem[] {
       tone: 'primary',
     },
     {
-      title: t('nav.manage_courses'),
-      description: t('page.admin_cms.item.courses'),
-      path: '/manage-courses',
-      icon: BookOpen,
-      tone: 'secondary',
-    },
-    {
-      title: t('nav.manage_lessons'),
-      description: t('page.admin_cms.item.lessons'),
+      title: t('nav.moderation'),
+      description: 'Мұғалімдер жариялаған сабақтарды жасыру не қайта ашу',
       path: '/manage-lessons',
       icon: FileText,
       tone: 'accent',
-    },
-    {
-      title: t('nav.manage_tests'),
-      description: t('page.admin_cms.item.tests'),
-      path: '/manage-tests',
-      icon: ClipboardList,
-      tone: 'warning',
-    },
-    {
-      title: t('nav.moderation'),
-      description: t('page.admin_cms.item.moderation'),
-      path: '/moderation',
-      icon: Eye,
-      tone: 'primary',
     },
     {
       title: t('nav.users'),

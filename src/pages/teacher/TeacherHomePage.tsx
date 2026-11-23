@@ -7,7 +7,8 @@ import { Banner, Card, Chip, LoadingBlock, PrimaryButton, SectionLabel } from '@
 import TeacherScreen from '@/components/teacher/TeacherScreen';
 import { classKeys, createClass, listSubjects, teacherClasses } from '@/lib/classes-api';
 import { useExaminerApi } from '@/lib/examiner-api';
-import { inputClass } from '@/lib/teacher-ui';
+import { ALERT_CATEGORY_TITLES, attentionList, platformKeys } from '@/lib/platform-api';
+import { formatDateTime, inputClass, useStudentNames } from '@/lib/teacher-ui';
 
 export default function TeacherHomePage() {
   const api = useExaminerApi();
@@ -18,6 +19,8 @@ export default function TeacherHomePage() {
     queryKey: ['examiner', 'teacher', 'queue', 'summary'],
     queryFn: () => api.teacherReviewQueue(undefined, 1, 0),
   });
+  const attention = useQuery({ queryKey: platformKeys.attention, queryFn: attentionList });
+  const names = useStudentNames();
 
   const [title, setTitle] = useState('');
   const [subjectId, setSubjectId] = useState('');
@@ -54,6 +57,29 @@ export default function TeacherHomePage() {
           <span className="text-2xl font-bold">{queue.isLoading ? '…' : pending}</span>
         </Card>
       </Link>
+
+      {attention.data && attention.data.length > 0 ? (
+        <section className="flex flex-col gap-2.5">
+          <SectionLabel>Назар аударуды қажет ететін оқушылар</SectionLabel>
+          {attention.data.map((row) => (
+            <Link key={row.student_id} to={`/teacher/students/${row.student_id}`} className="no-underline text-inherit">
+              <Card className="flex items-center justify-between gap-3 px-4 py-3.5">
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="truncate text-[15px] font-semibold">{names.get(row.student_id) ?? 'Оқушы'}</span>
+                  <span className="text-[13px] text-[#5E5E5E]">
+                    {(row.last_category && ALERT_CATEGORY_TITLES[row.last_category]) || 'Дабыл'}
+                    {row.last_alert_at ? ` · ${formatDateTime(row.last_alert_at)}` : ''}
+                  </span>
+                </span>
+                <span className="rounded-full bg-[#FBEAEA] px-2.5 py-1 text-xs font-bold text-[#B42323]">
+                  {row.open_count}
+                </span>
+              </Card>
+            </Link>
+          ))}
+        </section>
+      ) : null}
+      {attention.isError ? <Banner tone="warn">Дабылдар жүктелмеді: {(attention.error as Error).message}</Banner> : null}
 
       <section className="flex flex-col gap-2.5">
         <SectionLabel>Сыныптарым</SectionLabel>

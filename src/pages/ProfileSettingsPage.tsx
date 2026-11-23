@@ -804,29 +804,25 @@ export default function ProfileSettingsPage() {
     : 'БЕЛГІСІЗ';
 
   const roleActions = useMemo(() => {
+    // Курстар, аналитика және автор құралдары алынды (D19): әр рөлге өз аймағы.
     if (user?.role === 'student') {
       return [
-        {
-          title: 'Курстарым',
-          text: 'Оқуды жалғастыру',
-          href: '/courses',
-          icon: <BookOpen size={17} />,
-          featured: true,
-        },
-        {
-          title: 'ЖИ көмекші',
-          text: 'Тақырыпты бірге түсіну',
-          href: '/ai-tutor',
-          icon: <Bot size={17} />,
-          featured: false,
-        },
-        {
-          title: 'Оқу барысы',
-          text: 'Нәтиже мен белсенділік',
-          href: '/analytics',
-          icon: <BarChart3 size={17} />,
-          featured: false,
-        },
+        { title: 'Емтихан', text: 'Оқулық бойынша төрт деңгей', href: '/exam', icon: <BookOpen size={17} />, featured: true },
+        { title: 'Тьютор', text: 'Тақырыпты бірге түсіну', href: '/ai-tutor', icon: <Bot size={17} />, featured: false },
+        { title: 'Өз нәтижем', text: 'P1…P4 және F', href: '/exam/profile', icon: <BarChart3 size={17} />, featured: false },
+      ];
+    }
+
+    if (user?.role === 'teacher') {
+      return [
+        { title: 'Мұғалім панелі', text: 'Сыныптар, дабылдар', href: '/teacher', icon: <BookOpen size={17} />, featured: true },
+        { title: 'Бағаны растау', text: 'ЖИ бағаларының кезегі', href: '/teacher/review', icon: <BarChart3 size={17} />, featured: false },
+      ];
+    }
+
+    if (user?.role === 'parent') {
+      return [
+        { title: 'Балам', text: 'Баланың нәтижесі', href: '/parent', icon: <BookOpen size={17} />, featured: true },
       ];
     }
 
@@ -835,27 +831,8 @@ export default function ProfileSettingsPage() {
     }
 
     return [
-      {
-        title: 'Курстарым',
-        text: 'Авторлық материалдарды басқару',
-        href: '/manage-courses',
-        icon: <BookOpen size={17} />,
-        featured: true,
-      },
-      {
-        title: 'Автор көмекшісі',
-        text: 'Идея мен сабақ құрылымы',
-        href: '/ai-assistant',
-        icon: <Bot size={17} />,
-        featured: false,
-      },
-      {
-        title: 'Аналитика',
-        text: 'Платформа көрінісі',
-        href: '/admin-analytics',
-        icon: <BarChart3 size={17} />,
-        featured: false,
-      },
+      { title: 'Пайдаланушылар', text: 'Рөлдерді басқару', href: '/manage-users', icon: <BookOpen size={17} />, featured: true },
+      { title: 'Сабақ модерациясы', text: 'Жарияланған сабақтар', href: '/manage-lessons', icon: <BarChart3 size={17} />, featured: false },
     ];
   }, [user?.role]);
 

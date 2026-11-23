@@ -44,6 +44,8 @@ export type SanaDockCoursePaths = {
 export type SanaDockProps = {
   mode?: SanaDockMode;
   showCreate?: boolean;
+  /** ЖИ батырмасы (әкімшіде ЖИ құралдары алынды, D19). */
+  showAi?: boolean;
   courseId?: string | null;
   progress?: number | null;
   mainPaths?: Partial<SanaDockMainPaths>;
@@ -333,6 +335,7 @@ function DockAction({
 export default function SanaDock({
   mode = 'auto',
   showCreate = false,
+  showAi = true,
   courseId,
   progress,
   mainPaths,
@@ -398,7 +401,7 @@ export default function SanaDock({
     },
     {
       key: 'courses',
-      label: 'Курстар',
+      label: 'Сабақтар',
       path: resolvedMainPaths.courses,
       icon: BookOpen,
       aliases: [
@@ -425,24 +428,18 @@ export default function SanaDock({
           } satisfies DockItem,
         ]
       : []),
-    {
-      key: 'ai',
-      label: 'ЖИ',
-      path: resolvedMainPaths.ai,
-      icon: Bot,
-      aliases: [
-        '/ai',
-        '/ai-practice',
-        '/ai-tutor',
-        '/ai-tracker',
-        '/ai-assistant',
-        '/ai-question-builder',
-        '/ai-exams',
-        '/ai-exams-open',
-        '/ai-exam',
-      ],
-      action: aiTools.length > 0 ? 'ai-launcher' : undefined,
-    },
+    ...(showAi
+      ? [
+          {
+            key: 'ai',
+            label: 'ЖИ',
+            path: resolvedMainPaths.ai,
+            icon: Bot,
+            aliases: ['/ai', '/ai-practice', '/ai-tutor', '/ai-tracker', '/exam'],
+            action: aiTools.length > 0 ? 'ai-launcher' : undefined,
+          } satisfies DockItem,
+        ]
+      : []),
     {
       key: 'profile',
       label: 'Профиль',

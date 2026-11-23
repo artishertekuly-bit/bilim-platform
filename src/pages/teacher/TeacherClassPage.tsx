@@ -1,12 +1,13 @@
 // Сынып беті (karta §4.2, D33): қосылу коды, кодты жаңарту, оқушылар тізімі, оқушыны шығару.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import { useMemo } from 'react';
 
 import UserAvatar from '@/components/UserAvatar';
 import { Banner, Card, LoadingBlock, SectionLabel } from '@/components/exam/ExamUi';
 import ClassAnalytics from '@/components/teacher/ClassAnalytics';
+import JoinCodeQr from '@/components/teacher/JoinCodeQr';
 import TeacherScreen from '@/components/teacher/TeacherScreen';
 import { classKeys, classRoster, removeClassMember, rotateJoinCode, teacherClasses } from '@/lib/classes-api';
 
@@ -55,6 +56,7 @@ export default function TeacherClassPage() {
             <span className="text-[13px] font-semibold uppercase tracking-[0.04em] text-[#5E5E5E]">
               Қосылу коды · {current.subject}
             </span>
+            <JoinCodeQr code={current.join_code} />
             <span className="font-mono text-4xl font-bold tracking-[0.25em]">{current.join_code}</span>
             <span className="text-[13px] leading-snug text-[#5E5E5E]">
               Оқушы кодты «Сыныптарым» бетінде енгізеді.
@@ -89,6 +91,12 @@ export default function TeacherClassPage() {
                   fallbackClassName="bg-[#ECE9E3] text-xs font-semibold text-[#111111]"
                 />
                 <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{student.full_name}</span>
+                <Link
+                  to={`/chat?with=${student.student_id}`}
+                  className="flex h-9 items-center rounded-lg px-3 text-sm font-semibold text-[#111111] no-underline hover:bg-[#ECE9E3]"
+                >
+                  Жазу
+                </Link>
                 <button
                   type="button"
                   onClick={() => onRemove(student.student_id, student.full_name)}

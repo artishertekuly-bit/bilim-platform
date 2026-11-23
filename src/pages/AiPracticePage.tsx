@@ -687,9 +687,9 @@ export default function AiPracticePage() {
           actions={
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" asChild>
-                <Link to="/tests">
+                <Link to="/exam">
                   <FileCheck2 size={14} className="mr-2" />
-                  Тесттер
+                  Емтихан
                 </Link>
               </Button>
 

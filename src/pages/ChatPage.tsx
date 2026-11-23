@@ -6,6 +6,7 @@ import {
   type FormEvent,
 } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   Loader2,
   MessageCircle,
@@ -537,6 +538,20 @@ export default function ChatPage() {
       setStartingChatUserId(null);
     }
   };
+
+  // `/chat?with=<user_id>`: мұғалім панелінен, «Сыныптарым» не дабыл бетінен тікелей чат ашу (D85).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const withUserId = cleanId(searchParams.get('with'));
+  const openedWithRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!withUserId || openedWithRef.current === withUserId) return;
+    const contact = contacts.find((item) => item.userId === withUserId);
+    if (!contact) return;
+    openedWithRef.current = withUserId;
+    void startDirectChat(contact);
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [withUserId, contacts]);
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

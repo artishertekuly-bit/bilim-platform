@@ -24,24 +24,14 @@ const RegisterPage = lazy(() => import('./pages/RegisterPage'));
 const AboutPage = lazy(() => import('./pages/AboutPage'));
 const DashboardRouter = lazy(() => import('./pages/DashboardRouter'));
 
-const CourseCatalogPage = lazy(() => import('./pages/CourseCatalogPage'));
-const CourseDetailPage = lazy(() => import('./pages/CourseDetailPage'));
-const LessonsPage = lazy(() => import('./pages/LessonsPage'));
-const LessonDetailPage = lazy(() => import('./pages/LessonDetailPage'));
-const SavedLessonsPage = lazy(() => import('./pages/SavedLessonsPage'));
-const TestsPage = lazy(() => import('./pages/TestsPage'));
-const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'));
-const GamificationPage = lazy(() => import('./pages/GamificationPage'));
-const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
+// Курстар, тесттер, рейтинг, жетістіктер, аналитика және ескі ЖИ емтихан/автор беттері алынды (D19, karta §6.1).
+// Кестелер мен деректер өшірілмеді; беттердің файлдары кейін бөлек тазаланады.
+const LessonsCatalogPage = lazy(() => import('./pages/lessons/LessonsCatalogPage'));
+const LessonViewPage = lazy(() => import('./pages/lessons/LessonViewPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
 
-const TeacherCreateCoursePage = lazy(() => import('./pages/TeacherCreateCoursePage'));
-const TeacherEditCoursePage = lazy(() => import('./pages/TeacherEditCoursePage'));
-const TeacherCreateTestPage = lazy(() => import('./pages/TeacherCreateTestPage'));
-const TeacherStudentsPage = lazy(() => import('./pages/TeacherStudentsPage'));
-
 const AdminSubjectsPage = lazy(() => import('./pages/AdminSubjectsPage'));
-const AdminModerationPage = lazy(() => import('./pages/AdminModerationPage'));
+const AdminLessonsPage = lazy(() => import('./pages/AdminLessonsPage'));
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
 const AdminCmsPage = lazy(() => import('./pages/AdminCmsPage'));
 
@@ -49,14 +39,15 @@ const ProfileSettingsPage = lazy(() => import('./pages/ProfileSettingsPage'));
 const SetupPasswordPage = lazy(() => import('./pages/SetupPasswordPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
-const AiQuestionBuilderPage = lazy(() => import('./pages/AiQuestionBuilderPage'));
-const AiExamsPage = lazy(() => import('./pages/AiExamsPage'));
+// Tutor 7-қадамда қайта құрылғанша ескі Тьютор беттері қалады (karta §6.1).
 const AiPracticePage = lazy(() => import('./pages/AiPracticePage'));
 const AiTutorPage = lazy(() => import('./pages/AiTutorPage'));
 const AiTrackerPage = lazy(() => import('./pages/AiTrackerPage'));
-const AiAssistantPage = lazy(() => import('./pages/AiAssistantPage'));
-const AiExamSessionPage = lazy(() => import('./pages/AiExamSessionPage'));
-const AiStudentExamsPage = lazy(() => import('./pages/AiStudentExamsPage'));
+
+const TeacherLessonsPage = lazy(() => import('./pages/teacher/TeacherLessonsPage'));
+const TeacherLessonEditPage = lazy(() => import('./pages/teacher/TeacherLessonEditPage'));
+const TeacherStudentAlertsPage = lazy(() => import('./pages/teacher/TeacherStudentAlertsPage'));
+const ParentHomePage = lazy(() => import('./pages/parent/ParentHomePage'));
 
 const ExamHomePage = lazy(() => import('./pages/exam/ExamHomePage'));
 const ExamSessionPage = lazy(() => import('./pages/exam/ExamSessionPage'));
@@ -83,19 +74,16 @@ const queryClient = new QueryClient({
   },
 });
 
-// Мұғалім рөлі 6-қадамда қайтты (D25, D83): оған тек мұғалім панелі, профиль және құпиясөз беттері ашық.
-// Ата-ана рөлі әлі қосылмаған. Курс/тест авторы — тек админ.
-const ALL_ROLES: UserRole[] = ['student', 'admin'];
-const ACCOUNT_ROLES: UserRole[] = ['student', 'teacher', 'admin'];
+// Төрт рөл (karta §2): оқушы, мұғалім (D25, D83), ата-ана (D26, D85), әкімші. Рөлді тек әкімші береді.
+const ACCOUNT_ROLES: UserRole[] = ['student', 'teacher', 'parent', 'admin'];
+const CHAT_ROLES: UserRole[] = ['student', 'teacher', 'parent'];
 const STUDENT_ROLES: UserRole[] = ['student'];
 const TEACHER_ROLES: UserRole[] = ['teacher'];
+const PARENT_ROLES: UserRole[] = ['parent'];
 const ADMIN_ROLES: UserRole[] = ['admin'];
-const AUTHOR_ROLES: UserRole[] = ADMIN_ROLES;
 
 const LEARNING_CONTENT_ROLES: UserRole[] = ['student', 'admin'];
-const ANALYTICS_ROLES: UserRole[] = ['student', 'admin'];
-
-const studentGamificationPaths = ['/games', '/achievements'] as const;
+const LESSON_READER_ROLES: UserRole[] = ['student', 'teacher', 'admin'];
 
 type AppRouteConfig = {
   path: string;
@@ -133,15 +121,10 @@ function RouteBlurTransitionVeil() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void import('./pages/DashboardRouter');
-      void import('./pages/CourseCatalogPage');
-      void import('./pages/CourseDetailPage');
-      void import('./pages/LessonsPage');
-      void import('./pages/LessonDetailPage');
-      void import('./pages/TestsPage');
-      void import('./pages/AnalyticsPage');
+      void import('./pages/lessons/LessonsCatalogPage');
+      void import('./pages/exam/ExamHomePage');
       void import('./pages/ProfileSettingsPage');
       void import('./pages/AiTutorPage');
-      void import('./pages/AiPracticePage');
     }, 600);
     return () => window.clearTimeout(timer);
   }, []);
@@ -304,10 +287,6 @@ function AiEntryPage() {
     return <Navigate to="/ai-tutor" replace />;
   }
 
-  if (AUTHOR_ROLES.includes(user.role)) {
-    return <Navigate to="/ai-assistant" replace />;
-  }
-
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -351,9 +330,10 @@ const commonProtectedRoutes: AppRouteConfig[] = [
     enforcePasswordSetup: false,
   },
   {
+    // Чат тек мұғалім ↔ сынып оқушысы және мұғалім ↔ оның ата-анасы (api §5.3, D24, D28).
     path: '/chat',
     element: <ChatPage />,
-    allowedRoles: ALL_ROLES,
+    allowedRoles: CHAT_ROLES,
   },
 ];
 
@@ -372,57 +352,21 @@ const classRoutes: AppRouteConfig[] = [
   { path: '/teacher/review', element: <TeacherReviewPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/grades/:gradeId', element: <TeacherGradePage />, allowedRoles: TEACHER_ROLES },
   { path: '/classes', element: <StudentClassesPage />, allowedRoles: STUDENT_ROLES },
+  { path: '/teacher/students/:studentId', element: <TeacherStudentAlertsPage />, allowedRoles: TEACHER_ROLES },
+  { path: '/teacher/lessons', element: <TeacherLessonsPage />, allowedRoles: TEACHER_ROLES },
+  { path: '/teacher/lessons/new', element: <TeacherLessonEditPage />, allowedRoles: TEACHER_ROLES },
+  { path: '/teacher/lessons/:lessonId/edit', element: <TeacherLessonEditPage />, allowedRoles: TEACHER_ROLES },
+  { path: '/parent', element: <ParentHomePage />, allowedRoles: PARENT_ROLES },
 ];
 
+// Дербес сабақтар (D19–D21, api §5.1): каталогты оқушы көреді, сабақты мұғалім мен әкімші де ашады.
 const sharedContentRoutes: AppRouteConfig[] = [
-  {
-    path: '/courses',
-    element: <CourseCatalogPage />,
-    allowedRoles: LEARNING_CONTENT_ROLES,
-  },
-  {
-    path: '/courses/:courseId',
-    element: <CourseDetailPage />,
-    allowedRoles: LEARNING_CONTENT_ROLES,
-  },
-  {
-    path: '/lessons',
-    element: <LessonsPage />,
-    allowedRoles: ['student', 'admin'],
-  },
-  {
-    path: '/lessons/:lessonId',
-    element: <LessonDetailPage />,
-    allowedRoles: LEARNING_CONTENT_ROLES,
-  },
-  {
-    path: '/analytics',
-    element: <AnalyticsPage />,
-    allowedRoles: ANALYTICS_ROLES,
-  },
+  { path: '/lessons', element: <LessonsCatalogPage />, allowedRoles: STUDENT_ROLES },
+  { path: '/lessons/:lessonId', element: <LessonViewPage />, allowedRoles: LESSON_READER_ROLES },
+  { path: '/saved-lessons', element: <Navigate to="/lessons?tab=saved" replace />, allowedRoles: STUDENT_ROLES },
 ];
 
 const studentRoutes: AppRouteConfig[] = [
-  {
-    path: '/saved-lessons',
-    element: <SavedLessonsPage />,
-    allowedRoles: STUDENT_ROLES,
-  },
-  {
-    path: '/tests',
-    element: <TestsPage />,
-    allowedRoles: STUDENT_ROLES,
-  },
-  {
-    path: '/leaderboard',
-    element: <LeaderboardPage />,
-    allowedRoles: STUDENT_ROLES,
-  },
-  ...studentGamificationPaths.map((path): AppRouteConfig => ({
-    path,
-    element: <GamificationPage />,
-    allowedRoles: STUDENT_ROLES,
-  })),
   {
     path: '/ai-practice',
     element: <AiPracticePage />,
@@ -438,112 +382,14 @@ const studentRoutes: AppRouteConfig[] = [
     element: <AiTrackerPage />,
     allowedRoles: STUDENT_ROLES,
   },
-  {
-    path: '/ai-exam/:examId',
-    element: <AiExamSessionPage />,
-    allowedRoles: STUDENT_ROLES,
-  },
-  {
-    path: '/ai-exams-open',
-    element: <AiStudentExamsPage />,
-    allowedRoles: STUDENT_ROLES,
-  },
-];
-
-const authorRoutes: AppRouteConfig[] = [
-  {
-    path: '/my-courses',
-    element: <CourseCatalogPage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
-  {
-    path: '/create-course',
-    element: <TeacherCreateCoursePage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
-  {
-    path: '/teacher/courses/:courseId/edit',
-    element: <TeacherEditCoursePage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
-  {
-    path: '/edit-course/:courseId',
-    element: <TeacherEditCoursePage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
-  {
-    path: '/edit-course',
-    element: <TeacherEditCoursePage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
-  {
-    path: '/create-test',
-    element: <TeacherCreateTestPage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
-  {
-    path: '/ai-question-builder',
-    element: <AiQuestionBuilderPage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
-  {
-    path: '/ai-exams',
-    element: <AiExamsPage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
-  {
-    path: '/ai-assistant',
-    element: <AiAssistantPage />,
-    allowedRoles: AUTHOR_ROLES,
-  },
 ];
 
 const adminRoutes: AppRouteConfig[] = [
-  {
-    path: '/subjects',
-    element: <AdminSubjectsPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
-  {
-    path: '/manage-lessons',
-    element: <LessonsPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
-  {
-    path: '/manage-courses',
-    element: <CourseCatalogPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
-  {
-    path: '/moderation',
-    element: <AdminModerationPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
-  {
-    path: '/manage-tests',
-    element: <AdminModerationPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
-  {
-    path: '/cms',
-    element: <AdminCmsPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
-  {
-    path: '/admin-analytics',
-    element: <AnalyticsPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
-  {
-    path: '/manage-users',
-    element: <AdminUsersPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
-  {
-    path: '/students',
-    element: <TeacherStudentsPage />,
-    allowedRoles: ADMIN_ROLES,
-  },
+  { path: '/subjects', element: <AdminSubjectsPage />, allowedRoles: ADMIN_ROLES },
+  { path: '/manage-lessons', element: <AdminLessonsPage />, allowedRoles: ADMIN_ROLES },
+  { path: '/moderation', element: <Navigate to="/manage-lessons" replace />, allowedRoles: ADMIN_ROLES },
+  { path: '/cms', element: <AdminCmsPage />, allowedRoles: ADMIN_ROLES },
+  { path: '/manage-users', element: <AdminUsersPage />, allowedRoles: ADMIN_ROLES },
 ];
 
 const protectedRoutes: AppRouteConfig[] = [
@@ -552,7 +398,6 @@ const protectedRoutes: AppRouteConfig[] = [
   ...classRoutes,
   ...sharedContentRoutes,
   ...studentRoutes,
-  ...authorRoutes,
   ...adminRoutes,
 ];
 

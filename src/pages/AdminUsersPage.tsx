@@ -36,7 +36,7 @@ type AdminUserRow = {
   createdAt?: string | null;
 };
 
-const ROLE_FILTERS: RoleFilter[] = ['all', 'admin', 'teacher', 'student'];
+const ROLE_FILTERS: RoleFilter[] = ['all', 'admin', 'teacher', 'parent', 'student'];
 
 const MAX_ID_CHARS = 180;
 const MAX_NAME_CHARS = 160;
@@ -291,45 +291,60 @@ function UserCard({
           value={formatDate(item.createdAt)}
         />
 
-        {!isCurrentUser && userId && (normalizedRole === 'student' || normalizedRole === 'teacher') ? (
-          <TeacherRoleToggle userId={userId} fullName={fullName} role={normalizedRole} />
+        {!isCurrentUser && userId && normalizedRole !== 'admin' && normalizedRole !== 'unknown' ? (
+          <RoleControl userId={userId} fullName={fullName} role={normalizedRole} />
         ) : null}
       </CardContent>
     </Card>
   );
 }
 
-/** D83: мұғалім рөлін тек әкімші береді (тіркелген адам әрқашан оқушы болып басталады). */
-function TeacherRoleToggle({
-  userId,
-  fullName,
-  role,
-}: {
-  userId: string;
-  fullName: string;
-  role: 'student' | 'teacher';
-}) {
+type AssignableRole = 'student' | 'teacher' | 'parent';
+
+const ROLE_CHANGE: Record<AssignableRole, { label: string; confirm: (name: string) => string }> = {
+  teacher: {
+    label: 'Мұғалім ету',
+    confirm: (name) => `${name} мұғалім болсын ба? Ол сынып жасап, өз сыныбындағы оқушылардың нәтижесін көре алады.`,
+  },
+  parent: {
+    label: 'Ата-ана ету',
+    confirm: (name) =>
+      `${name} ата-ана болсын ба? Ол баласына сұраныс жібере алады; бала растаса, тек оның P1…P4 нәтижесін көреді.`,
+  },
+  student: {
+    label: 'Оқушы ету',
+    confirm: (name) => `${name} қайта оқушы болсын ба? Сыныптары мен байланыстары сақталады, бірақ бұрынғы панеліне кіре алмайды.`,
+  },
+};
+
+/** D83, D85: мұғалім мен ата-ана рөлін тек әкімші береді (тіркелген адам әрқашан оқушы болып басталады). */
+function RoleControl({ userId, fullName, role }: { userId: string; fullName: string; role: AssignableRole }) {
   const queryClient = useQueryClient();
-  const next = role === 'student' ? 'teacher' : 'student';
   const change = useMutation({
-    mutationFn: () => setUserRole(userId, next),
+    mutationFn: (next: AssignableRole) => setUserRole(userId, next),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
-
-  const onClick = () => {
-    const text =
-      next === 'teacher'
-        ? `${fullName} мұғалім болсын ба? Ол сынып жасап, өз сыныбындағы оқушылардың нәтижесін көре алады.`
-        : `${fullName} қайта оқушы болсын ба? Оның сыныптары сақталады, бірақ мұғалім панеліне кіре алмайды.`;
-    if (window.confirm(text)) change.mutate();
-  };
+  const options = (['teacher', 'parent', 'student'] as const).filter((next) => next !== role);
 
   return (
     <div className="flex flex-col gap-1.5 pt-2">
-      <Button type="button" variant="outline" size="sm" disabled={change.isPending} onClick={onClick}>
-        <GraduationCap size={14} className="mr-1.5" />
-        {change.isPending ? 'Сақталуда…' : next === 'teacher' ? 'Мұғалім ету' : 'Оқушы ету'}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        {options.map((next) => (
+          <Button
+            key={next}
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={change.isPending}
+            onClick={() => {
+              if (window.confirm(ROLE_CHANGE[next].confirm(fullName))) change.mutate(next);
+            }}
+          >
+            <GraduationCap size={14} className="mr-1.5" />
+            {ROLE_CHANGE[next].label}
+          </Button>
+        ))}
+      </div>
       {change.isError ? (
         <p className="text-xs text-destructive">Рөл өзгермеді: {(change.error as Error).message}</p>
       ) : null}

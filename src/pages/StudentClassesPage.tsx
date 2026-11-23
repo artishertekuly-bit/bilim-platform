@@ -1,6 +1,7 @@
 // Сыныпқа қосылу және «Мұғалімдерім» тізімі (karta §4.2, D33, D38, D41; api §5.2).
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import { Banner, Card, ExamScreen, LoadingBlock, PrimaryButton, SectionLabel, SimpleHeader } from '@/components/exam/ExamUi';
 import {
@@ -12,6 +13,7 @@ import {
   previewClass,
   type ClassPreview,
 } from '@/lib/classes-api';
+import { incomingParentRequests, platformKeys, respondParentLink } from '@/lib/platform-api';
 import { inputClass } from '@/lib/teacher-ui';
 
 export default function StudentClassesPage() {
@@ -113,14 +115,68 @@ export default function StudentClassesPage() {
           <Card className="px-4 py-3.5 text-sm text-[#5E5E5E]">Әзірге ешбір сыныпқа қосылмағансыз.</Card>
         ) : null}
         {mine.data?.map((item) => (
-          <Card key={item.class_id} className="flex flex-col gap-0.5 px-4 py-3.5">
-            <span className="text-[15px] font-semibold">{item.teacher_name}</span>
-            <span className="text-[13px] text-[#5E5E5E]">
-              {item.subject} · {item.title}
+          <Card key={item.class_id} className="flex items-center justify-between gap-3 px-4 py-3.5">
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-[15px] font-semibold">{item.teacher_name}</span>
+              <span className="text-[13px] text-[#5E5E5E]">
+                {item.subject} · {item.title}
+              </span>
             </span>
+            <Link
+              to={`/chat?with=${item.teacher_id}`}
+              className="flex h-9 items-center rounded-lg px-3 text-sm font-semibold text-[#111111] no-underline hover:bg-[#ECE9E3]"
+            >
+              Жазу
+            </Link>
           </Card>
         ))}
       </section>
+
+      <ParentRequests />
     </ExamScreen>
+  );
+}
+
+/** Ата-ананың байланыс сұранысы (D26): бала өзі растайды. */
+function ParentRequests() {
+  const queryClient = useQueryClient();
+  const incoming = useQuery({ queryKey: platformKeys.incoming, queryFn: incomingParentRequests });
+  const respond = useMutation({
+    mutationFn: ({ id, accept }: { id: string; accept: boolean }) => respondParentLink(id, accept),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: platformKeys.incoming }),
+  });
+  if (!incoming.data?.length && !respond.isError) return null;
+  return (
+    <section className="flex flex-col gap-2.5">
+      <SectionLabel>Ата-ана сұраныстары</SectionLabel>
+      {respond.isError ? <Banner tone="bad">{(respond.error as Error).message}</Banner> : null}
+      {incoming.data?.map((row) => (
+        <Card key={row.id} className="flex flex-col gap-3 p-4">
+          <p className="m-0 text-sm leading-snug">
+            <span className="font-semibold">{row.parent_name}</span> сізді баласы ретінде қосқысы келеді. Растасаңыз,
+            ол сіздің емтихан нәтижелеріңізді (P1…P4) ғана көреді: жауаптарыңыз, Тьютормен диалогтарыңыз және рейтинг
+            оған көрінбейді.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={respond.isPending}
+              onClick={() => respond.mutate({ id: row.id, accept: true })}
+              className="h-11 rounded-xl bg-[#121212] text-sm font-semibold text-white disabled:opacity-60"
+            >
+              Растау
+            </button>
+            <button
+              type="button"
+              disabled={respond.isPending}
+              onClick={() => respond.mutate({ id: row.id, accept: false })}
+              className="h-11 rounded-xl border border-[#D9D6D0] bg-white text-sm font-semibold disabled:opacity-60"
+            >
+              Бас тарту
+            </button>
+          </div>
+        </Card>
+      ))}
+    </section>
   );
 }

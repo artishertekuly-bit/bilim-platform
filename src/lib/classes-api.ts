@@ -51,6 +51,19 @@ const MESSAGES: Record<string, string> = {
   INVALID_TITLE: 'Сынып атауы 1–120 таңба болуы керек.',
   SUBJECT_NOT_FOUND: 'Пән табылмады.',
   JOIN_CODE_EXHAUSTED: 'Код жасалмады. Қайта байқап көріңіз.',
+  CHAT_NOT_ALLOWED: 'Бұл адаммен чат ашуға болмайды: чат тек мұғалім мен сынып оқушысы не оның ата-анасы арасында.',
+  CHAT_READ_ONLY: 'Бұл чат енді тек оқу үшін ашық.',
+  CHAT_NOT_FOUND: 'Чат табылмады.',
+  INVALID_EMAIL: 'Email форматы дұрыс емес.',
+  OWN_EMAIL: 'Өз email-іңізді бала ретінде көрсете алмайсыз.',
+  DUPLICATE_REQUEST: 'Осы email-ге сұраныс бұрын жіберілген.',
+  REQUEST_NOT_FOUND: 'Сұраныс табылмады немесе мерзімі өтіп кеткен.',
+  ALERT_NOT_FOUND: 'Дабыл табылмады.',
+  INVALID_RESOLUTION: 'Шешім түрі қате.',
+  LESSON_HIDDEN: 'Сабақты әкімші жасырған: оны тек әкімші қайта аша алады.',
+  LESSON_NOT_FOUND: 'Сабақ табылмады.',
+  INVALID_STATUS: 'Күй қате.',
+  lessons_publish_check: 'Жариялау үшін атауы кемінде 5, мәтіні кемінде 20 таңба болсын.',
 };
 
 export class ClassesApiError extends Error {
@@ -60,8 +73,10 @@ export class ClassesApiError extends Error {
   }
 }
 
-function fail(error: PostgrestError): never {
-  const code = error.message in MESSAGES ? error.message : error.code || 'ERROR';
+/** PostgREST қатесін қазақша хабарламаға айналдырады (RPC `raise exception 'CODE'` пен check атауы бойынша). */
+export function fail(error: PostgrestError): never {
+  const constraint = Object.keys(MESSAGES).find((key) => key.includes('_check') && error.message.includes(key));
+  const code = constraint ?? (error.message in MESSAGES ? error.message : error.code || 'ERROR');
   throw new ClassesApiError(MESSAGES[code] ?? 'Сұраныс орындалмады. Қайта байқап көріңіз.', code);
 }
 
@@ -138,7 +153,7 @@ export async function myClasses(): Promise<StudentClass[]> {
   return data ?? [];
 }
 
-export async function setUserRole(userId: string, role: 'student' | 'teacher'): Promise<void> {
+export async function setUserRole(userId: string, role: 'student' | 'teacher' | 'parent'): Promise<void> {
   const { error } = await supabase.rpc('admin_set_user_role', { p_user_id: userId, p_role: role });
   if (error) throw new ClassesApiError(error.message, error.code || 'ERROR');
 }

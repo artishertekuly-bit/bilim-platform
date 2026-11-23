@@ -496,6 +496,8 @@ export function createExaminerApi(token: string | undefined) {
       post<ExamSession>(token, `/sessions/${sessionId}/abandon`, { client_request_id: clientRequestId }),
     result: (sessionId: string) => request<SessionResult>(token, `/sessions/${sessionId}/result`),
     profile: () => request<StudentProfile>(token, '/me/profile'),
+    parentChildProfile: (studentId: string) =>
+      request<StudentProfile>(token, `/parent/children/${studentId}/profile`),
     teacherClassProfiles: (classId: string) =>
       request<ClassProfilesResponse>(token, `/teacher/classes/${classId}/profiles`),
     teacherClassRating: (classId: string, book?: string) =>
