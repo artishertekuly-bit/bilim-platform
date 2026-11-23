@@ -110,25 +110,34 @@ class AliasCacheTests(unittest.IsolatedAsyncioTestCase):
             return state["rows"]
 
         cache = AliasCache(loader, ttl_s=100, retry_s=10, clock=lambda: now[0])
+        await cache.warm()  # іске қосылғанда
         first = await cache.get()
         self.assertEqual(ids(first, "Қазақ хандығы"), [2])
         await cache.get()
         self.assertEqual(len(calls), 1)  # TTL ішінде база қайта сұралмайды
 
+        # TTL бітті: ескі индекс бірден қайтады, жаңасы фонда жүктеледі (stale-while-revalidate).
         now[0] = 150.0
         state["rows"] = [("алтын орда", 11)]
+        stale = await cache.get()
+        self.assertIs(stale, first)
+        await cache.join()
         refreshed = await cache.get()
         self.assertEqual((len(calls), ids(refreshed, "Алтын Орда")), (2, [11]))
 
         now[0] = 300.0
         state["fail"] = True
-        stale = await cache.get()
-        self.assertIs(stale, refreshed)  # жаңарту сәтсіз — ескі индекс қалады
+        self.assertIs(await cache.get(), refreshed)
+        await cache.join()
+        self.assertIs(await cache.get(), refreshed)  # жаңарту сәтсіз — ескі индекс қалады
+        self.assertEqual(len(calls), 3)
         now[0] = 305.0
         await cache.get()
+        await cache.join()
         self.assertEqual(len(calls), 3)  # retry_s біткенше қайта сұралмайды
         now[0] = 311.0
         await cache.get()
+        await cache.join()
         self.assertEqual(len(calls), 4)
 
     async def test_first_load_failure_returns_none(self) -> None:
@@ -137,6 +146,23 @@ class AliasCacheTests(unittest.IsolatedAsyncioTestCase):
 
         cache = AliasCache(loader, clock=lambda: 0.0)
         self.assertIsNone(await cache.get())
+
+    async def test_first_message_waits_only_briefly(self) -> None:
+        import asyncio
+
+        release = asyncio.Event()
+
+        async def slow_loader():
+            await release.wait()
+            return [("қазақ хандығы", 2)]
+
+        cache = AliasCache(slow_loader, first_wait_s=0.01)
+        self.assertIsNone(await cache.get())  # жүктеу әлі бітпеді — атаусыз жалғасады
+        release.set()
+        await cache.join()
+        self.assertTrue(cache.ready)
+        self.assertEqual(ids(await cache.get(), "Қазақ хандығы"), [2])
+        await cache.close()
 
 
 if __name__ == "__main__":

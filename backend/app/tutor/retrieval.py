@@ -1,28 +1,35 @@
 """Tutor-дың деректі оқуы: үміткер түйіндер (0-қадам), оқушы күйі, алғышарттар, оқулық чанктары (3-қадам).
 
 LightRAG кітапханасы іске қосылмайды: оның деректері postgres иеленетін corpus көріністері мен
-`corpus.match_entities` / `corpus.match_chunks` функциялары арқылы оқылады (D86).
+`corpus.match_entities` / `corpus.match_chunks` функциялары арқылы оқылады (D86). Бір қадамның оқулары екі
+біріккен сұрауда (queries.CANDIDATES, queries.GRAPH) жүреді (D88).
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from . import queries as Q
 from .db import vector_literal
 from .engine import NodeState
 
 VECTOR_ENTITY_LIMIT = 40
 VECTOR_NODE_LIMIT = 6
 MAX_CANDIDATES = 8
-VECTOR_CHUNK_LIMIT = 6   # кілт сөз бойынша қайта реттелетін векторлық чанктар
+VECTOR_CHUNK_LIMIT = 4   # кілт сөз бойынша қайта реттелетін векторлық чанктар
 NODE_CHUNK_LIMIT = 2
-MAX_CHUNKS = 4
+MAX_CHUNKS = 2           # жауапқа 1–2 дәл чанк (D88)
+CHUNK_EXCERPT_CHARS = 900
+CHUNK_HEAD_CHARS = 160
+DEPENDENTS_LIMIT = 8
 MAX_KEYWORDS = 10
 MIN_KEYWORD_CHARS = 3
+ALIAS_PAGE_ROWS = 2000   # statement_timeout (15 с) баяу желіде де бір бетке жетеді
 
 
 @dataclass(frozen=True)
@@ -38,13 +45,11 @@ class NodeInfo:
     order_key: int | None
 
 
-_NODE_COLUMNS = """
-    node_id, canonical_name, entity_type, description, lightrag_entity_ids, grade::int as grade,
-    paragraph_no, topic_id, order_key
-"""
+def _json(value: Any) -> Any:
+    return json.loads(value) if isinstance(value, str) else (value if value is not None else [])
 
 
-def _node(row: Any) -> NodeInfo:
+def node_from(row: Any) -> NodeInfo:
     return NodeInfo(
         node_id=int(row["node_id"]),
         name=row["canonical_name"],
@@ -58,94 +63,105 @@ def _node(row: Any) -> NodeInfo:
     )
 
 
-async def nodes_by_id(conn: Any, node_ids: Iterable[int]) -> dict[int, NodeInfo]:
-    ids = sorted({int(i) for i in node_ids if i is not None})
-    if not ids:
-        return {}
-    rows = await conn.fetch(
-        f"select {_NODE_COLUMNS} from tutor.tutor_nodes where node_id = any($1::bigint[]) and is_learnable", ids
-    )
-    return {int(r["node_id"]): _node(r) for r in rows}
+def _time(value: Any) -> datetime:
+    return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
-async def alias_rows(conn: Any) -> list[tuple[str, int]]:
-    """Оқуға жарайтын түйіндердің атаулары: процесс жадындағы AliasCache-ке (aliases.py)."""
-    rows = await conn.fetch(
-        """
-        select a.alias, a.node_id
-        from tutor.tutor_node_aliases a
-        join tutor.tutor_nodes n on n.node_id = a.node_id and n.is_learnable
-        """
-    )
-    return [(r["alias"], int(r["node_id"])) for r in rows]
-
-
-async def vector_nodes(conn: Any, vector: Sequence[float] | None) -> list[NodeInfo]:
-    """0-қадам: хабарлама векторына жақын entity → learnable түйіндер, қашықтығы бойынша."""
-    if not vector:
-        return []
-    matches = await conn.fetch(
-        "select entity, distance from corpus.match_entities($1::extensions.halfvec, $2)",
-        vector_literal(list(vector)), VECTOR_ENTITY_LIMIT,
-    )
-    if not matches:
-        return []
-    distance = {r["entity"]: float(r["distance"]) for r in matches}
-    rows = await conn.fetch(
-        f"select {_NODE_COLUMNS} from tutor.tutor_nodes where lightrag_entity_ids && $1::text[] and is_learnable",
-        list(distance),
-    )
-    ranked = sorted(
-        (_node(r) for r in rows),
-        key=lambda n: min(distance.get(e, 9.0) for e in n.entity_ids),
-    )
-    return ranked[:VECTOR_NODE_LIMIT]
-
-
-async def prerequisites(conn: Any, node_ids: Iterable[int]) -> dict[int, list[int]]:
-    ids = sorted({int(i) for i in node_ids})
-    if not ids:
-        return {}
-    rows = await conn.fetch(
-        """
-        select p.node_id, p.prerequisite_node_id
-        from tutor.tutor_prerequisites p
-        join tutor.tutor_nodes n on n.node_id = p.prerequisite_node_id and n.is_learnable
-        where p.node_id = any($1::bigint[])
-        """,
-        ids,
-    )
-    out: dict[int, list[int]] = {}
-    for r in rows:
-        out.setdefault(int(r["node_id"]), []).append(int(r["prerequisite_node_id"]))
-    return out
-
-
-async def dependents(conn: Any, node_id: int, limit: int = 8) -> list[int]:
-    """Осы түйінді алғышарт ететін түйіндер (`1_hop_forward` үшін), оқулықтағы реті бойынша."""
-    rows = await conn.fetch(
-        """
-        select p.node_id
-        from tutor.tutor_prerequisites p
-        join tutor.tutor_nodes n on n.node_id = p.node_id and n.is_learnable
-        where p.prerequisite_node_id = $1
-        order by n.order_key nulls last
-        limit $2
-        """,
-        node_id, limit,
-    )
-    return [int(r["node_id"]) for r in rows]
-
-
-def _state(row: Any) -> NodeState:
+def state_from(row: Any) -> NodeState:
     return NodeState(
         mastery=float(row["initial_mastery"]),
         bloom_level=row["bloom_level"],
         review_count=int(row["review_count"]),
         fail_streak=int(row["fail_streak"]),
         error_type=row["error_type"],
-        last_interaction=row["last_interaction"],
+        last_interaction=_time(row["last_interaction"]),
     )
+
+
+# ------------------------------------------------------------------ атаулар (aliases.py кэші)
+
+
+async def alias_rows(conn: Any, *, page_rows: int = ALIAS_PAGE_ROWS) -> list[tuple[str, int]]:
+    """Оқуға жарайтын түйіндердің атаулары, беттеп (keyset): бір үлкен сұрау баяу желіде statement_timeout-қа ұшырайды."""
+    out: list[tuple[str, int]] = []
+    last: tuple[int, str] = (-1, "")
+    while True:
+        rows = await conn.fetch(Q.ALIAS_PAGE, last[0], last[1], page_rows)
+        out.extend((r["alias"], int(r["node_id"])) for r in rows)
+        if len(rows) < page_rows:
+            return out
+        last = (int(rows[-1]["node_id"]), rows[-1]["alias"])
+
+
+# ------------------------------------------------------------------ 0-қадам: үміткерлер (бір сұрау)
+
+
+@dataclass
+class CandidateData:
+    ranked: dict[int, list[int]] = field(default_factory=dict)  # вектордың реті (1-ден) → node_id-лер
+    nodes: dict[int, NodeInfo] = field(default_factory=dict)
+    prev_prereqs: list[int] = field(default_factory=list)
+    chunks: list[tuple[str, str]] = field(default_factory=list)
+
+
+async def candidates(
+    conn: Any,
+    vectors: Sequence[Sequence[float]],
+    *,
+    chunk_vector: int,
+    explicit_ids: Iterable[int],
+    prev_focus: int | None,
+) -> CandidateData:
+    """Векторларға жақын түйіндер (әр векторға ≤ 6), аталған id-лердің түйіндері, алдыңғы фокустың алғышарттары
+    және `chunk_vector`-ші (1-ден) вектор бойынша чанктар — бір барып-қайтуда. Векторлар бір-ақ рет жіберіледі."""
+    ids = sorted({int(i) for i in explicit_ids if i is not None})
+    if not vectors and not ids and prev_focus is None:
+        return CandidateData()
+    row = await conn.fetchrow(
+        Q.CANDIDATES,
+        [vector_literal(list(v)) for v in vectors], chunk_vector, ids, prev_focus, VECTOR_CHUNK_LIMIT,
+        VECTOR_NODE_LIMIT,
+    )
+    data = CandidateData()
+    for item in _json(row["ranked"]):
+        data.ranked.setdefault(int(item["ord"]), []).append(int(item["node_id"]))
+    data.nodes = {int(n["node_id"]): node_from(n) for n in _json(row["nodes"])}
+    data.prev_prereqs = [int(i) for i in _json(row["prev_prereqs"])]
+    data.chunks = [(c["chunk_id"], c["content"]) for c in _json(row["chunks"])]
+    return data
+
+
+# ------------------------------------------------------------------ 2-қадам: граф және күй (бір сұрау)
+
+
+@dataclass
+class GraphData:
+    prereqs: dict[int, list[int]] = field(default_factory=dict)
+    deps: dict[int, list[int]] = field(default_factory=dict)
+    nodes: dict[int, NodeInfo] = field(default_factory=dict)   # үміткерлерден тыс көршілер
+    states: dict[int, NodeState] = field(default_factory=dict)
+    errors: list[tuple[str, str]] = field(default_factory=list)  # соңғы қате түсініктер (ат, GAP/MISC)
+
+
+async def graph(conn: Any, student_id: str, node_ids: Iterable[int]) -> GraphData:
+    """Үміткерлердің алғышарттары мен тәуелділері (`1_hop_forward`, ≤ 8), көршілердің түйіні және оқушы күйі.
+    Фокус әлі белгісіз (тег шақыруымен қатар жүреді), сондықтан барлық үміткер үшін алынады."""
+    ids = sorted({int(i) for i in node_ids if i is not None})
+    if not ids:
+        return GraphData()
+    row = await conn.fetchrow(Q.GRAPH, student_id, ids, DEPENDENTS_LIMIT)
+    data = GraphData()
+    for item in _json(row["prereqs"]):
+        data.prereqs.setdefault(int(item["node_id"]), []).append(int(item["prereq"]))
+    for item in _json(row["deps"]):
+        data.deps.setdefault(int(item["of"]), []).append(int(item["node_id"]))
+    data.nodes = {int(n["node_id"]): node_from(n) for n in _json(row["nodes"])}
+    data.states = {int(s["node_id"]): state_from(s) for s in _json(row["states"])}
+    data.errors = [(e["name"], e["error"]) for e in _json(row["errors"])]
+    return data
+
+
+# ------------------------------------------------------------------ ағаш: баяу жол (compare-and-swap сәтсіз болса)
 
 
 async def states(conn: Any, student_id: str, node_ids: Iterable[int], *, lock: bool = False) -> dict[int, NodeState]:
@@ -153,17 +169,17 @@ async def states(conn: Any, student_id: str, node_ids: Iterable[int], *, lock: b
     if not ids:
         return {}
     rows = await conn.fetch(
-        "select node_id, initial_mastery, bloom_level, review_count, fail_streak, error_type, last_interaction "
-        "from tutor.student_knowledge_tree where student_id = $1::uuid and node_id = any($2::bigint[]) "
+        "/* tutor:states */ select node_id, initial_mastery, bloom_level, review_count, fail_streak, error_type, "
+        "last_interaction from tutor.student_knowledge_tree where student_id = $1::uuid and node_id = any($2::bigint[]) "
         "order by node_id" + (" for update" if lock else ""),
         student_id, ids,
     )
-    return {int(r["node_id"]): _state(r) for r in rows}
+    return {int(r["node_id"]): state_from(r) for r in rows}
 
 
 async def save_state(conn: Any, student_id: str, node_id: int, state: NodeState) -> None:
     await conn.execute(
-        """
+        """/* tutor:save_state */
         insert into tutor.student_knowledge_tree
           (student_id, node_id, initial_mastery, bloom_level, review_count, fail_streak, error_type, last_interaction)
         values ($1::uuid, $2, $3, $4, $5, $6, $7, $8)
@@ -175,21 +191,6 @@ async def save_state(conn: Any, student_id: str, node_id: int, state: NodeState)
         student_id, node_id, state.mastery, state.bloom_level, state.review_count, state.fail_streak,
         state.error_type, state.last_interaction,
     )
-
-
-async def vector_chunks(conn: Any, vector: Sequence[float] | None) -> list[tuple[str, str]]:
-    if not vector:
-        return []
-    rows = await conn.fetch(
-        """
-        select m.chunk_id, t.content
-        from corpus.match_chunks($1::extensions.halfvec, $2) m
-        join corpus.chunk_text t on t.chunk_id = m.chunk_id
-        order by m.distance
-        """,
-        vector_literal(list(vector)), VECTOR_CHUNK_LIMIT,
-    )
-    return [(r["chunk_id"], r["content"]) for r in rows]
 
 
 # ------------------------------------------------------------------ кілт сөз (3-қадам, D87)
@@ -250,7 +251,7 @@ async def node_chunks(
         return []
     # materialized: мәтін бір рет қалыпқа келтіріледі, әр кілт сөз үшін қайта есептелмейді (86 чанк: 186 → 26 мс).
     rows = await conn.fetch(
-        """
+        """/* tutor:node_chunks */
         with c as materialized (
           select t.chunk_id, t.content, t.topic_id, t.order_in_paragraph, l.is_primary,
                  regexp_replace(lower(t.content), '\\s+', ' ', 'g') as body
@@ -273,15 +274,53 @@ async def node_chunks(
     return [(r["chunk_id"], r["content"], int(r["score"] or 0)) for r in rows]
 
 
+_SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+")
+
+
+def excerpt(content: str, terms: Sequence[tuple[str, int]], limit: int = CHUNK_EXCERPT_CHARS) -> str:
+    """Ұзын чанктан кілт сөзі бар сөйлемдер мен олардың көршілері (D88: 1–2 дәл үзінді, артық мәтінсіз).
+    Тақырып жолы («[Оқулық: … ]») қысқартылып сақталады; кілт сөз түспесе — басынан."""
+    text = " ".join((content or "").split())
+    if len(text) <= limit:
+        return text
+    head, body = "", text
+    if text.startswith("[") and "]" in text[:600]:
+        end = text.index("]") + 1
+        head, body = text[:end], text[end:].strip()
+        if len(head) > CHUNK_HEAD_CHARS:
+            head = head[: CHUNK_HEAD_CHARS - 2] + "…]"
+    budget = max(200, limit - len(head) - 1)
+    sentences = _SENTENCE_RE.split(body)
+    hits = {i for i, s in enumerate(sentences) if any(term in s.lower() for term, _ in terms)}
+    if not hits:
+        return (head + " " + body[:budget]).strip()
+    keep: list[int] = []
+    for i in sorted(hits):
+        for j in (i - 1, i, i + 1):
+            if 0 <= j < len(sentences) and j not in keep:
+                keep.append(j)
+    picked: list[int] = []
+    used = 0
+    for j in sorted(keep, key=lambda k: (k not in hits, k)):  # алдымен кілт сөзді сөйлемдер
+        if used + len(sentences[j]) + 1 > budget:
+            continue
+        picked.append(j)
+        used += len(sentences[j]) + 1
+    ordered = " ".join(sentences[j] for j in sorted(picked))
+    return (head + " " + (ordered or body[:budget])).strip()
+
+
 def compose_chunks(
     node_rows: Sequence[tuple[str, str, int]],
     vector_rows: Sequence[tuple[str, str]],
     terms: Sequence[tuple[str, int]],
     *,
     limit: int = MAX_CHUNKS,
+    max_chars: int | None = CHUNK_EXCERPT_CHARS,
 ) -> list[str]:
     """Жауап контексі (≤ limit). Кілт сөз сәйкескен түйін чанктары бірінші; ондай чанк болмаса — таза
-    векторлық реттілік, түйін чанктары тек бос орынды толтырады. Векторлық чанктар да кілт сөзбен қайта реттеледі."""
+    векторлық реттілік, түйін чанктары тек бос орынды толтырады. Векторлық чанктар да кілт сөзбен қайта реттеледі.
+    `max_chars` берілсе, әр чанктан тек кілт сөзі бар бөлігі алынады."""
     ranked_vector = sorted(vector_rows, key=lambda row: -keyword_score(row[1], terms))  # тұрақты сұрыптау
     boosted = [(cid, content) for cid, content, score in node_rows if score > 0]
     rest = [(cid, content) for cid, content, score in node_rows if score <= 0]
@@ -293,7 +332,7 @@ def compose_chunks(
             if chunk_id in seen or not (content or "").strip():
                 continue
             seen.add(chunk_id)
-            out.append(content)
+            out.append(excerpt(content, terms, max_chars) if max_chars else content)
             if len(out) >= limit:
                 return out
     return out
@@ -308,7 +347,7 @@ async def digest(conn: Any, student_id: str, now: datetime, limit: int = 8) -> s
     from .engine import DECAYED_EFF_MAX, DECAYED_SAVED_MIN, EXPOSED_MAX, MASTERED_MIN, effective_mastery
 
     rows = await conn.fetch(
-        """
+        """/* tutor:digest */
         select n.canonical_name, k.initial_mastery, k.bloom_level, k.review_count, k.fail_streak, k.error_type,
                k.last_interaction
         from tutor.student_knowledge_tree k
@@ -321,7 +360,7 @@ async def digest(conn: Any, student_id: str, now: datetime, limit: int = 8) -> s
     )
     groups: dict[str, list[str]] = {"MASTERED": [], "DECAYED": [], "DEVELOPING": [], "STRUGGLING": [], "EXPOSED": []}
     for r in rows:
-        st = _state(r)
+        st = state_from(r)
         m = effective_mastery(st, now)
         if st.mastery >= DECAYED_SAVED_MIN and m < DECAYED_EFF_MAX:
             key = "DECAYED"

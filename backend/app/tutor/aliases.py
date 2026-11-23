@@ -10,7 +10,8 @@
   («хандық» → «хандығы», «Абылай хан» → «Абылай ханның»). Алдыңғы сөздер дәл сәйкес келуі керек.
 * Көп сөзді, содан кейін ұзынырақ атау басым. Ұзын сәйкестіктің ішіндегі қысқасы алынбайды:
   «Қазақ хандығын» мәтінінде «Қазақ хандығы» бар, «Қазақ» жоқ.
-* Атаулар тізімі процесс жадында сақталады (TTL). Жаңарту сәтсіз болса, ескі тізім қолданыла береді.
+* Атаулар тізімі процесс жадында сақталады (TTL), іске қосылғанда фонда жүктеледі, ескіргенде фонда жаңарады (D88).
+  Жаңарту сәтсіз болса, ескі тізім қолданыла береді.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ MAX_SUFFIX_CHARS = 6
 MAX_LEXICAL = 3
 ALIAS_CACHE_TTL_S = 900.0
 ALIAS_RETRY_S = 30.0
+ALIAS_FIRST_WAIT_S = 3.0
 
 _TOKEN_RE = re.compile(r"[^\W_]+")
 _VOICING = {"қ": "ғ", "к": "г", "п": "б"}
@@ -135,7 +137,13 @@ def mentions(text: str, name: str) -> bool:
 
 
 class AliasCache:
-    """Процесс жадындағы атаулар индексі. TTL біткенде бір сұраныс жаңартады, қалғаны ескісін қолданады."""
+    """Процесс жадындағы атаулар индексі (D88).
+
+    * `warm()` — қосымша іске қосылғанда фонда жүктейді: бірінші хабарлама 12 мың атауды күтпейді.
+    * TTL біткенде ескі индекс бірден қайтады, жаңасы фонда жүктеледі (stale-while-revalidate).
+    * Индекс әлі жоқ болса, `get()` жүктеуді ең көбі `first_wait_s` күтеді, содан кейін атаусыз жалғасады.
+    * Жүктеу сәтсіз болса, `retry_s`-тан кейін қайталанады; ескі индекс сақталады.
+    """
 
     def __init__(
         self,
@@ -143,26 +151,64 @@ class AliasCache:
         *,
         ttl_s: float = ALIAS_CACHE_TTL_S,
         retry_s: float = ALIAS_RETRY_S,
+        first_wait_s: float = ALIAS_FIRST_WAIT_S,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._loader = loader
         self._ttl = ttl_s
         self._retry = retry_s
+        self._first_wait = first_wait_s
         self._clock = clock
         self._index: AliasIndex | None = None
         self._next_refresh = -math.inf
-        self._lock = asyncio.Lock()
+        self._task: asyncio.Task[None] | None = None
+
+    @property
+    def ready(self) -> bool:
+        return self._index is not None
+
+    def _refresh(self) -> asyncio.Task[None] | None:
+        if self._task is not None and not self._task.done():
+            return self._task
+        if self._clock() < self._next_refresh:
+            return None
+        self._task = asyncio.create_task(self._load())
+        return self._task
+
+    async def _load(self) -> None:
+        try:
+            self._index = AliasIndex(await self._loader())
+            self._next_refresh = self._clock() + self._ttl
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — атаулар міндетті емес: тьютор вектормен жалғасады
+            logger.warning("tutor alias index was not refreshed: %s", type(exc).__name__)
+            self._next_refresh = self._clock() + self._retry
 
     async def get(self) -> AliasIndex | None:
-        if self._clock() < self._next_refresh:
-            return self._index
-        async with self._lock:
-            if self._clock() < self._next_refresh:
-                return self._index
+        task = self._refresh()
+        if self._index is not None or task is None:
+            return self._index  # ескісі бірден, жаңасы (керек болса) фонда
+        try:
+            await asyncio.wait_for(asyncio.shield(task), self._first_wait)
+        except asyncio.TimeoutError:
+            logger.warning("tutor alias index is still loading; continuing without it")
+        return self._index
+
+    async def warm(self) -> None:
+        task = self._refresh()
+        if task is not None:
+            await asyncio.shield(task)
+
+    async def join(self) -> None:
+        """Фондағы жаңартудың бітуін күту (тесттерге)."""
+        if self._task is not None:
+            await asyncio.shield(self._task)
+
+    async def close(self) -> None:
+        if self._task is not None and not self._task.done():
+            self._task.cancel()
             try:
-                self._index = AliasIndex(await self._loader())
-                self._next_refresh = self._clock() + self._ttl
-            except Exception as exc:  # noqa: BLE001 — атаулар міндетті емес: тьютор вектормен жалғасады
-                logger.warning("tutor alias index was not refreshed: %s", type(exc).__name__)
-                self._next_refresh = self._clock() + self._retry
-            return self._index
+                await self._task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass

@@ -122,6 +122,10 @@ class RouteConfig:
     strict_schema: bool = False
     reasoning_effort: str | None = None  # ойлау модельдері үшін; басқа модельдерде ескерілмейді
     variants: Mapping[str, RouteVariant] = field(default_factory=dict)
+    # true болса, провайдерге `prompt_cache_key` = prompt id + нұсқа (+ variant) жіберіледі: тұрақты префикс
+    # бір кэшке түсуі үшін (ortaq §2.2).
+    prompt_cache: bool = False
+    variant: str | None = None  # resolve() таңдаған нұсқаның атауы
 
     def resolve(self, variant: str | None) -> RouteConfig:
         """Нұсқасы бар болса, оның мәндері қойылған маршрут; жоқ болса — маршрут өзгеріссіз."""
@@ -135,7 +139,13 @@ class RouteConfig:
             max_output_tokens=override.max_output_tokens or self.max_output_tokens,
             timeout_s=override.timeout_s or self.timeout_s,
             variants={},
+            variant=variant,
         )
+
+    def cache_key(self, prompt_id: str, prompt_version: str) -> str | None:
+        if not self.prompt_cache:
+            return None
+        return ":".join(part for part in (prompt_id, prompt_version, self.variant) if part)
 
     @property
     def model_keys(self) -> frozenset[str]:
@@ -288,6 +298,7 @@ def _parse_route(task: Task, item: Mapping[str, Any], models: Mapping[str, Model
             "strict_schema",
             "reasoning_effort",
             "variants",
+            "prompt_cache",
         },
         where,
     )
@@ -357,6 +368,7 @@ def _parse_route(task: Task, item: Mapping[str, Any], models: Mapping[str, Model
         strict_schema=bool(item.get("strict_schema", False)),
         reasoning_effort=reasoning_effort,
         variants=variants,
+        prompt_cache=bool(item.get("prompt_cache", False)),
     )
 
 

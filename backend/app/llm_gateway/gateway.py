@@ -137,9 +137,12 @@ class LLMGateway:
                 last = exc
         raise last or LLMUnavailableError("Қолжетімді модель жоқ")
 
-    async def stream(self, task: Task, prompt: PromptRef, messages: Sequence[Message]) -> AsyncIterator[str]:
-        """Ағынмен шақыру. Қайталау мен резерв тек бірінші токенге дейін жүреді."""
-        route = self._route(task, "stream")
+    async def stream(
+        self, task: Task, prompt: PromptRef, messages: Sequence[Message], *, variant: str | None = None
+    ) -> AsyncIterator[str]:
+        """Ағынмен шақыру. Қайталау мен резерв тек бірінші токенге дейін жүреді.
+        `variant` — маршруттың нұсқасы (мысалы, Tutor-дың жеңіл сценарийлері арзан модельге, D88)."""
+        route = self._route(task, "stream", variant)
         messages = tuple(messages)
         validate_messages(messages)
         priority = TASK_PRIORITY[route.task]
@@ -155,6 +158,7 @@ class LLMGateway:
                 max_output_tokens=route.max_output_tokens,
                 timeout_s=route.timeout_s,
                 reasoning_effort=route.reasoning_effort,
+                prompt_cache_key=route.cache_key(prompt.id, prompt.version),
             )
             started = self._clock()
             fallback_used = index > 0
@@ -402,6 +406,7 @@ class LLMGateway:
             schema_name=schema.__name__ if schema is not None else None,
             strict_schema=route.strict_schema,
             reasoning_effort=route.reasoning_effort,
+            prompt_cache_key=route.cache_key(prompt.id, prompt.version),
         )
         estimate = self._estimate(messages, route)
         priority = TASK_PRIORITY[route.task]
@@ -465,6 +470,7 @@ class LLMGateway:
             outcome=outcome,
             attempts=attempts,
             fallback_used=fallback_used,
+            reasoning_tokens=usage.reasoning_tokens,
         )
 
     async def _with_retries(
@@ -591,6 +597,7 @@ class LLMGateway:
             input_tokens=usage.input_tokens,
             cached_tokens=usage.cached_tokens,
             output_tokens=usage.output_tokens,
+            reasoning_tokens=usage.reasoning_tokens,
             latency_ms=self._ms(started),
             first_token_ms=self._ms(started, first_token_at) if first_token_at is not None else None,
             cost_usd=pricing.cost(usage, batch=batch) if pricing is not None else None,

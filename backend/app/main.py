@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 import os
 import subprocess
@@ -40,6 +41,7 @@ from .examiner.session.api import install as install_examiner_api
 from .tutor.api import PREFIX as TUTOR_PREFIX
 from .tutor.api import close_service as close_tutor_service
 from .tutor.api import install as install_tutor_api
+from .tutor.api import warm_service as warm_tutor_service
 from .dependencies.auth import get_current_user_id, require_author_role
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -123,7 +125,13 @@ def _build_allow_origin_regex() -> str | None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Tutor атаулар индексін фонда жүктейді (D88): бірінші оқушы хабарламасы күтпейді. Іске қосылу бөгелмейді.
+    warm = None
+    if os.getenv("TUTOR_DATABASE_URL", "").strip() and os.getenv("TUTOR_WARMUP", "1") != "0":
+        warm = asyncio.create_task(warm_tutor_service())
     yield
+    if warm is not None and not warm.done():
+        warm.cancel()
     await close_examiner_service()
     await close_tutor_service()
 

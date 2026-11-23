@@ -233,6 +233,37 @@ class RetryAndFallbackTests(GatewayTestCase):
         with self.assertRaises(LLMUnavailableError):
             await gateway.complete(Task.TUTOR_TAGS, PROMPT, MESSAGES)
 
+    async def test_stream_variant_and_prompt_cache_key(self) -> None:
+        # D88: Tutor-дың жеңіл сценарийлері арзан модельге (`light`), тұрақты префикс бір кэш кілтімен.
+        data = base_config()
+        data["models"]["strong"] = {"provider": "primary", "model": "strong-model"}
+        data["routes"]["tutor_reply"] = dict(
+            data["routes"]["tutor_reply"], model="strong", prompt_cache=True, reasoning_effort="none",
+            variants={"light": {"model": "small", "max_output_tokens": 50}},
+        )
+        gateway = self.make(data)
+        self.primary.push(["а"], ["б"])
+        "".join([p async for p in gateway.stream(Task.TUTOR_REPLY, PROMPT, MESSAGES)])
+        "".join([p async for p in gateway.stream(Task.TUTOR_REPLY, PROMPT, MESSAGES, variant="light")])
+        default, light = self.primary.calls
+        self.assertEqual((default.model, default.reasoning_effort), ("strong-model", "none"))
+        self.assertEqual(default.prompt_cache_key, "test-prompt:v1")
+        self.assertEqual((light.model, light.max_output_tokens), ("small-model", 50))
+        self.assertEqual(light.prompt_cache_key, "test-prompt:v1:light")
+        # prompt_cache қосылмаған маршрутта кілт жіберілмейді.
+        self.primary.push("ok")
+        await gateway.complete(Task.MODERATION, PROMPT, MESSAGES)
+        self.assertIsNone(self.primary.calls[-1].prompt_cache_key)
+
+    async def test_reasoning_tokens_are_recorded(self) -> None:
+        gateway = self.make()
+        self.primary.push(ProviderCompletion(
+            text="ok", usage=Usage(input_tokens=100, cached_tokens=80, output_tokens=30, reasoning_tokens=12),
+            model="small-model",
+        ))
+        result = await gateway.complete(Task.MODERATION, PROMPT, MESSAGES)
+        self.assertEqual((result.reasoning_tokens, self.sink.records[-1].reasoning_tokens), (12, 12))
+
     async def test_unconfigured_reserve_warns_once_per_process(self) -> None:
         data = base_config()
         data["models"]["reserve"]["model"] = "${RESERVE_MODEL}"  # атауы берілмеген резерв

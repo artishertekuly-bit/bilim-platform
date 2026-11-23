@@ -21,6 +21,7 @@ class CallLog:
     input_tokens: int = 0
     cached_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0
     latency_ms: int = 0
     first_token_ms: int | None = None
     cost_usd: float | None = None

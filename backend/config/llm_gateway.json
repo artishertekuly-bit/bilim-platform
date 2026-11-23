@@ -78,7 +78,7 @@
   },
   "routes": {
     "moderation": { "model": "small", "mode": "sync", "temperature": 0, "reasoning_effort": "low", "max_output_tokens": 1500, "timeout_s": 15 },
-    "tutor_tags": { "model": "small", "mode": "sync", "temperature": 0, "reasoning_effort": "low", "max_output_tokens": 2000, "timeout_s": 15, "fallback": ["reserve"] },
+    "tutor_tags": { "model": "small", "mode": "sync", "temperature": 0, "reasoning_effort": "none", "max_output_tokens": 800, "timeout_s": 15, "fallback": ["reserve"], "prompt_cache": true },
     "mcq_solver_check": {
       "model": "small", "mode": "sync", "temperature": 0, "reasoning_effort": "low", "max_output_tokens": 2000, "timeout_s": 60, "fallback": ["reserve"],
       "variants": {
@@ -88,7 +88,12 @@
     "official_grading": { "model": "grading", "mode": "sync", "temperature": 0, "reasoning_effort": "medium", "max_output_tokens": 4000, "timeout_s": 90 },
     "second_grading": { "model": "second_grading", "mode": "sync", "temperature": 0, "reasoning_effort": "medium", "max_output_tokens": 4000, "timeout_s": 90 },
     "explanation": { "model": "small", "mode": "sync", "temperature": 0.3, "reasoning_effort": "low", "max_output_tokens": 2000, "timeout_s": 20 },
-    "tutor_reply": { "model": "strong", "mode": "stream", "temperature": 0.7, "reasoning_effort": "low", "max_output_tokens": 3000, "timeout_s": 60, "fallback": ["reserve"] },
+    "tutor_reply": {
+      "model": "strong", "mode": "stream", "temperature": 0.7, "reasoning_effort": "none", "max_output_tokens": 1200, "timeout_s": 60, "fallback": ["reserve"], "prompt_cache": true,
+      "variants": {
+        "light": { "model": "small", "reasoning_effort": "none", "max_output_tokens": 700 }
+      }
+    },
     "examiner_dialog": { "model": "strong", "mode": "stream", "temperature": 0.3, "reasoning_effort": "low", "max_output_tokens": 3000, "timeout_s": 60 },
     "generation": {
       "model": "strong", "mode": "batch", "temperature": 0.7, "reasoning_effort": "medium", "max_output_tokens": 8000, "timeout_s": 180, "fallback": ["reserve"],

@@ -85,6 +85,7 @@ class Usage:
     input_tokens: int = 0
     cached_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0  # output_tokens-тің ішіндегі жасырын ойлау (провайдер берсе)
 
     @property
     def total(self) -> int:
@@ -95,6 +96,7 @@ class Usage:
             input_tokens=self.input_tokens + other.input_tokens,
             cached_tokens=self.cached_tokens + other.cached_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
+            reasoning_tokens=self.reasoning_tokens + other.reasoning_tokens,
         )
 
 
@@ -113,6 +115,7 @@ class LLMResult:
     outcome: Outcome
     attempts: int
     fallback_used: bool
+    reasoning_tokens: int = 0
 
 
 @dataclass(frozen=True)

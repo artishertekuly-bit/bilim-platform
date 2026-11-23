@@ -71,10 +71,13 @@ def _usage(raw: Any) -> Usage:
         return Usage()
     details = getattr(raw, "prompt_tokens_details", None)
     cached = (getattr(details, "cached_tokens", 0) or 0) if details is not None else 0
+    out_details = getattr(raw, "completion_tokens_details", None)
+    reasoning = (getattr(out_details, "reasoning_tokens", 0) or 0) if out_details is not None else 0
     return Usage(
         input_tokens=getattr(raw, "prompt_tokens", 0) or 0,
         cached_tokens=cached,
         output_tokens=getattr(raw, "completion_tokens", 0) or 0,
+        reasoning_tokens=reasoning,
     )
 
 
@@ -107,6 +110,8 @@ class OpenAICompatProvider:
             body["temperature"] = request.temperature
         if request.max_output_tokens is not None:
             body[self._max_tokens_param] = request.max_output_tokens
+        if request.prompt_cache_key:
+            body["prompt_cache_key"] = request.prompt_cache_key
         if request.json_schema is not None:
             if self._structured_outputs == "json_schema":
                 body["response_format"] = {

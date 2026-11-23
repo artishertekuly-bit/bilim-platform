@@ -48,6 +48,18 @@ async def get_service() -> TutorService:
     return _service
 
 
+async def warm_service() -> None:
+    """Қосымша іске қосылғанда фонда (D88): пул ашылып, атаулар индексі жүктеледі. Қате іске қосылуды бөгемейді."""
+    try:
+        service = await get_service()
+        await service.warm()
+        logger.info("tutor warm-up finished")
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — бірінші сұраныс қайта тырысады
+        logger.warning("tutor warm-up failed: %s", type(exc).__name__)
+
+
 async def close_service() -> None:
     global _service, _pool
     if _service is not None:
