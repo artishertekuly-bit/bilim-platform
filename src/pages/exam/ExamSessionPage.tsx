@@ -14,6 +14,7 @@ import {
   PrimaryLink,
   SessionHeader,
 } from '@/components/exam/ExamUi';
+import { ButtonLink, ConfirmSheet, StateCard } from '@/components/bl/ui';
 import { DIALOG_FORMATS, FORMAT_COMPONENTS, SUBMIT_ON_PICK } from '@/components/exam/formatRegistry';
 import { type Answer, DialogTask } from '@/components/exam/formats';
 import {
@@ -267,14 +268,44 @@ export default function ExamSessionPage() {
     );
   }
 
-  if (session.status === 'abandoned' || session.status === 'blocked') {
+  if (session.status === 'blocked') {
+    // ExamStates.dc.html · «Жабылды»: екінші ескерту — тапсырма 0 балл, сессия уақытша жабық (ai_examiner D36).
     return (
-      <ExamScreen footer={<PrimaryLink to="/exam">Емтихандарға оралу</PrimaryLink>}>
-        <Banner tone={session.status === 'blocked' ? 'bad' : 'warn'}>
-          {session.status === 'abandoned'
-            ? 'Бұл емтихан аяқталмай тоқтатылды, сондықтан нәтиже есептелмеді.'
-            : 'Сессия ереже бұзушылыққа байланысты уақытша тоқтатылды. Мұғаліміңізге хабарласыңыз.'}
-        </Banner>
+      <ExamScreen>
+        <div className="pt-5">
+          <StateCard
+            markTone="dark"
+            mark={
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="5" y="11" width="14" height="10" rx="2" />
+                <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+              </svg>
+            }
+            title="Сессия уақытша жабылды"
+            text="Ереже екінші рет бұзылды деп белгіленді, сондықтан тапсырма 0 балл алды. Мұғалім жағдайды көреді. Қате болса, ол балды қалпына келтіреді."
+          >
+            <ButtonLink to="/chat">Мұғалімге жазу</ButtonLink>
+            <ButtonLink to="/exam" variant="secondary" size="md">
+              Емтиханға оралу
+            </ButtonLink>
+          </StateCard>
+        </div>
+      </ExamScreen>
+    );
+  }
+
+  if (session.status === 'abandoned') {
+    return (
+      <ExamScreen>
+        <div className="pt-5">
+          <StateCard
+            mark="—"
+            title="Сессия тоқтатылды"
+            text="Тасталған сессия профильге балл бермейді. Көрген тапсырмаларыңыз келесі сессияларда біраз уақыт қайталанбайды."
+          >
+            <ButtonLink to="/exam">Емтиханға оралу</ButtonLink>
+          </StateCard>
+        </div>
       </ExamScreen>
     );
   }
@@ -324,33 +355,31 @@ export default function ExamSessionPage() {
       }
       footer={footer}
     >
-      {confirmExit ? (
-        <div className="flex flex-col gap-3 rounded-2xl border border-[#E2E0DB] bg-white p-4" role="alertdialog" aria-label="Емтиханнан шығу">
-          <p className="m-0 text-[15px] font-semibold">Емтиханнан шығасыз ба?</p>
-          <p className="m-0 text-sm leading-snug text-[#5E5E5E]">
-            Аяқталмаған емтихан нәтиже бермейді. Берілген сұрақтар «көрілді» деп саналады.
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => abandon.mutate()}
-              disabled={abandon.isPending}
-              className="h-11 flex-1 rounded-xl bg-[#B42323] text-sm font-semibold text-white"
-            >
-              Шығу
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmExit(false)}
-              className="h-11 flex-1 rounded-xl border border-[#D9D6D0] bg-white text-sm font-semibold"
-            >
-              Жалғастыру
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmSheet
+        open={confirmExit}
+        onClose={() => setConfirmExit(false)}
+        title="Сессиядан шығасыз ба?"
+        description="Тасталған сессия профильге балл бермейді. Көрген тапсырмаларыңыз келесі сессияларда біраз уақыт қайталанбайды."
+        cancelLabel="Жалғастыру"
+        confirmLabel="Шығу"
+        busy={abandon.isPending}
+        onConfirm={() => abandon.mutate()}
+      />
 
-      {moderationNotice ? <Banner tone="warn">{moderationNotice}</Banner> : null}
+      {moderationNotice ? (
+        // ExamStates.dc.html · «Ескерту»: бірінші бұзушылық — сол тапсырмаға екінші мүмкіндік.
+        <section role="alert" className="flex flex-col gap-2.5 rounded-2xl bg-bl-warnbg p-4 text-bl-warntext">
+          <span className="flex items-center gap-2 text-base font-bold">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3l9 16H3z" />
+              <path d="M12 10v4M12 17h.01" />
+            </svg>
+            Ескерту
+          </span>
+          <p className="m-0 text-[15px] leading-normal">{moderationNotice}</p>
+          <p className="m-0 text-[13px] leading-[1.45]">Екінші рет қайталанса, тапсырма 0 балл алады және сессия уақытша жабылады.</p>
+        </section>
+      ) : null}
       {timerSeconds === 0 && !feedback ? (
         <Banner tone="warn">Уақыт аяқталды — жіберілген жауап кешіктірілген деп тіркеледі.</Banner>
       ) : null}

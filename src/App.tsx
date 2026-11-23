@@ -18,9 +18,15 @@ import { useAppDeepLink } from '@/lib/useAppDeepLink';
 
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 
-const LandingPage = lazy(() => import('./pages/LandingPage'));
-const LoginPage = lazy(() => import('./pages/LoginPage'));
-const RegisterPage = lazy(() => import('./pages/RegisterPage'));
+// Жаңа фронтенд: «Bilim — телефон прототипі» канвасы бойынша (src/components/bl).
+const WelcomePage = lazy(() => import('./pages/auth/WelcomePage'));
+const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'));
+const OnboardingPage = lazy(() => import('./pages/auth/OnboardingPage'));
+const ForgotPasswordPage = lazy(() => import('./pages/auth/PasswordPages').then((m) => ({ default: m.ForgotPasswordPage })));
+const NewPasswordPage = lazy(() => import('./pages/auth/PasswordPages').then((m) => ({ default: m.NewPasswordPage })));
+const SettingsPage = lazy(() => import('./pages/account/SettingsPage'));
+const AvatarEditPage = lazy(() => import('./pages/account/AvatarEditPage'));
 const AboutPage = lazy(() => import('./pages/AboutPage'));
 const DashboardRouter = lazy(() => import('./pages/DashboardRouter'));
 
@@ -28,15 +34,17 @@ const DashboardRouter = lazy(() => import('./pages/DashboardRouter'));
 // Кестелер мен деректер өшірілмеді; беттердің файлдары кейін бөлек тазаланады.
 const LessonsCatalogPage = lazy(() => import('./pages/lessons/LessonsCatalogPage'));
 const LessonViewPage = lazy(() => import('./pages/lessons/LessonViewPage'));
-const ChatPage = lazy(() => import('./pages/ChatPage'));
+const ChatListPage = lazy(() => import('./pages/chat/ChatListPage'));
+const ChatThreadPage = lazy(() => import('./pages/chat/ChatThreadPage'));
+const StudentProfilePage = lazy(() => import('./pages/account/StudentProfilePage'));
+const NotificationsPage = lazy(() => import('./pages/account/NotificationsPage'));
+const JoinClassPage = lazy(() => import('./pages/account/JoinClassPage'));
 
 const AdminSubjectsPage = lazy(() => import('./pages/AdminSubjectsPage'));
 const AdminLessonsPage = lazy(() => import('./pages/AdminLessonsPage'));
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'));
 const AdminCmsPage = lazy(() => import('./pages/AdminCmsPage'));
 
-const ProfileSettingsPage = lazy(() => import('./pages/ProfileSettingsPage'));
-const SetupPasswordPage = lazy(() => import('./pages/SetupPasswordPage'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 // AI Tutor v2 (7-қадам, D86): LightRAG + PersonaRAG. Ескі практика мен трекер алынды (D40).
@@ -48,6 +56,8 @@ const TeacherStudentAlertsPage = lazy(() => import('./pages/teacher/TeacherStude
 const ParentHomePage = lazy(() => import('./pages/parent/ParentHomePage'));
 
 const ExamHomePage = lazy(() => import('./pages/exam/ExamHomePage'));
+const ExamPickerPage = lazy(() => import('./pages/exam/ExamPickerPage'));
+const ExamAppealPage = lazy(() => import('./pages/exam/ExamAppealPage'));
 const ExamSessionPage = lazy(() => import('./pages/exam/ExamSessionPage'));
 const ExamResultPage = lazy(() => import('./pages/exam/ExamResultPage'));
 const ExamProfilePage = lazy(() => import('./pages/exam/ExamProfilePage'));
@@ -56,17 +66,14 @@ const TeacherHomePage = lazy(() => import('./pages/teacher/TeacherHomePage'));
 const TeacherClassPage = lazy(() => import('./pages/teacher/TeacherClassPage'));
 const TeacherReviewPage = lazy(() => import('./pages/teacher/TeacherReviewPage'));
 const TeacherGradePage = lazy(() => import('./pages/teacher/TeacherGradePage'));
-const StudentClassesPage = lazy(() => import('./pages/StudentClassesPage'));
 
 // Ойындар (8-қадам, D42–D55, D89): бөлмелер мен бес ойын.
 const GamesHomePage = lazy(() => import('./pages/games/GamesHomePage'));
 const GameCreatePage = lazy(() => import('./pages/games/GameCreatePage'));
 const GameJoinPage = lazy(() => import('./pages/games/GameJoinPage'));
 const GameRoomPage = lazy(() => import('./pages/games/GameRoomPage'));
+const TeacherGameHostPage = lazy(() => import('./pages/games/TeacherGameHostPage'));
 
-const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
-const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'));
-const UpdatePasswordPage = lazy(() => import('./pages/UpdatePasswordPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -233,7 +240,7 @@ function RootEntryPage() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  return <LandingPage />;
+  return <WelcomePage />;
 }
 
 function PublicAuthPage({ children }: { children: ReactNode }) {
@@ -313,9 +320,9 @@ const publicRoutes: AppRouteConfig[] = [
       </PublicAuthPage>
     ),
   },
-  { path: '/verify-email', element: <VerifyEmailPage /> },
+  { path: '/verify-email', element: <RegisterPage initialStep="code" /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
-  { path: '/update-password', element: <UpdatePasswordPage /> },
+  { path: '/update-password', element: <NewPasswordPage mode="recovery" /> },
   { path: '/about', element: <AboutPage /> },
   { path: '/auth/callback', element: <AuthCallbackPage /> },
 ];
@@ -327,26 +334,34 @@ const commonProtectedRoutes: AppRouteConfig[] = [
     element: <AiEntryPage />,
     allowedRoles: LEARNING_CONTENT_ROLES,
   },
-  { path: '/profile', element: <ProfileSettingsPage />, allowedRoles: ACCOUNT_ROLES },
+  { path: '/profile', element: <StudentProfilePage />, allowedRoles: ACCOUNT_ROLES },
+  { path: '/notifications', element: <NotificationsPage />, allowedRoles: ACCOUNT_ROLES },
+  { path: '/settings', element: <SettingsPage />, allowedRoles: ACCOUNT_ROLES },
+  { path: '/settings/avatar', element: <AvatarEditPage />, allowedRoles: ACCOUNT_ROLES },
+  { path: '/settings/password', element: <NewPasswordPage mode="change" />, allowedRoles: ACCOUNT_ROLES },
+  { path: '/onboarding', element: <OnboardingPage />, allowedRoles: STUDENT_ROLES },
   {
     path: '/setup-password',
-    element: <SetupPasswordPage />,
+    element: <NewPasswordPage mode="setup" />,
     allowedRoles: ACCOUNT_ROLES,
     enforcePasswordSetup: false,
   },
   {
     // Чат тек мұғалім ↔ сынып оқушысы және мұғалім ↔ оның ата-анасы (api §5.3, D24, D28).
     path: '/chat',
-    element: <ChatPage />,
+    element: <ChatListPage />,
     allowedRoles: CHAT_ROLES,
   },
+  { path: '/chat/:threadId', element: <ChatThreadPage />, allowedRoles: CHAT_ROLES },
 ];
 
 // Examiner v2 (api-kelisimderi.md §3): деңгей таңдау → сессия → нәтиже, профиль.
 const examRoutes: AppRouteConfig[] = [
   { path: '/exam', element: <ExamHomePage />, allowedRoles: LEARNING_CONTENT_ROLES },
+  { path: '/exam/picker', element: <ExamPickerPage />, allowedRoles: LEARNING_CONTENT_ROLES },
   { path: '/exam/session/:sessionId', element: <ExamSessionPage />, allowedRoles: LEARNING_CONTENT_ROLES },
   { path: '/exam/result/:sessionId', element: <ExamResultPage />, allowedRoles: LEARNING_CONTENT_ROLES },
+  { path: '/exam/result/:sessionId/appeal', element: <ExamAppealPage />, allowedRoles: STUDENT_ROLES },
   { path: '/exam/profile', element: <ExamProfilePage />, allowedRoles: LEARNING_CONTENT_ROLES },
 ];
 
@@ -356,7 +371,7 @@ const classRoutes: AppRouteConfig[] = [
   { path: '/teacher/classes/:classId', element: <TeacherClassPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/review', element: <TeacherReviewPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/grades/:gradeId', element: <TeacherGradePage />, allowedRoles: TEACHER_ROLES },
-  { path: '/classes', element: <StudentClassesPage />, allowedRoles: STUDENT_ROLES },
+  { path: '/classes', element: <JoinClassPage />, allowedRoles: STUDENT_ROLES },
   { path: '/teacher/students/:studentId', element: <TeacherStudentAlertsPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/lessons', element: <TeacherLessonsPage />, allowedRoles: TEACHER_ROLES },
   { path: '/teacher/lessons/new', element: <TeacherLessonEditPage />, allowedRoles: TEACHER_ROLES },
@@ -382,7 +397,10 @@ const studentRoutes: AppRouteConfig[] = [
 // Ойындар (geimifikatsiya §5): бөлмені оқушы да, мұғалім де ашады, ойнайтын — оқушы (D46).
 const gameRoutes: AppRouteConfig[] = [
   { path: '/games', element: <GamesHomePage />, allowedRoles: GAME_ROLES },
+  { path: '/games/new', element: <GameCreatePage />, allowedRoles: STUDENT_ROLES },
   { path: '/games/new/:gameType', element: <GameCreatePage />, allowedRoles: GAME_ROLES },
+  { path: '/teacher/games', element: <GameCreatePage />, allowedRoles: TEACHER_ROLES },
+  { path: '/teacher/games/:roomId', element: <TeacherGameHostPage />, allowedRoles: TEACHER_ROLES },
   { path: '/games/join', element: <GameJoinPage />, allowedRoles: STUDENT_ROLES },
   { path: '/games/rooms/:roomId', element: <GameRoomPage />, allowedRoles: GAME_ROLES },
 ];

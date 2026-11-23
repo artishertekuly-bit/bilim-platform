@@ -1,41 +1,32 @@
-// Емтихан · деңгей таңдау (дизайн: Main.dc.html). Масштаб: тақырып (§), тарау немесе пән (оқулық, D63).
-import { useMutation, useQuery } from '@tanstack/react-query';
+// Емтихан · деңгей таңдау (дизайн: Main.dc.html, ExamStates.dc.html «Аяқталмаған», «Тапсырма жоқ»).
+// Оқулық пен § таңдау — бөлек бетте (/exam/picker, ExamPicker.dc.html).
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import AppShell from '@/components/bl/AppShell';
+import { ChevronDownIcon, LessonsIcon } from '@/components/bl/icons';
 import {
+  Badge,
   Banner,
+  Button,
+  ButtonLink,
   Card,
-  Chip,
-  ExamScreen,
+  ConfirmSheet,
+  ErrorNote,
   LoadingBlock,
-  SectionLabel,
-} from '@/components/exam/ExamUi';
-import {
-  ExaminerApiError,
-  type LevelCard,
-  type ScopeType,
-  useExaminerApi,
-} from '@/lib/examiner-api';
+  Page,
+  Section,
+  Segmented,
+} from '@/components/bl/ui';
+import { useExamSelection } from '@/lib/exam-selection';
+import { ExaminerApiError, type LevelCard, type ScopeType, useExaminerApi } from '@/lib/examiner-api';
 
-const BOOK_KEY = 'bilim.exam.book';
-const SCOPE_KEY = 'bilim.exam.scope';
-
-function readStored(key: string): string | null {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeStored(key: string, value: string): void {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    /* жеке терезеде сақталмауы мүмкін */
-  }
-}
+const SCOPE_SUB: Record<ScopeType, string> = {
+  topic: 'Бір параграф және оған байланысты ұғымдар',
+  chapter: 'Тараудың әр параграфынан тапсырма',
+  subject: 'Оқулықтың барлық параграфынан тең үлеспен',
+};
 
 function levelStatus(card: LevelCard): { text: string; tone: 'good' | 'neutral' } {
   const p = card.last.p;
@@ -47,11 +38,10 @@ function levelStatus(card: LevelCard): { text: string; tone: 'good' | 'neutral' 
 export default function ExamHomePage() {
   const api = useExaminerApi();
   const navigate = useNavigate();
-  const [book, setBook] = useState<string | null>(() => readStored(BOOK_KEY));
-  const [scopeType, setScopeType] = useState<ScopeType>(() => (readStored(SCOPE_KEY) as ScopeType) || 'topic');
-  const [topicId, setTopicId] = useState<string | null>(null);
-  const [chapterId, setChapterId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [sel, update] = useExamSelection();
   const [startError, setStartError] = useState<string | null>(null);
+  const [confirmAbandon, setConfirmAbandon] = useState(false);
 
   const subjects = useQuery({ queryKey: ['examiner', 'subjects'], queryFn: api.subjects });
   const books = useMemo(
@@ -60,33 +50,35 @@ export default function ExamHomePage() {
   );
 
   useEffect(() => {
-    if (books.length && (!book || !books.some((b) => b.book === book))) setBook(books[0].book);
-  }, [books, book]);
+    if (books.length && (!sel.book || !books.some((b) => b.book === sel.book))) update({ book: books[0].book });
+  }, [books, sel.book, update]);
 
   const scopes = useQuery({
-    queryKey: ['examiner', 'scopes', book],
-    queryFn: () => api.scopes(book as string),
-    enabled: Boolean(book),
+    queryKey: ['examiner', 'scopes', sel.book],
+    queryFn: () => api.scopes(sel.book as string),
+    enabled: Boolean(sel.book),
   });
 
   useEffect(() => {
     const data = scopes.data;
     if (!data) return;
-    if (!topicId || !data.topics.some((t) => t.id === topicId)) setTopicId(data.topics[0]?.id ?? null);
-    if (!chapterId || !data.chapters.some((c) => c.id === chapterId)) setChapterId(data.chapters[0]?.id ?? null);
-    if (scopeType === 'chapter' && !data.book.has_chapters) setScopeType('topic');
-  }, [scopes.data, topicId, chapterId, scopeType]);
+    const patch: Parameters<typeof update>[0] = {};
+    if (!sel.topicId || !data.topics.some((t) => t.id === sel.topicId)) patch.topicId = data.topics[0]?.id ?? null;
+    if (!sel.chapterId || !data.chapters.some((c) => c.id === sel.chapterId)) patch.chapterId = data.chapters[0]?.id ?? null;
+    if (sel.scopeType === 'chapter' && !data.book.has_chapters) patch.scopeType = 'topic';
+    if (Object.keys(patch).length) update(patch);
+  }, [scopes.data, sel.topicId, sel.chapterId, sel.scopeType, update]);
 
-  const scopeId = scopeType === 'topic' ? topicId : scopeType === 'chapter' ? chapterId : book;
+  const scopeId = sel.scopeType === 'topic' ? sel.topicId : sel.scopeType === 'chapter' ? sel.chapterId : sel.book;
   const levels = useQuery({
-    queryKey: ['examiner', 'levels', scopeType, scopeId],
-    queryFn: () => api.levels(scopeType, scopeId as string),
+    queryKey: ['examiner', 'levels', sel.scopeType, scopeId],
+    queryFn: () => api.levels(sel.scopeType, scopeId as string),
     enabled: Boolean(scopeId),
   });
   const active = useQuery({ queryKey: ['examiner', 'active'], queryFn: api.active });
 
   const start = useMutation({
-    mutationFn: (level: number) => api.start(scopeType, scopeId as string, level),
+    mutationFn: (level: number) => api.start(sel.scopeType, scopeId as string, level),
     onSuccess: (session) => navigate(`/exam/session/${session.session_id}`),
     onError: (error) => {
       if (error instanceof ExaminerApiError && error.code === 'ACTIVE_SESSION_EXISTS') {
@@ -100,209 +92,164 @@ export default function ExamHomePage() {
     },
   });
 
-  const currentBook = books.find((b) => b.book === book);
-  const scopeTabs: { id: ScopeType; label: string; disabled?: boolean }[] = [
-    { id: 'topic', label: 'Тақырып' },
-    { id: 'chapter', label: 'Тарау', disabled: scopes.data ? !scopes.data.book.has_chapters : true },
-    { id: 'subject', label: 'Пән' },
-  ];
+  const abandon = useMutation({
+    mutationFn: (sessionId: string) => api.abandon(sessionId),
+    onSuccess: async () => {
+      setConfirmAbandon(false);
+      await queryClient.invalidateQueries({ queryKey: ['examiner'] });
+    },
+  });
 
-  const pickScope = (id: ScopeType) => {
-    setScopeType(id);
-    setStartError(null);
-    writeStored(SCOPE_KEY, id);
-  };
+  const currentBook = books.find((b) => b.book === sel.book);
+  const hasChapters = scopes.data ? scopes.data.book.has_chapters : false;
+  const allEmpty = levels.data ? levels.data.levels.every((l) => !l.available) : false;
+  const loading = subjects.isLoading || scopes.isLoading || levels.isLoading;
 
   return (
-    <ExamScreen>
-      <div className="flex items-start justify-between gap-3 pt-3">
+    <AppShell>
+      <Page className="gap-[22px] pt-6">
         <div className="flex flex-col gap-1">
-          <h1 className="m-0 text-[28px] font-bold leading-tight tracking-[-0.02em]">Емтихан</h1>
-          <p className="m-0 text-[15px] text-[#5E5E5E]">
-            {currentBook ? `${currentBook.subject} · ${currentBook.grade}-сынып` : ' '}
-          </p>
-        </div>
-        <div className="flex gap-1">
+          <h1 className="m-0 text-[28px] font-bold leading-[1.15] tracking-[-0.02em]">Емтихан</h1>
           <Link
-            to="/exam/profile"
-            className="flex h-11 items-center rounded-xl px-3 text-sm font-semibold text-[#111111] no-underline hover:bg-[#ECE9E3]"
+            to="/exam/picker"
+            aria-label={currentBook ? `Оқулықты ауыстыру: ${currentBook.subject}, ${currentBook.grade}-сынып` : 'Оқулықты таңдау'}
+            className="flex min-h-8 items-center gap-1 self-start text-[15px] text-bl-ink2 no-underline"
           >
-            Профиль
-          </Link>
-          <Link
-            to="/dashboard"
-            className="flex h-11 items-center rounded-xl px-3 text-sm font-semibold text-[#5E5E5E] no-underline hover:bg-[#ECE9E3]"
-          >
-            Басты бет
+            {currentBook ? `${currentBook.subject} · ${currentBook.grade}-сынып` : 'Оқулықты таңдаңыз'}
+            <ChevronDownIcon size={16} />
           </Link>
         </div>
-      </div>
 
-      {active.data ? (
-        <Card className="flex items-center justify-between gap-3 p-4">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-[15px] font-semibold">Аяқталмаған емтихан бар</span>
-            <span className="truncate text-sm text-[#5E5E5E]">
-              {active.data.level}-деңгей · {active.data.scope.title}
-            </span>
+        {active.data ? (
+          <Card className="flex flex-col gap-3 p-4">
+            <div className="flex items-center gap-3.5">
+              <span aria-hidden="true" className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-bl-ink text-lg font-bold text-white">
+                {active.data.level}
+              </span>
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="text-[17px] font-semibold">Аяқталмаған сессия бар</span>
+                <span className="truncate text-sm text-bl-ink2">{active.data.scope.title}</span>
+              </span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex justify-between text-[13px] text-bl-ink2">
+                <span>Орындалды</span>
+                <span className="font-semibold text-bl-ink">
+                  {active.data.progress.answered} / {active.data.progress.total}
+                </span>
+              </div>
+              <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-bl-line">
+                <div
+                  className="h-full rounded-full bg-bl-ink"
+                  style={{ width: `${active.data.progress.total ? (active.data.progress.answered / active.data.progress.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+            <ButtonLink to={`/exam/session/${active.data.session_id}`}>Жалғастыру</ButtonLink>
+            <Button variant="secondary" size="md" onClick={() => setConfirmAbandon(true)}>
+              Аяқтап, жаңасын бастау
+            </Button>
+          </Card>
+        ) : null}
+
+        {subjects.isError ? <ErrorNote error={subjects.error} onRetry={() => subjects.refetch()} /> : null}
+
+        <Section label="Емтихан көлемі">
+          <Segmented
+            label="Емтихан көлемі"
+            value={sel.scopeType}
+            onChange={(id) => {
+              update({ scopeType: id });
+              setStartError(null);
+            }}
+            options={[
+              { id: 'topic', label: 'Тақырып' },
+              { id: 'chapter', label: 'Тарау', disabled: !hasChapters },
+              { id: 'subject', label: 'Пән' },
+            ]}
+          />
+          <Link
+            to="/exam/picker"
+            className="flex flex-col gap-0.5 rounded-2xl border border-bl-line bg-white px-4 py-3.5 text-bl-ink no-underline hover:border-bl-field"
+          >
+            <span className="text-base font-semibold">{levels.data?.scope.title ?? ' '}</span>
+            <span className="text-sm leading-[1.4] text-bl-ink2">{SCOPE_SUB[sel.scopeType]}</span>
+          </Link>
+        </Section>
+
+        <section className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-0.5">
+            <h2 className="m-0 text-xl font-bold tracking-[-0.01em]">Деңгейді таңдаңыз</h2>
+            <p className="m-0 text-sm text-bl-ink2">Кез келген деңгейден бастауға болады</p>
           </div>
-          <Link
-            to={`/exam/session/${active.data.session_id}`}
-            className="flex h-11 flex-none items-center rounded-xl bg-[#121212] px-4 text-sm font-semibold text-white no-underline"
-          >
-            Жалғастыру
-          </Link>
-        </Card>
-      ) : null}
+          {startError ? <Banner tone="warn">{startError}</Banner> : null}
+          {loading ? <LoadingBlock rows={4} /> : null}
+          {levels.isError ? <ErrorNote error={levels.error} onRetry={() => levels.refetch()} /> : null}
 
-      {subjects.isError ? (
-        <Banner tone="bad">{(subjects.error as Error).message}</Banner>
-      ) : null}
-
-      <section className="flex flex-col gap-2.5">
-        <SectionLabel>Оқулық</SectionLabel>
-        <label className="sr-only" htmlFor="exam-book">
-          Оқулық
-        </label>
-        <select
-          id="exam-book"
-          value={book ?? ''}
-          onChange={(event) => {
-            setBook(event.target.value);
-            writeStored(BOOK_KEY, event.target.value);
-            setStartError(null);
-          }}
-          className="h-12 rounded-[14px] border border-[#E2E0DB] bg-white px-3 text-[15px] font-medium"
-        >
-          {books.map((b) => (
-            <option key={b.book} value={b.book}>
-              {b.title}
-            </option>
-          ))}
-        </select>
-      </section>
-
-      <section className="flex flex-col gap-2.5">
-        <SectionLabel>Емтихан көлемі</SectionLabel>
-        <div className="grid grid-cols-3 gap-1 rounded-[14px] bg-[#ECE9E3] p-1" role="group" aria-label="Емтихан көлемі">
-          {scopeTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              aria-pressed={scopeType === tab.id}
-              disabled={tab.disabled}
-              onClick={() => pickScope(tab.id)}
-              className={
-                scopeType === tab.id
-                  ? 'h-11 rounded-[10px] bg-white text-sm font-semibold text-[#111111] shadow-[0_1px_2px_rgba(0,0,0,0.08)]'
-                  : 'h-11 rounded-[10px] text-sm font-semibold text-[#4A4A4A] disabled:text-[#B5B0A7]'
-              }
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        {scopeType === 'topic' && scopes.data ? (
-          <>
-            <label className="sr-only" htmlFor="exam-topic">
-              Тақырып
-            </label>
-            <select
-              id="exam-topic"
-              value={topicId ?? ''}
-              onChange={(event) => {
-                setTopicId(event.target.value);
-                setStartError(null);
-              }}
-              className="h-12 rounded-[14px] border border-[#E2E0DB] bg-white px-3 text-[15px]"
-            >
-              {scopes.data.topics.map((t) => (
-                <option key={t.id} value={t.id}>
-                  §{t.no} · {t.title}
-                </option>
-              ))}
-            </select>
-          </>
-        ) : null}
-        {scopeType === 'chapter' && scopes.data ? (
-          <>
-            <label className="sr-only" htmlFor="exam-chapter">
-              Тарау
-            </label>
-            <select
-              id="exam-chapter"
-              value={chapterId ?? ''}
-              onChange={(event) => {
-                setChapterId(event.target.value);
-                setStartError(null);
-              }}
-              className="h-12 rounded-[14px] border border-[#E2E0DB] bg-white px-3 text-[15px]"
-            >
-              {scopes.data.chapters.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title}
-                </option>
-              ))}
-            </select>
-          </>
-        ) : null}
-        <Card className="flex flex-col gap-0.5 px-4 py-3.5">
-          <span className="text-base font-semibold">{levels.data?.scope.title ?? ' '}</span>
-          <span className="text-sm leading-snug text-[#5E5E5E]">
-            {scopeType === 'topic'
-              ? 'Бір параграф және оған байланысты ұғымдар'
-              : scopeType === 'chapter'
-                ? 'Тараудың әр параграфынан тапсырма'
-                : 'Оқулықтың барлық параграфынан тең үлеспен'}
-          </span>
-        </Card>
-      </section>
-
-      <section className="flex flex-col gap-2.5">
-        <div className="flex flex-col gap-0.5">
-          <h2 className="m-0 text-xl font-bold tracking-[-0.01em]">Деңгейді таңдаңыз</h2>
-          <p className="m-0 text-sm text-[#5E5E5E]">Кез келген деңгейден бастауға болады</p>
-        </div>
-        {startError ? <Banner tone="warn">{startError}</Banner> : null}
-        {levels.isLoading || scopes.isLoading || subjects.isLoading ? <LoadingBlock /> : null}
-        {levels.isError ? <Banner tone="bad">{(levels.error as Error).message}</Banner> : null}
-        {levels.data?.levels.map((card) => {
-          const status = levelStatus(card);
-          const enabled = card.available && card.availability !== 'unavailable' && !start.isPending;
-          return (
-            <button
-              key={card.level}
-              type="button"
-              disabled={!enabled}
-              onClick={() => {
-                setStartError(null);
-                start.mutate(card.level);
-              }}
-              className="flex items-start gap-3.5 rounded-2xl border border-[#E2E0DB] bg-white p-4 text-left text-[#111111] transition-colors hover:border-[#CFCBC3] disabled:cursor-default disabled:opacity-60 disabled:hover:border-[#E2E0DB]"
-            >
-              <span
-                aria-hidden="true"
-                className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-[#111111] text-lg font-bold text-white"
-              >
-                {card.level}
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-[17px] font-semibold">{card.title}</span>
-                  <Chip tone={status.tone}>{status.text}</Chip>
+          {allEmpty ? (
+            <div className="flex flex-col gap-4">
+              <section className="flex flex-col items-center gap-3 rounded-[20px] border border-bl-line bg-white px-5 py-7 text-center">
+                <span aria-hidden="true" className="flex h-14 w-14 items-center justify-center rounded-full bg-bl-soft">
+                  <LessonsIcon size={26} />
                 </span>
-                <span className="text-sm leading-snug text-[#5E5E5E]">{card.formats.join(', ')}</span>
-                <span className="text-[13px] text-[#5E5E5E]">
-                  {card.available ? `${card.tasks} тапсырма · ≈${card.minutes} мин` : card.note}
-                </span>
-                {card.available && card.availability === 'unavailable' && card.note ? (
-                  <span className="text-[13px] font-medium text-[#5C3A08]">{card.note}</span>
-                ) : null}
-              </span>
-            </button>
-          );
-        })}
-      </section>
-    </ExamScreen>
+                <h3 className="m-0 text-[22px] font-bold">Бұл тақырыптың тапсырмалары әлі дайын емес</h3>
+                <p className="m-0 text-[15px] leading-normal text-bl-ink3">
+                  {levels.data?.scope.title} бойынша жеткілікті тапсырма жоқ. Басқа тақырып таңдаңыз.
+                </p>
+              </section>
+              <ButtonLink to="/exam/picker">Тақырыпты ауыстыру</ButtonLink>
+              <ButtonLink to="/ai-tutor" variant="secondary" size="md">
+                Тьютормен қайталау
+              </ButtonLink>
+            </div>
+          ) : (
+            levels.data?.levels.map((card) => {
+              const status = levelStatus(card);
+              const enabled = card.available && card.availability !== 'unavailable' && !start.isPending;
+              return (
+                <button
+                  key={card.level}
+                  type="button"
+                  disabled={!enabled}
+                  onClick={() => {
+                    setStartError(null);
+                    start.mutate(card.level);
+                  }}
+                  className="flex items-start gap-3.5 rounded-2xl border border-bl-line bg-white p-4 text-left text-bl-ink transition-colors hover:border-bl-field disabled:cursor-default disabled:opacity-60 disabled:hover:border-bl-line"
+                >
+                  <span aria-hidden="true" className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-bl-ink text-lg font-bold text-white">
+                    {card.level}
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-[17px] font-semibold">{card.title}</span>
+                      <Badge tone={status.tone}>{status.text}</Badge>
+                    </span>
+                    <span className="text-sm leading-[1.4] text-bl-ink2">{card.formats.join(', ')}</span>
+                    <span className="text-[13px] text-bl-ink2">
+                      {card.available ? `${card.tasks} тапсырма · ≈${card.minutes} мин` : card.note}
+                    </span>
+                    {card.available && card.availability === 'unavailable' && card.note ? (
+                      <span className="text-[13px] font-medium text-bl-warntext">{card.note}</span>
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </section>
+      </Page>
+
+      <ConfirmSheet
+        open={confirmAbandon}
+        onClose={() => setConfirmAbandon(false)}
+        title="Сессияны аяқтайсыз ба?"
+        description="Тасталған сессия профильге балл бермейді. Көрген тапсырмаларыңыз келесі сессияларда біраз уақыт қайталанбайды."
+        cancelLabel="Жалғастыру"
+        confirmLabel="Аяқтау"
+        busy={abandon.isPending}
+        onConfirm={() => active.data && abandon.mutate(active.data.session_id)}
+      />
+    </AppShell>
   );
 }

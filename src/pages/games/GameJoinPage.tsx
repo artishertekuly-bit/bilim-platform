@@ -2,9 +2,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { Banner, ExamScreen, LoadingBlock, SecondaryLink, SimpleHeader } from '@/components/exam/ExamUi';
-import { GamesApiError, useGamesApi } from '@/lib/games-api';
+import { BareScreen, ButtonLink, LoadingBlock, StateCard, TopBar } from '@/components/bl/ui';
 import { useAuth } from '@/lib/auth-context';
+import { GamesApiError, useGamesApi } from '@/lib/games-api';
 
 export default function GameJoinPage() {
   const [params] = useSearchParams();
@@ -22,21 +22,23 @@ export default function GameJoinPage() {
       setError('Бөлме коды қате.');
       return;
     }
-    api.join(code)
+    api
+      .join(code)
       .then((view) => navigate(`/games/rooms/${view.room.room_id}`, { replace: true }))
       .catch((err) => setError(err instanceof GamesApiError ? err.message : 'Бөлмеге кіру мүмкін болмады.'));
   }, [api, code, navigate, session?.access_token]);
 
   return (
-    <ExamScreen header={<SimpleHeader title="Бөлмеге кіру" to="/games" label="Ойындарға" />}>
-      {error ? (
-        <>
-          <Banner tone="bad">{error}</Banner>
-          <SecondaryLink to="/games">Ойындарға оралу</SecondaryLink>
-        </>
-      ) : (
-        <LoadingBlock label="Бөлмеге кіріп жатырмыз…" />
-      )}
-    </ExamScreen>
+    <BareScreen header={<TopBar back="/games" backLabel="Ойындарға оралу" title="Бөлмеге кіру" />}>
+      <div className="px-4 pt-2">
+        {error ? (
+          <StateCard mark="!" title="Бөлмеге кіру мүмкін болмады" text={error}>
+            <ButtonLink to="/games">Ойындарға оралу</ButtonLink>
+          </StateCard>
+        ) : (
+          <LoadingBlock label="Бөлмеге кіріп жатырмыз…" rows={2} />
+        )}
+      </div>
+    </BareScreen>
   );
 }

@@ -1,20 +1,82 @@
-// Ойындар аймағы (geimifikatsiya §1–§2, D42, D47): бес ойын, кодпен кіру, ашық бөлмелер.
-// Ойын нәтижесі ресми бағаға, рейтингке және профильге кірмейді (D3, D53).
+// Ойындар (дизайн: GamesHub.dc.html; geimifikatsiya §1–§2, D42, D47): бөлме ашу, кодпен кіру,
+// ашық бөлмелер, бес ойын. Ойын нәтижесі бағаға, рейтингке және профильге кірмейді (D3, D53).
 import { useQuery } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { Banner, Card, Chip, ExamScreen, SectionLabel, SimpleHeader } from '@/components/exam/ExamUi';
+import AppShell from '@/components/bl/AppShell';
+import { PlusIcon } from '@/components/bl/icons';
+import { Badge, Banner, Button, ButtonLink, ErrorNote, Page, PageTitle, Section } from '@/components/bl/ui';
 import { useAuth } from '@/lib/auth-context';
-import { GAMES, GAME_TITLE, GamesApiError, gamesKeys, useGamesApi } from '@/lib/games-api';
+import { GAME_TITLE, GamesApiError, gamesKeys, useGamesApi, type GameType } from '@/lib/games-api';
 
-const STATUS_LABEL = { lobby: 'Күтуде', playing: 'Жүріп жатыр', finished: 'Аяқталды', abandoned: 'Жабылды' } as const;
+const STATUS_LABEL = { lobby: 'күтуде', playing: 'жүріп жатыр', finished: 'аяқталды', abandoned: 'жабылды' } as const;
+
+const Cell = ({ c }: { c: string }) => <i className="block h-3 rounded-[3px]" style={{ background: c }} />;
+
+const CARDS: { type: GameType; text: string; art: ReactNode; wide?: boolean }[] = [
+  {
+    type: 'conquest',
+    text: '3–6 ойыншы. Ұяшықты дұрыс жауаппен басып ал.',
+    art: (
+      <span aria-hidden="true" className="grid w-fit grid-cols-[repeat(3,12px)] gap-[3px]">
+        {['#2563EB', '#ECE9E3', '#C2410C', '#2563EB', '#15803D', '#ECE9E3'].map((c, i) => (
+          <Cell key={i} c={c} />
+        ))}
+      </span>
+    ),
+  },
+  {
+    type: 'checkers',
+    text: '1 × 1. Әр жүріс алдында сұрақ.',
+    art: (
+      <span aria-hidden="true" className="flex h-[27px] items-center gap-1">
+        <i className="block h-[18px] w-[18px] rounded-full bg-bl-ink" />
+        <i className="box-border block h-[18px] w-[18px] rounded-full border-2 border-bl-ink bg-white" />
+      </span>
+    ),
+  },
+  {
+    type: 'battleship',
+    text: '1 × 1. Әр оқ алдында сұрақ.',
+    art: (
+      <span aria-hidden="true" className="flex h-[27px] items-center gap-[3px]">
+        {['#4A4A4A', '#4A4A4A', '#4A4A4A', '#DDE7F5', '#B42323'].map((c, i) => (
+          <i key={i} className="block h-3 w-3 rounded-[3px]" style={{ background: c }} />
+        ))}
+      </span>
+    ),
+  },
+  {
+    type: 'debate',
+    text: '1 × 1. Позицияңды дәлелде.',
+    art: (
+      <span aria-hidden="true" className="flex h-[27px] items-center gap-1">
+        <i className="block h-4 w-[22px] rounded-[8px_8px_8px_2px] bg-bl-ink" />
+        <i className="block h-4 w-[22px] rounded-[8px_8px_2px_8px] bg-bl-avatar" />
+      </span>
+    ),
+  },
+  {
+    type: 'baige',
+    wide: true,
+    text: '2–6 ойыншы. Ұпайды сақтайсың ба, әлде тәуекел етесің бе?',
+    art: (
+      <span aria-hidden="true" className="flex w-14 flex-none flex-col gap-1">
+        <i className="block h-1.5 w-[90%] rounded-full bg-[#2563EB]" />
+        <i className="block h-1.5 w-[60%] rounded-full bg-[#C2410C]" />
+        <i className="block h-1.5 w-[75%] rounded-full bg-[#15803D]" />
+      </span>
+    ),
+  },
+];
 
 export default function GamesHomePage() {
   const api = useGamesApi();
   const navigate = useNavigate();
   const { user } = useAuth();
   const isTeacher = user?.role === 'teacher';
+  const [codeOpen, setCodeOpen] = useState(false);
   const [code, setCode] = useState('');
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,12 +85,11 @@ export default function GamesHomePage() {
 
   const join = async (event: FormEvent) => {
     event.preventDefault();
-    const clean = code.trim().toUpperCase();
-    if (clean.length !== 6) return;
+    if (code.length !== 6) return;
     setJoining(true);
     setError(null);
     try {
-      const view = await api.join(clean);
+      const view = await api.join(code);
       navigate(`/games/rooms/${view.room.room_id}`);
     } catch (err) {
       setError(err instanceof GamesApiError ? err.message : 'Бөлмеге кіру мүмкін болмады.');
@@ -40,78 +101,117 @@ export default function GamesHomePage() {
   const active = (mine.data ?? []).filter((r) => r.status === 'lobby' || r.status === 'playing');
 
   return (
-    <ExamScreen header={<SimpleHeader title="Ойындар" to="/dashboard" label="Артқа" />}>
-      <p className="m-0 text-sm text-[#5E5E5E]">
-        Ойын — бағасыз жаттығу: нәтижесі емтиханға да, профильге де кірмейді. Сұрақтар оқулықтан алынады.
-      </p>
+    <AppShell>
+      <Page>
+        <PageTitle title="Ойындар" />
 
-      {!isTeacher ? (
-        <form onSubmit={join} className="flex flex-col gap-2">
-          <SectionLabel>Кодпен кіру</SectionLabel>
-          <div className="flex gap-2">
-            <input
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 6))}
-              placeholder="6 таңбалы код"
-              inputMode="text"
-              autoCapitalize="characters"
-              aria-label="Бөлме коды"
-              className="h-12 min-w-0 flex-1 rounded-[14px] border border-[#D9D6D0] bg-white px-4 font-mono text-lg tracking-[0.2em] outline-none focus:border-[#111111]"
-            />
-            <button type="submit" disabled={code.length !== 6 || joining}
-              className="h-12 rounded-[14px] bg-[#121212] px-5 font-semibold text-white disabled:bg-[#D9D6D0] disabled:text-[#4A4A4A]">
-              Кіру
-            </button>
-          </div>
-          {error ? <Banner tone="bad">{error}</Banner> : null}
-        </form>
-      ) : (
-        <Banner tone="info">Мұғалім бөлмені сыныпқа ашады: оқушылар кодпен не QR арқылы кіреді, ал сіз картаны экраннан көрсетесіз.</Banner>
-      )}
+        {isTeacher ? (
+          <>
+            <ButtonLink to="/teacher/games">
+              <PlusIcon size={18} />
+              Сыныпқа бөлме ашу
+            </ButtonLink>
+            <Banner tone="info">Мұғалім бөлмені сыныпқа ашады және ойынды проектордан көрсетеді. Мұғалім өзі ойнамайды.</Banner>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <ButtonLink to="/games/new" size="lg" className="text-[15px]">
+                <PlusIcon size={18} />
+                Бөлме ашу
+              </ButtonLink>
+              <Button variant="secondary" className="text-[15px]" aria-expanded={codeOpen} onClick={() => setCodeOpen((v) => !v)}>
+                Кодпен кіру
+              </Button>
+            </div>
 
-      {active.length ? (
-        <div className="flex flex-col gap-2">
-          <SectionLabel>Ашық бөлмелерім</SectionLabel>
-          {active.map((r) => (
-            <Link key={r.room_id} to={`/games/rooms/${r.room_id}`} className="no-underline text-inherit">
-              <Card className="flex items-center gap-3 px-4 py-3">
-                <span className="flex-1 font-semibold">{GAME_TITLE[r.game_type]}</span>
-                {r.join_code ? <span className="font-mono text-sm">{r.join_code}</span> : null}
-                <Chip tone={r.status === 'playing' ? 'good' : 'neutral'}>{STATUS_LABEL[r.status]}</Chip>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      ) : null}
+            {codeOpen ? (
+              <form onSubmit={join} className="flex items-end gap-2">
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <label htmlFor="room-code" className="text-sm font-semibold">
+                    Бөлме коды
+                  </label>
+                  <input
+                    id="room-code"
+                    type="text"
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    maxLength={6}
+                    placeholder="KZ7M4P"
+                    value={code}
+                    onChange={(e) => {
+                      setCode(e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 6));
+                      setError(null);
+                    }}
+                    className="box-border h-[52px] w-full rounded-[14px] border border-bl-field bg-white px-3.5 text-center text-[22px] font-bold tracking-[0.25em] text-bl-ink placeholder:text-bl-mute focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-bl-ink"
+                  />
+                </div>
+                <Button type="submit" full={false} className="px-[18px] text-[15px]" disabled={code.length !== 6} loading={joining}>
+                  Кіру
+                </Button>
+              </form>
+            ) : null}
+            {error ? <Banner tone="bad">{error}</Banner> : null}
+          </>
+        )}
 
-      <div className="flex flex-col gap-2">
-        <SectionLabel>Ойын таңдау</SectionLabel>
-        {GAMES.map((game) => {
-          const modes = isTeacher ? game.modes.filter((m) => m === 'multi') : game.modes;
-          return (
-            <Card key={game.type} className="flex flex-col gap-2 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <b className="text-[16px]">{game.title}</b>
-                <span className="text-xs text-[#5E5E5E]">{game.players}</span>
-              </div>
-              <p className="m-0 text-sm text-[#4A4A4A]">{game.summary}</p>
-              {game.type === 'baige' && !isTeacher && record.data?.best_score !== null && record.data?.best_score !== undefined ? (
-                <p className="m-0 text-xs text-[#5E5E5E]">Жеке рекорд: {record.data.best_score} ұпай</p>
-              ) : null}
-              <div className="flex flex-wrap gap-2">
-                {modes.map((mode) => (
-                  <Link key={mode} to={`/games/new/${game.type}?mode=${mode}`}
-                    className={mode === 'multi'
-                      ? 'rounded-full bg-[#121212] px-4 py-2 text-sm font-semibold text-white no-underline'
-                      : 'rounded-full border border-[#D9D6D0] bg-white px-4 py-2 text-sm font-semibold text-[#111111] no-underline'}>
-                    {mode === 'multi' ? (isTeacher ? 'Сыныпқа бөлме ашу' : 'Бөлме ашу') : mode === 'bot' ? 'Ботпен ойнау' : 'Жеке жаттығу'}
+        {mine.isError ? <ErrorNote error={mine.error} onRetry={() => mine.refetch()} /> : null}
+        {active.length ? (
+          <Section label="Ашық бөлмелер">
+            <div className="flex flex-col overflow-hidden rounded-2xl border border-bl-line bg-white [&>*+*]:border-t [&>*+*]:border-bl-soft">
+              {active.map((r) => (
+                <div key={r.room_id} className="flex items-center gap-3 px-3.5 py-3">
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="flex items-center gap-2 text-[15px] font-semibold">
+                      {GAME_TITLE[r.game_type]}
+                      {r.is_host ? <Badge>Мен ашқан</Badge> : null}
+                    </span>
+                    <span className="text-[13px] text-bl-ink2">
+                      {r.join_code ? `${r.join_code} · ` : ''}
+                      {r.players} ойыншы · {STATUS_LABEL[r.status]}
+                    </span>
+                  </span>
+                  <Link
+                    to={isTeacher && r.is_host ? `/teacher/games/${r.room_id}` : `/games/rooms/${r.room_id}`}
+                    className="flex h-11 items-center justify-center rounded-xl bg-bl-btn px-4 text-sm font-semibold text-white no-underline"
+                  >
+                    Кіру
                   </Link>
-                ))}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-    </ExamScreen>
+                </div>
+              ))}
+            </div>
+          </Section>
+        ) : null}
+
+        {!isTeacher ? (
+          <Section label="Ойын таңдау">
+            <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-3">
+              {CARDS.map((card) => (
+                <Link
+                  key={card.type}
+                  to={`/games/new?game=${card.type}`}
+                  className={
+                    card.wide
+                      ? 'col-span-2 flex items-center gap-3.5 rounded-2xl border border-bl-line bg-white p-3.5 text-bl-ink no-underline hover:border-bl-field lg:col-span-1 lg:flex-col lg:items-start lg:gap-2'
+                      : 'flex flex-col gap-2 rounded-2xl border border-bl-line bg-white p-3.5 text-bl-ink no-underline hover:border-bl-field'
+                  }
+                >
+                  {card.art}
+                  <span className="flex min-w-0 flex-col gap-1">
+                    <span className="text-base font-semibold">{GAME_TITLE[card.type]}</span>
+                    <span className="text-[13px] leading-[1.4] text-bl-ink2">{card.text}</span>
+                    {card.type === 'baige' && record.data?.best_score != null ? (
+                      <span className="text-xs font-semibold text-bl-ink3">Жеке рекорд: {record.data.best_score} ұпай</span>
+                    ) : null}
+                  </span>
+                </Link>
+              ))}
+            </div>
+            <p className="m-0 text-[13px] leading-[1.45] text-bl-ink2">Шашки мен Теңіз шайқасында қарсылас табылмаса, ботпен ойнауға болады.</p>
+          </Section>
+        ) : null}
+      </Page>
+    </AppShell>
   );
 }

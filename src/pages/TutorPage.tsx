@@ -1,10 +1,11 @@
-// AI Tutor чаты (architect/v2/lightrag_personarag.md, api-kelisimderi.md §4, D39, D40, D70).
-// Tutor баға қоймайды және әрқашан қолжетімді (бұғаттан басқа кезде). Прогресс бөлек экранда емес:
-// оқушы оны тьютордан «Не үйрендік?» деп сұрайды.
+// AI Tutor (дизайн: Tutor.dc.html, TutorStates.dc.html; api §4, D39, D40, D70).
+// Tutor баға қоймайды. Әр пәннің диалогы бөлек; бұғат — уақытша (cooldown) немесе мұғалім жапқан.
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 
-import { Banner, Card, Chip, ExamScreen, LoadingBlock, SimpleHeader } from '@/components/exam/ExamUi';
+import AppShell from '@/components/bl/AppShell';
+import { ChevronDownIcon, SendIcon } from '@/components/bl/icons';
+import { Banner, BareScreen, ButtonLink, ErrorNote, LoadingBlock, StateCard, TopBar } from '@/components/bl/ui';
 import {
   MAX_TUTOR_MESSAGE_CHARS,
   TutorApiError,
@@ -17,7 +18,8 @@ import {
 } from '@/lib/tutor-api';
 import { cn } from '@/lib/utils';
 
-const STARTERS = ['Қазақ хандығы қалай құрылды?', 'Сақтар туралы айтшы', 'Не үйрендік?'];
+const STARTERS = ['Бұл тақырыпты түсіндірші', 'Мысал келтірші', 'Не үйрендік?'];
+const SUBJECT_KEY = 'bilim.tutor.subject';
 
 interface ChatLine {
   key: string;
@@ -36,14 +38,36 @@ function toLine(message: TutorMessage): ChatLine {
   return { key: message.message_id, role: message.role, text: message.text };
 }
 
-function blockedText(reason: BlockedReason, until: string | null): string {
-  if (reason === 'teacher') return 'Әңгіме мұғалім ашқанша жабық. Мұғаліміңе хабарлас.';
-  return `Әңгіме уақытша тоқтатылды${until ? `, ${formatBlockedUntil(until)}-де қайта ашылады` : ''}.`;
+function readSubject(): string | null {
+  try {
+    return window.localStorage.getItem(SUBJECT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function ClockMark() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="13" r="8" />
+      <path d="M12 9v4l2.5 2.5" />
+    </svg>
+  );
+}
+
+function LockMark() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </svg>
+  );
 }
 
 export default function TutorPage() {
   const api = useTutorApi();
-  const [subjectId, setSubjectId] = useState<string | null>(null);
+  const [subjectId, setSubjectId] = useState<string | null>(readSubject);
+  const [picking, setPicking] = useState(false);
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [draft, setDraft] = useState('');
@@ -56,7 +80,8 @@ export default function TutorPage() {
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const subjects = useQuery({ queryKey: tutorKeys.subjects, queryFn: api.subjects });
-  const activeSubject = subjectId ?? subjects.data?.[0]?.id ?? null;
+  const activeSubject =
+    subjectId && subjects.data?.some((s) => s.id === subjectId) ? subjectId : subjects.data?.[0]?.id ?? null;
   const conversation = useQuery({
     queryKey: tutorKeys.conversation(activeSubject ?? ''),
     queryFn: () => api.currentConversation(activeSubject as string),
@@ -71,6 +96,8 @@ export default function TutorPage() {
     setHasMore(data.messages.length >= 30);
     setBlocked(data.blocked_reason ? { reason: data.blocked_reason, until: data.blocked_until } : null);
     setSuggestions(data.messages.length ? [] : STARTERS);
+    setFailed(null);
+    setNotice(null);
   }, [conversation.data]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -79,7 +106,7 @@ export default function TutorPage() {
     endRef.current?.scrollIntoView({ block: 'end' });
   }, [lines]);
 
-  // Cooldown таймері біткенде диалог өзі ашылады (D70).
+  // Cooldown біткенде диалог өзі ашылады (D70).
   useEffect(() => {
     if (blocked?.reason !== 'cooldown' || !blocked.until) return;
     const wait = new Date(blocked.until).getTime() - Date.now();
@@ -124,22 +151,16 @@ export default function TutorPage() {
           clean,
           {
             onToken: (chunk) =>
-              setLines((current) =>
-                current.map((line) => (line.key === tutorKey ? { ...line, text: line.text + chunk } : line)),
-              ),
+              setLines((current) => current.map((line) => (line.key === tutorKey ? { ...line, text: line.text + chunk } : line))),
             onDone: (payload) => {
               setLines((current) =>
-                current.map((line) =>
-                  line.key === tutorKey ? { ...line, key: payload.message_id, pending: false } : line,
-                ),
+                current.map((line) => (line.key === tutorKey ? { ...line, key: payload.message_id, pending: false } : line)),
               );
               setSuggestions(payload.suggestions ?? []);
             },
             onBlocked: (payload) => {
               setLines((current) =>
-                current.map((line) =>
-                  line.key === tutorKey ? { ...line, text: payload.message, pending: false } : line,
-                ),
+                current.map((line) => (line.key === tutorKey ? { ...line, text: payload.message, pending: false } : line)),
               );
               setBlocked({ reason: payload.blocked_reason, until: payload.blocked_until });
             },
@@ -187,121 +208,229 @@ export default function TutorPage() {
     }
   };
 
+  const subject = useMemo(() => subjects.data?.find((s) => s.id === activeSubject), [subjects.data, activeSubject]);
+  const loadError = (subjects.error ?? conversation.error) as TutorApiError | null;
   const inputDisabled = !conversationId || sending || !!blocked;
-  const subjectTitle = useMemo(
-    () => subjects.data?.find((subject) => subject.id === activeSubject)?.title,
-    [subjects.data, activeSubject],
+
+  const pickSubject = (id: string) => {
+    abortRef.current?.abort();
+    setSubjectId(id);
+    try {
+      window.localStorage.setItem(SUBJECT_KEY, id);
+    } catch {
+      /* жеке терезеде сақталмауы мүмкін */
+    }
+    setPicking(false);
+  };
+
+  if (picking) {
+    return (
+      <BareScreen header={<TopBar onBack={() => setPicking(false)} backLabel="Тьюторға оралу" title="Пән таңдау" />}>
+        <div className="flex flex-col gap-3 px-4 pb-5 pt-4">
+          <p className="m-0 text-[15px] leading-normal text-bl-ink2">
+            Әр пәннің диалогы бөлек сақталады. Пәнге оралсаңыз, әңгіме тоқтаған жерінен жалғасады.
+          </p>
+          <div role="radiogroup" aria-label="Пән" className="flex flex-col overflow-hidden rounded-2xl border border-bl-line bg-white [&>*+*]:border-t [&>*+*]:border-bl-soft">
+            {(subjects.data ?? []).map((s) => {
+              const on = s.id === activeSubject;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => pickSubject(s.id)}
+                  className={cn('flex min-h-[60px] w-full items-center gap-3 border-0 px-4 py-2.5 text-left text-bl-ink', on ? 'bg-[#F1EFEA]' : 'bg-white')}
+                >
+                  <span className="flex flex-1 flex-col gap-0.5">
+                    <span className="text-[15px] font-semibold">{s.title}</span>
+                    <span className="text-[13px] text-bl-ink2">{s.grade}-сынып</span>
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className={cn('box-border h-[22px] w-[22px] flex-none rounded-full bg-white', on ? 'border-[7px] border-bl-ink' : 'border-2 border-bl-field')}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </BareScreen>
+    );
+  }
+
+  const header = (
+    <header className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-5 lg:px-10 lg:pt-8">
+      <h1 className="m-0 text-[28px] font-bold leading-[1.15] tracking-[-0.02em]">Тьютор</h1>
+      {subjects.data && subjects.data.length ? (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          aria-label={subject ? `Пәнді ауыстыру: ${subject.title}, ${subject.grade}-сынып` : 'Пән таңдау'}
+          className="box-border flex h-11 items-center gap-1.5 rounded-full border border-bl-line bg-white px-3.5 text-sm font-semibold text-bl-ink"
+        >
+          {subject ? `${subject.title} · ${subject.grade}-сынып` : 'Пән таңдау'}
+          <ChevronDownIcon size={16} />
+        </button>
+      ) : null}
+    </header>
   );
 
-  const loadError = (subjects.error ?? conversation.error) as TutorApiError | null;
+  // TutorStates.dc.html: уақытша жабық және мұғалім жапқан күйлер — диалог орнына.
+  if (blocked && !lines.some((l) => l.pending)) {
+    return (
+      <AppShell>
+        {header}
+        <div className="mx-auto flex w-full max-w-[480px] flex-col gap-4 px-4 pb-6 pt-4 lg:max-w-[640px]">
+          {blocked.reason === 'teacher' ? (
+            <StateCard
+              mark={<LockMark />}
+              markTone="dark"
+              title="Мұғалім диалогты жапты"
+              text="Мұғалім ашқанша Тьютор жауап бермейді. Сұрағыңыз болса, мұғаліміңізге жазыңыз."
+            >
+              <ButtonLink to="/chat">Мұғалімге жазу</ButtonLink>
+            </StateCard>
+          ) : (
+            <StateCard
+              mark={<ClockMark />}
+              markTone="dark"
+              title="Тьютор біраз уақытқа жабылды"
+              text={
+                <>
+                  Соңғы хабарламада қауіпсіздік ережесіне қайшы мәтін болды. Мұғалімге тек осы хабарлама көрсетілді, қалған диалог жеке
+                  қалады.
+                  {blocked.until ? (
+                    <span className="mt-3 block text-[15px] font-bold text-bl-ink">{formatBlockedUntil(blocked.until)}-та қайта ашылады</span>
+                  ) : null}
+                </>
+              }
+            >
+              <p className="m-0 text-sm leading-normal text-bl-ink2">Мұғалім оны ертерек ашуы мүмкін. Осы уақытта Емтихан мен Сабақтар ашық.</p>
+              <ButtonLink to="/lessons" variant="secondary" size="md">
+                Сабақтарға өту
+              </ButtonLink>
+            </StateCard>
+          )}
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
-    <ExamScreen
-      header={<SimpleHeader title={subjectTitle ? `Тьютор · ${subjectTitle}` : 'Тьютор'} to="/dashboard" label="Артқа" />}
-      footer={
-        conversationId ? (
-          <form onSubmit={onSubmit} className="flex flex-col gap-2">
-            {blocked ? <Banner tone="warn">{blockedText(blocked.reason, blocked.until)}</Banner> : null}
+    <AppShell fill>
+      {header}
+      <div aria-live="polite" className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-[480px] flex-col gap-3 px-4 pb-4 pt-1.5 lg:max-w-[760px] lg:px-10">
+          {subjects.isPending || conversation.isPending ? <LoadingBlock rows={2} /> : null}
+          {loadError ? <ErrorNote error={loadError} onRetry={() => (subjects.isError ? subjects.refetch() : conversation.refetch())} /> : null}
+          {subjects.data && subjects.data.length === 0 ? <Banner tone="info">Тьютор әзірге бірде-бір пәнге дайын емес.</Banner> : null}
+
+          {conversation.data && lines.length === 0 ? (
+            <div className="flex max-w-[88%] flex-col gap-2 self-start rounded-[16px_16px_16px_4px] border border-bl-line bg-white p-3.5 text-[15px] leading-normal">
+              <p className="m-0 font-semibold">Сәлем! Мен — {subject?.title ?? 'пән'} тьюторыңмын.</p>
+              <p className="m-0">
+                Кез келген сұрақ қой: оқулық бойынша түсіндіріп, бірге ойланамыз. Мен баға қоймаймын, мұнда қателесуге болады. Не
+                үйренгеніңді білгің келсе, «Не үйрендік?» деп сұра.
+              </p>
+            </div>
+          ) : null}
+
+          {hasMore ? (
+            <button type="button" onClick={() => void loadOlder()} className="min-h-11 border-0 bg-transparent text-center text-sm font-semibold text-bl-ink2">
+              Ертеректегі хабарламалар
+            </button>
+          ) : null}
+
+          {lines.map((line) =>
+            line.role === 'student' ? (
+              <div
+                key={line.key}
+                className="max-w-[82%] self-end whitespace-pre-wrap rounded-[16px_16px_4px_16px] bg-bl-ink px-3.5 py-3 text-[15px] leading-[1.45] text-white"
+              >
+                {line.text}
+              </div>
+            ) : line.pending && !line.text ? (
+              <div
+                key={line.key}
+                className="flex items-center gap-1.5 self-start rounded-[16px_16px_16px_4px] border border-bl-line bg-white px-3.5 py-3 text-sm text-bl-ink2"
+              >
+                Тьютор жазып жатыр…
+              </div>
+            ) : (
+              <div
+                key={line.key}
+                className="max-w-[88%] self-start whitespace-pre-wrap rounded-[16px_16px_16px_4px] border border-bl-line bg-white p-3.5 text-[15px] leading-normal"
+              >
+                {line.text}
+              </div>
+            ),
+          )}
+
+          {suggestions.length && !inputDisabled ? (
+            <div className="flex flex-wrap gap-2">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => void send(s)}
+                  className="h-11 rounded-full border border-bl-field bg-white px-4 text-sm font-semibold text-bl-ink"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div ref={endRef} />
+        </div>
+      </div>
+
+      {conversationId ? (
+        <form onSubmit={onSubmit} className="border-t border-bl-line bg-bl-bg">
+          <div className="mx-auto flex w-full max-w-[480px] flex-col gap-2 px-4 py-2.5 lg:max-w-[760px] lg:px-10">
             {notice ? <Banner tone="info">{notice}</Banner> : null}
             {failed ? (
-              <div className="flex items-center gap-2">
-                <Banner tone="bad">{failed.message}</Banner>
-                <button
-                  type="button"
-                  disabled={sending}
-                  onClick={() => void send(failed.text, failed.requestId)}
-                  className="h-10 shrink-0 rounded-xl border border-[#D9D6D0] bg-white px-3 text-sm font-semibold disabled:opacity-60"
-                >
-                  Қайталау
-                </button>
-              </div>
-            ) : null}
-            {suggestions.length && !blocked ? (
-              <div className="flex flex-wrap gap-1.5">
-                {suggestions.map((suggestion) => (
+              <Banner tone="bad">
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  {failed.message}
                   <button
-                    key={suggestion}
                     type="button"
-                    disabled={inputDisabled}
-                    onClick={() => void send(suggestion)}
-                    className="rounded-full border border-[#D9D6D0] bg-white px-3 py-1.5 text-[13px] font-medium disabled:opacity-60"
+                    disabled={sending}
+                    onClick={() => void send(failed.text, failed.requestId)}
+                    className="min-h-9 border-0 bg-transparent p-0 text-sm font-semibold text-bl-badtext underline"
                   >
-                    {suggestion}
+                    Қайталау
                   </button>
-                ))}
-              </div>
+                </span>
+              </Banner>
             ) : null}
             <div className="flex items-end gap-2">
+              <label htmlFor="tutor-ask" className="sr-only">
+                Сұрағыңыз
+              </label>
               <textarea
-                rows={2}
+                id="tutor-ask"
+                rows={1}
                 value={draft}
                 maxLength={MAX_TUTOR_MESSAGE_CHARS}
                 disabled={inputDisabled}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder={blocked ? 'Әңгіме жабық' : 'Тарихтан сұрағыңды жаз…'}
-                aria-label="Хабарлама"
-                className="min-h-[48px] flex-1 resize-none rounded-2xl border border-[#D9D6D0] bg-white px-3.5 py-3 text-[15px] outline-none focus:border-[#111111] disabled:opacity-60"
+                placeholder="Сұрағыңызды жазыңыз"
+                className="box-border max-h-[120px] min-h-12 flex-1 resize-none rounded-[14px] border border-bl-field bg-white px-3.5 py-3 text-base leading-[1.4] text-bl-ink focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-bl-ink disabled:opacity-60"
               />
               <button
                 type="submit"
+                aria-label="Жіберу"
                 disabled={inputDisabled || !draft.trim()}
-                className="h-12 shrink-0 rounded-2xl bg-[#121212] px-4 text-sm font-semibold text-white disabled:opacity-50"
+                className="flex h-12 w-12 flex-none items-center justify-center rounded-[14px] border-0 bg-bl-btn text-white disabled:bg-bl-handle disabled:text-bl-ink3"
               >
-                {sending ? '…' : 'Жіберу'}
+                <SendIcon size={20} />
               </button>
             </div>
-          </form>
-        ) : undefined
-      }
-    >
-      {subjects.isPending || conversation.isPending ? <LoadingBlock /> : null}
-      {loadError ? <Banner tone="bad">{loadError.message}</Banner> : null}
-      {subjects.data && subjects.data.length === 0 ? (
-        <Card className="px-4 py-3.5 text-sm text-[#5E5E5E]">Тьютор әзірге бірде-бір пәнге дайын емес.</Card>
-      ) : null}
-      {subjects.data && subjects.data.length > 1 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {subjects.data.map((subject) => (
-            <button key={subject.id} type="button" onClick={() => setSubjectId(subject.id)}>
-              <Chip tone={subject.id === activeSubject ? 'good' : 'neutral'}>{subject.title}</Chip>
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {conversation.data && lines.length === 0 ? (
-        <Card className="flex flex-col gap-1.5 px-4 py-4">
-          <span className="text-[17px] font-bold">Сәлем! Мен — тарих тьюторыңмын.</span>
-          <span className="text-sm leading-snug text-[#5E5E5E]">
-            Кез келген сұрақ қой: түсіндіріп, бірге ойланамыз. Мен баға қоймаймын, мұнда қателесуге болады.
-            Не үйренгеніңді білгің келсе, «Не үйрендік?» деп сұра.
-          </span>
-        </Card>
-      ) : null}
-
-      {hasMore ? (
-        <button type="button" onClick={() => void loadOlder()} className="text-center text-sm font-semibold text-[#5E5E5E]">
-          Ертеректегі хабарламалар
-        </button>
-      ) : null}
-
-      <div className="flex flex-col gap-2.5" aria-live="polite">
-        {lines.map((line) => (
-          <div
-            key={line.key}
-            className={cn(
-              'max-w-[88%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-[15px] leading-relaxed',
-              line.role === 'student'
-                ? 'self-end bg-[#121212] text-white'
-                : 'self-start border border-[#E2E0DB] bg-white text-[#111111]',
-            )}
-          >
-            {line.text || (line.pending ? <span className="text-[#8A8A8A]">Ойланып жатыр…</span> : null)}
           </div>
-        ))}
-      </div>
-      <div ref={endRef} />
-    </ExamScreen>
+        </form>
+      ) : null}
+    </AppShell>
   );
 }
