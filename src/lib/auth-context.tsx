@@ -15,7 +15,9 @@ import { Browser } from '@capacitor/browser';
 import { supabase } from '@/integrations/supabase/client';
 import { removeNullCharacters } from '@/lib/utils';
 
-export type UserRole = 'student' | 'teacher' | 'parent' | 'admin';
+export type UserRole = 'student' | 'teacher' | 'parent' | 'head' | 'admin';
+/** Ашық тіркелуде адам өзі таңдайтын рөлдер (D90). */
+export type PublicRole = 'student' | 'parent';
 
 export interface User {
   id: string;
@@ -42,6 +44,7 @@ interface AuthContextType {
     email: string,
     password: string,
     fullName: string,
+    role?: PublicRole,
   ) => Promise<AuthActionResult>;
   loginWithGoogle: (role?: UserRole) => Promise<void>;
   verifyEmailOtp: (email: string, token: string) => Promise<User | null>;
@@ -130,16 +133,16 @@ function requireFullName(fullName: string): string {
   return normalizedFullName;
 }
 
-function isPublicRegistrationRole(value: unknown): value is 'student' {
-  return value === 'student';
+function isPublicRegistrationRole(value: unknown): value is PublicRole {
+  return value === 'student' || value === 'parent';
 }
 
-function normalizePublicRegistrationRole(role: UserRole): 'student' {
+function normalizePublicRegistrationRole(role: UserRole): PublicRole {
   if (!isPublicRegistrationRole(role)) {
-    throw new Error('Ашық тіркелу тек оқушы аккаунтына қолжетімді.');
+    throw new Error('Ашық тіркелу тек оқушы мен ата-ана аккаунтына қолжетімді.');
   }
 
-  return 'student';
+  return role;
 }
 
 function isUserRole(value: unknown): value is UserRole {
@@ -147,6 +150,7 @@ function isUserRole(value: unknown): value is UserRole {
     value === 'student' ||
     value === 'teacher' ||
     value === 'parent' ||
+    value === 'head' ||
     value === 'admin'
   );
 }
@@ -500,11 +504,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       fullName: string,
+      role: PublicRole = 'student',
     ): Promise<AuthActionResult> => {
       const normalizedEmail = requireEmail(email);
       const normalizedPassword = requirePassword(password);
       const normalizedFullName = requireFullName(fullName);
-      const normalizedRole = 'student' as const;
+      const normalizedRole: PublicRole = role === 'parent' ? 'parent' : 'student';
 
       const isMobileApp = Capacitor.isNativePlatform();
       const redirectUrl = isMobileApp

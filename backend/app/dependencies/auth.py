@@ -90,7 +90,7 @@ def _extract_metadata_role(user: object | None) -> str:
 
     if isinstance(metadata, dict):
         role_val = _clean_text(metadata.get("role"), 40).lower()
-        if role_val in {"student", "teacher", "parent", "admin"}:
+        if role_val in {"student", "teacher", "parent", "head", "admin"}:
             return role_val
 
     return "student"
@@ -238,7 +238,7 @@ def get_user_role(user_id: str, default_role: str = "student") -> str:
             rows = getattr(res, "data", [])
             if rows and isinstance(rows, list) and isinstance(rows[0], dict):
                 r = rows[0].get("role")
-                if r in {"student", "teacher", "parent", "admin"}:
+                if r in {"student", "teacher", "parent", "head", "admin"}:
                     resolved_role = r
         except Exception:
             logger.debug("Querying user_roles failed for user=%s", clean_uid, exc_info=True)

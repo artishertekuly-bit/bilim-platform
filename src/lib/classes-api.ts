@@ -64,6 +64,22 @@ const MESSAGES: Record<string, string> = {
   LESSON_NOT_FOUND: 'Сабақ табылмады.',
   INVALID_STATUS: 'Күй қате.',
   lessons_publish_check: 'Жариялау үшін атауы кемінде 5, мәтіні кемінде 20 таңба болсын.',
+  // Басқарма мен рөлдер (D90)
+  INVALID_NAME: 'Басқарма атауы 3–160 таңба болуы керек.',
+  INVALID_REGION: 'Өңір атауы 2–120 таңба болуы керек.',
+  DEPARTMENT_NOT_FOUND: 'Басқарма табылмады.',
+  USER_NOT_FOUND: 'Бұл email-мен тіркелген адам жоқ. Алдымен ол тіркелуі керек.',
+  ROLE_CONFLICT: 'Бұл адамның рөлін осы жерден өзгертуге болмайды.',
+  ALREADY_HEAD: 'Бұл адам басқа басқарманың әкімшісі.',
+  TEACHER_HAS_CLASSES: 'Сыныбы бар мұғалімді әкімші етуге болмайды: алдымен сыныптарын басқа мұғалімге беріңіз.',
+  ALREADY_IN_DEPARTMENT: 'Сіз басқа басқармадасыз. Алдымен одан шығыңыз.',
+  ROLE_NOT_ASSIGNABLE: 'Бұл рөлді осы жерден беруге болмайды.',
+  CANNOT_CHANGE_SELF: 'Өз рөліңізді өзгерте алмайсыз.',
+  NOT_FOUND: 'Табылмады.',
+  LESSON_IS_DRAFT: 'Жобадағы сабақты модерациялауға болмайды.',
+  // Аккаунтты жою (D91)
+  LAST_OWNER: 'Платформаның жалғыз иесі аккаунтын жоя алмайды.',
+  ACCOUNT_LINKED_DATA: 'Аккаунтқа ескі нұсқаның деректері байланған. Жою үшін платформа иесіне жазыңыз.',
 };
 
 export class ClassesApiError extends Error {
@@ -155,7 +171,7 @@ export async function myClasses(): Promise<StudentClass[]> {
 
 export async function setUserRole(userId: string, role: 'student' | 'teacher' | 'parent'): Promise<void> {
   const { error } = await supabase.rpc('admin_set_user_role', { p_user_id: userId, p_role: role });
-  if (error) throw new ClassesApiError(error.message, error.code || 'ERROR');
+  if (error) fail(error);
 }
 
 export const classKeys = {

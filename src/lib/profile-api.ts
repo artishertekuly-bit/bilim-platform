@@ -119,6 +119,14 @@ export async function removeAvatar(userId: string, currentUrl?: string | null): 
   }
 }
 
+/** Аккаунт жойылар алдында: пайдаланушы бумасындағы барлық суретті өшіреді (бакет ашық, сурет қалып қоймасын). */
+export async function removeAllAvatars(userId: string, currentUrl?: string | null): Promise<void> {
+  await removeAvatar(userId, currentUrl);
+  const { data } = await supabase.storage.from(AVATAR_BUCKET).list(userId, { limit: 100 });
+  const paths = (data ?? []).map((f) => `${userId}/${f.name}`);
+  if (paths.length) await supabase.storage.from(AVATAR_BUCKET).remove(paths);
+}
+
 export async function updateFullName(userId: string, fullName: string): Promise<void> {
   const name = fullName.replace(/\s+/g, ' ').trim().slice(0, 180);
   if (name.length < 3) throw new Error('Аты-жөн кемінде 3 әріп болсын.');

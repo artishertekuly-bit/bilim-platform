@@ -1,4 +1,4 @@
-// Рөлдік мәзір (karta §2–§4): оқушы 5, мұғалім 4, ата-ана 3, әкімші 4 бөлім.
+// Рөлдік мәзір (karta §2–§4, D90): оқушы 5, мұғалім 4, ата-ана 3, басқарма әкімшісі 5, платформа иесі 5 бөлім.
 import type { ComponentType } from 'react';
 
 import {
@@ -47,7 +47,8 @@ export const NAV: Record<UserRole, NavItem[]> = {
       to: '/teacher',
       label: 'Панель',
       icon: PanelIcon,
-      match: (p) => p === '/teacher' || starts('/teacher/classes', '/teacher/students', '/teacher/games', '/settings', '/games')(p),
+      match: (p) =>
+        p === '/teacher' || starts('/teacher/classes', '/teacher/students', '/teacher/games', '/settings', '/games', '/notifications')(p),
     },
     { to: '/teacher/review', label: 'Растау', icon: ReviewIcon, match: starts('/teacher/review', '/teacher/grades') },
     { to: '/teacher/lessons', label: 'Сабақтар', icon: LessonsIcon, match: starts('/teacher/lessons', '/lessons') },
@@ -56,19 +57,38 @@ export const NAV: Record<UserRole, NavItem[]> = {
   parent: [
     { to: '/parent', label: 'Балам', icon: ChildIcon, match: starts('/parent') },
     { to: '/chat', label: 'Чат', icon: ChatIcon, match: starts('/chat') },
-    { to: '/settings', label: 'Баптаулар', icon: SettingsIcon, match: starts('/settings') },
+    { to: '/settings', label: 'Баптаулар', icon: SettingsIcon, match: starts('/settings', '/notifications') },
   ],
+  // Білім басқармасының әкімшісі (басшысы): тек өз басқармасының мұғалімдері мен оқушылары.
+  head: [
+    { to: '/department', label: 'Басқарма', icon: PanelIcon, match: (p) => p === '/department' || p === '/dashboard' },
+    { to: '/department/teachers', label: 'Мұғалімдер', icon: UsersIcon, match: starts('/department/teachers') },
+    { to: '/department/students', label: 'Оқушылар', icon: ChildIcon, match: starts('/department/students') },
+    { to: '/manage-lessons', label: 'Модерация', icon: ShieldIcon, match: starts('/manage-lessons', '/lessons') },
+    { to: '/settings', label: 'Баптаулар', icon: SettingsIcon, match: starts('/settings', '/notifications') },
+  ],
+  // Платформа иесі (ішкі рөл атауы — admin).
   admin: [
-    { to: '/manage-users', label: 'Пайдаланушылар', icon: UsersIcon, match: starts('/manage-users', '/dashboard') },
+    { to: '/departments', label: 'Басқармалар', icon: PanelIcon, match: starts('/departments', '/dashboard') },
+    { to: '/manage-users', label: 'Пайдаланушылар', icon: UsersIcon, match: starts('/manage-users') },
     { to: '/subjects', label: 'Пәндер', icon: LessonsIcon, match: starts('/subjects') },
     { to: '/manage-lessons', label: 'Модерация', icon: ShieldIcon, match: starts('/manage-lessons', '/lessons') },
-    { to: '/settings', label: 'Баптаулар', icon: SettingsIcon, match: starts('/settings') },
+    { to: '/settings', label: 'Баптаулар', icon: SettingsIcon, match: starts('/settings', '/notifications') },
   ],
+};
+
+export const ROLE_TITLE: Record<UserRole, string> = {
+  student: 'Оқушы',
+  teacher: 'Мұғалім',
+  parent: 'Ата-ана',
+  head: 'Әкімші',
+  admin: 'Платформа иесі',
 };
 
 export function homePathFor(role?: UserRole | null): string {
   if (role === 'teacher') return '/teacher';
   if (role === 'parent') return '/parent';
-  if (role === 'admin') return '/manage-users';
+  if (role === 'head') return '/department';
+  if (role === 'admin') return '/departments';
   return '/ai-tutor';
 }

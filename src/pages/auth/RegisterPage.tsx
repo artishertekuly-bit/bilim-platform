@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
-import { Banner, BareScreen, Button, Field, OrDivider, TextInput, TopBar } from '@/components/bl/ui';
+import { Banner, BareScreen, Button, Field, OrDivider, Segmented, TextInput, TopBar } from '@/components/bl/ui';
+import type { PublicRole } from '@/lib/auth-context';
 import { useAuth } from '@/lib/auth-context';
 import { MIN_PASSWORD, authErrorText, isEmailLike } from '@/pages/auth/authText';
 import { cn } from '@/lib/utils';
@@ -18,6 +19,9 @@ export default function RegisterPage({ initialStep = 'form' }: { initialStep?: '
 
   const [step, setStep] = useState<'form' | 'code'>(initialStep);
   const [name, setName] = useState('');
+  const [role, setRole] = useState<PublicRole>('student');
+  // Ата-ана тіркелген соң бірден баласын қосуға өтеді, оқушы — сыныпқа қосылу қадамына (D90).
+  const nextPath = role === 'parent' ? '/parent/link' : '/onboarding';
   const [email, setEmail] = useState(incomingEmail);
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
@@ -46,13 +50,13 @@ export default function RegisterPage({ initialStep = 'form' }: { initialStep?: '
     setBusy(true);
     setError(null);
     try {
-      const result = await register(email.trim(), password, name.trim());
+      const result = await register(email.trim(), password, name.trim(), role);
       if (result.requiresEmailConfirmation) {
         setStep('code');
         setOtp('');
         setLeft(RESEND_SECONDS);
       } else {
-        navigate('/onboarding', { replace: true });
+        navigate(nextPath, { replace: true });
       }
     } catch (err) {
       setError(authErrorText(err, 'Тіркелу мүмкін болмады. Қайталап көріңіз.'));
@@ -67,8 +71,8 @@ export default function RegisterPage({ initialStep = 'form' }: { initialStep?: '
     setBusy(true);
     setError(null);
     try {
-      await verifyEmailOtp(email.trim(), otp);
-      navigate('/onboarding', { replace: true });
+      const verified = await verifyEmailOtp(email.trim(), otp);
+      navigate(verified?.role === 'parent' || role === 'parent' ? '/parent/link' : '/onboarding', { replace: true });
     } catch (err) {
       setError(authErrorText(err, 'Кодты растау мүмкін болмады.'));
     } finally {
@@ -93,7 +97,7 @@ export default function RegisterPage({ initialStep = 'form' }: { initialStep?: '
     setGoogleBusy(true);
     setError(null);
     try {
-      await loginWithGoogle('student');
+      await loginWithGoogle(role);
     } catch (err) {
       setError(authErrorText(err, 'Google арқылы тіркелу мүмкін болмады.'));
       setGoogleBusy(false);
@@ -194,9 +198,24 @@ export default function RegisterPage({ initialStep = 'form' }: { initialStep?: '
         <div className="flex flex-col gap-1.5">
           <h1 className="m-0 text-[28px] font-bold leading-[1.15] tracking-[-0.02em]">Тіркелу</h1>
           <p className="m-0 text-[15px] leading-[1.45] text-bl-ink2">
-            Оқушы аккаунты ашылады. Мұғалім мен ата-ана аккаунтының рөлін әкімші береді.
+            {role === 'parent'
+              ? 'Ата-ана аккаунты ашылады. Кейін баланың email-і арқылы байланыс сұрайсыз, бала растайды.'
+              : 'Оқушы аккаунты ашылады. Мұғалім болсаңыз, тіркелген соң «Баптаулар → Басқарма» бетінде басқарма кодын енгізіңіз.'}
           </p>
         </div>
+
+        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend className="mb-2 p-0 text-sm font-semibold">Мен</legend>
+          <Segmented<PublicRole>
+            label="Аккаунт түрі"
+            value={role}
+            onChange={setRole}
+            options={[
+              { id: 'student', label: 'Оқушымын' },
+              { id: 'parent', label: 'Ата-анамын' },
+            ]}
+          />
+        </fieldset>
 
         <Button variant="secondary" onClick={google} loading={googleBusy}>
           Google арқылы жалғастыру

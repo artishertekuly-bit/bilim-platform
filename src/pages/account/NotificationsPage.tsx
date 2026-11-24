@@ -2,15 +2,19 @@
 // және «Бүгін / Осы аптада / Ертерек» тізімі.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import AppShell from '@/components/bl/AppShell';
+import { homePathFor } from '@/components/bl/nav';
 import { EmptyNote, ErrorNote, LoadingBlock, Page, Section, TopBar } from '@/components/bl/ui';
 import { useAuth } from '@/lib/auth-context';
 import {
   listNotifications,
   markAllNotificationsRead,
+  markNotificationRead,
   notificationGroup,
   notificationKeys,
+  safeNotificationLink,
   type AppNotification,
 } from '@/lib/notifications-api';
 import { incomingParentRequests, platformKeys, respondParentLink } from '@/lib/platform-api';
@@ -51,13 +55,13 @@ export default function NotificationsPage() {
     .map((g) => ({ g, items: (list.data ?? []).filter((n) => notificationGroup(n.created_at) === g) }))
     .filter((x) => x.items.length);
   const hasUnread = (list.data ?? []).some((n) => !n.is_read);
-  const back = isStudent ? '/profile' : '/settings';
+  const back = isStudent ? '/profile' : user?.role === 'parent' ? '/settings' : homePathFor(user?.role);
 
   return (
     <AppShell nav={false}>
       <TopBar
         back={back}
-        backLabel={isStudent ? 'Профильге оралу' : 'Баптауларға оралу'}
+        backLabel={isStudent ? 'Профильге оралу' : user?.role === 'parent' ? 'Баптауларға оралу' : 'Басты бетке оралу'}
         title="Хабарламалар"
         right={
           hasUnread ? (
@@ -117,19 +121,38 @@ export default function NotificationsPage() {
         {groups.map(({ g, items }) => (
           <Section key={g} label={GROUP_TITLES[g]}>
             <div className="flex flex-col overflow-hidden rounded-2xl border border-bl-line bg-white [&>*+*]:border-t [&>*+*]:border-bl-soft">
-              {items.map((n) => (
-                <div key={n.id} className="flex items-start gap-3 px-4 py-3.5">
-                  <span aria-hidden="true" className={cn('mt-1.5 h-2.5 w-2.5 flex-none rounded-full', n.is_read ? 'bg-transparent' : 'bg-bl-ink')} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <span className={cn('text-[15px]', n.is_read ? 'font-medium' : 'font-bold')}>
-                      {n.title}
-                      {!n.is_read ? <span className="sr-only"> · оқылмаған</span> : null}
+              {items.map((n) => {
+                const href = safeNotificationLink(n.link);
+                const body = (
+                  <>
+                    <span aria-hidden="true" className={cn('mt-1.5 h-2.5 w-2.5 flex-none rounded-full', n.is_read ? 'bg-transparent' : 'bg-bl-ink')} />
+                    <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                      <span className={cn('text-[15px]', n.is_read ? 'font-medium' : 'font-bold')}>
+                        {n.title}
+                        {!n.is_read ? <span className="sr-only"> · оқылмаған</span> : null}
+                      </span>
+                      <span className="text-sm leading-[1.4] text-bl-ink3">{n.message}</span>
+                      <span className="text-xs text-bl-ink2">{timeOf(n.created_at, g)}</span>
                     </span>
-                    <span className="text-sm leading-[1.4] text-bl-ink3">{n.message}</span>
-                    <span className="text-xs text-bl-ink2">{timeOf(n.created_at, g)}</span>
-                  </span>
-                </div>
-              ))}
+                  </>
+                );
+                return href ? (
+                  <Link
+                    key={n.id}
+                    to={href}
+                    onClick={() => {
+                      if (!n.is_read) void markNotificationRead(n.id);
+                    }}
+                    className="flex items-start gap-3 px-4 py-3.5 text-bl-ink no-underline hover:bg-[#FBFAF8]"
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div key={n.id} className="flex items-start gap-3 px-4 py-3.5">
+                    {body}
+                  </div>
+                );
+              })}
             </div>
           </Section>
         ))}

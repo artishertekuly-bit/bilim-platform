@@ -1,58 +1,71 @@
-// Әкімші (дизайн: Admin.dc.html; karta §2, D25): пайдаланушылар мен рөлдер, пәндер мен оқулықтар, сабақ модерациясы.
-// Рөлді тек әкімші береді; мұғалім мен ата-ана аккаунты осылай ашылады.
+// Платформа иесі (дизайн: Admin.dc.html; karta §2, D25, D90): пайдаланушылар мен рөлдер, пәндер мен оқулықтар,
+// сабақ модерациясы. Модерацияны басқарма әкімшісі де ашады, бірақ тек өз мұғалімдерінің сабақтарын көреді.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import AppShell from '@/components/bl/AppShell';
 import { Badge, Banner, Button, EmptyNote, ErrorNote, LoadingBlock, Page, PageTitle, TextArea } from '@/components/bl/ui';
-import { platformKeys as legacyKeys, useUsers } from '@/hooks/use-platform-data';
+import { platformKeys as legacyKeys } from '@/hooks/use-platform-data';
 import { useAuth } from '@/lib/auth-context';
 import { setUserRole } from '@/lib/classes-api';
 import { createSubject } from '@/lib/data/course-actions';
 import { getSubjects } from '@/lib/data/student-data';
 import { useExaminerApi } from '@/lib/examiner-api';
-import { LESSON_STATUS_TITLES, adminLessons, adminSetLessonStatus, platformKeys } from '@/lib/platform-api';
+import { departmentKeys, moderationLessons, ownerUsers } from '@/lib/departments-api';
+import { LESSON_STATUS_TITLES, adminSetLessonStatus } from '@/lib/platform-api';
 import { formatDateTime } from '@/lib/teacher-ui';
 import { cn } from '@/lib/utils';
 
 type AssignableRole = 'student' | 'teacher' | 'parent';
-const ROLE_NAMES: Record<string, string> = { student: 'Оқушы', teacher: 'Мұғалім', parent: 'Ата-ана', admin: 'Әкімші' };
+const ROLE_NAMES: Record<string, string> = {
+  student: 'Оқушы',
+  teacher: 'Мұғалім',
+  parent: 'Ата-ана',
+  head: 'Әкімші (басқарма)',
+  admin: 'Платформа иесі',
+};
 
 function RoleSwitch({ userId, name, role, onDone }: { userId: string; name: string; role: string; onDone: (text: string) => void }) {
   const queryClient = useQueryClient();
   const change = useMutation({
     mutationFn: (next: AssignableRole) => setUserRole(userId, next),
     onSuccess: async (_, next) => {
-      await queryClient.invalidateQueries({ queryKey: legacyKeys.users });
-      onDone(`${name} — енді ${ROLE_NAMES[next].toLowerCase()}`);
+      await queryClient.invalidateQueries({ queryKey: ['departments', 'owner-users'] });
+      onDone(`${name}: рөлі «${ROLE_NAMES[next]}» болып өзгерді`);
     },
   });
-  if (role === 'admin') return <Badge tone="dark">Әкімші</Badge>;
   return (
-    <div role="group" aria-label={`${name} рөлі`} className="inline-flex gap-0.5 rounded-[10px] bg-bl-soft p-[3px]">
-      {(['student', 'teacher', 'parent'] as AssignableRole[]).map((r) => (
-        <button
-          key={r}
-          type="button"
-          aria-pressed={role === r}
-          disabled={change.isPending}
-          onClick={() => role !== r && change.mutate(r)}
-          className={cn(
-            'h-8 rounded-lg border-0 px-2.5 text-[13px] font-semibold disabled:opacity-60',
-            role === r ? 'bg-white text-bl-ink shadow-[0_1px_2px_rgba(0,0,0,0.08)]' : 'bg-transparent text-bl-ink3',
-          )}
-        >
-          {ROLE_NAMES[r]}
-        </button>
-      ))}
-    </div>
+    <span className="inline-flex flex-col gap-1">
+      <div role="group" aria-label={`${name} рөлі`} className="inline-flex gap-0.5 rounded-[10px] bg-bl-soft p-[3px]">
+        {(['student', 'teacher', 'parent'] as AssignableRole[]).map((r) => (
+          <button
+            key={r}
+            type="button"
+            aria-pressed={role === r}
+            disabled={change.isPending}
+            onClick={() => role !== r && change.mutate(r)}
+            className={cn(
+              'h-8 rounded-lg border-0 px-2.5 text-[13px] font-semibold disabled:opacity-60',
+              role === r ? 'bg-white text-bl-ink shadow-[0_1px_2px_rgba(0,0,0,0.08)]' : 'bg-transparent text-bl-ink3',
+            )}
+          >
+            {ROLE_NAMES[r]}
+          </button>
+        ))}
+      </div>
+      {change.isError ? (
+        <span role="alert" className="text-xs font-semibold text-bl-danger">
+          {change.error instanceof Error ? change.error.message : 'Рөл өзгермеді.'}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
 export function AdminUsersPage() {
   const { user } = useAuth();
-  const users = useUsers(true, 'kk');
+  const users = useQuery({ queryKey: departmentKeys.ownerUsers('', 'all'), queryFn: () => ownerUsers() });
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
   const [toast, setToast] = useState<string | null>(null);
@@ -66,7 +79,9 @@ export function AdminUsersPage() {
   const rows = useMemo(() => {
     const query = q.trim().toLowerCase();
     return (users.data ?? []).filter(
-      (u) => (filter === 'all' || u.role === filter) && (!query || u.fullName.toLowerCase().includes(query) || u.userId.startsWith(query)),
+      (u) =>
+        (filter === 'all' || u.role === filter) &&
+        (!query || u.full_name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query)),
     );
   }, [users.data, q, filter]);
 
@@ -77,14 +92,14 @@ export function AdminUsersPage() {
           <h1 className="m-0 text-[28px] font-bold tracking-[-0.02em] lg:text-[32px]">Пайдаланушылар мен рөлдер</h1>
           <div className="flex flex-wrap gap-2">
             <label htmlFor="admin-q" className="sr-only">
-              Аты бойынша іздеу
+              Аты немесе email
             </label>
             <input
               id="admin-q"
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Аты бойынша іздеу"
+              placeholder="Аты немесе email"
               className="box-border h-11 w-[260px] max-w-full rounded-xl border border-bl-field bg-white px-3.5 text-[15px] focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-bl-ink"
             />
             <label htmlFor="admin-role" className="sr-only">
@@ -114,11 +129,14 @@ export function AdminUsersPage() {
         {users.isError ? <ErrorNote error={users.error} onRetry={() => users.refetch()} /> : null}
         {users.data ? (
           <section className="overflow-x-auto rounded-[18px] border border-bl-line bg-white">
-            <table className="w-full min-w-[560px] border-collapse text-[15px]">
+            <table className="w-full min-w-[640px] border-collapse text-[15px]">
               <thead>
                 <tr>
                   <th scope="col" className="border-b border-bl-line px-5 py-3.5 text-left text-[13px] font-semibold text-bl-ink2">
                     Аты-жөні
+                  </th>
+                  <th scope="col" className="border-b border-bl-line px-3 py-3.5 text-left text-[13px] font-semibold text-bl-ink2">
+                    Email
                   </th>
                   <th scope="col" className="border-b border-bl-line px-3 py-3.5 text-left text-[13px] font-semibold text-bl-ink2">
                     Тіркелді
@@ -130,14 +148,25 @@ export function AdminUsersPage() {
               </thead>
               <tbody>
                 {rows.map((u) => (
-                  <tr key={u.userId}>
+                  <tr key={u.user_id}>
                     <th scope="row" className="border-b border-bl-soft px-5 py-3 text-left font-semibold">
-                      {u.fullName}
-                      {u.userId === user?.id ? <span className="ml-2 text-xs font-medium text-bl-ink2">сіз</span> : null}
+                      {u.full_name}
+                      {u.user_id === user?.id ? <span className="ml-2 text-xs font-medium text-bl-ink2">сіз</span> : null}
                     </th>
-                    <td className="border-b border-bl-soft px-3 py-3 text-bl-ink3">{formatDateTime(u.createdAt)}</td>
+                    <td className="break-all border-b border-bl-soft px-3 py-3 text-bl-ink3">{u.email}</td>
+                    <td className="border-b border-bl-soft px-3 py-3 text-bl-ink3">{formatDateTime(u.created_at)}</td>
                     <td className="border-b border-bl-soft px-5 py-2">
-                      <RoleSwitch userId={u.userId} name={u.fullName} role={u.role} onDone={setToast} />
+                      {u.role === 'head' || u.role === 'admin' ? (
+                        <span className="inline-flex flex-col gap-0.5">
+                          <Badge tone="dark">{u.role === 'head' ? 'Әкімші' : 'Платформа иесі'}</Badge>
+                          <span className="text-xs text-bl-ink2">{u.role === 'head' ? u.department ?? 'басқарма' : 'тек SQL арқылы'}</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex flex-col gap-0.5">
+                          <RoleSwitch userId={u.user_id} name={u.full_name} role={u.role} onDone={setToast} />
+                          {u.role === 'teacher' && u.department ? <span className="text-xs text-bl-ink2">{u.department}</span> : null}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -147,13 +176,13 @@ export function AdminUsersPage() {
           </section>
         ) : null}
         <p className="m-0 text-[13px] leading-[1.45] text-bl-ink2">
-          Тіркелген адам әдепкіде оқушы болады. Мұғалім мен ата-ана рөлін осы жерден беріңіз: олар алғаш кіргенде құпиясөз қояды.
+          Тіркелген адам оқушы не ата-ана болып ашылады. Мұғалімді әдетте басқарма әкімшісі растайды; мұнда рөлді қолмен де
+          беруге болады. Басқарма әкімшісі «Басқармалар» бетінде тағайындалады.
         </p>
       </Page>
     </AppShell>
   );
 }
-
 export function AdminSubjectsPage() {
   const queryClient = useQueryClient();
   const api = useExaminerApi();
@@ -240,8 +269,10 @@ export function AdminSubjectsPage() {
 }
 
 export function AdminLessonsPage() {
+  const { user } = useAuth();
+  const isHead = user?.role === 'head';
   const queryClient = useQueryClient();
-  const lessons = useQuery({ queryKey: platformKeys.adminLessons, queryFn: adminLessons });
+  const lessons = useQuery({ queryKey: departmentKeys.moderation, queryFn: moderationLessons });
   const [editing, setEditing] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const set = useMutation({
@@ -249,7 +280,7 @@ export function AdminLessonsPage() {
     onSuccess: async () => {
       setEditing(null);
       setReason('');
-      await queryClient.invalidateQueries({ queryKey: platformKeys.adminLessons });
+      await queryClient.invalidateQueries({ queryKey: departmentKeys.moderation });
       void queryClient.invalidateQueries({ queryKey: ['platform', 'lessons'] });
     },
   });
@@ -257,7 +288,14 @@ export function AdminLessonsPage() {
   return (
     <AppShell>
       <Page wide>
-        <PageTitle title="Сабақ модерациясы" subtitle="Жасырылған сабақ каталогтан кетеді. Себебі мұғалімге жіберіледі." />
+        <PageTitle
+          title="Сабақ модерациясы"
+          subtitle={
+            isHead
+              ? 'Тек басқармаңыздағы мұғалімдердің сабақтары. Жасырылған сабақ каталогтан кетеді, мұғалім себебін өз «Сабақтар» бетінде көреді.'
+              : 'Жасырылған сабақ каталогтан кетеді. Мұғалім себебін өз «Сабақтар» бетінде көреді.'
+          }
+        />
         {lessons.isLoading ? <LoadingBlock rows={3} /> : null}
         {lessons.isError ? <ErrorNote error={lessons.error} onRetry={() => lessons.refetch()} /> : null}
         {set.isError ? <ErrorNote error={set.error} /> : null}
@@ -272,6 +310,7 @@ export function AdminLessonsPage() {
                   </Link>
                   <span className="text-[13px] text-bl-ink2">
                     {l.author_name} · {formatDateTime(l.updated_at)}
+                    {l.status === 'hidden' && l.feedback ? ` · себебі: ${l.feedback}` : ''}
                   </span>
                 </span>
                 <Badge tone={l.status === 'published' ? 'good' : 'warn'}>{LESSON_STATUS_TITLES[l.status]}</Badge>
@@ -317,7 +356,10 @@ export function AdminLessonsPage() {
             </section>
           ))}
         </div>
-        <Banner tone="info">Мұғалім өз сабағын жобаға қайтарып, түзете алады, бірақ жасырылған сабақты тек әкімші қайта ашады.</Banner>
+        <Banner tone="info">
+          Мұғалім өз сабағын жобаға қайтарып, түзете алады, бірақ жасырылған сабақты тек модератор (басқарма әкімшісі не
+          платформа иесі) қайта ашады.
+        </Banner>
       </Page>
     </AppShell>
   );

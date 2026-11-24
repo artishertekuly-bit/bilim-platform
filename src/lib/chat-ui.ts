@@ -7,7 +7,7 @@ export const chatKeys = {
   messages: (threadId: string) => ['chat', 'messages', threadId] as const,
 };
 
-export const CHAT_ROLE_LABEL: Record<UserRole, string> = { student: 'Оқушы', teacher: 'Мұғалім', parent: 'Ата-ана', admin: 'Әкімші' };
+export const CHAT_ROLE_LABEL: Record<UserRole, string> = { student: 'Оқушы', teacher: 'Мұғалім', parent: 'Ата-ана', head: 'Әкімші', admin: 'Платформа иесі' };
 
 export function chatTime(iso: string | null): string {
   if (!iso) return '';

@@ -8,6 +8,7 @@ import { PlusIcon } from '@/components/bl/icons';
 import { EmptyNote, ErrorNote, LoadingBlock, Segmented } from '@/components/bl/ui';
 import TeacherScreen from '@/components/teacher/TeacherScreen';
 import { useAuth } from '@/lib/auth-context';
+import { departmentKeys, myLessonReviews } from '@/lib/departments-api';
 import { platformKeys, teacherLessons, type LessonStatus } from '@/lib/platform-api';
 import { formatDateTime } from '@/lib/teacher-ui';
 
@@ -15,6 +16,10 @@ export default function TeacherLessonsPage() {
   const { user } = useAuth();
   const [tab, setTab] = useState<LessonStatus>('published');
   const lessons = useQuery({ queryKey: platformKeys.teacherLessons, queryFn: () => teacherLessons(user?.id ?? ''), enabled: !!user?.id });
+  const hasHidden = (lessons.data ?? []).some((l) => l.status === 'hidden');
+  // Жасырудың себебі content_reviews-те: мұғалім оны тек өз сабағы үшін RPC арқылы оқиды (D91).
+  const reviews = useQuery({ queryKey: departmentKeys.lessonReviews, queryFn: myLessonReviews, enabled: hasHidden });
+  const reasonOf = new Map((reviews.data ?? []).map((r) => [r.lesson_id, r]));
   const items = (lessons.data ?? []).filter((l) => l.status === tab);
   const count = (s: LessonStatus) => (lessons.data ?? []).filter((l) => l.status === s).length;
 
@@ -38,7 +43,7 @@ export default function TeacherLessonsPage() {
         options={[
           { id: 'published', label: `Жарияланған${lessons.data ? ` · ${count('published')}` : ''}` },
           { id: 'draft', label: `Жоба${lessons.data ? ` · ${count('draft')}` : ''}` },
-          { id: 'hidden', label: 'Жасырылған' },
+          { id: 'hidden', label: `Жасырылған${hasHidden ? ` · ${count('hidden')}` : ''}` },
         ]}
       />
 
@@ -54,8 +59,15 @@ export default function TeacherLessonsPage() {
               {l.status === 'published' && l.published_at ? `Жарияланды · ${formatDateTime(l.published_at)}` : `Өзгертілді · ${formatDateTime(l.updated_at)}`}
             </span>
             {l.status === 'hidden' ? (
-              <span className="rounded-[10px] bg-bl-warnbg px-3 py-2.5 text-sm leading-[1.45] text-bl-warntext">
-                Сабақты әкімші жасырды. Оны тек әкімші қайта аша алады, себебін әкімшіден сұраңыз.
+              <span className="flex flex-col gap-1 rounded-[10px] bg-bl-warnbg px-3 py-2.5 text-sm leading-[1.45] text-bl-warntext">
+                {reasonOf.get(l.id)?.feedback ? (
+                  <>
+                    <span className="font-semibold">Себебі: {reasonOf.get(l.id)!.feedback}</span>
+                    <span>Жасырылды · {formatDateTime(reasonOf.get(l.id)!.reviewed_at)}. Сабақты тек модератор қайта аша алады.</span>
+                  </>
+                ) : (
+                  'Сабақты модератор жасырды. Оны тек модератор қайта аша алады.'
+                )}
               </span>
             ) : null}
             {l.status !== 'hidden' ? (

@@ -12,6 +12,7 @@ import {
   ConfirmSheet,
   ErrorNote,
   Field,
+  LoadingBlock,
   ListGroup,
   ListRow,
   Page,
@@ -20,24 +21,27 @@ import {
   TextInput,
   TopBar,
 } from '@/components/bl/ui';
+import { ROLE_TITLE } from '@/components/bl/nav';
 import { useAuth, type UserRole } from '@/lib/auth-context';
+import { JOIN_CODE_PATTERN, normalizeJoinCode } from '@/lib/classes-api';
+import {
+  cancelDepartmentRequest,
+  deleteMyAccount,
+  departmentKeys,
+  leaveDepartment,
+  myDepartment,
+  requestDepartmentJoin,
+} from '@/lib/departments-api';
 import {
   incomingParentRequests,
   myChildren,
   outgoingParentRequests,
   platformKeys,
 } from '@/lib/platform-api';
-import { updateFullName } from '@/lib/profile-api';
+import { listNotifications, notificationKeys } from '@/lib/notifications-api';
+import { removeAllAvatars, updateFullName } from '@/lib/profile-api';
 
-// Аккаунтты толық жою үшін backend эндпоинті әлі жоқ: батырма соған дейін жасырын тұрады.
-const ACCOUNT_DELETION_ENABLED = false;
 
-const ROLE_TITLES: Record<UserRole, string> = {
-  student: 'Оқушы',
-  teacher: 'Мұғалім',
-  parent: 'Ата-ана',
-  admin: 'Әкімші',
-};
 
 function AvatarButton({ name, url, size }: { name: string; url?: string; size: 'md' | 'xl' }) {
   const badge = size === 'xl' ? 'h-[26px] w-[26px] -right-0.5 -bottom-0.5 border-bl-bg' : 'h-[22px] w-[22px] -right-[3px] -bottom-[3px] border-white';
@@ -98,13 +102,192 @@ function ParentChildren() {
   );
 }
 
+// Мұғалім басқарма кодымен өтінім береді; басшы растағанда оқушы аккаунты мұғалім рөлін алады (D90).
+function DepartmentSection({ role }: { role: UserRole }) {
+  const queryClient = useQueryClient();
+  const { refreshUser } = useAuth();
+  const mine = useQuery({ queryKey: departmentKeys.mine, queryFn: myDepartment });
+  const [code, setCode] = useState('');
+  const [notFound, setNotFound] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const refresh = () => queryClient.invalidateQueries({ queryKey: departmentKeys.mine });
+
+  const send = useMutation({
+    mutationFn: () => requestDepartmentJoin(code),
+    onSuccess: async (r) => {
+      if (!r) {
+        setNotFound(true);
+        return;
+      }
+      setCode('');
+      await refresh();
+    },
+  });
+  const cancel = useMutation({ mutationFn: cancelDepartmentRequest, onSuccess: refresh });
+  const leave = useMutation({
+    mutationFn: leaveDepartment,
+    onSuccess: async () => {
+      setConfirmLeave(false);
+      await refresh();
+    },
+  });
+
+  const d = mine.data;
+  // Басшы растаған соң рөл «мұғалім» болады: оқушы интерфейсінен мұғалімге көшеміз.
+  useEffect(() => {
+    if (d?.member_role === 'teacher' && d.status === 'active' && role === 'student') void refreshUser();
+  }, [d?.member_role, d?.status, role, refreshUser]);
+
+  const valid = JOIN_CODE_PATTERN.test(code);
+
+  return (
+    <section aria-labelledby="dept-title" className="flex flex-col gap-2.5 rounded-2xl border border-bl-line bg-white p-4">
+      <h2 id="dept-title" className="m-0 text-base font-bold">
+        Басқарма
+      </h2>
+      {mine.isLoading ? <LoadingBlock rows={1} /> : null}
+      {mine.isError ? <ErrorNote error={mine.error} onRetry={() => mine.refetch()} /> : null}
+      {mine.isSuccess && !d ? (
+        <form
+          className="flex flex-col gap-2.5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid) send.mutate();
+          }}
+        >
+          <p className="m-0 text-sm leading-[1.45] text-bl-ink3">
+            {role === 'teacher'
+              ? 'Білім басқармасынан алған кодты енгізіңіз. Басшы растағанда ол сізді және оқушыларыңызды көреді.'
+              : 'Мұғалім болсаңыз, білім басқармасынан алған кодты енгізіңіз. Басшы растағанда мұғалім рөлін аласыз.'}
+          </p>
+          <label htmlFor="dept-code" className="text-sm font-semibold">
+            Басқарма коды
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="dept-code"
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+              maxLength={6}
+              value={code}
+              aria-invalid={notFound || undefined}
+              aria-describedby={notFound ? 'dept-code-error' : undefined}
+              onChange={(e) => {
+                setCode(normalizeJoinCode(e.target.value));
+                setNotFound(false);
+              }}
+              placeholder="K7M2QX"
+              className="box-border h-12 min-w-0 flex-1 rounded-xl border border-bl-field bg-white px-3.5 text-lg font-semibold uppercase tracking-[0.14em] focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-bl-ink"
+            />
+            <Button type="submit" size="md" full={false} className="h-12" disabled={!valid} loading={send.isPending}>
+              Жіберу
+            </Button>
+          </div>
+          {notFound ? (
+            <p id="dept-code-error" role="alert" className="m-0 text-sm font-semibold text-bl-danger">
+              Мұндай код жоқ. Басқармадан кодты қайта сұраңыз.
+            </p>
+          ) : null}
+          {send.isError ? <ErrorNote error={send.error} /> : null}
+        </form>
+      ) : null}
+      {d?.member_role === 'teacher' && d.status === 'pending' ? (
+        <>
+          <div className="flex flex-col gap-1 rounded-xl bg-bl-warnbg px-3.5 py-3 text-bl-warntext">
+            <span className="text-[15px] font-semibold">{d.name}</span>
+            <span className="text-sm">Өтінім жіберілді. Басшы растағанда хабарлама келеді.</span>
+          </div>
+          <Button variant="secondary" size="sm" full={false} className="self-start" loading={cancel.isPending} onClick={() => cancel.mutate()}>
+            Өтінімді қайтарып алу
+          </Button>
+          {cancel.isError ? <ErrorNote error={cancel.error} /> : null}
+        </>
+      ) : null}
+      {d?.member_role === 'teacher' && d.status === 'active' ? (
+        <>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[15px] font-semibold">{d.name}</span>
+            <span className="text-sm text-bl-ink2">{d.region ? `${d.region} · ` : ''}сіз осы басқарманың мұғалімісіз</span>
+          </div>
+          <Button variant="secondary" size="sm" full={false} className="self-start text-bl-danger" onClick={() => setConfirmLeave(true)}>
+            Басқармадан шығу
+          </Button>
+          <ConfirmSheet
+            open={confirmLeave}
+            onClose={() => setConfirmLeave(false)}
+            title="Басқармадан шығасыз ба?"
+            description="Рөліңіз бен сыныптарыңыз сақталады, бірақ басқарма әкімшісі сізді және оқушыларыңызды енді көрмейді."
+            confirmLabel="Шығу"
+            busy={leave.isPending}
+            onConfirm={() => leave.mutate()}
+          />
+          {leave.isError ? <ErrorNote error={leave.error} /> : null}
+        </>
+      ) : null}
+      {d?.member_role === 'head' ? (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[15px] font-semibold">{d.name}</span>
+          <span className="text-sm text-bl-ink2">Сіз осы басқарманың әкімшісісіз · коды {d.join_code}</span>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+const DELETE_EXTRA: Partial<Record<UserRole, string>> = {
+  teacher: ' Сыныптарыңыз да жойылады, оқушылар сыныптан шығады.',
+  head: ' Басқарма басшысыз қалады: жаңасын платформа иесі тағайындайды.',
+  parent: ' Балаларыңызбен байланыс үзіледі.',
+};
+
+function DeleteAccount({ role }: { role: UserRole }) {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const del = useMutation({
+    mutationFn: async () => {
+      // Бакет ашық: сурет аккаунттан кейін қалып қоймас үшін алдымен өшіріледі.
+      await removeAllAvatars(user!.id, user!.avatarUrl).catch(() => undefined);
+      await deleteMyAccount();
+    },
+    onSuccess: async () => {
+      await logout().catch(() => undefined);
+      navigate('/', { replace: true });
+    },
+    onError: () => setOpen(false),
+  });
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="h-11 self-start border-0 bg-transparent p-0 text-[15px] font-semibold text-bl-danger"
+      >
+        Аккаунтты жою
+      </button>
+      {del.isError ? <ErrorNote error={del.error} /> : null}
+      <ConfirmSheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Аккаунтты жоясыз ба?"
+        description={`Емтихан нәтижелері, Тьютор диалогтары, жазбалар мен чаттар өшіріледі.${DELETE_EXTRA[role] ?? ''} Мұны қайтару мүмкін емес.`}
+        confirmLabel="Иә, жою"
+        busy={del.isPending}
+        onConfirm={() => del.mutate()}
+      />
+    </>
+  );
+}
+
 export default function SettingsPage() {
   const { user, refreshUser, logout } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [name, setName] = useState(user?.fullName ?? '');
   const [saved, setSaved] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const role = user?.role ?? 'student';
 
   useEffect(() => setName(user?.fullName ?? ''), [user?.fullName]);
@@ -115,6 +298,13 @@ export default function SettingsPage() {
     enabled: role === 'student',
   });
   const pendingIncoming = (incoming.data ?? []).filter((r) => r.status === 'pending').length;
+  const notifications = useQuery({ queryKey: notificationKeys.list, queryFn: () => listNotifications(), enabled: role !== 'student' });
+  const unread = (notifications.data ?? []).filter((n) => !n.is_read).length;
+  const notificationsRow = (
+    <ListRow to="/notifications" trailing={unread ? `${unread} жаңа` : undefined}>
+      Хабарламалар
+    </ListRow>
+  );
 
   const saveName = useMutation({
     mutationFn: () => updateFullName(user!.id, name),
@@ -147,9 +337,11 @@ export default function SettingsPage() {
           </div>
           <ParentChildren />
           <ListGroup>
+            {notificationsRow}
             <ListRow to="/settings/password">Құпиясөзді өзгерту</ListRow>
             <ListRow onClick={signOut}>Шығу</ListRow>
           </ListGroup>
+          <DeleteAccount role={role} />
         </Page>
       </AppShell>
     );
@@ -164,7 +356,7 @@ export default function SettingsPage() {
           <AvatarButton name={name || user.fullName} url={user.avatarUrl} size="xl" />
           <span className="flex min-w-0 flex-col gap-0.5">
             <span className="truncate text-lg font-bold">{name || user.fullName}</span>
-            <span className="text-sm text-bl-ink2">{ROLE_TITLES[role]}</span>
+            <span className="text-sm text-bl-ink2">{ROLE_TITLE[role]}</span>
             <Link to="/settings/avatar" className="text-sm font-semibold text-bl-ink">
               Суретті өзгерту
             </Link>
@@ -209,28 +401,13 @@ export default function SettingsPage() {
               Ата-ана байланысы
             </ListRow>
           ) : null}
+          {role !== 'student' ? notificationsRow : null}
           {role !== 'student' ? <ListRow onClick={signOut}>Шығу</ListRow> : null}
         </ListGroup>
 
-        {ACCOUNT_DELETION_ENABLED ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              className="h-11 self-start border-0 bg-transparent p-0 text-[15px] font-semibold text-bl-danger"
-            >
-              Аккаунтты жою
-            </button>
-            <ConfirmSheet
-              open={confirmDelete}
-              onClose={() => setConfirmDelete(false)}
-              title="Аккаунтты жоясыз ба?"
-              description="Емтихан нәтижелері, Тьютор диалогтары, жазбалар мен чаттар өшіріледі. Мұны қайтару мүмкін емес."
-              confirmLabel="Иә, жою"
-              onConfirm={() => setConfirmDelete(false)}
-            />
-          </>
-        ) : null}
+        {role === 'student' || role === 'teacher' || role === 'head' ? <DepartmentSection role={role} /> : null}
+
+        <DeleteAccount role={role} />
       </Page>
     </AppShell>
   );

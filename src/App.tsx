@@ -44,6 +44,11 @@ const JoinClassPage = lazy(() => import('./pages/account/JoinClassPage'));
 const AdminSubjectsPage = lazy(() => import('./pages/admin/AdminPages').then((m) => ({ default: m.AdminSubjectsPage })));
 const AdminLessonsPage = lazy(() => import('./pages/admin/AdminPages').then((m) => ({ default: m.AdminLessonsPage })));
 const AdminUsersPage = lazy(() => import('./pages/admin/AdminPages').then((m) => ({ default: m.AdminUsersPage })));
+// Білім басқармасы (D90): платформа иесінің басқармалары және басқарма әкімшісінің беттері.
+const OwnerDepartmentsPage = lazy(() => import('./pages/admin/DepartmentPages').then((m) => ({ default: m.OwnerDepartmentsPage })));
+const HeadHomePage = lazy(() => import('./pages/admin/DepartmentPages').then((m) => ({ default: m.HeadHomePage })));
+const HeadTeachersPage = lazy(() => import('./pages/admin/DepartmentPages').then((m) => ({ default: m.HeadTeachersPage })));
+const HeadStudentsPage = lazy(() => import('./pages/admin/DepartmentPages').then((m) => ({ default: m.HeadStudentsPage })));
 
 const NotFound = lazy(() => import('./pages/NotFound'));
 
@@ -87,17 +92,19 @@ const queryClient = new QueryClient({
   },
 });
 
-// Төрт рөл (karta §2): оқушы, мұғалім (D25, D83), ата-ана (D26, D85), әкімші. Рөлді тек әкімші береді.
-const ACCOUNT_ROLES: UserRole[] = ['student', 'teacher', 'parent', 'admin'];
+// Бес рөл (karta §2, D90): оқушы, мұғалім (D25, D83), ата-ана (D26, D85), басқарма әкімшісі (head) және платформа иесі (admin).
+const ACCOUNT_ROLES: UserRole[] = ['student', 'teacher', 'parent', 'head', 'admin'];
 const CHAT_ROLES: UserRole[] = ['student', 'teacher', 'parent'];
 const STUDENT_ROLES: UserRole[] = ['student'];
 const TEACHER_ROLES: UserRole[] = ['teacher'];
 const PARENT_ROLES: UserRole[] = ['parent'];
 const ADMIN_ROLES: UserRole[] = ['admin'];
+const HEAD_ROLES: UserRole[] = ['head'];
+const MODERATOR_ROLES: UserRole[] = ['admin', 'head'];
 
 const LEARNING_CONTENT_ROLES: UserRole[] = ['student', 'admin'];
 const GAME_ROLES: UserRole[] = ['student', 'teacher'];
-const LESSON_READER_ROLES: UserRole[] = ['student', 'teacher', 'admin'];
+const LESSON_READER_ROLES: UserRole[] = ['student', 'teacher', 'head', 'admin'];
 
 type AppRouteConfig = {
   path: string;
@@ -406,8 +413,12 @@ const gameRoutes: AppRouteConfig[] = [
 
 const adminRoutes: AppRouteConfig[] = [
   { path: '/subjects', element: <AdminSubjectsPage />, allowedRoles: ADMIN_ROLES },
-  { path: '/manage-lessons', element: <AdminLessonsPage />, allowedRoles: ADMIN_ROLES },
-  { path: '/moderation', element: <Navigate to="/manage-lessons" replace />, allowedRoles: ADMIN_ROLES },
+  { path: '/manage-lessons', element: <AdminLessonsPage />, allowedRoles: MODERATOR_ROLES },
+  { path: '/moderation', element: <Navigate to="/manage-lessons" replace />, allowedRoles: MODERATOR_ROLES },
+  { path: '/departments', element: <OwnerDepartmentsPage />, allowedRoles: ADMIN_ROLES },
+  { path: '/department', element: <HeadHomePage />, allowedRoles: HEAD_ROLES },
+  { path: '/department/teachers', element: <HeadTeachersPage />, allowedRoles: HEAD_ROLES },
+  { path: '/department/students', element: <HeadStudentsPage />, allowedRoles: HEAD_ROLES },
   { path: '/cms', element: <Navigate to="/manage-users" replace />, allowedRoles: ADMIN_ROLES },
   { path: '/manage-users', element: <AdminUsersPage />, allowedRoles: ADMIN_ROLES },
 ];
