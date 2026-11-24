@@ -37,3 +37,6 @@ __pycache__
 test-results/
 playwright-report/
 blob-report/
+
+# Imported question bank (large local data)
+data/question_bank/
