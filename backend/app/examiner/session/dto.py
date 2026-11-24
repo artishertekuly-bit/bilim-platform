@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 ScopeType = Literal["topic", "chapter", "subject"]
 Tier = Literal["X1", "X2", "X3"]
-SessionStatus = Literal["active", "completed", "blocked", "abandoned"]  # preparing жоқ (D64)
+# preparing (D93): the bank had too few questions, so they are being generated for this session.
+SessionStatus = Literal["preparing", "active", "completed", "blocked", "abandoned"]
 Availability = Literal["ready", "low_stock", "unavailable"]
 
 
@@ -102,6 +103,23 @@ class ScopeCatalog(BaseModel):
     topics: list[Topic]
 
 
+class TopicMatch(BaseModel):
+    """A textbook § found for a topic the learner typed (D93)."""
+
+    id: str              # topic_id, used as a `topic` scope id
+    no: str
+    title: str
+    book: str
+    book_title: str
+    grade: int
+
+
+class TopicSearchResponse(BaseModel):
+    subject_id: str
+    query: str
+    topics: list[TopicMatch]  # best first, at most 3; empty when the database has nothing on it
+
+
 # ------------------------------------------------------------------ сессия
 
 
@@ -139,6 +157,8 @@ class ExamSession(BaseModel):
     upcoming: list[SessionItem]
     strike_count: int
     started_at: datetime
+    # Set when preparation failed and the session was closed (D93); shown to the learner as is.
+    notice: str | None = None
 
 
 class Moderation(BaseModel):

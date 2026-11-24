@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 import asyncpg
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
@@ -43,6 +44,7 @@ from .dto import (
     SubjectCatalogItem,
     TeacherGradeActionResponse,
     TeacherGradeDetail,
+    TopicSearchResponse,
 )
 from .errors import ExaminerError
 from .service import ExaminerService
@@ -121,6 +123,21 @@ async def scopes(
     service: ExaminerService = Depends(get_service),
 ) -> ScopeCatalog:
     return await service.scopes(book)
+
+
+@router.get("/topics/search", response_model=TopicSearchResponse)
+async def search_topics(
+    subject_id: str = Query(min_length=1, max_length=64),
+    q: str = Query(min_length=1, max_length=300),
+    _: str = Depends(get_current_user_id),
+    service: ExaminerService = Depends(get_service),
+) -> TopicSearchResponse:
+    """D93: the learner picks a subject and writes the topic; the platform finds the matching §."""
+    try:
+        sid = str(uuid.UUID(subject_id))
+    except ValueError:
+        raise ExaminerError(404, "NOT_FOUND", "Пән табылмады.") from None
+    return await service.search_topics(sid, q)
 
 
 @router.get("/levels", response_model=LevelsResponse)

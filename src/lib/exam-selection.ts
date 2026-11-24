@@ -1,4 +1,5 @@
-// Емтиханның таңдалған оқулығы мен көлемі (ExamPicker → Main). Құрылғыда ғана сақталады.
+// Емтиханның таңдалған пәні, тақырыбы мен көлемі (ExamPicker → Main). Құрылғыда ғана сақталады.
+// D93: оқушы тек пәнді таңдап, тақырыпты өзі жазады; платформа оған сай §-ті табады (`topicId`).
 import { useCallback, useState } from 'react';
 
 import type { ScopeType } from '@/lib/examiner-api';
@@ -6,13 +7,16 @@ import type { ScopeType } from '@/lib/examiner-api';
 const KEY = 'bilim.exam.selection';
 
 export interface ExamSelection {
+  subjectId: string | null;
+  /** The topic as the learner wrote it. */
+  topicQuery: string;
   book: string | null;
   scopeType: ScopeType;
   topicId: string | null;
   chapterId: string | null;
 }
 
-const EMPTY: ExamSelection = { book: null, scopeType: 'topic', topicId: null, chapterId: null };
+const EMPTY: ExamSelection = { subjectId: null, topicQuery: '', book: null, scopeType: 'topic', topicId: null, chapterId: null };
 
 export function readExamSelection(): ExamSelection {
   try {
@@ -25,6 +29,8 @@ export function readExamSelection(): ExamSelection {
     }
     const v = JSON.parse(raw) as Partial<ExamSelection>;
     return {
+      subjectId: typeof v.subjectId === 'string' ? v.subjectId : null,
+      topicQuery: typeof v.topicQuery === 'string' ? v.topicQuery.slice(0, 200) : '',
       book: typeof v.book === 'string' ? v.book : null,
       scopeType: v.scopeType === 'chapter' || v.scopeType === 'subject' ? v.scopeType : 'topic',
       topicId: typeof v.topicId === 'string' ? v.topicId : null,

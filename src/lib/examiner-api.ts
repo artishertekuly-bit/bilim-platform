@@ -8,7 +8,8 @@ import { useAuth } from '@/lib/auth-context';
 
 export type ScopeType = 'topic' | 'chapter' | 'subject';
 export type Tier = 'X1' | 'X2' | 'X3';
-export type SessionStatus = 'active' | 'completed' | 'blocked' | 'abandoned';
+/** preparing (D93): the bank was short, questions for this session are being generated. */
+export type SessionStatus = 'preparing' | 'active' | 'completed' | 'blocked' | 'abandoned';
 export type CodeFormat = 'mcq' | 'matching' | 'sequence' | 'error_step' | 'formula_builder' | 'slider';
 
 export interface Scope { type: ScopeType; id: string; title: string }
@@ -16,6 +17,9 @@ export interface Book { book: string; title: string; grade: number; has_chapters
 export interface SubjectCatalogItem { subject_id: string; title: string; books: Book[] }
 export interface Chapter { id: string; no: string; title: string }
 export interface Topic { id: string; no: string; title: string; chapter_id: string | null }
+/** A textbook § found for the topic the learner wrote (D93). `id` is a `topic` scope id. */
+export interface TopicMatch { id: string; no: string; title: string; book: string; book_title: string; grade: number }
+export interface TopicSearchResponse { subject_id: string; query: string; topics: TopicMatch[] }
 export interface ScopeCatalog {
   book: Book;
   subject_id: string;
@@ -108,6 +112,8 @@ export interface ExamSession {
   upcoming: SessionItem[];
   strike_count: number;
   started_at: string;
+  /** Why a preparing session was closed (D93). */
+  notice?: string | null;
 }
 
 export interface AnswerResult {
@@ -454,6 +460,11 @@ export function createExaminerApi(token: string | undefined) {
   return {
     subjects: () => request<SubjectCatalogItem[]>(token, '/subjects'),
     scopes: (book: string) => request<ScopeCatalog>(token, `/scopes?book=${encodeURIComponent(book)}`),
+    searchTopics: (subjectId: string, query: string) =>
+      request<TopicSearchResponse>(
+        token,
+        `/topics/search?subject_id=${encodeURIComponent(subjectId)}&q=${encodeURIComponent(query)}`,
+      ),
     levels: (scopeType: ScopeType, scopeId: string) =>
       request<LevelsResponse>(
         token,

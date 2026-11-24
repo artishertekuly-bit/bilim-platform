@@ -115,11 +115,12 @@ async def subjects(_: str = Depends(require_student_id), service: TutorService =
 
 @router.get("/conversations/current", response_model=Conversation)
 async def current_conversation(
-    subject_id: str = Query(min_length=1, max_length=64),
+    subject_id: str | None = Query(default=None, min_length=1, max_length=64),
     student_id: str = Depends(require_student_id),
     service: TutorService = Depends(get_service),
 ):
-    sid = _uuid(subject_id)
+    # Without subject_id the student's single cross-subject conversation is returned (D93).
+    sid = _uuid(subject_id) if subject_id else None
     return await _db(lambda: service.current_conversation(student_id, sid))
 
 

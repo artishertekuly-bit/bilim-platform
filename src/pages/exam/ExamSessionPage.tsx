@@ -126,6 +126,23 @@ export default function ExamSessionPage() {
     };
   }, [feedback, sessionId, api]);
 
+  // D93: банкте сұрақ жетпеді, тапсырмалар осы сессияға құрылып жатыр. Біткенде сессия active болады.
+  useEffect(() => {
+    if (session?.status !== 'preparing') return;
+    const id = window.setInterval(() => {
+      void api
+        .session(sessionId)
+        .then((fresh) => {
+          if (fresh.status !== 'preparing') {
+            setSession(fresh);
+            void queryClient.invalidateQueries({ queryKey: ['examiner', 'active'] });
+          }
+        })
+        .catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [session?.status, sessionId, api, queryClient]);
+
   // Егер алдыңғы тапсырма pending күйінде қалса (ЖИ провайдері кідірсе), күйін сұрау
   useEffect(() => {
     if (!session || session.status !== 'active' || session.current || feedback) return;
@@ -268,6 +285,32 @@ export default function ExamSessionPage() {
     );
   }
 
+  if (session.status === 'preparing') {
+    return (
+      <ExamScreen>
+        <div className="pt-5">
+          <StateCard
+            markTone="dark"
+            mark={
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="motion-safe:animate-spin">
+                <path d="M12 3a9 9 0 1 0 9 9" />
+              </svg>
+            }
+            title="Тапсырмалар дайындалып жатыр"
+            text={`${session.scope.title} бойынша тапсырмалар осы деңгейге алғаш рет құрылып жатыр. Бұл бірнеше минут алуы мүмкін: дайын болғанда сессия өзі ашылады. Құрылған тапсырмалар кейін басқа оқушыларға да беріледі.`}
+          >
+            <p role="status" aria-live="polite" className="m-0 text-sm text-bl-ink2">
+              Бетті жапсаңыз да, дайындау тоқтамайды: сессияны кейін Емтихан бетінен ашасыз.
+            </p>
+            <ButtonLink to="/exam" variant="secondary" size="md">
+              Емтиханға оралу
+            </ButtonLink>
+          </StateCard>
+        </div>
+      </ExamScreen>
+    );
+  }
+
   if (session.status === 'blocked') {
     // ExamStates.dc.html · «Жабылды»: екінші ескерту — тапсырма 0 балл, сессия уақытша жабық (ai_examiner D36).
     return (
@@ -301,7 +344,10 @@ export default function ExamSessionPage() {
           <StateCard
             mark="—"
             title="Сессия тоқтатылды"
-            text="Тасталған сессия профильге балл бермейді. Көрген тапсырмаларыңыз келесі сессияларда біраз уақыт қайталанбайды."
+            text={
+              session.notice ??
+              'Тасталған сессия профильге балл бермейді. Көрген тапсырмаларыңыз келесі сессияларда біраз уақыт қайталанбайды.'
+            }
           >
             <ButtonLink to="/exam">Емтиханға оралу</ButtonLink>
           </StateCard>

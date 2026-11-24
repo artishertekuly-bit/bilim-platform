@@ -1,12 +1,13 @@
-// AI Tutor (дизайн: Tutor.dc.html, TutorStates.dc.html; api §4, D39, D40, D70).
-// Tutor баға қоймайды. Әр пәннің диалогы бөлек; бұғат — уақытша (cooldown) немесе мұғалім жапқан.
+// AI Tutor (дизайн: Tutor.dc.html, TutorStates.dc.html; api §4, D39, D40, D70, D93).
+// Tutor баға қоймайды. Бір диалог барлық пәнге ортақ: тьютор дерекқордағы кез келген пәннен жауап береді,
+// дерекқорда жоқ болса, соны айтады. Бұғат — уақытша (cooldown) немесе мұғалім жапқан.
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import AppShell from '@/components/bl/AppShell';
-import { ChevronDownIcon, SendIcon } from '@/components/bl/icons';
-import { Banner, BareScreen, Button, ButtonLink, ErrorNote, LoadingBlock, StateCard, TopBar } from '@/components/bl/ui';
+import { SendIcon } from '@/components/bl/icons';
+import { Banner, ButtonLink, ErrorNote, LoadingBlock, StateCard } from '@/components/bl/ui';
 import {
   MAX_TUTOR_MESSAGE_CHARS,
   TutorApiError,
@@ -17,11 +18,7 @@ import {
   type BlockedReason,
   type TutorMessage,
 } from '@/lib/tutor-api';
-import { cn } from '@/lib/utils';
 import { readTutorDraft } from '@/modules/simulation-lab/services/tutor-bridge';
-
-const STARTERS = ['Бұл тақырыпты түсіндірші', 'Мысал келтірші', 'Не үйрендік?'];
-const SUBJECT_KEY = 'bilim.tutor.subject';
 
 interface ChatLine {
   key: string;
@@ -38,14 +35,6 @@ interface FailedSend {
 
 function toLine(message: TutorMessage): ChatLine {
   return { key: message.message_id, role: message.role, text: message.text };
-}
-
-function readSubject(): string | null {
-  try {
-    return window.localStorage.getItem(SUBJECT_KEY);
-  } catch {
-    return null;
-  }
 }
 
 function ClockMark() {
@@ -70,27 +59,20 @@ export default function TutorPage() {
   const api = useTutorApi();
   const location = useLocation();
   const navigate = useNavigate();
-  const [subjectId, setSubjectId] = useState<string | null>(readSubject);
-  const [picking, setPicking] = useState(false);
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [hasMore, setHasMore] = useState(false);
   // Зертхана (D92) дайын хабарды router state арқылы береді: ол тек жолаққа жазылады, оқушы өзі жібереді.
   const [draft, setDraft] = useState(() => readTutorDraft(location.state) ?? '');
   const [sending, setSending] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>(STARTERS);
   const [blocked, setBlocked] = useState<{ reason: BlockedReason; until: string | null } | null>(null);
   const [failed, setFailed] = useState<FailedSend | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  const subjects = useQuery({ queryKey: tutorKeys.subjects, queryFn: api.subjects });
-  const activeSubject =
-    subjectId && subjects.data?.some((s) => s.id === subjectId) ? subjectId : subjects.data?.[0]?.id ?? null;
   const conversation = useQuery({
-    queryKey: tutorKeys.conversation(activeSubject ?? ''),
-    queryFn: () => api.currentConversation(activeSubject as string),
-    enabled: !!activeSubject,
+    queryKey: tutorKeys.conversation,
+    queryFn: api.currentConversation,
     staleTime: Infinity,
   });
 
@@ -100,7 +82,6 @@ export default function TutorPage() {
     setLines(data.messages.map(toLine));
     setHasMore(data.messages.length >= 30);
     setBlocked(data.blocked_reason ? { reason: data.blocked_reason, until: data.blocked_until } : null);
-    setSuggestions(data.messages.length ? [] : STARTERS);
     setFailed(null);
     setNotice(null);
   }, [conversation.data]);
@@ -145,7 +126,6 @@ export default function TutorPage() {
       setSending(true);
       setFailed(null);
       setNotice(null);
-      setSuggestions([]);
       const tutorKey = `local-tutor-${requestId}`;
       setLines((current) => [
         ...current.filter((line) => line.key !== `local-student-${requestId}` && line.key !== tutorKey),
@@ -166,7 +146,6 @@ export default function TutorPage() {
               setLines((current) =>
                 current.map((line) => (line.key === tutorKey ? { ...line, key: payload.message_id, pending: false } : line)),
               );
-              setSuggestions(payload.suggestions ?? []);
             },
             onBlocked: (payload) => {
               setLines((current) =>
@@ -218,71 +197,12 @@ export default function TutorPage() {
     }
   };
 
-  const subject = useMemo(() => subjects.data?.find((s) => s.id === activeSubject), [subjects.data, activeSubject]);
-  const loadError = (subjects.error ?? conversation.error) as TutorApiError | null;
+  const loadError = conversation.error as TutorApiError | null;
   const inputDisabled = !conversationId || sending || !!blocked;
-
-  const pickSubject = (id: string) => {
-    abortRef.current?.abort();
-    setSubjectId(id);
-    try {
-      window.localStorage.setItem(SUBJECT_KEY, id);
-    } catch {
-      /* жеке терезеде сақталмауы мүмкін */
-    }
-    setPicking(false);
-  };
-
-  if (picking) {
-    return (
-      <BareScreen header={<TopBar onBack={() => setPicking(false)} backLabel="Тьюторға оралу" title="Пән таңдау" />}>
-        <div className="flex flex-col gap-3 px-4 pb-5 pt-4">
-          <p className="m-0 text-[15px] leading-normal text-bl-ink2">
-            Әр пәннің диалогы бөлек сақталады. Пәнге оралсаңыз, әңгіме тоқтаған жерінен жалғасады.
-          </p>
-          <div role="radiogroup" aria-label="Пән" className="flex flex-col overflow-hidden rounded-2xl border border-bl-line bg-white [&>*+*]:border-t [&>*+*]:border-bl-soft">
-            {(subjects.data ?? []).map((s) => {
-              const on = s.id === activeSubject;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  onClick={() => pickSubject(s.id)}
-                  className={cn('flex min-h-[60px] w-full items-center gap-3 border-0 px-4 py-2.5 text-left text-bl-ink', on ? 'bg-[#F1EFEA]' : 'bg-white')}
-                >
-                  <span className="flex flex-1 flex-col gap-0.5">
-                    <span className="text-[15px] font-semibold">{s.title}</span>
-                    <span className="text-[13px] text-bl-ink2">{s.grade}-сынып</span>
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className={cn('box-border h-[22px] w-[22px] flex-none rounded-full bg-white', on ? 'border-[7px] border-bl-ink' : 'border-2 border-bl-field')}
-                  />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </BareScreen>
-    );
-  }
 
   const header = (
     <header className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-5 lg:mx-auto lg:w-full lg:max-w-[1040px] lg:px-10 lg:pt-8">
       <h1 className="m-0 text-[28px] font-bold leading-[1.15] tracking-[-0.02em]">Тьютор</h1>
-      {subjects.data && subjects.data.length ? (
-        <button
-          type="button"
-          onClick={() => setPicking(true)}
-          aria-label={subject ? `Пәнді ауыстыру: ${subject.title}, ${subject.grade}-сынып` : 'Пән таңдау'}
-          className="box-border flex h-11 items-center gap-1.5 rounded-full border border-bl-line bg-white px-3.5 text-sm font-semibold text-bl-ink"
-        >
-          {subject ? `${subject.title} · ${subject.grade}-сынып` : 'Пән таңдау'}
-          <ChevronDownIcon size={16} />
-        </button>
-      ) : null}
     </header>
   );
 
@@ -335,19 +255,8 @@ export default function TutorPage() {
       <section aria-label="Тьютор диалогы" className="flex min-h-0 flex-1 flex-col lg:overflow-hidden lg:rounded-[18px] lg:border lg:border-bl-line lg:bg-white">
       <div aria-live="polite" className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-[480px] flex-col gap-3 px-4 pb-4 pt-1.5 lg:max-w-none lg:px-5 lg:pt-5">
-          {subjects.isPending || conversation.isPending ? <LoadingBlock rows={2} /> : null}
-          {loadError ? <ErrorNote error={loadError} onRetry={() => (subjects.isError ? subjects.refetch() : conversation.refetch())} /> : null}
-          {subjects.data && subjects.data.length === 0 ? <Banner tone="info">Тьютор әзірге бірде-бір пәнге дайын емес.</Banner> : null}
-
-          {conversation.data && lines.length === 0 ? (
-            <div className="flex max-w-[88%] flex-col gap-2 self-start rounded-[16px_16px_16px_4px] border border-bl-line bg-white p-3.5 text-[15px] leading-normal lg:bg-bl-bg">
-              <p className="m-0 font-semibold">Сәлем! Мен — {subject?.title ?? 'пән'} тьюторыңмын.</p>
-              <p className="m-0">
-                Кез келген сұрақ қой: оқулық бойынша түсіндіріп, бірге ойланамыз. Мен баға қоймаймын, мұнда қателесуге болады. Не
-                үйренгеніңді білгің келсе, «Не үйрендік?» деп сұра.
-              </p>
-            </div>
-          ) : null}
+          {conversation.isPending ? <LoadingBlock rows={2} /> : null}
+          {loadError ? <ErrorNote error={loadError} onRetry={() => conversation.refetch()} /> : null}
 
           {hasMore ? (
             <button type="button" onClick={() => void loadOlder()} className="min-h-11 border-0 bg-transparent text-center text-sm font-semibold text-bl-ink2">
@@ -380,20 +289,6 @@ export default function TutorPage() {
             ),
           )}
 
-          {suggestions.length && !inputDisabled ? (
-            <div className="flex flex-wrap gap-2">
-              {suggestions.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => void send(s)}
-                  className="h-11 rounded-full border border-bl-field bg-white px-4 text-sm font-semibold text-bl-ink"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          ) : null}
           <div ref={endRef} />
         </div>
       </div>
@@ -429,7 +324,7 @@ export default function TutorPage() {
                 disabled={inputDisabled}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder="Сұрағыңызды жазыңыз"
+                placeholder="Кез келген пән бойынша сұрағыңызды жазыңыз"
                 className="box-border max-h-[120px] min-h-12 flex-1 resize-none rounded-[14px] border border-bl-field bg-white px-3.5 py-3 text-base leading-[1.4] text-bl-ink focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-bl-ink disabled:opacity-60"
               />
               <button
@@ -446,16 +341,6 @@ export default function TutorPage() {
       ) : null}
       </section>
       <aside aria-label="Тьютор туралы" className="hidden lg:flex lg:w-[260px] lg:flex-none lg:flex-col lg:gap-3">
-        <section className="flex flex-col gap-2 rounded-2xl border border-bl-line bg-white p-4">
-          <h2 className="m-0 text-[15px] font-bold">Осы әңгімеде</h2>
-          <span className="text-sm leading-[1.45] text-bl-ink3">
-            {subject ? `${subject.title} · ${subject.grade}-сынып` : 'Пән таңдалмаған'}
-            {lines.length ? ` · ${lines.length} хабарлама` : ''}
-          </span>
-          <Button variant="secondary" size="sm" full={false} className="self-start" disabled={inputDisabled} onClick={() => void send('Не үйрендік?')}>
-            Не үйрендік?
-          </Button>
-        </section>
         <section className="flex flex-col gap-2 rounded-2xl border border-bl-line bg-white p-4">
           <h2 className="m-0 text-[15px] font-bold">Тексеріп көресіз бе?</h2>
           <span className="text-sm leading-[1.45] text-bl-ink3">Түсінгеніңізді Емтиханда тексеріңіз: кез келген деңгейден бастауға болады.</span>

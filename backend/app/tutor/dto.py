@@ -29,7 +29,9 @@ class TutorMessage(BaseModel):
 
 class Conversation(BaseModel):
     conversation_id: str
-    subject: TutorSubject
+    # One conversation per student across all subjects (D93): retrieval already searches the whole corpus.
+    # The subject only labels the stored row and may be absent if its books were removed.
+    subject: TutorSubject | None = None
     messages: list[TutorMessage]  # соңғы 30
     blocked_until: datetime | None = None
     blocked_reason: BlockedReason | None = None

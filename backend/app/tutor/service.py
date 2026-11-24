@@ -210,20 +210,38 @@ class TutorService:
         )
         return [TutorSubject(id=r["id"], title=r["title"], grade=r["grade"]) for r in rows]
 
-    async def current_conversation(self, student_id: str, subject_id: str) -> Conversation:
-        subject = next((s for s in await self.subjects() if s.id == subject_id), None)
-        if subject is None:
+    async def current_conversation(self, student_id: str, subject_id: str | None = None) -> Conversation:
+        """Without `subject_id` (D93) the student has one conversation for every subject: the most recent one,
+        or a new one keyed by the first subject. Retrieval is not filtered by subject in either case."""
+        subjects = await self.subjects()
+        if subject_id is not None and not any(s.id == subject_id for s in subjects):
             raise not_found()
         async with self._pool.acquire() as conn:
-            await conn.execute(
-                "insert into tutor.conversations (student_id, subject_id) values ($1::uuid, $2::uuid) "
-                "on conflict (student_id, subject_id) do nothing",
-                student_id, subject_id,
-            )
-            conv_id = await conn.fetchval(
-                "select conversation_id::text from tutor.conversations where student_id = $1::uuid and subject_id = $2::uuid",
-                student_id, subject_id,
-            )
+            conv_id: str | None = None
+            if subject_id is None:
+                latest = await conn.fetchrow(
+                    "/* tutor:latest_conversation */ select conversation_id::text as conversation_id, "
+                    "subject_id::text as subject_id from tutor.conversations where student_id = $1::uuid "
+                    "order by last_message_at desc nulls last, created_at desc limit 1",
+                    student_id,
+                )
+                if latest is not None:
+                    conv_id, subject_id = latest["conversation_id"], latest["subject_id"]
+                elif subjects:
+                    subject_id = subjects[0].id
+                else:
+                    raise not_found()
+            if conv_id is None:
+                await conn.execute(
+                    "insert into tutor.conversations (student_id, subject_id) values ($1::uuid, $2::uuid) "
+                    "on conflict (student_id, subject_id) do nothing",
+                    student_id, subject_id,
+                )
+                conv_id = await conn.fetchval(
+                    "select conversation_id::text from tutor.conversations where student_id = $1::uuid "
+                    "and subject_id = $2::uuid",
+                    student_id, subject_id,
+                )
             rows = await conn.fetch(
                 """
                 select message_id, role, text, created_at from tutor.messages
@@ -235,7 +253,7 @@ class TutorService:
             until, reason = await self._block(conn, student_id)
         return Conversation(
             conversation_id=conv_id,
-            subject=subject,
+            subject=next((s for s in subjects if s.id == subject_id), None),
             messages=[_message(r) for r in reversed(rows)],
             blocked_until=until,
             blocked_reason=reason,

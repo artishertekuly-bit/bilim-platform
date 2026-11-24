@@ -15,7 +15,8 @@ export interface TutorSubject { id: string; title: string; grade: number }
 export interface TutorMessage { message_id: string; role: 'student' | 'tutor'; text: string; created_at: string }
 export interface Conversation {
   conversation_id: string;
-  subject: TutorSubject;
+  // One conversation across all subjects (D93); the subject only labels the stored row.
+  subject: TutorSubject | null;
   messages: TutorMessage[];
   blocked_until: string | null;
   blocked_reason: BlockedReason | null;
@@ -167,8 +168,8 @@ async function streamMessage(
 export function createTutorApi(token: string | undefined) {
   return {
     subjects: () => request<TutorSubject[]>(token, '/subjects'),
-    currentConversation: (subjectId: string) =>
-      request<Conversation>(token, `/conversations/current?subject_id=${encodeURIComponent(subjectId)}`),
+    // Without a subject: the student's single conversation; the tutor searches every subject (D93).
+    currentConversation: () => request<Conversation>(token, '/conversations/current'),
     messages: (conversationId: string, before?: string, limit = 30) =>
       request<MessagesPage>(
         token,
@@ -205,7 +206,7 @@ export function useTutorApi(): TutorApi {
 
 export const tutorKeys = {
   subjects: ['tutor', 'subjects'] as const,
-  conversation: (subjectId: string) => ['tutor', 'conversation', subjectId] as const,
+  conversation: ['tutor', 'conversation'] as const,
   block: (studentId: string) => ['tutor', 'block', studentId] as const,
 };
 

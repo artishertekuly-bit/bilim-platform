@@ -250,6 +250,9 @@ class FakeDB:
         if name == "reply_of":
             m = next((m for m in self.messages if m.get("reply_to") == args[0]), None)
             return dict(message_id=m["message_id"], text=m["text"], status=m["status"], meta=m["meta"]) if m else None
+        if name == "latest_conversation":
+            own = [(k, c) for k, c in self.conversations.items() if c["student_id"] == args[0]]
+            return dict(conversation_id=own[-1][0], subject_id=own[-1][1]["subject_id"]) if own else None
         if "from tutor.conversations where conversation_id" in sql:
             conv = self.conversations.get(args[0])
             if conv is None or conv["student_id"] != args[1]:
@@ -610,6 +613,26 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.db.tree, {})
         self.assertEqual(next(m for m in self.db.messages if m["role"] == "tutor")["status"], "failed")
         self.assertEqual(self.db.tokens[(STUDENT, NOW.date())], 1100)  # тег токені сәтсіз қадамда да жазылды
+
+    async def test_current_conversation_without_subject_reuses_the_latest(self) -> None:
+        svc = self.service(FakeGateway(tags()))
+        conv = await svc.current_conversation(STUDENT)
+        self.assertEqual(conv.conversation_id, self.conv)
+        self.assertEqual(conv.subject.id if conv.subject else None, SUBJECT)
+        self.assertNotIn("insert into tutor.conversations", " ".join(self.db.queries))
+
+    async def test_current_conversation_without_subject_creates_one(self) -> None:
+        self.db.conversations.clear()
+        conv = await self.service(FakeGateway(tags())).current_conversation(STUDENT)
+        self.assertEqual(list(self.db.conversations), [conv.conversation_id])
+        self.assertEqual(self.db.conversations[conv.conversation_id]["subject_id"], SUBJECT)
+
+    async def test_reply_prompt_covers_every_subject_and_admits_missing_data(self) -> None:
+        from app.tutor.prompts import NOT_IN_DATABASE
+
+        self.assertNotIn("Қазақстан тарихы бойынша", SYSTEM)
+        self.assertIn("кез келген пәннен", SYSTEM)
+        self.assertIn(NOT_IN_DATABASE, SYSTEM)
 
     async def test_teacher_unblock_and_lock(self) -> None:
         svc = self.service(FakeGateway(tags()))

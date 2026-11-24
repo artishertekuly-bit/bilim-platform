@@ -1,13 +1,16 @@
-// «Не бойынша тапсырасыз?» — оқулық, көлем, тарау және § (дизайн: ExamPicker.dc.html).
+// «Не бойынша тапсырасыз?» (дизайн: ExamPicker.dc.html, D93): оқушы пәнді таңдап, тақырыпты өзі жазады.
+// Платформа дерекқордан сол тақырыптың §-ін табады; деңгей басталғанда банкте сұрақ жетпесе, олар құрылады.
+// «Толық пән» — оқулықтың барлық §-і (профиль мен жалпы балл осы көлемнен құрылады).
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { ChevronDownIcon } from '@/components/bl/icons';
 import { BareScreen, Button, ErrorNote, LoadingBlock, Section, Segmented, TextInput, TopBar } from '@/components/bl/ui';
 import { useExamSelection } from '@/lib/exam-selection';
-import { type ScopeType, type Topic, useExaminerApi } from '@/lib/examiner-api';
+import { useExaminerApi } from '@/lib/examiner-api';
 import { cn } from '@/lib/utils';
+
+type PickerScope = 'topic' | 'subject';
 
 function RadioDot({ on }: { on: boolean }) {
   return (
@@ -19,84 +22,81 @@ function RadioDot({ on }: { on: boolean }) {
 }
 
 const rowCls = 'flex min-h-[60px] w-full items-center gap-3 border-0 px-4 py-2.5 text-left text-bl-ink';
+const listCls = 'flex flex-col overflow-hidden rounded-2xl border border-bl-line bg-white [&>*+*]:border-t [&>*+*]:border-bl-soft';
+
+function gradeRange(grades: number[]): string {
+  if (!grades.length) return '';
+  const min = Math.min(...grades);
+  const max = Math.max(...grades);
+  return min === max ? `${min}-сынып` : `${min}–${max}-сынып`;
+}
 
 export default function ExamPickerPage() {
   const api = useExaminerApi();
   const navigate = useNavigate();
   const [sel, update] = useExamSelection();
-  const [book, setBook] = useState(sel.book);
-  const [scopeType, setScopeType] = useState<ScopeType>(sel.scopeType);
-  const [topicId, setTopicId] = useState(sel.topicId);
-  const [chapterId, setChapterId] = useState(sel.chapterId);
-  const [openChapter, setOpenChapter] = useState<string | null>(null);
-  const [q, setQ] = useState('');
 
   const subjects = useQuery({ queryKey: ['examiner', 'subjects'], queryFn: api.subjects });
-  const books = useMemo(
-    () => (subjects.data ?? []).flatMap((s) => s.books.map((b) => ({ ...b, subject: s.title }))),
-    [subjects.data],
-  );
+  const [subjectId, setSubjectId] = useState<string | null>(sel.subjectId);
+  const [scope, setScope] = useState<PickerScope>(sel.scopeType === 'subject' ? 'subject' : 'topic');
+  const [query, setQuery] = useState(sel.topicQuery);
+  const [submitted, setSubmitted] = useState(sel.topicQuery.trim());
+  const [topicId, setTopicId] = useState<string | null>(sel.topicId);
+  const [book, setBook] = useState<string | null>(sel.book);
+
+  // Бұрынғы таңдау (тек оқулық сақталған) немесе бірінші пән.
+  useEffect(() => {
+    const list = subjects.data;
+    if (!list?.length || (subjectId && list.some((s) => s.subject_id === subjectId))) return;
+    const bySavedBook = list.find((s) => s.books.some((b) => b.book === sel.book));
+    setSubjectId((bySavedBook ?? list[0]).subject_id);
+  }, [subjects.data, subjectId, sel.book]);
+
+  const subject = useMemo(() => subjects.data?.find((s) => s.subject_id === subjectId) ?? null, [subjects.data, subjectId]);
 
   useEffect(() => {
-    if (books.length && (!book || !books.some((b) => b.book === book))) setBook(books[0].book);
-  }, [books, book]);
+    if (subject && (!book || !subject.books.some((b) => b.book === book))) setBook(subject.books[0]?.book ?? null);
+  }, [subject, book]);
 
-  const scopes = useQuery({
-    queryKey: ['examiner', 'scopes', book],
-    queryFn: () => api.scopes(book as string),
-    enabled: Boolean(book),
+  const search = useQuery({
+    queryKey: ['examiner', 'topics', subjectId, submitted],
+    queryFn: () => api.searchTopics(subjectId as string, submitted),
+    enabled: Boolean(subjectId) && submitted.length >= 2 && scope === 'topic',
+    staleTime: 5 * 60_000,
   });
 
   useEffect(() => {
-    const data = scopes.data;
-    if (!data) return;
-    if (!topicId || !data.topics.some((t) => t.id === topicId)) setTopicId(data.topics[0]?.id ?? null);
-    if (!chapterId || !data.chapters.some((c) => c.id === chapterId)) setChapterId(data.chapters[0]?.id ?? null);
-    if (scopeType === 'chapter' && !data.book.has_chapters) setScopeType('topic');
-    const current = data.topics.find((t) => t.id === topicId);
-    if (openChapter === null) setOpenChapter(current?.chapter_id ?? data.chapters[0]?.id ?? '');
-  }, [scopes.data, topicId, chapterId, scopeType, openChapter]);
+    const found = search.data?.topics;
+    if (!found) return;
+    if (!topicId || !found.some((t) => t.id === topicId)) setTopicId(found[0]?.id ?? null);
+  }, [search.data, topicId]);
 
-  const data = scopes.data;
-  const query = q.trim().toLowerCase();
+  const onSearch = (event: FormEvent) => {
+    event.preventDefault();
+    const clean = query.trim().replace(/\s+/g, ' ');
+    setSubmitted(clean);
+    if (clean !== submitted) setTopicId(null);
+  };
 
-  // Тараусыз оқулықта §-тар бір топта.
-  const groups = useMemo(() => {
-    if (!data) return [];
-    const byChapter = new Map<string, Topic[]>();
-    data.topics.forEach((t) => {
-      const key = t.chapter_id ?? '';
-      byChapter.set(key, [...(byChapter.get(key) ?? []), t]);
-    });
-    const list = data.chapters.map((c) => ({ id: c.id, title: c.no ? `${c.no}-тарау · ${c.title}` : c.title, topics: byChapter.get(c.id) ?? [] }));
-    const loose = byChapter.get('') ?? [];
-    if (loose.length) list.push({ id: '', title: data.chapters.length ? 'Басқа параграфтар' : 'Параграфтар', topics: loose });
-    return list;
-  }, [data]);
-
-  const filtered = groups.map((g) => ({
-    ...g,
-    shown: g.topics.filter((t) => !query || `§${t.no} ${t.title}`.toLowerCase().includes(query)),
-  }));
-  const noMatch = scopeType === 'topic' && Boolean(query) && filtered.every((g) => g.shown.length === 0);
-
-  const currentBook = books.find((b) => b.book === book);
-  const topic = data?.topics.find((t) => t.id === topicId);
-  const chapter = groups.find((g) => g.id === chapterId);
+  const matches = search.data?.topics ?? [];
+  const topic = matches.find((t) => t.id === topicId) ?? null;
+  const currentBook = subject?.books.find((b) => b.book === book) ?? null;
+  const ready = scope === 'topic' ? Boolean(subjectId && topic) : Boolean(subjectId && currentBook);
   const summary =
-    scopeType === 'topic'
+    scope === 'topic'
       ? topic
         ? `§${topic.no} · ${topic.title}`
         : '—'
-      : scopeType === 'chapter'
-        ? chapter?.title ?? '—'
-        : currentBook
-          ? `${currentBook.title} · ${currentBook.grade}-сынып`
-          : '—';
-  const ready = Boolean(book && (scopeType === 'subject' || (scopeType === 'topic' ? topicId : chapterId)));
+      : currentBook
+        ? `${currentBook.title} · ${currentBook.grade}-сынып`
+        : '—';
 
   const apply = () => {
-    update({ book, scopeType, topicId, chapterId });
+    if (scope === 'topic' && topic) {
+      update({ subjectId, topicQuery: submitted, scopeType: 'topic', topicId: topic.id, book: topic.book, chapterId: null });
+    } else if (scope === 'subject' && currentBook) {
+      update({ subjectId, scopeType: 'subject', book: currentBook.book, chapterId: null });
+    }
     navigate('/exam');
   };
 
@@ -116,31 +116,28 @@ export default function ExamPickerPage() {
         {subjects.isError ? <ErrorNote error={subjects.error} onRetry={() => subjects.refetch()} /> : null}
         {subjects.isLoading ? <LoadingBlock rows={3} /> : null}
 
-        {books.length ? (
-          <Section label="Оқулық">
-            <div role="radiogroup" aria-label="Оқулық" className="flex flex-col overflow-hidden rounded-2xl border border-bl-line bg-white [&>*+*]:border-t [&>*+*]:border-bl-soft">
-              {books.map((b) => {
-                const on = b.book === book;
+        {subjects.data?.length ? (
+          <Section label="Пән">
+            <div role="radiogroup" aria-label="Пән" className={listCls}>
+              {subjects.data.map((s) => {
+                const on = s.subject_id === subjectId;
                 return (
                   <button
-                    key={b.book}
+                    key={s.subject_id}
                     type="button"
                     role="radio"
                     aria-checked={on}
                     onClick={() => {
-                      setBook(b.book);
+                      if (s.subject_id === subjectId) return;
+                      setSubjectId(s.subject_id);
                       setTopicId(null);
-                      setChapterId(null);
-                      setOpenChapter(null);
-                      setQ('');
+                      setBook(null);
                     }}
                     className={cn(rowCls, on ? 'bg-[#F1EFEA]' : 'bg-white')}
                   >
                     <span className="flex flex-1 flex-col gap-0.5">
-                      <span className="text-[15px] font-semibold">{b.title}</span>
-                      <span className="text-[13px] text-bl-ink2">
-                        {b.subject} · {b.grade}-сынып
-                      </span>
+                      <span className="text-[15px] font-semibold">{s.title}</span>
+                      <span className="text-[13px] text-bl-ink2">{gradeRange(s.books.map((b) => b.grade))}</span>
                     </span>
                     <RadioDot on={on} />
                   </button>
@@ -153,103 +150,104 @@ export default function ExamPickerPage() {
         <Section label="Емтихан көлемі">
           <Segmented
             label="Емтихан көлемі"
-            value={scopeType}
-            onChange={(id) => {
-              setScopeType(id);
-              setQ('');
-            }}
+            value={scope}
+            onChange={(id) => setScope(id)}
             options={[
               { id: 'topic', label: 'Тақырып' },
-              { id: 'chapter', label: 'Тарау', disabled: data ? !data.book.has_chapters : true },
-              { id: 'subject', label: 'Пән' },
+              { id: 'subject', label: 'Толық пән' },
             ]}
           />
 
-          {scopes.isLoading ? <LoadingBlock rows={3} /> : null}
-          {scopes.isError ? <ErrorNote error={scopes.error} onRetry={() => scopes.refetch()} /> : null}
-
-          {scopeType === 'topic' && data ? (
+          {scope === 'topic' ? (
             <>
-              <label htmlFor="picker-search" className="sr-only">
-                Параграф іздеу
-              </label>
-              <TextInput
-                id="picker-search"
-                type="search"
-                placeholder="§ немесе тақырып атауы"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                className="h-12 text-[15px]"
-              />
-            </>
-          ) : null}
+              <form onSubmit={onSearch} className="flex gap-2">
+                <label htmlFor="picker-topic" className="sr-only">
+                  Тақырып
+                </label>
+                <TextInput
+                  id="picker-topic"
+                  type="search"
+                  placeholder="Тақырыпты жазыңыз"
+                  value={query}
+                  maxLength={200}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="h-12 min-w-0 flex-1 text-[15px]"
+                />
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  size="md"
+                  full={false}
+                  className="h-12"
+                  disabled={query.trim().length < 2 || !subjectId}
+                >
+                  Іздеу
+                </Button>
+              </form>
 
-          {scopeType !== 'subject' && data ? (
-            <div className="flex flex-col gap-2">
-              {filtered.map((g) => {
-                if (scopeType === 'topic' && query && g.shown.length === 0) return null;
-                const isOpen = scopeType === 'topic' && (query ? g.shown.length > 0 : openChapter === g.id);
-                const chosen = scopeType === 'chapter' && chapterId === g.id;
-                if (scopeType === 'chapter' && !g.id) return null;
-                return (
-                  <div key={g.id || 'loose'} className="flex flex-col overflow-hidden rounded-2xl border border-bl-line bg-white">
+              {search.isFetching ? <LoadingBlock rows={2} /> : null}
+              {search.isError ? <ErrorNote error={search.error} onRetry={() => search.refetch()} /> : null}
+              {search.data && !search.isFetching ? (
+                matches.length ? (
+                  <div role="radiogroup" aria-label="Табылған бөлім" className={listCls}>
+                    {matches.map((t) => {
+                      const on = t.id === topicId;
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          onClick={() => setTopicId(t.id)}
+                          className={cn(rowCls, on ? 'bg-[#F1EFEA]' : 'bg-white')}
+                        >
+                          <span className="flex flex-1 flex-col gap-0.5">
+                            <span className="text-[15px] font-semibold">
+                              §{t.no} · {t.title}
+                            </span>
+                            <span className="text-[13px] text-bl-ink2">
+                              {t.grade}-сынып · {t.book_title}
+                            </span>
+                          </span>
+                          <RadioDot on={on} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="m-0 rounded-2xl border border-bl-line bg-white p-4 text-center text-sm leading-normal text-bl-ink2">
+                    Бұл тақырып бойынша дерекқорда материал табылмады. Басқаша жазып көріңіз.
+                  </p>
+                )
+              ) : null}
+            </>
+          ) : subject ? (
+            <>
+              <div role="radiogroup" aria-label="Оқулық" className={listCls}>
+                {subject.books.map((b) => {
+                  const on = b.book === book;
+                  return (
                     <button
+                      key={b.book}
                       type="button"
-                      role={scopeType === 'chapter' ? 'radio' : undefined}
-                      aria-checked={scopeType === 'chapter' ? chosen : undefined}
-                      aria-expanded={scopeType === 'topic' ? isOpen : undefined}
-                      onClick={() => (scopeType === 'chapter' ? setChapterId(g.id) : setOpenChapter(openChapter === g.id ? '' : g.id))}
-                      className={cn(rowCls, chosen ? 'bg-[#F1EFEA]' : 'bg-white')}
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setBook(b.book)}
+                      className={cn(rowCls, on ? 'bg-[#F1EFEA]' : 'bg-white')}
                     >
                       <span className="flex flex-1 flex-col gap-0.5">
-                        <span className="text-[15px] font-semibold">{g.title}</span>
-                        <span className="text-[13px] text-bl-ink2">
-                          {g.topics.length} §{scopeType === 'topic' ? ` · ${isOpen ? 'жабу' : 'ашу'}` : ''}
-                        </span>
+                        <span className="text-[15px] font-semibold">{b.title}</span>
+                        <span className="text-[13px] text-bl-ink2">{b.grade}-сынып</span>
                       </span>
-                      {scopeType === 'chapter' ? (
-                        <RadioDot on={chosen} />
-                      ) : (
-                        <ChevronDownIcon className={cn('text-bl-ink3 transition-transform', isOpen && 'rotate-180')} />
-                      )}
+                      <RadioDot on={on} />
                     </button>
-                    {isOpen ? (
-                      <div role="radiogroup" aria-label="Параграф" className="flex flex-col border-t border-bl-soft [&>*+*]:border-t [&>*+*]:border-bl-soft">
-                        {g.shown.map((t) => {
-                          const on = t.id === topicId;
-                          return (
-                            <button
-                              key={t.id}
-                              type="button"
-                              role="radio"
-                              aria-checked={on}
-                              onClick={() => setTopicId(t.id)}
-                              className={cn(rowCls, on ? 'bg-[#F1EFEA]' : 'bg-white')}
-                            >
-                              <span className="w-10 flex-none text-sm font-bold tabular-nums">§{t.no}</span>
-                              <span className="flex-1 text-[15px]">{t.title}</span>
-                              <RadioDot on={on} />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {noMatch ? <p className="m-0 p-4 text-center text-sm text-bl-ink2">Ондай параграф табылмады</p> : null}
-            </div>
-          ) : null}
-
-          {scopeType === 'subject' && currentBook ? (
-            <div className="flex flex-col gap-0.5 rounded-2xl border border-bl-line bg-white px-4 py-3.5">
-              <span className="text-base font-semibold">
-                {currentBook.title} · {currentBook.grade}-сынып
-              </span>
-              <span className="text-sm leading-[1.4] text-bl-ink2">
-                Барлық тараудан тең үлеспен, тарауаралық байланыспен. Профиль мен жалпы балл тек осы көлемнен құрылады.
-              </span>
-            </div>
+                  );
+                })}
+              </div>
+              <p className="m-0 text-sm leading-[1.4] text-bl-ink2">
+                Оқулықтың барлық бөлімінен тең үлеспен. Профиль мен жалпы балл тек осы көлемнен құрылады.
+              </p>
+            </>
           ) : null}
         </Section>
       </div>

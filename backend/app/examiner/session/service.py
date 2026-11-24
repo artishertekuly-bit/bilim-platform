@@ -6,10 +6,11 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import random
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -77,9 +78,12 @@ from .dto import (
     TeacherGradeActionResponse,
     TeacherGradeDetail,
     Topic,
+    TopicMatch,
+    TopicSearchResponse,
     Total,
     X3Result,
 )
+from . import topics as topic_search
 from .errors import ExaminerError, not_found, validation
 from .grading import AnswerInvalid, check_answer, check_hybrid_answer, extract_text_answer
 from .input_filter import check_code_filter, moderate_text
@@ -102,6 +106,36 @@ IDLE_MINUTES = 60          # D36
 LEASE_TAIL = "2 hours"     # T_tail, D14
 PREFETCH = 2               # ai_examiner §6
 LOCK_ROUNDS = 3
+
+# D93: the bank is filled by the people who use it. When a level lacks questions, the session starts as
+# `preparing`, Fast Lane generates the § stock in the background, then the session becomes active.
+ON_DEMAND_ENV = "EXAM_ON_DEMAND_GENERATION"   # "0" turns it off (then 409 BANK_NOT_READY, as in D64)
+PREPARE_TIMEOUT_S = 15 * 60
+PREPARE_STALE_MINUTES = 20                    # a preparing session older than this lost its worker (restart)
+GENERATION_TOPICS = 3                         # chapter / subject scope: generate for at most this many §
+PREPARE_SHORT = "Бұл тақырып бойынша жеткілікті тапсырма құрылмады. Басқа тақырыпты таңдап көріңіз."
+PREPARE_FAILED = "Тапсырмаларды дайындау кезінде қате шықты. Сәлден кейін деңгейді қайта бастап көріңіз."
+PREPARE_STALE = "Тапсырмаларды дайындау үзіліп қалды. Деңгейді қайта бастаңыз."
+# Cost guard: one generation fills a § level for everyone (~$0.5, D80 prices), but a single user should not
+# start dozens a day. Sessions served from the bank do not count.
+ON_DEMAND_DAILY_ENV = "EXAM_ON_DEMAND_DAILY_LIMIT"
+DEFAULT_ON_DEMAND_DAILY = 5
+ON_DEMAND_LIMIT_TEXT = ("Бүгін жаңа тапсырма құру шегі бітті. Тапсырмасы дайын тақырыптарды тапсыра аласыз, "
+                        "жаңа тақырыпты ертең бастаңыз.")
+
+# (scope, level, § to generate for, format applicability) → fills the bank. Injected in tests.
+Generator = Callable[["ResolvedScope", int, Sequence[str], Mapping[str, bool]], Awaitable[None]]
+
+
+def on_demand_enabled() -> bool:
+    return os.getenv(ON_DEMAND_ENV, "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def on_demand_daily_limit() -> int:
+    try:
+        return max(0, int(os.getenv(ON_DEMAND_DAILY_ENV, str(DEFAULT_ON_DEMAND_DAILY))))
+    except ValueError:
+        return DEFAULT_ON_DEMAND_DAILY
 
 
 @dataclass(frozen=True)
@@ -144,11 +178,15 @@ class ExaminerService:
         *,
         gateway: LLMGateway | None = None,
         rng: random.Random | None = None,
+        generator: Generator | None = None,
     ) -> None:
         self._pool = pool
         self._gateway_instance = gateway
         self._rng = rng or random.SystemRandom()
         self._bg_tasks: set[asyncio.Task[Any]] = set()
+        self._generator: Generator = generator or self._generate_with_pipeline
+        # One generation per (scope, level) at a time in this process: a second learner waits for the first.
+        self._prep_locks: dict[tuple[str, str, str, int], asyncio.Lock] = {}
 
     def _gateway(self) -> LLMGateway:
         if self._gateway_instance is None:
@@ -211,6 +249,62 @@ class ExaminerService:
             book=Book(book=book, title=first["book_title"], grade=first["grade"], has_chapters=bool(chapters)),
             subject_id=first["subject_id"], subject_title=subject or "",
             chapters=list(chapters.values()), topics=topics,
+        )
+
+    async def search_topics(self, subject_id: str, query: str) -> TopicSearchResponse:
+        """The learner writes the topic, the platform finds its § (D93). Embedding first, without holding a
+        connection; the vector search is skipped when it is unavailable."""
+        text = topic_search.clean_query(query)
+        if len(text) < 2:
+            raise validation("Тақырыпты жазыңыз.", {"fields": ["q"]})
+        vector: list[float] | None = None
+        try:
+            vector = (await self._gateway().embed([text], model_key="corpus"))[0]
+        except (LLMUnavailableError, LLMRequestError, ValueError, KeyError, IndexError) as exc:
+            logger.warning("topic search embedding unavailable: %s", type(exc).__name__)
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                select topic_id, book, grade::int as grade, book_title, paragraph_no, paragraph_title
+                from corpus.paragraphs
+                where subject_id = $1::uuid
+                order by grade, sort_no, paragraph_no
+                """,
+                subject_id,
+            )
+            if not rows:
+                raise not_found("Пән табылмады.")
+            distances: dict[str, float] = {}
+            if vector is not None:
+                try:
+                    hits = await conn.fetch(
+                        "select topic_id, min(distance)::float8 as distance "
+                        "from corpus.match_chunks($1::extensions.halfvec, $2) where topic_id is not null "
+                        "group by topic_id",
+                        _vector_literal(vector), topic_search.VECTOR_CHUNKS,
+                    )
+                    distances = {row["topic_id"]: row["distance"] for row in hits}
+                except asyncpg.PostgresError as exc:
+                    logger.warning("topic search vector lookup unavailable: %s", type(exc).__name__)
+        paragraphs = [
+            topic_search.Paragraph(
+                topic_id=row["topic_id"], book=row["book"], book_title=row["book_title"], grade=row["grade"],
+                paragraph_no=row["paragraph_no"], paragraph_title=row["paragraph_title"] or "",
+            )
+            for row in rows
+        ]
+        ranked = topic_search.rank_topics(text, paragraphs, distances)
+        return TopicSearchResponse(
+            subject_id=subject_id,
+            query=text,
+            topics=[
+                TopicMatch(
+                    id=r.paragraph.topic_id, no=r.paragraph.paragraph_no,
+                    title=r.paragraph.paragraph_title or f"§{r.paragraph.paragraph_no}",
+                    book=r.paragraph.book, book_title=r.paragraph.book_title, grade=r.paragraph.grade,
+                )
+                for r in ranked
+            ],
         )
 
     @staticmethod
@@ -284,8 +378,9 @@ class ExaminerService:
                     level=level, title=LEVEL_TITLES[level],
                     formats=[FORMAT_TITLES[name] for name in composition.formats],
                     tasks=composition.n, minutes=composition.minutes, available=True, availability=availability,
-                    note="Бұл масштаб бойынша сұрақтар әлі дайындалып жатыр." if availability == "unavailable"
-                    else None,
+                    # D93: every level opens; a short bank is filled when the learner starts the level.
+                    note="Бұл масштаб бойынша сұрақтар әлі дайындалып жатыр."
+                    if availability == "unavailable" and not on_demand_enabled() else None,
                     last=previous,
                 ))
         return LevelsResponse(scope=scope.dto(), levels=cards)
@@ -409,6 +504,17 @@ class ExaminerService:
     # ============================================================== сессия өмірі
 
     async def _abandon_idle(self, conn: Any, student_id: str) -> None:
+        # A preparing session whose worker died (restart) would wait forever: close it with a notice (D93).
+        await conn.execute(
+            f"""
+            update examiner.sessions
+            set status = 'abandoned', ended_at = now(),
+                composition = composition || jsonb_build_object('notice', $2::text)
+            where student_id = $1::uuid and status = 'preparing'
+              and created_at < now() - interval '{PREPARE_STALE_MINUTES} minutes'
+            """,
+            student_id, PREPARE_STALE,
+        )
         rows = await conn.fetch(
             f"""
             update examiner.sessions set status = 'abandoned', ended_at = now()
@@ -467,13 +573,31 @@ class ExaminerService:
                     scope = await self.resolve_scope(conn, request.scope_type, request.scope_id)
                     applicable = await self._applicability(conn, scope.subject_id)
                     composition = build_composition(request.level, applicable)
-                    chosen = await self._pick(conn, student_id, scope, request.level, list(composition.slots),
-                                              applicable)
-                    session_id = await self._create(conn, student_id, scope, composition, chosen)
+                    chosen: list[tuple[Slot, Candidate]] | None
+                    try:
+                        chosen = await self._pick(conn, student_id, scope, request.level,
+                                                  list(composition.slots), applicable)
+                    except ExaminerError as exc:
+                        # A Python-side error does not abort the transaction: the session row can still be written.
+                        if exc.code != "BANK_NOT_READY" or not on_demand_enabled():
+                            raise
+                        started_today = await conn.fetchval(
+                            "select count(*)::int from examiner.sessions where student_id = $1::uuid "
+                            "and created_at >= date_trunc('day', now()) and composition ? 'on_demand'",
+                            student_id,
+                        )
+                        if started_today >= on_demand_daily_limit():
+                            raise ExaminerError(429, "GENERATION_LIMIT", ON_DEMAND_LIMIT_TEXT) from exc
+                        chosen = None
+                    session_id = await self._create(conn, student_id, scope, composition, chosen or (),
+                                                    status="active" if chosen is not None else "preparing")
                     session = await self._session(conn, student_id, session_id)
                     await self._remember(conn, student_id, request_id, "POST /sessions", request_hash,
                                          session.model_dump(mode="json"))
-                    return session
+                # The transaction is committed: the background worker sees the preparing row.
+                if chosen is None:
+                    self._spawn(self._prepare(student_id, session_id, scope, request.level))
+                return session
             except asyncpg.UniqueViolationError as exc:
                 async with conn.transaction():
                     replay = await self._replay(conn, student_id, request_id, request_hash)
@@ -601,24 +725,119 @@ class ExaminerService:
         return order_items(slots, [c for c in chosen if c is not None])
 
     async def _create(self, conn: Any, student_id: str, scope: ResolvedScope, composition: Composition,
-                      chosen: Sequence[tuple[Slot, Candidate]]) -> str:
+                      chosen: Sequence[tuple[Slot, Candidate]], *, status: str = "active") -> str:
+        """`preparing` (D93) has no items and no `started_at` yet; `_activate` adds both."""
         snapshot = composition.to_json() | {
             "scope": scope.dto().model_dump(), "topics": list(scope.topics), "book_title": scope.book_title,
         }
+        if status == "preparing":
+            snapshot["on_demand"] = True  # counted by the daily cost guard
         session_id = await conn.fetchval(
             """
             insert into examiner.sessions (student_id, subject_id, scope_type, scope_id, level, status, composition,
                                            started_at, book)
-            values ($1::uuid, $2::uuid, $3::text, $4, $5::smallint, 'active', $6::jsonb, now(), $7)
+            values ($1::uuid, $2::uuid, $3::text, $4, $5::smallint, $8::text, $6::jsonb,
+                    case when $8::text = 'active' then now() end, $7)
             returning session_id::text
             """,
             student_id, scope.subject_id, scope.type, scope.db_id, composition.level,
-            json.dumps(snapshot, ensure_ascii=False), scope.book,
+            json.dumps(snapshot, ensure_ascii=False), scope.book, status,
         )
-        await self._add_items(
-            conn, student_id, session_id, [(slot.tier, slot.block, c.question_id) for slot, c in chosen], 1
-        )
+        if chosen:
+            await self._add_items(
+                conn, student_id, session_id, [(slot.tier, slot.block, c.question_id) for slot, c in chosen], 1
+            )
         return session_id
+
+    # ============================================================== сұраныс бойынша генерация (D93)
+
+    async def _prepare(self, student_id: str, session_id: str, scope: ResolvedScope, level: int) -> None:
+        """Background worker of a preparing session: fill the bank, then pick the items. Every outcome
+        leaves the session active or closed with a notice; nothing waits on the HTTP request."""
+        key = (scope.book, scope.type, scope.db_id, level)
+        lock = self._prep_locks.setdefault(key, asyncio.Lock())
+        try:
+            async with lock:
+                if not await self._still_preparing(session_id):
+                    return
+                async with self._pool.acquire() as conn:
+                    applicable = await self._applicability(conn, scope.subject_id)
+                await asyncio.wait_for(
+                    self._generator(scope, level, self._generation_topics(scope), applicable), PREPARE_TIMEOUT_S
+                )
+            await self._activate(student_id, session_id, scope, level)
+        except asyncio.CancelledError:
+            raise  # the service is closing; the stale check closes the session later
+        except ExaminerError as exc:
+            await self._fail_preparing(session_id, PREPARE_SHORT if exc.code == "BANK_NOT_READY" else exc.message)
+        except Exception as exc:  # noqa: BLE001 — the learner gets a notice, the log gets the reason
+            logger.exception("on-demand generation failed: %s", type(exc).__name__)
+            await self._fail_preparing(session_id, PREPARE_FAILED)
+
+    def _generation_topics(self, scope: ResolvedScope) -> list[str]:
+        topics = list(scope.topics)
+        if len(topics) <= GENERATION_TOPICS:
+            return topics
+        return self._rng.sample(topics, GENERATION_TOPICS)
+
+    async def _generate_with_pipeline(
+        self, scope: ResolvedScope, level: int, topics: Sequence[str], applicable: Mapping[str, bool]
+    ) -> None:
+        """Fast Lane with the bank's own stock policy: the § gets the same stock the CLI would give it.
+        Level 3 also needs code questions of level 1 for its A block."""
+        from ..bank.pipeline import BankPipeline
+        from ..bank.repository import PgBankRepository
+
+        pipeline = BankPipeline(self._gateway(), PgBankRepository(self._pool))
+        plans: list[tuple[int, list[str]]] = [(level, level_formats(level, applicable))]
+        if level == 3:
+            plans.append((1, [name for name in level_formats(1, applicable) if name in CODE_FORMATS]))
+        for plan_level, formats in plans:
+            if not formats:
+                continue
+            report = await pipeline.generate_now([scope.book], plan_level, topics=list(topics), formats=formats)
+            logger.info(
+                "on-demand generation finished",
+                extra={"book": scope.book, "level": plan_level, "topics": len(topics),
+                       "accepted": report.accepted, "rejected": report.rejected, "failed": report.failed},
+            )
+
+    async def _still_preparing(self, session_id: str) -> bool:
+        status = await self._pool.fetchval(
+            "select status from examiner.sessions where session_id = $1::uuid", session_id
+        )
+        return status == "preparing"
+
+    async def _activate(self, student_id: str, session_id: str, scope: ResolvedScope, level: int) -> None:
+        async with self._pool.acquire() as conn, conn.transaction():
+            row = await self._session_row(conn, student_id, session_id, lock=True)
+            if row["status"] != "preparing":
+                return  # the learner left meanwhile; the generated questions stay in the bank
+            applicable = await self._applicability(conn, scope.subject_id)
+            composition = build_composition(level, applicable)
+            chosen = await self._pick(conn, student_id, scope, level, list(composition.slots), applicable)
+            await self._add_items(
+                conn, student_id, session_id, [(slot.tier, slot.block, c.question_id) for slot, c in chosen], 1
+            )
+            await conn.execute(
+                "update examiner.sessions set status = 'active', started_at = now(), last_activity_at = now() "
+                "where session_id = $1::uuid",
+                session_id,
+            )
+
+    async def _fail_preparing(self, session_id: str, message: str) -> None:
+        try:
+            await self._pool.execute(
+                """
+                update examiner.sessions
+                set status = 'abandoned', ended_at = now(),
+                    composition = composition || jsonb_build_object('notice', $2::text)
+                where session_id = $1::uuid and status = 'preparing'
+                """,
+                session_id, message,
+            )
+        except asyncpg.PostgresError as exc:
+            logger.warning("preparing session was not closed: %s", type(exc).__name__)
 
     async def _add_items(
         self, conn: Any, student_id: str, session_id: str, items: Sequence[tuple[str, str | None, str]], first_position: int
@@ -851,6 +1070,7 @@ class ExaminerService:
             current=current_dto,
             upcoming=upcoming_dtos,
             strike_count=row["strike_count"], started_at=row["started_at"] or row["created_at"],
+            notice=composition.get("notice") if row["status"] == "abandoned" else None,
         )
 
     # ============================================================== жауап пен модерация
