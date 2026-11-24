@@ -1,26 +1,34 @@
 """Ойын сервисінің SQL сұраулары. Әрқайсысы `/* games:<атау> */` белгісімен басталады (журнал мен тестке)."""
 
 # Масштаб: сұрағы бар §-тер (geimifikatsiya §5): пән → оқулық → §, әр §-тегі тест пен дебат тақырыбы саны.
+# D98: тест саны — ойын банкі + §-ке байланған емтихан тесттері (көпір функциясы, жол көшірілмейді).
 SCOPES = """/* games:scopes */
+with gq as (
+  select topic_id, count(*) filter (where kind = 'mcq') as mcq, count(*) filter (where kind = 'debate_topic') as debate
+  from games.game_questions where status = 'active' group by topic_id
+), ex as (
+  select topic_id, mcq from games.examiner_paragraph_mcq(null)
+)
 select p.subject_id, s.name_kk as subject, s.sort_order, p.book, p.book_title, p.grade, p.topic_id,
        p.paragraph_no, p.paragraph_title, p.chapter_no, p.chapter, p.sort_no,
-       count(*) filter (where q.kind = 'mcq') as mcq,
-       count(*) filter (where q.kind = 'debate_topic') as debate
+       (coalesce(gq.mcq, 0) + coalesce(ex.mcq, 0))::int as mcq,
+       coalesce(gq.debate, 0)::int as debate
 from corpus.paragraphs p
 join corpus.subjects s on s.id = p.subject_id
-join games.game_questions q on q.topic_id = p.topic_id and q.status = 'active'
-group by p.subject_id, s.name_kk, s.sort_order, p.book, p.book_title, p.grade, p.topic_id, p.paragraph_no,
-         p.paragraph_title, p.chapter_no, p.chapter, p.sort_no
+left join gq on gq.topic_id = p.topic_id
+left join ex on ex.topic_id = p.topic_id
+where gq.topic_id is not null or ex.topic_id is not null
 order by s.sort_order, p.grade, p.book, p.sort_no, p.paragraph_no
 """
 
 SCOPE_CHECK = """/* games:scope_check */
 select p.topic_id, p.paragraph_no, p.paragraph_title,
-       (select count(*) from games.game_questions q
-         where q.topic_id = p.topic_id and q.status = 'active' and q.kind = 'mcq')::int as mcq,
+       ((select count(*) from games.game_questions q
+          where q.topic_id = p.topic_id and q.status = 'active' and q.kind = 'mcq') + coalesce(ex.mcq, 0))::int as mcq,
        (select count(*) from games.game_questions q
          where q.topic_id = p.topic_id and q.status = 'active' and q.kind = 'debate_topic')::int as debate
 from corpus.paragraphs p
+left join games.examiner_paragraph_mcq($3::text[]) ex on ex.topic_id = p.topic_id
 where p.subject_id = $1::uuid and p.book = $2 and p.topic_id = any($3::text[])
 """
 

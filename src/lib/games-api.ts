@@ -52,7 +52,7 @@ export interface RoomSummary {
   join_code: string | null;
   host_role: 'student' | 'teacher';
   is_host?: boolean;
-  scope: { subject_id: string; book: string; labels: string[] };
+  scope: { subject_id: string | null; book: string | null; labels: string[] };
   settings: Record<string, number>;
   min_players: number;
   max_players: number;
@@ -86,13 +86,43 @@ export interface MyRoom {
 
 export interface PracticeRecord { best_score: number | null; best_correct: number | null; achieved_at: string | null }
 
-export interface CreateRoomBody {
+/** D98: сұрақ көзі — оқулық §-тері, дайын пән банкі не еркін тақырып (банк бірінші, тапшылығы ЖИ-мен). */
+export type GameSource = 'paragraphs' | 'bank' | 'topic';
+
+export const SOURCE_LABEL: Record<GameSource, string> = {
+  bank: 'Пән банкі',
+  paragraphs: 'Параграфтар',
+  topic: 'Еркін тақырып',
+};
+
+/** Емтихан банкінде белсенді тесті бар пән (оқулығы жоқ «Дүниежүзі тарихы» да). */
+export interface BankSubject { subject_id: string; title: string; mcq: number; has_textbook: boolean }
+
+export interface SourceFields {
+  source?: GameSource;
+  subject_id?: string | null;
+  book?: string | null;
+  topic_ids?: string[];
+  subject_text?: string | null;
+  topic_query?: string | null;
+}
+
+export interface CreateRoomBody extends SourceFields {
   game_type: GameType;
   mode: GameMode;
-  subject_id: string;
-  book: string;
-  topic_ids: string[];
   settings: Record<string, number>;
+}
+
+/** Бөлме ашпай: көзде қанша сұрақ бар, ойынға қанша керек, ЖИ генерациясы керек пе. */
+export interface SourcePreview {
+  source: GameSource;
+  available: number;
+  needed: number;
+  deficit: number;
+  generate: boolean;
+  ready: boolean;
+  from_cache?: number;
+  from_bank?: number;
 }
 
 export type GameAction =
@@ -151,6 +181,9 @@ async function request<T>(token: string | undefined, path: string, init: Request
 export function createGamesApi(token: string | undefined) {
   return {
     scopes: () => request<ScopeSubject[]>(token, '/scopes'),
+    bankSubjects: () => request<BankSubject[]>(token, '/bank-subjects'),
+    preview: (body: SourceFields & { game_type: GameType }) =>
+      request<SourcePreview>(token, '/sources/preview', { method: 'POST', body: JSON.stringify(body) }),
     myRooms: () => request<MyRoom[]>(token, '/rooms/mine'),
     record: () => request<PracticeRecord>(token, '/practice/record'),
     createRoom: (body: CreateRoomBody) => request<RoomView>(token, '/rooms', { method: 'POST', body: JSON.stringify(body) }),
@@ -176,6 +209,7 @@ export function useGamesApi(): GamesApi {
 
 export const gamesKeys = {
   scopes: ['games', 'scopes'] as const,
+  bankSubjects: ['games', 'bank-subjects'] as const,
   mine: ['games', 'mine'] as const,
   record: ['games', 'record'] as const,
   room: (roomId: string) => ['games', 'room', roomId] as const,

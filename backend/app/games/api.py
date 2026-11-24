@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from ..dependencies.auth import get_current_user_with_role
 from .db import create_pool
-from .dto import ActionRequest, CreateRoomRequest, JoinRoomRequest
+from .dto import ActionRequest, CreateRoomRequest, JoinRoomRequest, PreviewRequest
 from .errors import GamesError, forbidden, unavailable
 from .service import GamesService
 
@@ -89,6 +89,19 @@ async def _db(operation: Callable[[], Awaitable[_T]]) -> _T:
 @router.get("/scopes")
 async def scopes(_: tuple[str, str] = Depends(current_user), service: GamesService = Depends(get_service)):
     return await _db(service.scopes)
+
+
+@router.get("/bank-subjects")
+async def bank_subjects(_: tuple[str, str] = Depends(current_user), service: GamesService = Depends(get_service)):
+    """D98: «Дайын пән банкі» — емтихан банкінде белсенді тесті бар пәндер (тек оқу көпірі)."""
+    return await _db(service.bank_subjects)
+
+
+@router.post("/sources/preview")
+async def preview_source(body: PreviewRequest, _: tuple[str, str] = Depends(current_user),
+                         service: GamesService = Depends(get_service)):
+    """D98: таңдалған көздегі сұрақ саны және генерация керек пе — бөлме ашпай, LLM шақырмай."""
+    return await _db(lambda: service.preview(body))
 
 
 @router.post("/rooms", status_code=201)

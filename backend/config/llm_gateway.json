@@ -126,6 +126,7 @@
         "socratic": { "model": "strong", "reasoning_effort": "low" },
         "priority": { "model": "strong", "reasoning_effort": "low" },
         "game_mcq": { "model": "small", "reasoning_effort": "high" },
+        "game_topic_mcq": { "model": "small", "reasoning_effort": "low", "max_output_tokens": 7000, "timeout_s": 90 },
         "game_debate": { "model": "small", "reasoning_effort": "medium" }
       }
     },

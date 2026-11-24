@@ -21,8 +21,17 @@ from typing import Any
 import asyncpg
 
 from . import queries as Q
-from .dto import ActionRequest, CreateRoomRequest
+from .dto import ActionRequest, CreateRoomRequest, PreviewRequest
 from .engines import ENGINES, MIN_BANK, MODES, debate
+from .provider import (
+    INSERT_ANSWERS_SOURCED,
+    BankShort,
+    DeckQuestions,
+    GenerationLimit,
+    QuestionBank,
+    on_demand_enabled,
+    sources_of,
+)
 from .engines.base import BOT_ID, AnswerLog, Ctx, GameRuleError, Outcome, PlayerInfo, Question, remember_request
 from .errors import GamesError, forbidden, not_found
 from .judge import judge_debate
@@ -109,12 +118,14 @@ class GamesService:
         gateway: Any = None,
         clock: Callable[[], datetime] | None = None,
         rng: random.Random | None = None,
+        topic_generator: Any = None,
     ) -> None:
         self._pool = pool
         self._gateway = gateway
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._rng = rng or random.Random(secrets.randbits(64))
         self._sweeper: asyncio.Task | None = None
+        self._bank = QuestionBank(pool, gateway=self._llm, rng=self._rng, generator=topic_generator)
 
     # ------------------------------------------------------------------ көмекшілер
 
@@ -129,8 +140,17 @@ class GamesService:
                 return None
         return self._gateway
 
-    def _ctx(self, conn: Any) -> Ctx:
-        return Ctx(now=self._clock(), rng=self._rng, questions=DbQuestions(conn))
+    def _ctx(self, conn: Any, room: Any = None) -> Ctx:
+        return Ctx(now=self._clock(), rng=self._rng, questions=self._questions(conn, room))
+
+    def _questions(self, conn: Any, room: Any) -> Any:
+        """D98: колодасы бар бөлме сұрақты колодадан алады (үш көз); ескі бөлме — бұрынғыша ойын банкінен."""
+        scope = (_json(room["scope"]) or {}) if room is not None else {}
+        deck = scope.get("deck")
+        if deck:
+            labels = dict(zip(scope.get("topic_ids") or [], scope.get("labels") or []))
+            return DeckQuestions(conn, deck, labels, self._rng)
+        return DbQuestions(conn)
 
     @staticmethod
     def _summary(room: Any, players: Sequence[Any], user_id: str | None) -> dict[str, Any]:
@@ -189,7 +209,7 @@ class GamesService:
         state = outcome.state
         version = await conn.fetchval(Q.SAVE_STATE, room["room_id"], json.dumps(state, ensure_ascii=False),
                                       engine.deadline(state))
-        await self._write_log(conn, room["room_id"], outcome.log)
+        await self._write_log(conn, room, outcome.log)
         for entry in outcome.entries:
             await conn.execute(Q.INSERT_DEBATE_ENTRY, room["room_id"], entry["user_id"], entry["round"], entry["text"],
                                entry["moderation"], (alerts or {}).get(entry["round"]))
@@ -205,11 +225,20 @@ class GamesService:
         return version
 
     @staticmethod
-    async def _write_log(conn: Any, room_id: str, log: Sequence[AnswerLog]) -> None:
+    async def _write_log(conn: Any, room: Any, log: Sequence[AnswerLog]) -> None:
         rows = [entry for entry in log if _is_uuid(entry.user_id)]
-        if rows:
-            await conn.execute(Q.INSERT_ANSWERS, room_id, [r.user_id for r in rows], [r.question_id for r in rows],
-                               [r.correct for r in rows])
+        if not rows:
+            return
+        deck = (_json(room["scope"]) or {}).get("deck")
+        if deck:
+            # D98: журналда сұрақтың көзі де жазылады (game / examiner / generated).
+            sources = sources_of(deck)
+            await conn.execute(INSERT_ANSWERS_SOURCED, room["room_id"], [r.user_id for r in rows],
+                               [r.question_id for r in rows], [r.correct for r in rows],
+                               [sources.get(r.question_id, "game") for r in rows])
+            return
+        await conn.execute(Q.INSERT_ANSWERS, room["room_id"], [r.user_id for r in rows],
+                           [r.question_id for r in rows], [r.correct for r in rows])
 
     async def _locked(self, conn: Any, room_id: str) -> tuple[Any, list[Any]]:
         room = await conn.fetchrow(Q.ROOM_FOR_UPDATE, room_id)
@@ -224,7 +253,7 @@ class GamesService:
         infos = [PlayerInfo(p["user_id"], p["seat"], p["display_name"]) for p in players if p["left_at"] is None]
         if room["mode"] == "bot":
             infos.append(PlayerInfo(BOT_ID, 1, BOT_NAME, bot=True))
-        ctx = self._ctx(conn)
+        ctx = self._ctx(conn, room)
         topics, labels = scope.get("topic_ids") or [], scope.get("labels") or []
         if room["game_type"] == "debate":
             topic = await DbQuestions(conn).debate_topic(topics, [p.user_id for p in infos])
@@ -267,17 +296,23 @@ class GamesService:
             options = engine.settings(req.settings)
         except GameRuleError as exc:
             raise _rule_error(exc) from None
-        subject_id = _uuid(req.subject_id)
-        topic_ids = list(dict.fromkeys(req.topic_ids))
+        if req.source != "paragraphs" and game == "debate":
+            raise GamesError(409, "DEBATE_NEEDS_TEXTBOOK",
+                             "Дебат тақырыбы оқулық мәтініне сүйенеді: «Оқулық параграфтары» көзін таңдаңыз.")
+        # D98: пән банкі мен еркін тақырыптың колодасы бөлмені ашатын байланыстан бұрын құрылады
+        # (еркін тақырыпта LLM шақырылуы мүмкін — ол кезде байланыс ұсталмайды).
+        scope: dict[str, Any] | None = None
+        if req.source == "bank":
+            subject_id = _uuid(req.subject_id)
+            deck = await self._deck(self._bank.bank_deck(subject_id, req.topic_query, min_bank=MIN_BANK[game]))
+            scope = deck.scope("bank", subject_id=subject_id, book=None)
+        elif req.source == "topic":
+            deck = await self._deck(self._bank.topic_deck(user_id, req.subject_text or "", req.topic_query or "",
+                                                          min_bank=MIN_BANK[game]))
+            scope = deck.scope("topic", subject_id=None, book=None)
         async with self._pool.acquire() as conn:
-            rows = {r["topic_id"]: r for r in await conn.fetch(Q.SCOPE_CHECK, subject_id, req.book, topic_ids)}
-            if len(rows) != len(topic_ids):
-                raise GamesError(422, "INVALID_SCOPE", "Таңдалған § бұл оқулықта жоқ.")
-            if sum(r["mcq"] for r in rows.values()) < MIN_BANK[game] or (
-                    game == "debate" and sum(r["debate"] for r in rows.values()) < 1):
-                raise GamesError(409, "BANK_EMPTY", "Бұл тақырыптарға ойын сұрақтары әлі жеткіліксіз.")
-            scope = {"subject_id": subject_id, "book": req.book, "topic_ids": topic_ids,
-                     "labels": [_label(rows[t]) for t in topic_ids]}
+            if scope is None:
+                scope = await self._paragraph_scope(conn, game, req)
             name = _short_name(await conn.fetchval(Q.DISPLAY_NAME, user_id) or "", 0)
             multi = req.mode == "multi"
             async with conn.transaction():
@@ -292,6 +327,58 @@ class GamesService:
             room = await conn.fetchrow(Q.ROOM, room_id)
             players = await conn.fetch(Q.PLAYERS, room_id)
         return self._view(room, players, user_id, None, 0)
+
+    async def _paragraph_scope(self, conn: Any, game: str, req: CreateRoomRequest) -> dict[str, Any]:
+        """Оқулық §-тері: ойын банкі мен §-ке байланған емтихан тесттері бірге саналады (D98)."""
+        subject_id = _uuid(req.subject_id)
+        topic_ids = list(dict.fromkeys(req.topic_ids))
+        rows = {r["topic_id"]: r for r in await conn.fetch(Q.SCOPE_CHECK, subject_id, req.book, topic_ids)}
+        if len(rows) != len(topic_ids):
+            raise GamesError(422, "INVALID_SCOPE", "Таңдалған § бұл оқулықта жоқ.")
+        if sum(r["mcq"] for r in rows.values()) < MIN_BANK[game] or (
+                game == "debate" and sum(r["debate"] for r in rows.values()) < 1):
+            raise GamesError(409, "BANK_EMPTY", "Бұл тақырыптарға ойын сұрақтары әлі жеткіліксіз.")
+        labels = [_label(rows[t]) for t in topic_ids]
+        if game == "debate":
+            return {"subject_id": subject_id, "book": req.book, "topic_ids": topic_ids, "labels": labels}
+        deck = await self._deck(self._bank.paragraph_deck(conn, subject_id, topic_ids, labels,
+                                                          min_bank=MIN_BANK[game]))
+        return deck.scope("paragraphs", subject_id=subject_id, book=req.book)
+
+    @staticmethod
+    async def _deck(build: Any) -> Any:
+        try:
+            return await build
+        except BankShort as exc:
+            raise GamesError(409, "BANK_EMPTY", f"Бұл таңдауда ойынға сұрақ жеткіліксіз: {exc.found} / {exc.needed}. "
+                             "Тақырыпты басқаша жазып көріңіз немесе кеңірек таңдаңыз.") from None
+        except GenerationLimit:
+            raise GamesError(429, "GENERATION_LIMIT", "Бүгін жаңа сұрақ құру шегі бітті. Дайын пән банкінен не "
+                             "оқулық §-терінен ойнай аласыз, ертең қайта көріңіз.") from None
+
+    async def bank_subjects(self) -> list[dict[str, Any]]:
+        """D98: емтихан банкінде белсенді тесті бар пәндер (оқулығы жоқ «Дүниежүзі тарихы» да)."""
+        return await self._bank.bank_subjects()
+
+    async def preview(self, req: PreviewRequest) -> dict[str, Any]:
+        """Бөлме ашпай: таңдалған көзде қанша сұрақ бар, ойынға қанша керек, генерация керек пе (LLM шақырылмайды)."""
+        needed = MIN_BANK[req.game_type]
+        if req.source == "bank":
+            found = len(await self._bank.bank_pool(_uuid(req.subject_id), req.topic_query, 200))
+            return {"source": "bank", "available": found, "needed": needed, "deficit": 0, "generate": False,
+                    "ready": found >= needed}
+        if req.source == "topic":
+            plan = await self._bank.topic_plan(req.subject_text or "", req.topic_query or "")
+            generate = bool(plan.deficit) and on_demand_enabled()
+            return {"source": "topic", "available": plan.found, "needed": needed, "deficit": plan.deficit,
+                    "generate": generate, "ready": plan.found >= needed or generate,
+                    "from_cache": len(plan.cached), "from_bank": len(plan.examiner)}
+        subject_id = _uuid(req.subject_id)
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(Q.SCOPE_CHECK, subject_id, req.book, list(dict.fromkeys(req.topic_ids)))
+        found = sum(int(r["mcq"]) for r in rows)
+        return {"source": "paragraphs", "available": found, "needed": needed, "deficit": 0, "generate": False,
+                "ready": found >= needed}
 
     async def _insert_room(self, conn: Any, game: str, mode: str, user_id: str, role: str, scope: dict,
                            options: dict, multi: bool) -> str:
@@ -316,7 +403,7 @@ class GamesService:
         await conn.execute(Q.INSERT_STATE, room["room_id"], json.dumps(outcome.state, ensure_ascii=False),
                            engine.deadline(outcome.state))
         await conn.execute(Q.SET_STATUS, room["room_id"], "playing", None)
-        await self._write_log(conn, room["room_id"], outcome.log)
+        await self._write_log(conn, room, outcome.log)
         started = dict(room) | {"status": "playing", "started_at": room["started_at"] or self._clock()}
         await self._broadcast(conn, started, players, outcome.state, 1, "playing")
         return outcome
@@ -402,7 +489,7 @@ class GamesService:
                     await conn.execute(Q.MARK_LEFT, room_id, user_id)
                     state = _json(room["state"])
                     try:
-                        outcome = await ENGINES[room["game_type"]].leave(state, user_id, self._ctx(conn))
+                        outcome = await ENGINES[room["game_type"]].leave(state, user_id, self._ctx(conn, room))
                     except GameRuleError as exc:
                         raise _rule_error(exc) from None
                     players = list(await conn.fetch(Q.PLAYERS, room_id))
@@ -438,7 +525,7 @@ class GamesService:
                         if alert:
                             alerts[int(state.get("round") or 1)] = alert
                 try:
-                    outcome = await ENGINES[room["game_type"]].act(state, user_id, action, self._ctx(conn))
+                    outcome = await ENGINES[room["game_type"]].act(state, user_id, action, self._ctx(conn, room))
                 except GameRuleError as exc:
                     raise _rule_error(exc) from None
                 version = await self._persist(conn, room, players, outcome, alerts)
@@ -523,7 +610,7 @@ class GamesService:
                     judge_job = (room["version"], state)
                 else:
                     players = list(await conn.fetch(Q.PLAYERS, room_id))
-                    outcome = await engine.timeout(state, self._ctx(conn))
+                    outcome = await engine.timeout(state, self._ctx(conn, room))
                     await self._persist(conn, room, players, outcome)
                     return 1
         if judge_job is not None:
@@ -553,7 +640,7 @@ class GamesService:
                     return
                 players = list(await conn.fetch(Q.PLAYERS, room_id))
                 outcome = (debate.apply_verdict(current, verdict) if verdict
-                           else debate.judge_failed(current, self._ctx(conn)))
+                           else debate.judge_failed(current, self._ctx(conn, room)))
                 await self._persist(conn, room, players, outcome)
 
     async def run_sweeper(self, interval: float = SWEEP_INTERVAL_S) -> None:

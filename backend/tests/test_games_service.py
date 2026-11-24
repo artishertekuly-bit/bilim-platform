@@ -179,6 +179,26 @@ class FakeDB:
     def q_insert_answers(self, room_id, users, qids, corrects):
         self.answers += list(zip(users, qids, corrects))
 
+    # D98: колода (deck) жолы — ойын банкі мен емтихан банкінің көпірі.
+    exam_pool: list[dict] = []
+
+    def q_game_pool(self, topics, limit):
+        return [{"question_id": q["question_id"], "topic_id": q["topic_id"], "difficulty": q["difficulty"]}
+                for q in self.questions if q["kind"] == "mcq" and q["topic_id"] in topics][:limit]
+
+    def q_examiner_pool(self, subject, topics, patterns, limit):
+        return [r for r in self.exam_pool if topics is None or r["topic_id"] in topics][:limit]
+
+    def q_game_items(self, ids):
+        return next((q for q in self.questions if q["question_id"] in ids and q["kind"] == "mcq"), None)
+
+    def q_seen(self, viewers, ids):
+        return []
+
+    def q_insert_answers_sourced(self, room_id, users, qids, corrects, sources):
+        self.answers += list(zip(users, qids, corrects))
+        self.sources = getattr(self, "sources", []) + list(sources)
+
     def q_insert_debate_entry(self, room_id, uid, round_no, text, moderation, alert_id):
         self.entries.append((uid, round_no, text, moderation, alert_id))
 

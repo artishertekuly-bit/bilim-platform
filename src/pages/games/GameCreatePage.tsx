@@ -1,16 +1,49 @@
 // Бөлме ашу (дизайн: GameSetup.dc.html; geimifikatsiya §5, D46, D49, D52): ойын, режим, ең көбі 8 §, баптаулар.
 // Мұғалім үшін тек сыныптық бөлме: ол ойнамайды, бөлмені проектордан басқарады (/teacher/games/:roomId).
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { CheckIcon } from '@/components/bl/icons';
-import { Banner, BareScreen, Button, ErrorNote, LoadingBlock, Section, Segmented, Select, TopBar } from '@/components/bl/ui';
+import { Banner, BareScreen, Button, ErrorNote, LoadingBlock, Section, Segmented, Select, TextInput, TopBar } from '@/components/bl/ui';
 import { useAuth } from '@/lib/auth-context';
-import { GAMES, GamesApiError, gamesKeys, useGamesApi, type GameMode, type GameType } from '@/lib/games-api';
+import {
+  GAMES,
+  GamesApiError,
+  SOURCE_LABEL,
+  gamesKeys,
+  useGamesApi,
+  type GameMode,
+  type GameSource,
+  type GameType,
+  type SourcePreview,
+} from '@/lib/games-api';
 import { cn } from '@/lib/utils';
 
 const MAX_TOPICS = 8;
+const SOURCES: GameSource[] = ['bank', 'paragraphs', 'topic'];
+const POOL_CAP = 200;
+
+function useDebounced<T>(value: T, ms = 400): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebounced(value), ms);
+    return () => window.clearTimeout(id);
+  }, [value, ms]);
+  return debounced;
+}
+
+/** D98: таңдалған көзде қанша сұрақ бар — бөлме ашпай-ақ көрінеді. */
+function availabilityText(source: GameSource, p: SourcePreview): string {
+  const count = p.available >= POOL_CAP ? `${POOL_CAP}+` : String(p.available);
+  if (source === 'topic' && p.generate) {
+    return p.available
+      ? `Банкте ${count} сұрақ бар. Жетпейтін ${p.deficit} сұрақты ЖИ бір рет құрады — кейін бұл тақырып бірден ашылады.`
+      : `Бұл тақырыпқа сұрақты ЖИ бір рет құрады (${p.deficit} сұрақ) — кейін бірден ашылады.`;
+  }
+  if (!p.ready) return `Сұрақ жеткіліксіз: ${count} / ${p.needed}. Тақырыпты басқаша жазып көріңіз.`;
+  return `Дайын: ${count} сұрақ · ойын бірден басталады.`;
+}
 
 const META: Record<GameType, string> = {
   conquest: '3–6 ойыншы',
@@ -29,7 +62,7 @@ const MODE_LABEL: Record<GameType, Partial<Record<GameMode, string>>> = {
 };
 
 const NOTES: Record<GameType, string> = {
-  conquest: 'Әр § картада бір аймақ болады. Ойын бос ұяшықтар біткенде немесе 40 минутта аяқталады.',
+  conquest: 'Әр § (пән банкінде — әр дәуір) картада бір аймақ болады. Ойын бос ұяшықтар біткенде немесе 40 минутта аяқталады.',
   checkers: 'Әр жүріс алдында сұрақ. Тас алатын жүрісте сұрақ қиынырақ.',
   battleship: 'Кемелерді өзіңіз орналастырасыз немесе автоматты түрде қойылады.',
   debate: 'Тақырып таңдалған §-тен алынады. «Жақтаймын» мен «Қарсымын» позициялары кездейсоқ беріледі.',
@@ -71,6 +104,34 @@ export default function GameCreatePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // D98: сұрақ көзі. Дебат тақырыбы оқулық мәтініне сүйенеді, сондықтан дебатта тек §-тер.
+  const requestedSource = params.get('source') as GameSource | null;
+  const [sourceChoice, setSourceChoice] = useState<GameSource>(
+    requestedSource && SOURCES.includes(requestedSource) ? requestedSource : 'bank',
+  );
+  const source: GameSource = gameType === 'debate' ? 'paragraphs' : sourceChoice;
+  const bankSubjects = useQuery({ queryKey: gamesKeys.bankSubjects, queryFn: api.bankSubjects, enabled: source === 'bank' });
+  const [bankSubjectId, setBankSubjectId] = useState<string | null>(null);
+  const bankSubject = bankSubjects.data?.find((s) => s.subject_id === bankSubjectId) ?? bankSubjects.data?.[0] ?? null;
+  const [bankTopic, setBankTopic] = useState('');
+  const [freeSubject, setFreeSubject] = useState('');
+  const [freeTopic, setFreeTopic] = useState('');
+  const query = useDebounced(source === 'bank' ? bankTopic.trim() : freeTopic.trim());
+  const subjectText = useDebounced(freeSubject.trim());
+  const previewEnabled =
+    (source === 'bank' && Boolean(bankSubject)) || (source === 'topic' && subjectText.length >= 2 && query.length >= 2);
+  const preview = useQuery({
+    queryKey: ['games', 'preview', source, gameType, bankSubject?.subject_id ?? null, subjectText, query],
+    queryFn: () =>
+      api.preview(
+        source === 'bank'
+          ? { game_type: gameType, source, subject_id: bankSubject?.subject_id, topic_query: query || null }
+          : { game_type: gameType, source, subject_text: subjectText, topic_query: query },
+      ),
+    enabled: previewEnabled,
+  });
+  const generating = busy && source === 'topic' && Boolean(preview.data?.generate);
+
   const subject = useMemo(
     () => scopes.data?.find((s) => s.subject_id === (subjectId ?? scopes.data?.[0]?.subject_id)) ?? null,
     [scopes.data, subjectId],
@@ -90,19 +151,22 @@ export default function GameCreatePage() {
   const settings: Record<string, number> =
     gameType === 'conquest' ? { size, answer_s: answerS } : gameType === 'baige' ? { stages } : gameType === 'debate' ? {} : { answer_s: answerS };
 
+  const sourceBody =
+    source === 'bank'
+      ? { source, subject_id: bankSubject?.subject_id ?? null, topic_query: bankTopic.trim() || null }
+      : source === 'topic'
+        ? { source, subject_text: freeSubject.trim(), topic_query: freeTopic.trim() }
+        : { source, subject_id: subject?.subject_id ?? null, book: selectedBook?.book ?? null, topic_ids: topics };
+  const previewMatches = source === 'bank' ? query === bankTopic.trim() : query === freeTopic.trim() && subjectText === freeSubject.trim();
+  const canCreate =
+    source === 'paragraphs' ? Boolean(subject && selectedBook && topics.length) : previewMatches && Boolean(preview.data?.ready);
+
   const create = async () => {
-    if (!subject || !selectedBook || !topics.length) return;
+    if (!canCreate) return;
     setBusy(true);
     setError(null);
     try {
-      const view = await api.createRoom({
-        game_type: gameType,
-        mode,
-        subject_id: subject.subject_id,
-        book: selectedBook.book,
-        topic_ids: topics,
-        settings,
-      });
+      const view = await api.createRoom({ game_type: gameType, mode, settings, ...sourceBody });
       navigate(isTeacher ? `/teacher/games/${view.room.room_id}` : `/games/rooms/${view.room.room_id}`, { replace: true });
     } catch (err) {
       setError(err instanceof GamesApiError ? err.message : 'Бөлме ашылмады.');
@@ -125,12 +189,20 @@ export default function GameCreatePage() {
     <BareScreen
       header={<TopBar back={isTeacher ? '/teacher' : '/games'} backLabel="Ойындарға оралу" title={isTeacher ? 'Сыныпқа бөлме ашу' : 'Бөлме ашу'} />}
       footer={
-        topics.length ? (
+        canCreate ? (
           <Button onClick={() => void create()} loading={busy}>
-            {busy ? 'Ашылуда…' : mode === 'multi' ? 'Бөлме ашу' : 'Бастау'}
+            {generating ? 'Сұрақтар құрылып жатыр…' : busy ? 'Ашылуда…' : mode === 'multi' ? 'Бөлме ашу' : 'Бастау'}
           </Button>
         ) : (
-          <Button disabled>Кемінде бір § таңдаңыз</Button>
+          <Button disabled>
+            {source === 'paragraphs'
+              ? 'Кемінде бір § таңдаңыз'
+              : source === 'topic' && (freeSubject.trim().length < 2 || freeTopic.trim().length < 2)
+                ? 'Пән мен тақырыпты жазыңыз'
+                : preview.isFetching || !previewMatches
+                  ? 'Тексерілуде…'
+                  : 'Сұрақ жеткіліксіз'}
+          </Button>
         )
       }
     >
@@ -174,6 +246,106 @@ export default function GameCreatePage() {
           </Section>
         ) : null}
 
+        {gameType === 'debate' ? null : (
+          <Section label="Сұрақ көзі">
+            <Segmented<GameSource>
+              label="Сұрақ көзі"
+              value={source}
+              onChange={(value) => {
+                setSourceChoice(value);
+                setError(null);
+              }}
+              options={SOURCES.map((s) => ({ id: s, label: SOURCE_LABEL[s] }))}
+            />
+          </Section>
+        )}
+
+        {source === 'bank' ? (
+          <section className="flex flex-col gap-2.5" aria-label="Пән банкі">
+            {bankSubjects.isLoading ? <LoadingBlock rows={2} /> : null}
+            {bankSubjects.isError ? <ErrorNote error={bankSubjects.error} onRetry={() => bankSubjects.refetch()} /> : null}
+            {bankSubjects.data && !bankSubjects.data.length ? (
+              <Banner tone="info">Пән банкі әлі бос. «Еркін тақырып» көзімен кез келген тақырыпқа ойнай аласыз.</Banner>
+            ) : null}
+            {bankSubjects.data?.length ? (
+              <>
+                <label htmlFor="game-bank-subject" className="sr-only">
+                  Пән
+                </label>
+                <Select
+                  id="game-bank-subject"
+                  className="h-12"
+                  value={bankSubject?.subject_id ?? ''}
+                  onChange={(e) => setBankSubjectId(e.target.value)}
+                >
+                  {bankSubjects.data.map((s) => (
+                    <option key={s.subject_id} value={s.subject_id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </Select>
+                <label htmlFor="game-bank-topic" className="sr-only">
+                  Тақырып сүзгісі
+                </label>
+                <TextInput
+                  id="game-bank-topic"
+                  className="h-12 text-[15px]"
+                  placeholder="Тақырып (міндетті емес): бос қалса, бүкіл пән"
+                  maxLength={200}
+                  autoComplete="off"
+                  value={bankTopic}
+                  onChange={(e) => setBankTopic(e.target.value)}
+                />
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
+        {source === 'topic' ? (
+          <section className="flex flex-col gap-2.5" aria-label="Еркін тақырып">
+            <label htmlFor="game-free-subject" className="sr-only">
+              Пән
+            </label>
+            <TextInput
+              id="game-free-subject"
+              className="h-12 text-[15px]"
+              placeholder="Пән, мысалы: Информатика"
+              maxLength={80}
+              autoComplete="off"
+              value={freeSubject}
+              onChange={(e) => setFreeSubject(e.target.value)}
+            />
+            <label htmlFor="game-free-topic" className="sr-only">
+              Тақырып
+            </label>
+            <TextInput
+              id="game-free-topic"
+              className="h-12 text-[15px]"
+              placeholder="Тақырып, мысалы: Excel формулалары"
+              maxLength={200}
+              autoComplete="off"
+              value={freeTopic}
+              onChange={(e) => setFreeTopic(e.target.value)}
+            />
+          </section>
+        ) : null}
+
+        {source !== 'paragraphs' && previewEnabled ? (
+          <p className="m-0 text-sm leading-[1.4] text-bl-ink2" aria-live="polite">
+            {preview.isError
+              ? preview.error instanceof GamesApiError
+                ? preview.error.message
+                : 'Сұрақ санын тексеру мүмкін болмады.'
+              : preview.data && previewMatches
+                ? availabilityText(source, preview.data)
+                : 'Сұрақ саны тексерілуде…'}
+          </p>
+        ) : null}
+        {generating ? (
+          <Banner tone="info">ЖИ осы тақырыпқа сұрақтарды құрып жатыр. Бұл бір рет қана, шамамен жарты минут алады.</Banner>
+        ) : null}
+
+        {source === 'paragraphs' ? (
         <section className="flex flex-col gap-2.5">
           <div className="flex items-baseline justify-between">
             <h2 className="m-0 text-[13px] font-semibold uppercase tracking-[0.04em] text-bl-ink2">Сұрақтар қай §-тен</h2>
@@ -184,7 +356,11 @@ export default function GameCreatePage() {
           {scopes.isLoading ? <LoadingBlock rows={3} /> : null}
           {scopes.isError ? <ErrorNote error={scopes.error} onRetry={() => scopes.refetch()} /> : null}
           {scopes.data && !scopes.data.length ? (
-            <Banner tone="warn">Ойын банкі әлі дайын емес: сұрақтар оқулықтан дайындалғанда ойындар ашылады.</Banner>
+            <Banner tone="info">
+              {gameType === 'debate'
+                ? 'Дебат тақырыбы бар § әзірге жоқ. Басқа ойынды «Пән банкі» не «Еркін тақырып» көзімен ойнай аласыз.'
+                : 'Оқулық §-терінде әзірге сұрақ жоқ. «Пән банкі» не «Еркін тақырып» көзін таңдаңыз.'}
+            </Banner>
           ) : null}
 
           {bookOptions.length > 1 ? (
@@ -260,6 +436,7 @@ export default function GameCreatePage() {
             </div>
           ))}
         </section>
+        ) : null}
 
         {gameType === 'conquest' ? (
           <section className="flex flex-col gap-3.5 rounded-2xl border border-bl-line bg-white p-4">
