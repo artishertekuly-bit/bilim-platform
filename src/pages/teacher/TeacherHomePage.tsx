@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 
 import { ChevronIcon, PlusIcon } from '@/components/bl/icons';
 import { ButtonLink, CountBadge, ErrorNote, ListGroup, ListRow, LoadingBlock, Segmented, Select, StateCard } from '@/components/bl/ui';
+import ClassAnalytics from '@/components/teacher/ClassAnalytics';
 import TeacherScreen from '@/components/teacher/TeacherScreen';
 import { useAuth } from '@/lib/auth-context';
 import { classKeys, classRoster, teacherClasses } from '@/lib/classes-api';
@@ -23,7 +24,21 @@ function readClass(): string | null {
   }
 }
 
+// lg (1024px) және одан кең экран: оң жақ бағанда толық кесте көрсетіледі.
+function useWideScreen(): boolean {
+  const query = '(min-width: 1024px)';
+  const [wide, setWide] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setWide(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+  return wide;
+}
+
 export default function TeacherHomePage() {
+  const wideScreen = useWideScreen();
   const { user } = useAuth();
   const api = useExaminerApi();
   const classes = useQuery({ queryKey: classKeys.teacherClasses, queryFn: teacherClasses });
@@ -81,19 +96,10 @@ export default function TeacherHomePage() {
   const pct = (n: number) => `${studentCount ? Math.round((n / studentCount) * 100) : 0}%`;
   const subjects = [...new Set((classes.data ?? []).map((c) => c.subject))].join(', ');
 
-  return (
-    <TeacherScreen title="Мұғалім панелі" subtitle={[user?.fullName, subjects].filter(Boolean).join(' · ')}>
-      {classes.isLoading ? <LoadingBlock rows={3} /> : null}
-      {classes.isError ? <ErrorNote error={classes.error} onRetry={() => classes.refetch()} /> : null}
-
-      {classes.data && classes.data.length === 0 ? (
-        <StateCard title="Әзірге сынып жоқ" text="Сынып ашып, қосылу кодын оқушыларға беріңіз. Сонда олардың нәтижесі осында көрінеді.">
-          <ButtonLink to="/teacher/classes?new=1">Сынып ашу</ButtonLink>
-        </StateCard>
-      ) : null}
-
-      {classes.data && classes.data.length > 0 ? (
-        classes.data.length <= 3 ? (
+  const switcher =
+    classes.data && classes.data.length > 0 ? (
+      <div className="lg:w-[360px]">
+        {classes.data.length <= 3 ? (
           <Segmented
             label="Сынып"
             value={classId ?? ''}
@@ -113,8 +119,26 @@ export default function TeacherHomePage() {
               ))}
             </Select>
           </>
-        )
+        )}
+      </div>
+    ) : null;
+
+  return (
+    <TeacherScreen title="Мұғалім панелі" subtitle={[user?.fullName, subjects].filter(Boolean).join(' · ')} wide right={wideScreen ? switcher : undefined}>
+      {classes.isLoading ? <LoadingBlock rows={3} /> : null}
+      {classes.isError ? <ErrorNote error={classes.error} onRetry={() => classes.refetch()} /> : null}
+
+      {classes.data && classes.data.length === 0 ? (
+        <StateCard title="Әзірге сынып жоқ" text="Сынып ашып, қосылу кодын оқушыларға беріңіз. Сонда олардың нәтижесі осында көрінеді.">
+          <ButtonLink to="/teacher/classes?new=1">Сынып ашу</ButtonLink>
+        </StateCard>
       ) : null}
+
+      {!wideScreen ? switcher : null}
+
+      {/* Ноутбукта (дизайн: DesktopTeacher.dc.html) сол жақта кезек пен сілтемелер, оң жақта сынып профильдерінің кестесі. */}
+      <div className="flex flex-col gap-[18px] lg:flex-row lg:items-start lg:gap-6">
+      <div className="flex min-w-0 flex-col gap-[18px] lg:flex-[1_1_340px] lg:gap-4">
 
       {current ? (
         <>
@@ -153,6 +177,7 @@ export default function TeacherHomePage() {
             </ButtonLink>
           </section>
 
+          {!wideScreen ? (
           <section className="flex flex-col gap-3 rounded-2xl border border-bl-line bg-white p-4">
             <div className="flex items-baseline justify-between">
               <h2 className="m-0 text-base font-semibold">Сынып нәтижесі</h2>
@@ -180,6 +205,7 @@ export default function TeacherHomePage() {
               Толық кесте мен рейтинг
             </ButtonLink>
           </section>
+          ) : null}
         </>
       ) : null}
 
@@ -195,6 +221,18 @@ export default function TeacherHomePage() {
         <PlusIcon size={18} />
         Жаңа сабақ жазу
       </Link>
+      </div>
+
+      {wideScreen && current ? (
+        <section className="flex min-w-0 flex-col gap-3 rounded-[18px] border border-bl-line bg-white p-5 lg:flex-[2_1_520px]">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="m-0 text-lg font-bold">Сынып профильдері · {current.subject}</h2>
+            <span className="text-[13px] text-bl-ink2">{studentCount} оқушы</span>
+          </div>
+          <ClassAnalytics classId={current.class_id} names={names} studentLink={(id) => `/teacher/students/${id}`} />
+        </section>
+      ) : null}
+      </div>
     </TeacherScreen>
   );
 }

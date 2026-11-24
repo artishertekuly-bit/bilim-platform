@@ -267,4 +267,5 @@ export function secondsLeft(deadline: string | null | undefined, now: number): n
   return Math.max(0, Math.ceil((new Date(deadline).getTime() - now) / 1000));
 }
 
-export const SEAT_COLORS = ['#2563EB', '#DC2626', '#16A34A', '#D97706', '#7C3AED', '#0891B2'];
+// Ойыншы түстері (дизайн: AdisBoard.dc.html PLAYERS).
+export const SEAT_COLORS = ['#2563EB', '#C2410C', '#15803D', '#BE185D', '#7C3AED', '#0891B2'];

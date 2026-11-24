@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 
 import AppShell from '@/components/bl/AppShell';
 import { ChevronDownIcon, SendIcon } from '@/components/bl/icons';
-import { Banner, BareScreen, ButtonLink, ErrorNote, LoadingBlock, StateCard, TopBar } from '@/components/bl/ui';
+import { Banner, BareScreen, Button, ButtonLink, ErrorNote, LoadingBlock, StateCard, TopBar } from '@/components/bl/ui';
 import {
   MAX_TUTOR_MESSAGE_CHARS,
   TutorApiError,
@@ -260,7 +260,7 @@ export default function TutorPage() {
   }
 
   const header = (
-    <header className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-5 lg:px-10 lg:pt-8">
+    <header className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-5 lg:mx-auto lg:w-full lg:max-w-[1040px] lg:px-10 lg:pt-8">
       <h1 className="m-0 text-[28px] font-bold leading-[1.15] tracking-[-0.02em]">Тьютор</h1>
       {subjects.data && subjects.data.length ? (
         <button
@@ -320,14 +320,17 @@ export default function TutorPage() {
   return (
     <AppShell fill>
       {header}
+      {/* Ноутбукта (дизайн: DesktopStudent.dc.html «Тьютор») диалог ақ картада, оң жақта қысқа панель. */}
+      <div className="flex min-h-0 flex-1 flex-col lg:mx-auto lg:w-full lg:max-w-[1040px] lg:flex-row lg:gap-6 lg:px-10 lg:pb-6">
+      <section aria-label="Тьютор диалогы" className="flex min-h-0 flex-1 flex-col lg:overflow-hidden lg:rounded-[18px] lg:border lg:border-bl-line lg:bg-white">
       <div aria-live="polite" className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[480px] flex-col gap-3 px-4 pb-4 pt-1.5 lg:max-w-[760px] lg:px-10">
+        <div className="mx-auto flex w-full max-w-[480px] flex-col gap-3 px-4 pb-4 pt-1.5 lg:max-w-none lg:px-5 lg:pt-5">
           {subjects.isPending || conversation.isPending ? <LoadingBlock rows={2} /> : null}
           {loadError ? <ErrorNote error={loadError} onRetry={() => (subjects.isError ? subjects.refetch() : conversation.refetch())} /> : null}
           {subjects.data && subjects.data.length === 0 ? <Banner tone="info">Тьютор әзірге бірде-бір пәнге дайын емес.</Banner> : null}
 
           {conversation.data && lines.length === 0 ? (
-            <div className="flex max-w-[88%] flex-col gap-2 self-start rounded-[16px_16px_16px_4px] border border-bl-line bg-white p-3.5 text-[15px] leading-normal">
+            <div className="flex max-w-[88%] flex-col gap-2 self-start rounded-[16px_16px_16px_4px] border border-bl-line bg-white p-3.5 text-[15px] leading-normal lg:bg-bl-bg">
               <p className="m-0 font-semibold">Сәлем! Мен — {subject?.title ?? 'пән'} тьюторыңмын.</p>
               <p className="m-0">
                 Кез келген сұрақ қой: оқулық бойынша түсіндіріп, бірге ойланамыз. Мен баға қоймаймын, мұнда қателесуге болады. Не
@@ -346,7 +349,7 @@ export default function TutorPage() {
             line.role === 'student' ? (
               <div
                 key={line.key}
-                className="max-w-[82%] self-end whitespace-pre-wrap rounded-[16px_16px_4px_16px] bg-bl-ink px-3.5 py-3 text-[15px] leading-[1.45] text-white"
+                className="max-w-[82%] self-end whitespace-pre-wrap rounded-[16px_16px_4px_16px] bg-bl-ink px-3.5 py-3 text-[15px] leading-[1.45] text-white lg:max-w-[78%]"
               >
                 {line.text}
               </div>
@@ -360,7 +363,7 @@ export default function TutorPage() {
             ) : (
               <div
                 key={line.key}
-                className="max-w-[88%] self-start whitespace-pre-wrap rounded-[16px_16px_16px_4px] border border-bl-line bg-white p-3.5 text-[15px] leading-normal"
+                className="max-w-[88%] self-start whitespace-pre-wrap rounded-[16px_16px_16px_4px] border border-bl-line bg-white p-3.5 text-[15px] leading-normal lg:max-w-[78%] lg:bg-bl-bg"
               >
                 {line.text}
               </div>
@@ -386,8 +389,8 @@ export default function TutorPage() {
       </div>
 
       {conversationId ? (
-        <form onSubmit={onSubmit} className="border-t border-bl-line bg-bl-bg">
-          <div className="mx-auto flex w-full max-w-[480px] flex-col gap-2 px-4 py-2.5 lg:max-w-[760px] lg:px-10">
+        <form onSubmit={onSubmit} className="border-t border-bl-line bg-bl-bg lg:bg-white">
+          <div className="mx-auto flex w-full max-w-[480px] flex-col gap-2 px-4 py-2.5 lg:max-w-none lg:px-5 lg:py-3.5">
             {notice ? <Banner tone="info">{notice}</Banner> : null}
             {failed ? (
               <Banner tone="bad">
@@ -431,6 +434,27 @@ export default function TutorPage() {
           </div>
         </form>
       ) : null}
+      </section>
+      <aside aria-label="Тьютор туралы" className="hidden lg:flex lg:w-[260px] lg:flex-none lg:flex-col lg:gap-3">
+        <section className="flex flex-col gap-2 rounded-2xl border border-bl-line bg-white p-4">
+          <h2 className="m-0 text-[15px] font-bold">Осы әңгімеде</h2>
+          <span className="text-sm leading-[1.45] text-bl-ink3">
+            {subject ? `${subject.title} · ${subject.grade}-сынып` : 'Пән таңдалмаған'}
+            {lines.length ? ` · ${lines.length} хабарлама` : ''}
+          </span>
+          <Button variant="secondary" size="sm" full={false} className="self-start" disabled={inputDisabled} onClick={() => void send('Не үйрендік?')}>
+            Не үйрендік?
+          </Button>
+        </section>
+        <section className="flex flex-col gap-2 rounded-2xl border border-bl-line bg-white p-4">
+          <h2 className="m-0 text-[15px] font-bold">Тексеріп көресіз бе?</h2>
+          <span className="text-sm leading-[1.45] text-bl-ink3">Түсінгеніңізді Емтиханда тексеріңіз: кез келген деңгейден бастауға болады.</span>
+          <ButtonLink to="/exam" size="md">
+            Емтиханға өту
+          </ButtonLink>
+        </section>
+      </aside>
+      </div>
     </AppShell>
   );
 }

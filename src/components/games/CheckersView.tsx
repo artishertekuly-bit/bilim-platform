@@ -1,8 +1,7 @@
 // Шашки — орыс дойбысы (geimifikatsiya §4.2, D44). Жүрістердің тізімін сервер береді: клиент тек таңдайды.
 import { useMemo, useState } from 'react';
 
-import { Card, Chip } from '@/components/exam/ExamUi';
-import { Countdown, LastAnswer, QuestionPanel, type QuestionView } from '@/components/games/GameUi';
+import { Countdown, LastAnswer, QuestionPanel, StatusBanner, type QuestionView } from '@/components/games/GameUi';
 import type { GameViewProps } from '@/components/games/types';
 import { cn } from '@/lib/utils';
 
@@ -47,20 +46,62 @@ export default function CheckersView({ view, act, busy }: GameViewProps) {
   };
 
   const order = Array.from({ length: 64 }, (_, i) => (flipped ? 63 - i : i));
+  const me = pub.players.find((p) => p.seat === mySeat);
+  const opponent = pub.players.find((p) => p.seat !== mySeat);
+  const countOf = (color?: 'w' | 'b') => (color ? pub.board.filter((c) => c && c.toLowerCase() === color).length : 0);
+  const finished = pub.phase === 'finished';
+
+  let title = myTurn ? 'Сіздің жүрісіңіз' : `${turnPlayer?.name ?? 'Қарсылас'} жүреді`;
+  let hint = myTurn ? 'Жүру үшін алдымен сұраққа жауап беріңіз. Тас алу міндетті.' : 'Ол сұраққа жауап беріп жатыр.';
+  if (pub.phase === 'move') {
+    title = myTurn ? 'Енді жүріңіз' : `${turnPlayer?.name ?? 'Қарсылас'} жүріс таңдап жатыр`;
+    hint = myTurn ? (selected === null ? 'Көк жиекті тасты таңдаңыз.' : 'Ақ нүктелі ұяшыққа жүріңіз.') : 'Күте тұрыңыз.';
+  }
+  if (pub.phase === 'bot') {
+    title = 'Демо-бот ойланып жатыр…';
+    hint = '';
+  }
+  if (finished) {
+    title = 'Ойын аяқталды';
+    hint = pub.winner_seat === mySeat ? 'Сіз жеңдіңіз!' : pub.winner_seat === null ? 'Тең ойын.' : `${opponent?.name ?? 'Қарсылас'} жеңді.`;
+  }
+
+  const box = (p: Player | undefined, label: string) => (
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-xl bg-white px-3 py-2.5',
+        p && p.seat === pub.turn_seat && !finished ? 'border-2 border-bl-ink' : 'border border-bl-line',
+      )}
+    >
+      <i
+        aria-hidden="true"
+        className={cn(
+          'box-border h-[18px] w-[18px] flex-none rounded-full',
+          p?.color === 'b' ? 'bg-bl-ink' : 'border-2 border-bl-ink bg-white',
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
+      <span className="text-lg font-bold tabular-nums" aria-label={`${countOf(p?.color)} тас`}>
+        {countOf(p?.color)}
+      </span>
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        {pub.players.map((p) => (
-          <Chip key={p.seat} tone={p.seat === pub.turn_seat ? 'good' : 'neutral'}>
-            {p.color === 'w' ? '○' : '●'} {p.name}
-          </Chip>
-        ))}
-        <Countdown deadline={pub.deadline} />
-        <span className="ml-auto text-xs text-[#5E5E5E]">Тассыз жүріс: {pub.quiet_moves}/{pub.draw_moves}</span>
+      <div className="grid grid-cols-2 gap-2">
+        {box(me, 'Сіз')}
+        {box(opponent, opponent?.name ?? 'Қарсылас')}
       </div>
 
-      <div className="grid grid-cols-8 overflow-hidden rounded-xl border border-[#2B2B2B]" role="grid" aria-label="Шашки тақтасы">
+      <StatusBanner title={title} hint={hint || undefined} />
+
+      <div className="flex items-center justify-between text-xs text-bl-ink2">
+        <Countdown deadline={pub.phase === 'question' ? null : pub.deadline} />
+        <span className="ml-auto">Тассыз жүріс: {pub.quiet_moves}/{pub.draw_moves}</span>
+      </div>
+
+      <div className="grid grid-cols-8 overflow-hidden rounded-[10px] border-2 border-bl-ink3" role="grid" aria-label="Шашки тақтасы">
         {order.map((square) => {
           const r = Math.floor(square / 8);
           const c = square % 8;
@@ -68,32 +109,40 @@ export default function CheckersView({ view, act, busy }: GameViewProps) {
           const piece = pub.board[square];
           const isTarget = targets.has(square);
           const isStart = myTurn && pub.phase === 'move' && starts.has(square);
+          const black = piece ? piece.toLowerCase() === 'b' : false;
+          const king = piece ? piece === piece.toUpperCase() : false;
+          const mine = piece ? piece.toLowerCase() === priv.color : false;
           return (
             <button
               key={square}
               type="button"
               onClick={() => onSquare(square)}
-              disabled={!dark}
-              aria-label={`${String.fromCharCode(97 + c)}${8 - r}${piece ? `, ${piece.toLowerCase() === 'w' ? 'ақ' : 'қара'}${piece === piece.toUpperCase() ? ' дамка' : ''}` : ''}`}
-              className={cn(
-                'relative flex aspect-square items-center justify-center',
-                dark ? 'bg-[#8B6B4A]' : 'bg-[#EAD9C0]',
-                lastSquares.has(square) && dark && 'bg-[#A88A5E]',
-                selected === square && 'ring-2 ring-inset ring-[#FACC15]',
-                isStart && selected !== square && 'ring-1 ring-inset ring-[#FDE68A]',
-              )}
+              disabled={!dark || !(isTarget || isStart)}
+              aria-label={`${String.fromCharCode(97 + c)}${8 - r}${
+                piece ? `, ${mine ? 'сіздің тасыңыз' : 'қарсылас тасы'}${king ? ', дамка' : ''}` : dark ? ', бос' : ''
+              }${isTarget ? ', осында жүруге болады' : ''}${isStart ? ', жүре алады' : ''}`}
+              className="relative flex aspect-square items-center justify-center border-0 p-0 disabled:cursor-default"
+              style={{
+                background: dark ? (lastSquares.has(square) ? '#8F8475' : '#A59B8B') : '#F1EFEA',
+                boxShadow: selected === square ? 'inset 0 0 0 4px #2563EB' : isStart ? 'inset 0 0 0 2px #2563EB' : undefined,
+              }}
             >
               {piece ? (
                 <span
+                  aria-hidden="true"
                   className={cn(
-                    'flex h-[78%] w-[78%] items-center justify-center rounded-full border-2 text-[11px] font-bold shadow',
-                    piece.toLowerCase() === 'w' ? 'border-[#D6D3CD] bg-[#FAFAF9] text-[#111111]' : 'border-[#0B0B0B] bg-[#262626] text-white',
+                    'box-border flex h-[76%] w-[76%] items-center justify-center rounded-full text-sm font-bold',
+                    black
+                      ? 'bg-bl-ink text-white shadow-[inset_0_-3px_0_rgba(255,255,255,0.18)]'
+                      : 'border-2 border-bl-ink bg-white text-bl-ink shadow-[inset_0_-3px_0_rgba(0,0,0,0.12)]',
                   )}
                 >
-                  {piece === piece.toUpperCase() ? '♛' : ''}
+                  {king ? 'Д' : ''}
                 </span>
               ) : null}
-              {isTarget ? <span className="absolute h-3 w-3 rounded-full bg-[#FACC15]" /> : null}
+              {isTarget ? (
+                <span aria-hidden="true" className="absolute h-3.5 w-3.5 rounded-full bg-white shadow-[0_0_0_3px_#2563EB]" />
+              ) : null}
             </button>
           );
         })}
@@ -104,16 +153,12 @@ export default function CheckersView({ view, act, busy }: GameViewProps) {
           question={pub.question}
           canAnswer={myTurn}
           busy={busy}
+          sheet
+          tag="Сұрақ · жүріс"
           onAnswer={(option) => void act({ type: 'answer', option })}
-          note={myTurn ? 'Дұрыс жауап берсең, жүріс жасайсың.' : `${turnPlayer?.name ?? ''} сұраққа жауап беріп жатыр.`}
+          note={myTurn ? 'Дұрыс жауап берсеңіз, жүріс жасайсыз.' : `${turnPlayer?.name ?? ''} сұраққа жауап беріп жатыр.`}
         />
       ) : null}
-      {pub.phase === 'move' ? (
-        <Card className="p-3 text-sm">
-          {myTurn ? 'Тасты таңда, сосын сары нүктеге жүр. Тас алу міндетті.' : `${turnPlayer?.name ?? ''} жүріс таңдап жатыр.`}
-        </Card>
-      ) : null}
-      {pub.phase === 'bot' ? <Card className="p-3 text-sm">Демо-бот ойланып жатыр…</Card> : null}
       <LastAnswer last={pub.last} />
     </div>
   );

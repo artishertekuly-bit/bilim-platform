@@ -1,10 +1,9 @@
 // Теңіз шайқасы (geimifikatsiya §4.3, D50). Өз кемелерің тек жеке арнадан келеді, қарсыластыкі ешқашан келмейді.
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 
-import { Card, Chip, PrimaryButton } from '@/components/exam/ExamUi';
-import { Countdown, LastAnswer, QuestionPanel, type QuestionView } from '@/components/games/GameUi';
+import { Button } from '@/components/bl/ui';
+import { Countdown, LastAnswer, QuestionPanel, StatusBanner, type QuestionView } from '@/components/games/GameUi';
 import type { GameViewProps } from '@/components/games/types';
-import { cn } from '@/lib/utils';
 
 interface Player {
   id: string; seat: number; name: string; bot: boolean; left: boolean; placed: boolean;
@@ -33,15 +32,16 @@ function around(cell: number): number[] {
   return out;
 }
 
-function Grid({ cells, onCell, label }: { cells: (i: number) => { className: string; mark: string; enabled: boolean }; onCell?: (i: number) => void; label: string }) {
+function Grid({ cells, onCell, label }: { cells: (i: number) => { style: CSSProperties; mark: string; enabled: boolean; aria?: string }; onCell?: (i: number) => void; label: string }) {
   return (
-    <div className="grid grid-cols-6 gap-1 rounded-xl border border-[#E2E0DB] bg-[#EAF2F8] p-1.5" role="grid" aria-label={label}>
+    <div className="grid grid-cols-6 gap-1" role="grid" aria-label={label}>
       {Array.from({ length: SIZE * SIZE }, (_, i) => {
         const cell = cells(i);
         return (
           <button key={i} type="button" disabled={!cell.enabled} onClick={() => onCell?.(i)}
-            aria-label={`${label}: ${String.fromCharCode(65 + (i % SIZE))}${Math.floor(i / SIZE) + 1}`}
-            className={cn('flex aspect-square items-center justify-center rounded text-sm font-bold', cell.className)}>
+            aria-label={`${label}: ${String.fromCharCode(65 + (i % SIZE))}${Math.floor(i / SIZE) + 1}${cell.aria ? `, ${cell.aria}` : ''}`}
+            className="flex aspect-square items-center justify-center rounded-lg border-0 p-0 text-xl font-bold disabled:cursor-default"
+            style={cell.style}>
             {cell.mark}
           </button>
         );
@@ -49,7 +49,6 @@ function Grid({ cells, onCell, label }: { cells: (i: number) => { className: str
     </div>
   );
 }
-
 function Placement({ fleet, act, busy }: { fleet: number[]; act: GameViewProps['act']; busy: boolean }) {
   const [ships, setShips] = useState<number[][]>([]);
   const [vertical, setVertical] = useState(false);
@@ -74,23 +73,26 @@ function Placement({ fleet, act, busy }: { fleet: number[]; act: GameViewProps['
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="m-0 text-sm text-[#4A4A4A]">
-        Кемелерді орналастыр: {length ? `қазір ${length} ұяшықты кеме` : 'бәрі қойылды'}. Кемелер бір-біріне тимейді.
+      <p className="m-0 text-sm text-bl-ink3">
+        {length ? `Қазір ${length} ұяшықты кемені қойыңыз.` : 'Барлық кеме қойылды.'} Кемелер бір-біріне тимейді.
       </p>
       <Grid label="Менің алаңым" onCell={place}
-        cells={(i) => ({ enabled: Boolean(length) && !busy, mark: occupied.has(i) ? '■' : '',
-          className: occupied.has(i) ? 'bg-[#475569] text-white' : blocked.has(i) ? 'bg-[#DCE6EE]' : 'bg-white' })} />
+        cells={(i) => ({ enabled: Boolean(length) && !busy, mark: '', aria: occupied.has(i) ? 'кеме' : undefined,
+          style: { background: occupied.has(i) ? '#4A4A4A' : blocked.has(i) ? '#EEF2F7' : '#DDE7F5' } })} />
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="rounded-full border border-[#D9D6D0] bg-white px-3 py-1.5 text-sm font-semibold"
-          onClick={() => setVertical((v) => !v)}>{vertical ? 'Тігінен' : 'Көлденең'}</button>
-        <button type="button" className="rounded-full border border-[#D9D6D0] bg-white px-3 py-1.5 text-sm font-semibold"
-          onClick={() => setShips([])}>Тазалау</button>
-        <button type="button" disabled={busy} className="rounded-full border border-[#111111] bg-white px-3 py-1.5 text-sm font-semibold"
-          onClick={() => void act({ type: 'auto_place' })}>Автоматты</button>
+        <Button variant="secondary" size="sm" full={false} aria-pressed={vertical} onClick={() => setVertical((v) => !v)}>
+          {vertical ? 'Тігінен' : 'Көлденең'}
+        </Button>
+        <Button variant="secondary" size="sm" full={false} onClick={() => setShips([])}>
+          Тазалау
+        </Button>
+        <Button variant="secondary" size="sm" full={false} disabled={busy} onClick={() => void act({ type: 'auto_place' })}>
+          Автоматты
+        </Button>
       </div>
-      <PrimaryButton disabled={remaining.length > 0 || busy} onClick={() => void act({ type: 'place', ships })}>
+      <Button disabled={remaining.length > 0 || busy} onClick={() => void act({ type: 'place', ships })}>
         Растау
-      </PrimaryButton>
+      </Button>
     </div>
   );
 }
@@ -104,62 +106,124 @@ export default function BattleshipView({ view, act, busy }: GameViewProps) {
   const myTurn = mySeat !== null && pub.turn_seat === mySeat;
   const myShips = new Set((priv.my_ships ?? []).flat());
   const turnPlayer = pub.players.find((p) => p.seat === pub.turn_seat);
+  const fleetSize = pub.fleet.length;
 
   if (pub.phase === 'placement') {
     return (
       <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-2"><Countdown deadline={pub.deadline} label="Орналастыру" /></div>
-        {me && !me.placed ? <Placement fleet={pub.fleet} act={act} busy={busy} /> : (
-          <Card className="p-4 text-sm">Кемелерің дайын. Қарсылас орналастырып жатыр…</Card>
+        <StatusBanner title="Кемелерді орналастырыңыз" hint={<Countdown deadline={pub.deadline} label="Қалған уақыт" />} />
+        {me && !me.placed ? (
+          <Placement fleet={pub.fleet} act={act} busy={busy} />
+        ) : (
+          <p className="m-0 rounded-[14px] border border-bl-line bg-white px-3.5 py-3 text-sm">Кемелеріңіз дайын. Қарсылас орналастырып жатыр…</p>
         )}
       </div>
     );
   }
 
-  const shotCell = (player: Player | undefined, i: number, showShips: boolean) => {
-    const shot = player?.board[String(i)];
-    const sunk = player?.sunk.some((s) => s.includes(i));
-    if (sunk) return { mark: '✕', className: 'bg-[#7F1D1D] text-white' };
-    if (shot === 'hit') return { mark: '✕', className: 'bg-[#DC2626] text-white' };
-    if (shot === 'miss') return { mark: '·', className: 'bg-[#DCE6EE] text-[#475569]' };
-    if (showShips && myShips.has(i)) return { mark: '', className: 'bg-[#475569]' };
-    return { mark: '', className: 'bg-white' };
+  const aiming = myTurn && pub.phase === 'shoot';
+  const finished = pub.phase === 'finished';
+  let title = myTurn ? 'Сіздің кезегіңіз' : `${turnPlayer?.name ?? 'Қарсылас'} жүреді`;
+  let hint = myTurn ? 'Ату үшін алдымен сұраққа жауап беріңіз.' : 'Ол сұраққа жауап беріп жатыр.';
+  if (aiming) {
+    title = 'Атыңыз';
+    hint = 'Қарсылас алаңындағы атылмаған ұяшықты таңдаңыз.';
+  }
+  if (pub.phase === 'bot') {
+    title = 'Демо-бот ойланып жатыр…';
+    hint = '';
+  }
+  if (finished) {
+    title = 'Шайқас аяқталды';
+    hint = (enemy?.ships_left ?? 0) === 0 ? 'Қарсыластың барлық кемесі батты.' : 'Сіздің барлық кемеңіз батты.';
+  }
+  const enemySunk = fleetSize - (enemy?.ships_left ?? fleetSize);
+
+  const enemyCell = (i: number) => {
+    const shot = enemy?.board[String(i)];
+    const sunk = enemy?.sunk.some((s) => s.includes(i));
+    if (shot === 'hit' || sunk) return { mark: '×', aria: sunk ? 'батқан кеме' : 'тиді', style: { background: sunk ? '#7F1D1D' : '#B42323', color: '#FFFFFF' } };
+    if (shot === 'miss') return { mark: '•', aria: 'мүлт', style: { background: '#EEF2F7', color: '#5E6B7D' } };
+    return { mark: '', aria: 'атылмаған', style: { background: '#DDE7F5', color: '#1E3A5F' } as CSSProperties };
   };
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Chip tone={myTurn ? 'good' : 'neutral'}>{myTurn ? 'Сенің кезегің' : `${turnPlayer?.name ?? ''} жүреді`}</Chip>
-        <Countdown deadline={pub.deadline} />
-        <span className="ml-auto text-xs text-[#5E5E5E]">Қарсыласта {enemy?.ships_left ?? 0} кеме қалды</span>
+      <StatusBanner title={title} hint={hint || undefined} accent={aiming ? '#1E3A5F' : '#111111'} />
+      <div className="flex justify-end">
+        <Countdown deadline={pub.phase === 'question' ? null : pub.deadline} />
       </div>
-      <p className="m-0 text-xs font-semibold uppercase tracking-wide text-[#5E5E5E]">{enemy?.name ?? 'Қарсылас'} алаңы</p>
-      <Grid label="Қарсылас алаңы"
-        onCell={(i) => void act({ type: 'shoot', cell: i })}
-        cells={(i) => {
-          const base = shotCell(enemy, i, false);
-          const free = !enemy?.board[String(i)];
-          const enabled = myTurn && pub.phase === 'shoot' && free && !busy;
-          return { ...base, enabled, className: cn(base.className, enabled && 'ring-1 ring-[#111111] hover:bg-[#FEF3C7]') };
-        }} />
-      {pub.phase === 'question' && pub.question ? (
-        <QuestionPanel question={pub.question} canAnswer={myTurn} busy={busy}
-          onAnswer={(option) => void act({ type: 'answer', option })}
-          note={myTurn ? 'Дұрыс жауап берсең, атасың.' : `${turnPlayer?.name ?? ''} сұраққа жауап беріп жатыр.`} />
-      ) : null}
-      {pub.phase === 'shoot' && myTurn ? <Card className="p-3 text-sm">Қарсылас алаңынан ұяшық таңдап, ат.</Card> : null}
-      {pub.phase === 'bot' ? <Card className="p-3 text-sm">Демо-бот ойланып жатыр…</Card> : null}
-      {pub.last?.result ? (
-        <p className="m-0 text-sm font-semibold">
-          {pub.last.result === 'miss' ? 'Мүлт кетті.' : pub.last.result === 'sunk' ? 'Кеме батты!' : 'Тиді!'}
-        </p>
-      ) : <LastAnswer last={pub.last} />}
+
+      <section className="flex flex-col gap-2">
+        <div className="flex items-baseline justify-between">
+          <h2 className="m-0 text-sm font-semibold">{enemy?.name ?? 'Қарсылас'} флоты</h2>
+          <span className="text-[13px] text-bl-ink3">
+            Батқан кеме: {enemySunk} / {fleetSize}
+          </span>
+        </div>
+        <Grid
+          label="Қарсылас алаңы"
+          onCell={(i) => void act({ type: 'shoot', cell: i })}
+          cells={(i) => {
+            const base = enemyCell(i);
+            const enabled = aiming && !enemy?.board[String(i)] && !busy;
+            return {
+              ...base,
+              enabled,
+              style: enabled ? { ...base.style, outline: '2px solid #1E3A5F', outlineOffset: -2 } : base.style,
+            };
+          }}
+        />
+      </section>
+
       {mySeat !== null ? (
-        <>
-          <p className="m-0 text-xs font-semibold uppercase tracking-wide text-[#5E5E5E]">Менің алаңым</p>
-          <Grid label="Менің алаңым" cells={(i) => ({ ...shotCell(me, i, true), enabled: false })} />
-        </>
+        <section className="flex items-start gap-3.5 rounded-[14px] border border-bl-line bg-white p-3">
+          <div
+            role="img"
+            aria-label={`Сіздің флотыңыз: ${me?.ships_left ?? 0} кеме қалды`}
+            className="grid flex-none grid-cols-[repeat(6,18px)] gap-0.5"
+          >
+            {Array.from({ length: SIZE * SIZE }, (_, i) => {
+              const st = me?.board[String(i)];
+              const ship = myShips.has(i);
+              const bg = st === 'hit' ? '#B42323' : st === 'miss' ? '#EEF2F7' : ship ? '#4A4A4A' : '#DDE7F5';
+              return (
+                <i
+                  key={i}
+                  className="block h-[18px] w-[18px] rounded"
+                  style={{ background: bg, boxShadow: st === 'miss' ? 'inset 0 0 0 6px #EEF2F7, inset 0 0 0 9px #8C9AAD' : undefined }}
+                />
+              );
+            })}
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="text-sm font-semibold">Сіздің флотыңыз</span>
+            <span className="text-[13px] text-bl-ink3">
+              Қалған кеме: {me?.ships_left ?? 0} / {fleetSize}
+            </span>
+            {pub.last?.result ? (
+              <span className="text-[13px] leading-[1.4]">
+                {pub.last.seat === mySeat ? 'Сіз: ' : `${turnPlayer?.name ?? 'Қарсылас'}: `}
+                {pub.last.result === 'miss' ? 'мүлт кетті.' : pub.last.result === 'sunk' ? 'кеме батты!' : 'тиді!'}
+              </span>
+            ) : null}
+          </div>
+        </section>
       ) : null}
+
+      {pub.phase === 'question' && pub.question ? (
+        <QuestionPanel
+          question={pub.question}
+          canAnswer={myTurn}
+          busy={busy}
+          sheet
+          tag="Сұрақ · оқ"
+          tagStyle={{ background: '#DDE7F5', color: '#1E3A5F' }}
+          onAnswer={(option) => void act({ type: 'answer', option })}
+          note={myTurn ? 'Дұрыс жауап берсеңіз, атасыз.' : `${turnPlayer?.name ?? ''} сұраққа жауап беріп жатыр.`}
+        />
+      ) : null}
+      {!pub.last?.result ? <LastAnswer last={pub.last} /> : null}
     </div>
   );
 }

@@ -108,6 +108,8 @@ export default function ExamHomePage() {
   return (
     <AppShell>
       <Page className="gap-[22px] pt-6">
+        {/* Ноутбукта (дизайн: DesktopStudent.dc.html) тақырып пен көлем бір жолда, деңгейлер екі бағанда. */}
+        <div className="flex flex-col gap-[22px] lg:flex-row lg:flex-wrap lg:items-end lg:justify-between lg:gap-6">
         <div className="flex flex-col gap-1">
           <h1 className="m-0 text-[28px] font-bold leading-[1.15] tracking-[-0.02em]">Емтихан</h1>
           <Link
@@ -116,12 +118,13 @@ export default function ExamHomePage() {
             className="flex min-h-8 items-center gap-1 self-start text-[15px] text-bl-ink2 no-underline"
           >
             {currentBook ? `${currentBook.subject} · ${currentBook.grade}-сынып` : 'Оқулықты таңдаңыз'}
+            {levels.data?.scope.title ? <span className="hidden lg:inline">&nbsp;· {levels.data.scope.title}</span> : null}
             <ChevronDownIcon size={16} />
           </Link>
         </div>
 
         {active.data ? (
-          <Card className="flex flex-col gap-3 p-4">
+          <Card className="flex flex-col gap-3 p-4 lg:order-last lg:basis-full">
             <div className="flex items-center gap-3.5">
               <span aria-hidden="true" className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-bl-ink text-lg font-bold text-white">
                 {active.data.level}
@@ -152,8 +155,13 @@ export default function ExamHomePage() {
           </Card>
         ) : null}
 
-        {subjects.isError ? <ErrorNote error={subjects.error} onRetry={() => subjects.refetch()} /> : null}
+        {subjects.isError ? (
+          <div className="lg:order-last lg:basis-full">
+            <ErrorNote error={subjects.error} onRetry={() => subjects.refetch()} />
+          </div>
+        ) : null}
 
+        <div className="lg:w-[360px] lg:[&_h2]:sr-only">
         <Section label="Емтихан көлемі">
           <Segmented
             label="Емтихан көлемі"
@@ -170,12 +178,14 @@ export default function ExamHomePage() {
           />
           <Link
             to="/exam/picker"
-            className="flex flex-col gap-0.5 rounded-2xl border border-bl-line bg-white px-4 py-3.5 text-bl-ink no-underline hover:border-bl-field"
+            className="flex flex-col gap-0.5 rounded-2xl border border-bl-line bg-white px-4 py-3.5 text-bl-ink no-underline hover:border-bl-field lg:hidden"
           >
             <span className="text-base font-semibold">{levels.data?.scope.title ?? ' '}</span>
             <span className="text-sm leading-[1.4] text-bl-ink2">{SCOPE_SUB[sel.scopeType]}</span>
           </Link>
         </Section>
+        </div>
+        </div>
 
         <section className="flex flex-col gap-2.5">
           <div className="flex flex-col gap-0.5">
@@ -203,7 +213,8 @@ export default function ExamHomePage() {
               </ButtonLink>
             </div>
           ) : (
-            levels.data?.levels.map((card) => {
+            <div className="flex flex-col gap-2.5 lg:grid lg:grid-cols-[repeat(auto-fit,minmax(300px,1fr))] lg:gap-4">
+            {levels.data?.levels.map((card) => {
               const status = levelStatus(card);
               const enabled = card.available && card.availability !== 'unavailable' && !start.isPending;
               return (
@@ -235,7 +246,8 @@ export default function ExamHomePage() {
                   </span>
                 </button>
               );
-            })
+            })}
+            </div>
           )}
         </section>
       </Page>
