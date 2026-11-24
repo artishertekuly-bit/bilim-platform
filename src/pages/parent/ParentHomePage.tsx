@@ -27,7 +27,7 @@ function ChildResults({ child }: { child: ChildRow }) {
       {profile.data && !profile.data.subjects.length ? <EmptyNote>Әзірге «Пән» көлеміндегі емтихан нәтижесі жоқ.</EmptyNote> : null}
       {profile.data?.subjects.map((s) =>
         s.levels.some((l) => l.p !== null) ? (
-          <Card key={s.subject.book} className="flex flex-col gap-2.5 p-3.5">
+          <Card key={s.subject.id} className="flex flex-col gap-2.5 p-3.5">
             <span className="flex items-center justify-between gap-2">
               <span className="text-base font-semibold">{s.subject.title}</span>
               {s.f !== null ? (
@@ -39,7 +39,7 @@ function ChildResults({ child }: { child: ChildRow }) {
             <LevelGrid levels={s.levels} />
           </Card>
         ) : (
-          <div key={s.subject.book} className="flex items-center justify-between rounded-2xl border border-bl-line bg-white p-3.5">
+          <div key={s.subject.id} className="flex items-center justify-between rounded-2xl border border-bl-line bg-white p-3.5">
             <span className="text-base font-semibold">{s.subject.title}</span>
             <span className="text-[13px] text-bl-ink2">Барлық деңгей өтпеді</span>
           </div>

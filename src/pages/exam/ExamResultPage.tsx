@@ -147,7 +147,7 @@ export default function ExamResultPage() {
 
       {data.scope.type === 'subject' ? (
         <section className="flex flex-col gap-2.5">
-          <SectionLabel>Профиль · {data.subject_profile.subject.book_title}</SectionLabel>
+          <SectionLabel>Профиль · {data.subject_profile.subject.title}</SectionLabel>
           <LevelGrid levels={data.subject_profile.levels} />
           <p className="m-0 text-[13px] leading-snug text-[#5E5E5E]">
             Жалпы балл төрт деңгей түгел тапсырылғанда есептеледі.

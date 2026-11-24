@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 ScopeType = Literal["topic", "chapter", "subject"]
 Tier = Literal["X1", "X2", "X3"]
@@ -19,10 +19,23 @@ Availability = Literal["ready", "low_stock", "unavailable"]
 
 
 class StartSessionRequest(BaseModel):
+    """Either a textbook scope (`scope_type` + `scope_id`) or, since D93, a subject and the topic the learner or
+    teacher wrote (`subject_id` + `topic`): the platform takes the matching textbook text itself."""
+
     client_request_id: UUID
-    scope_type: ScopeType
-    scope_id: str = Field(min_length=1, max_length=200)
+    scope_type: ScopeType | None = None
+    scope_id: str | None = Field(default=None, min_length=1, max_length=200)
+    subject_id: UUID | None = None
+    topic: str | None = Field(default=None, min_length=2, max_length=200)
     level: int = Field(ge=1, le=4)
+
+    @model_validator(mode="after")
+    def _one_way(self) -> "StartSessionRequest":
+        by_scope = self.scope_type is not None and self.scope_id is not None
+        by_topic = self.subject_id is not None and self.topic is not None and bool(self.topic.strip())
+        if by_scope == by_topic:
+            raise ValueError("scope_type + scope_id немесе subject_id + topic беріледі")
+        return self
 
 
 class AnswerRequest(BaseModel):
@@ -102,22 +115,6 @@ class ScopeCatalog(BaseModel):
     chapters: list[Chapter]
     topics: list[Topic]
 
-
-class TopicMatch(BaseModel):
-    """A textbook § found for a topic the learner typed (D93)."""
-
-    id: str              # topic_id, used as a `topic` scope id
-    no: str
-    title: str
-    book: str
-    book_title: str
-    grade: int
-
-
-class TopicSearchResponse(BaseModel):
-    subject_id: str
-    query: str
-    topics: list[TopicMatch]  # best first, at most 3; empty when the database has nothing on it
 
 
 # ------------------------------------------------------------------ сессия

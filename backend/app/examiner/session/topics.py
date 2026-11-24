@@ -69,6 +69,21 @@ def lexical_score(query: str, title: str) -> float:
     return sum(1 for w in q if any(_match(w, tw) for tw in t)) / len(q)
 
 
+def full_title_match(query: str, paragraphs: Sequence[Paragraph]) -> Ranked | None:
+    """A § whose title contains every word of the query (the usual case: learners write a § title). The lowest
+    grade wins a tie, as in `rank_topics`. None when no title has them all."""
+    best: Paragraph | None = None
+    for p in paragraphs:
+        if lexical_score(query, p.paragraph_title) >= 1.0 and (best is None or (p.grade, p.topic_id) < (best.grade, best.topic_id)):
+            best = p
+    return Ranked(best, 1.0) if best is not None else None
+
+
+def halfvec_literal(values: Sequence[float]) -> str:
+    """halfvec keeps ~3.3 significant digits, so four are enough; a 3072-d vector shrinks from ~60 KB of text."""
+    return "[" + ",".join(f"{v:.4g}" for v in values) + "]"
+
+
 def rank_topics(
     query: str,
     paragraphs: Sequence[Paragraph],

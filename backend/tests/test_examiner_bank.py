@@ -1444,6 +1444,40 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report.accepted, 3)
         self.assertEqual(events[:2], ["start", "end"])
         self.assertEqual(events.count("start"), 3)
+
+    async def test_on_demand_fast_lane_runs_checks_in_parallel_and_still_stops_repeats(self) -> None:
+        """D93: generation, the solver check and embeddings overlap (the first on-demand run processed results one
+        by one, ~4 s each). Bank comparison stays serial: two identical questions arriving together, one passes."""
+        live = {"generation": 0, "solver": 0}
+        peak = {"generation": 0, "solver": 0}
+        original = self.provider.complete
+
+        async def tracked(request: CompletionRequest) -> ProviderCompletion:
+            kind = "generation" if request.schema_name == "MCQGen" else "solver" if request.schema_name == "SolverAnswer" else None
+            if kind is None:
+                return await original(request)
+            live[kind] += 1
+            peak[kind] = max(peak[kind], live[kind])
+            await asyncio.sleep(0.01)
+            try:
+                return await original(request)
+            finally:
+                live[kind] -= 1
+
+        self.provider.complete = tracked  # type: ignore[method-assign]
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        texts = self.distinct_mcqs(3)
+        self.provider.generation_texts = [texts[0], texts[0], texts[1], texts[2]]
+        report = await self.pipeline.generate_now(
+            ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["mcq"], rounds=1, warmup=False,
+            targets={("mcq", "X1"): 2, ("mcq", "X2"): 2})
+        self.assertEqual(len(self.repo.requests), 4)            # session-sized, not the § stock
+        self.assertGreater(peak["generation"], 1)               # no warm-up wave
+        self.assertGreater(peak["solver"], 1)                   # checks overlap
+        self.assertEqual((report.accepted, report.rejected), (3, 1))
+        self.assertTrue(any("қайталан" in r or "ұқсас" in r for r in report.reasons))
+
     async def test_all_new_formats_require_concept_key_and_l3_l4_get_full_paragraph(self) -> None:
         self.repo.chunk_rows["kazakh6.md#§1"] = [
             Chunk("c1", 1, SOURCE),

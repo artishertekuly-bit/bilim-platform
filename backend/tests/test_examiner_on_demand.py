@@ -67,6 +67,9 @@ class FakePool:
     async def acquire(self):
         yield FakeConn(self)
 
+    async def fetch(self, sql: str, *args: Any) -> list[dict[str, Any]]:
+        return await FakeConn(self).fetch(sql, *args)
+
     async def fetchval(self, sql: str, *args: Any) -> Any:
         if "select status from examiner.sessions" in sql:
             return self.status
@@ -134,23 +137,37 @@ class TopicSearchServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_vector_hit_finds_a_paragraph_without_title_words(self) -> None:
         self.pool.hits = [dict(topic_id="kazakh8.md#§3", distance=0.4), dict(topic_id="other.md#§1", distance=0.1)]
         svc = ExaminerService(self.pool, gateway=FakeGateway([0.1, 0.2]))  # type: ignore[arg-type]
-        found = await svc.search_topics(SUBJECT, "  Жоңғарларға қарсы күрес  ")
-        self.assertEqual(found.query, "Жоңғарларға қарсы күрес")
-        self.assertEqual([t.id for t in found.topics], ["kazakh8.md#§3"])  # other subject's § is ignored
-        self.assertEqual(found.topics[0].grade, 8)
+        # The other subject's § is closer but ignored; all grades of this subject are considered.
+        self.assertEqual(await svc.resolve_topic(SUBJECT, "  Жоңғарларға қарсы күрес  "), "kazakh8.md#§3")
         self.assertEqual(self.pool.vector_args[1], T.VECTOR_CHUNKS)
 
-    async def test_without_grant_or_embedding_lexical_still_ranks(self) -> None:
+    async def test_without_grant_or_embedding_titles_still_resolve(self) -> None:
         self.pool.vector_error = True
-        found = await ExaminerService(self.pool, gateway=FakeGateway([0.1])).search_topics(SUBJECT, "Абылай")  # type: ignore[arg-type]
-        self.assertEqual([t.id for t in found.topics], ["kazakh8.md#§3"])
+        svc = ExaminerService(self.pool, gateway=FakeGateway([0.1]))  # type: ignore[arg-type]
+        self.assertEqual(await svc.resolve_topic(SUBJECT, "Абылай"), "kazakh8.md#§3")
         self.pool.vector_error = False
-        found = await ExaminerService(self.pool, gateway=FakeGateway(None)).search_topics(SUBJECT, "хандығы")  # type: ignore[arg-type]
-        self.assertEqual([t.id for t in found.topics][0], "kazakh6.md#§12")
+        svc = ExaminerService(self.pool, gateway=FakeGateway(None))  # type: ignore[arg-type]
+        self.assertEqual(await svc.resolve_topic(SUBJECT, "хандығы"), "kazakh6.md#§12")
 
-    async def test_short_query_is_rejected(self) -> None:
+    async def test_a_written_section_title_needs_no_embedding_call(self) -> None:
+        gateway = FakeGateway([0.1])
+        svc = ExaminerService(self.pool, gateway=gateway)  # type: ignore[arg-type]
+        self.assertEqual(await svc.resolve_topic(SUBJECT, "Абылай хан"), "kazakh8.md#§3")
+        self.assertEqual(gateway.calls, [])
+        self.assertIsNone(self.pool.vector_args)
+
+    def test_halfvec_literal_is_compact(self) -> None:
+        self.assertEqual(T.halfvec_literal([0.123456, -0.000012345, 1.0]), "[0.1235,-1.234e-05,1]")
+
+    async def test_topic_with_nothing_in_the_database_is_404(self) -> None:
+        svc = ExaminerService(self.pool, gateway=FakeGateway(None))  # type: ignore[arg-type]
         with self.assertRaises(ExaminerError) as ctx:
-            await ExaminerService(self.pool, gateway=FakeGateway(None)).search_topics(SUBJECT, " a ")  # type: ignore[arg-type]
+            await svc.resolve_topic(SUBJECT, "Пифагор теоремасы")
+        self.assertEqual((ctx.exception.status, ctx.exception.code), (404, "TOPIC_NOT_FOUND"))
+
+    async def test_short_topic_is_rejected(self) -> None:
+        with self.assertRaises(ExaminerError) as ctx:
+            await ExaminerService(self.pool, gateway=FakeGateway(None)).resolve_topic(SUBJECT, " a ")  # type: ignore[arg-type]
         self.assertEqual(ctx.exception.code, "VALIDATION_ERROR")
 
 
@@ -192,10 +209,26 @@ class PrepareTests(unittest.IsolatedAsyncioTestCase):
         await self.service(generator=broken)._prepare(STUDENT, SESSION, scope(), 1)
         self.assertEqual((self.pool.status, self.pool.closed_with), ("abandoned", S.PREPARE_FAILED))
 
-    async def test_still_short_after_generation_closes_with_notice(self) -> None:
+    async def test_still_short_after_one_top_up_closes_with_notice(self) -> None:
         short = ExaminerError(409, "BANK_NOT_READY", "x")
         await self.service(activate_error=short)._prepare(STUDENT, SESSION, scope(), 1)
+        self.assertEqual(len(self.generated), 2)  # the session-sized round and one top-up, no more
         self.assertEqual(self.pool.closed_with, S.PREPARE_SHORT)
+
+    async def test_gap_after_rejections_is_topped_up_once_then_activates(self) -> None:
+        svc = self.service()
+        calls = 0
+
+        async def activate(student_id, session_id, sc, level) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise ExaminerError(409, "BANK_NOT_READY", "x")
+            self.pool.status = "active"
+
+        svc._activate = activate  # type: ignore[method-assign]
+        await svc._prepare(STUDENT, SESSION, scope(), 1)
+        self.assertEqual((len(self.generated), calls, self.pool.status), (2, 2, "active"))
 
     async def test_one_generation_per_scope_and_level_at_a_time(self) -> None:
         running = 0
@@ -221,20 +254,59 @@ class PrepareTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(set(chosen) <= set(topics))
 
     async def test_level_three_also_fills_code_questions_of_level_one(self) -> None:
-        calls: list[tuple[int, list[str]]] = []
+        calls: list[dict[str, Any]] = []
 
         class FakePipeline:
             def __init__(self, *_: Any, **__: Any) -> None:
                 pass
 
-            async def generate_now(self, books, level, *, topics, formats):
-                calls.append((level, list(formats)))
+            async def generate_now(self, books, level, **kwargs):
+                calls.append(dict(level=level, **kwargs))
                 return mock.Mock(accepted=0, rejected=0, failed=0)
 
         svc = ExaminerService(self.pool, gateway=mock.Mock())  # type: ignore[arg-type]
         with mock.patch("app.examiner.bank.pipeline.BankPipeline", FakePipeline):
             await svc._generate_with_pipeline(scope(), 3, ["kazakh6.md#§12"], {})
-        self.assertEqual(calls, [(3, ["socratic", "feynman", "teach_ai"]), (1, ["mcq", "matching"])])
+        self.assertEqual([(c["level"], c["formats"]) for c in calls],
+                         [(3, ["socratic", "feynman", "teach_ai"]), (1, ["mcq", "matching"])])
+        # One session-sized round, all at once, wider concurrency.
+        self.assertTrue(all(c["rounds"] == 1 and c["warmup"] is False and c["concurrency"] == S.ON_DEMAND_CONCURRENCY
+                            for c in calls))
+        self.assertEqual(calls[1]["targets"], {("mcq", "X1"): 2, ("matching", "X1"): 1,
+                                               ("mcq", "X2"): 4, ("matching", "X2"): 2})
+
+
+class SessionTargetsTests(unittest.TestCase):
+    def test_level_one_asks_for_one_session_with_margin_not_the_whole_paragraph(self) -> None:
+        [(level, formats, targets)] = S.session_targets(1, {})
+        self.assertEqual((level, formats), (1, ["mcq", "matching", "short_answer"]))
+        # Session: mcq 2+3, matching 1+2, short answer 1+1; ×1.5 rounded up, plus the level's X3 item.
+        self.assertEqual(targets, {("mcq", "X1"): 3, ("mcq", "X2"): 5, ("matching", "X1"): 2, ("matching", "X2"): 3,
+                                   ("short_answer", "X1"): 2, ("short_answer", "X2"): 2, ("mcq", "X3"): 1})
+        self.assertEqual(sum(targets.values()), 18)  # the first on-demand run planned 51 requests for this level
+
+    def test_level_three_splits_the_d_block_and_the_code_a_block(self) -> None:
+        plans = S.session_targets(3, {})
+        self.assertEqual([p[0] for p in plans], [3, 1])
+        self.assertEqual(plans[0][2], {("socratic", "X1"): 2, ("feynman", "X2"): 2, ("socratic", "X3"): 1})
+        self.assertEqual(sum(plans[1][2].values()), 9)  # A block: 6 code items × 1.5
+
+
+class StartRequestTests(unittest.TestCase):
+    def test_either_scope_or_subject_and_topic(self) -> None:
+        import uuid
+
+        from pydantic import ValidationError
+
+        from app.examiner.session.dto import StartSessionRequest
+
+        rid = uuid.uuid4()
+        StartSessionRequest(client_request_id=rid, scope_type="topic", scope_id="kazakh6.md#§1", level=1)
+        StartSessionRequest(client_request_id=rid, subject_id=uuid.uuid4(), topic="Абылай хан", level=4)
+        for bad in (dict(), dict(subject_id=uuid.uuid4()), dict(topic="Абылай хан"),
+                    dict(scope_type="topic", scope_id="x", subject_id=uuid.uuid4(), topic="Абылай хан")):
+            with self.assertRaises(ValidationError):
+                StartSessionRequest(client_request_id=rid, level=1, **bad)
 
 
 class SwitchTests(unittest.TestCase):

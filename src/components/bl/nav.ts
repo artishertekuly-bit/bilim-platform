@@ -1,4 +1,4 @@
-// Рөлдік мәзір (karta §2–§4, D90): оқушы 5, мұғалім 4, ата-ана 3, басқарма әкімшісі 5, платформа иесі 5 бөлім.
+// Рөлдік мәзір (karta §2–§4, D90, D93): оқушы 5, мұғалім 5, ата-ана 3, басқарма әкімшісі 5, платформа иесі 5 бөлім.
 import type { ComponentType } from 'react';
 
 import {
@@ -51,6 +51,8 @@ export const NAV: Record<UserRole, NavItem[]> = {
         p === '/teacher' || starts('/teacher/classes', '/teacher/students', '/teacher/games', '/settings', '/games', '/notifications')(p),
     },
     { to: '/teacher/review', label: 'Растау', icon: ReviewIcon, match: starts('/teacher/review', '/teacher/grades') },
+    // D93: мұғалім де тақырып жазып, емтихан тапсырмаларын құра алады.
+    { to: '/exam', label: 'Емтихан', icon: ExamIcon, match: starts('/exam') },
     { to: '/teacher/lessons', label: 'Сабақтар', icon: LessonsIcon, match: starts('/teacher/lessons', '/lessons', '/lab') },
     { to: '/chat', label: 'Чат', icon: ChatIcon, match: starts('/chat') },
   ],

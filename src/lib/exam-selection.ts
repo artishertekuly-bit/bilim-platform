@@ -1,40 +1,29 @@
-// Емтиханның таңдалған пәні, тақырыбы мен көлемі (ExamPicker → Main). Құрылғыда ғана сақталады.
-// D93: оқушы тек пәнді таңдап, тақырыпты өзі жазады; платформа оған сай §-ті табады (`topicId`).
+// Емтиханның таңдалған пәні мен тақырыбы (ExamPicker → Main). Құрылғыда ғана сақталады.
+// D93: емтихан — пән бойынша жалпы тестілеу. Оқушы не мұғалім пәнді таңдап, тақырыпты өзі жазады;
+// сынып пен оқулық таңдалмайды, тақырыпқа сай мәтінді платформа дерекқордан өзі алады.
 import { useCallback, useState } from 'react';
 
-import type { ScopeType } from '@/lib/examiner-api';
-
 const KEY = 'bilim.exam.selection';
+export const MAX_TOPIC_CHARS = 200;
 
 export interface ExamSelection {
   subjectId: string | null;
-  /** The topic as the learner wrote it. */
-  topicQuery: string;
-  book: string | null;
-  scopeType: ScopeType;
-  topicId: string | null;
-  chapterId: string | null;
+  /** The topic as the learner or teacher wrote it. */
+  topic: string;
 }
 
-const EMPTY: ExamSelection = { subjectId: null, topicQuery: '', book: null, scopeType: 'topic', topicId: null, chapterId: null };
+const EMPTY: ExamSelection = { subjectId: null, topic: '' };
 
 export function readExamSelection(): ExamSelection {
   try {
     const raw = window.localStorage.getItem(KEY);
-    if (!raw) {
-      // Бұрынғы бөлек кілттерден көшіру.
-      const book = window.localStorage.getItem('bilim.exam.book');
-      const scope = window.localStorage.getItem('bilim.exam.scope') as ScopeType | null;
-      return { ...EMPTY, book, scopeType: scope === 'chapter' || scope === 'subject' ? scope : 'topic' };
-    }
-    const v = JSON.parse(raw) as Partial<ExamSelection>;
+    if (!raw) return EMPTY;
+    const v = JSON.parse(raw) as Partial<ExamSelection> & { topicQuery?: unknown };
+    // D93-тің бірінші нұсқасы тақырыпты `topicQuery` деп сақтаған.
+    const topic = typeof v.topic === 'string' ? v.topic : typeof v.topicQuery === 'string' ? v.topicQuery : '';
     return {
       subjectId: typeof v.subjectId === 'string' ? v.subjectId : null,
-      topicQuery: typeof v.topicQuery === 'string' ? v.topicQuery.slice(0, 200) : '',
-      book: typeof v.book === 'string' ? v.book : null,
-      scopeType: v.scopeType === 'chapter' || v.scopeType === 'subject' ? v.scopeType : 'topic',
-      topicId: typeof v.topicId === 'string' ? v.topicId : null,
-      chapterId: typeof v.chapterId === 'string' ? v.chapterId : null,
+      topic: topic.slice(0, MAX_TOPIC_CHARS),
     };
   } catch {
     return EMPTY;

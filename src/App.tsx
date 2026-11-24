@@ -107,6 +107,8 @@ const HEAD_ROLES: UserRole[] = ['head'];
 const MODERATOR_ROLES: UserRole[] = ['admin', 'head'];
 
 const LEARNING_CONTENT_ROLES: UserRole[] = ['student', 'admin'];
+// D93: емтихан тақырыбын оқушы да, мұғалім де жазады; мұғалім бастаған генерация банкті оқушыларға толтырады.
+const EXAM_ROLES: UserRole[] = ['student', 'teacher', 'admin'];
 const GAME_ROLES: UserRole[] = ['student', 'teacher'];
 const LESSON_READER_ROLES: UserRole[] = ['student', 'teacher', 'head', 'admin'];
 
@@ -367,10 +369,10 @@ const commonProtectedRoutes: AppRouteConfig[] = [
 
 // Examiner v2 (api-kelisimderi.md §3): деңгей таңдау → сессия → нәтиже, профиль.
 const examRoutes: AppRouteConfig[] = [
-  { path: '/exam', element: <ExamHomePage />, allowedRoles: LEARNING_CONTENT_ROLES },
-  { path: '/exam/picker', element: <ExamPickerPage />, allowedRoles: LEARNING_CONTENT_ROLES },
-  { path: '/exam/session/:sessionId', element: <ExamSessionPage />, allowedRoles: LEARNING_CONTENT_ROLES },
-  { path: '/exam/result/:sessionId', element: <ExamResultPage />, allowedRoles: LEARNING_CONTENT_ROLES },
+  { path: '/exam', element: <ExamHomePage />, allowedRoles: EXAM_ROLES },
+  { path: '/exam/picker', element: <ExamPickerPage />, allowedRoles: EXAM_ROLES },
+  { path: '/exam/session/:sessionId', element: <ExamSessionPage />, allowedRoles: EXAM_ROLES },
+  { path: '/exam/result/:sessionId', element: <ExamResultPage />, allowedRoles: EXAM_ROLES },
   { path: '/exam/result/:sessionId/appeal', element: <ExamAppealPage />, allowedRoles: STUDENT_ROLES },
   { path: '/exam/profile', element: <ExamProfilePage />, allowedRoles: LEARNING_CONTENT_ROLES },
 ];

@@ -21,7 +21,7 @@ import logging
 import random
 import uuid
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
@@ -178,6 +178,18 @@ class _Deferred(Exception):
     """Уақытша қате: сұраныс pending күйінде қалады және кейін қайта өңделеді."""
 
 
+@dataclass(frozen=True)
+class _Checked:
+    """Өз тексерісінен өткен, банкпен салыстыруды күтіп тұрған сұрақ."""
+
+    request: RequestRecord
+    package: Package
+    reference: str
+    embedding: list[float]
+    model_name: str
+    prompt_version: str
+
+
 # ---------------------------------------------------------------- контур
 
 
@@ -257,24 +269,28 @@ class BankPipeline:
         max_requests: int | None = None,
         concurrency: int = FAST_CONCURRENCY,
         rounds: int = FAST_ROUNDS,
+        targets: Mapping[tuple[str, str], int] | None = None,
+        warmup: bool = True,
     ) -> ProcessReport:
         """Fast Lane (ai_examiner §5.4): берілген §-тердің жетпейтін қорын синхрон шақырумен толтырады.
 
         Batch кезегін күтпейді: сұраныстар қатар жіберіледі, әр нәтиже келген бойда Т6/Т7-ден өтіп
         банкке жазылады. Тексерістен өтпегендердің орны келесі айналымда (ең көбі `rounds`) қайта
-        сұралады. Оқушының емтиханы бұл жолды ешқашан күтпейді (D64, D65): оны мұғалім немесе әкімші
-        емтиханнан бұрын іске қосады.
+        сұралады. `targets` (D93) — бір сессияға керек қор: емтихан басталғанда §-тің толық қоры емес, тек сол
+        сессияның тапсырмалары (маржасымен) құрылады. `warmup=False` — prompt cache-ті қыздыратын бірінші
+        толқынсыз, бәрі бірден: күтіп отырған оқушыға 30–60 секунд үнемдейді, кэш үнемі шамалы.
         """
         if not topics:
             raise ValueError("Fast Lane-ге кемінде бір § беріледі")
         report = ProcessReport()
         limit = asyncio.Semaphore(max(1, concurrency))
-        # Т7-дің қайталау тексерісі бұрын жазылған сұрақтарға қарайды: нәтижелер бір-бірден өңделеді,
-        # әйтпесе қатар келген екі ұқсас сұрақтың екеуі де өтіп кетер еді.
+        # Т7-дің қайталау тексерісі бұрын жазылған сұрақтарға қарайды: банкке жазу бір-бірден жүреді, әйтпесе
+        # қатар келген екі ұқсас сұрақтың екеуі де өтіп кетер еді. Шешуші модель мен embedding шақыруы бұл
+        # құлыптан тыс, қатар жүреді (D93): бұрын олар да кезекпен жүріп, әр нәтиже ~4 секунд күттірді.
         processing = asyncio.Lock()
         remaining = max_requests
         for _ in range(max(1, rounds)):
-            planned = await self._plan_requests(books, level, formats, remaining, topics)
+            planned = await self._plan_requests(books, level, formats, remaining, topics, targets)
             if not planned:
                 break
             await self._record_fast_batches(planned)
@@ -294,18 +310,23 @@ class BankPipeline:
                             variant=self._variant(Task.GENERATION_FAST, request),
                         )
                     except (LLMUnavailableError, LLMRequestError) as exc:
-                        async with processing:
-                            await self._finish(report, request, "failed", [f"Fast Lane: генерация орындалмады ({exc})"])
+                        await self._finish(report, request, "failed", [f"Fast Lane: генерация орындалмады ({exc})"])
                         return
-                async with processing:
-                    try:
-                        await self._process_item(report, request, result.text, result.model, prompt.version)
-                    except _Deferred:
-                        await self._finish(report, request, "failed", ["Fast Lane: Т7 тексерісі қолжетімсіз"])
-                    except Exception as exc:  # noqa: BLE001 — бір сұраныстың қатесі қалғандарын тоқтатпайды (D80)
-                        await self._fail_safely(report, request, exc)
+                try:
+                    checked = await self._check_item(report, request, result.text, result.model, prompt.version)
+                    if checked is None:
+                        return
+                    async with processing:
+                        await self._commit_item(report, checked)
+                except _Deferred:
+                    await self._finish(report, request, "failed", ["Fast Lane: Т7 тексерісі қолжетімсіз"])
+                except Exception as exc:  # noqa: BLE001 — бір сұраныстың қатесі қалғандарын тоқтатпайды (D80)
+                    await self._fail_safely(report, request, exc)
 
-            await _run_fast_with_warmup(items, run)
+            if warmup:
+                await _run_fast_with_warmup(items, run)
+            else:
+                await asyncio.gather(*(run(*item) for item in items))
             for batch_id in {request.batch_id for _, request, _ in items}:
                 await self._repo.set_batch_status(batch_id, "processed")
             if remaining is not None:
@@ -365,6 +386,7 @@ class BankPipeline:
         formats: Sequence[str],
         max_requests: int | None,
         topics: Sequence[str] | None,
+        targets: Mapping[tuple[str, str], int] | None = None,
     ) -> dict[str, list[tuple[RequestRecord, list]]]:
         formats = [name for name in formats if name in ALL_FORMATS and FORMAT_LEVEL.get(name) == level]
         if not formats:
@@ -559,6 +581,7 @@ class BankPipeline:
             formats,
             concepts_by_topic=counts_by_topic if counts_by_topic else None,
             x3_limits=x3_limits,
+            targets_override=targets,
         )
         used = await self._repo.used_concepts(subject_id, level)
 
@@ -706,15 +729,24 @@ class BankPipeline:
     async def _process_item(
         self, report: ProcessReport, request: RequestRecord, text: str, model_name: str, prompt_version: str
     ) -> None:
+        checked = await self._check_item(report, request, text, model_name, prompt_version)
+        if checked is not None:
+            await self._commit_item(report, checked)
+
+    async def _check_item(
+        self, report: ProcessReport, request: RequestRecord, text: str, model_name: str, prompt_version: str
+    ) -> _Checked | None:
+        """Т6, мәтінге сүйену, шешуші модель және embedding: бір сұрақтың өзіне ғана қатысты, сондықтан Fast
+        Lane-де қатар жүреді. Банктегі сұрақтармен салыстыру (`_commit_item`) — кезекпен. None — сұраныс жабылды."""
         try:
             generated = GEN_MODELS[request.format].model_validate_json(strip_json_fence(text))
         except ValidationError:
             await self._finish(report, request, "rejected", ["Т6: JSON құрылымы бұзылған"])
-            return
+            return None
         problems = generated.problems()
         if problems:
             await self._finish(report, request, "rejected", problems)
-            return
+            return None
 
         package = generated.to_package(self._rng)
         chunks = await self._repo.chunks(request.chunk_ids)
@@ -722,7 +754,8 @@ class BankPipeline:
         # Рубрика мәтінге сүйенуі керек (D79): ашық пен гибрид форматтарда.
         problem = quote_problem(package, reference) or rubric_grounded_problem(package, reference)
         if problem is None:
-            # Мазмұнның тікелей қайталануы (D80): шешуші мен embedding шақыруынан бұрын, ақысыз.
+            # Мазмұнның тікелей қайталануы (D80): шешуші мен embedding шақыруынан бұрын, ақысыз. Fast Lane-де
+            # банкке жазар алдында (`_commit_item`) тағы бір рет тексеріледі.
             existing = await self._repo.existing_packages(request.topic_id, request.level, request.format)
             problem = repeat_problem(package, existing)
         if problem is None and request.format == "mcq":
@@ -734,10 +767,10 @@ class BankPipeline:
                 raise _Deferred from exc
             except LLMRequestError as exc:
                 await self._finish(report, request, "failed", [f"шешуші модель сұранысы қабылданбады: {exc.status}"])
-                return
+                return None
         if problem is not None:
             await self._finish(report, request, "rejected", [problem])
-            return
+            return None
 
         try:
             [embedding] = await self._gateway.embed(
@@ -748,9 +781,18 @@ class BankPipeline:
             raise _Deferred from exc
         except LLMRequestError as exc:
             await self._finish(report, request, "failed", [f"embedding сұранысы қабылданбады: {exc.status}"])
-            return
-        existing = await self._repo.existing_embeddings(request.topic_id, request.level)
-        problem = duplicate_problem(embedding, existing)
+            return None
+        return _Checked(request, package, reference, list(embedding), model_name, prompt_version)
+
+    async def _commit_item(self, report: ProcessReport, checked: _Checked) -> None:
+        """Банктегі сұрақтармен салыстыру және жазу. Fast Lane-де құлыппен: бір мезгілде келген екі ұқсас
+        сұрақтың екіншісі біріншісін көреді."""
+        request, package = checked.request, checked.package
+        existing_packages = await self._repo.existing_packages(request.topic_id, request.level, request.format)
+        problem = repeat_problem(package, existing_packages)
+        if problem is None:
+            existing = await self._repo.existing_embeddings(request.topic_id, request.level)
+            problem = duplicate_problem(checked.embedding, existing)
         if problem is not None:
             await self._finish(report, request, "rejected", [problem])
             return
@@ -759,10 +801,10 @@ class BankPipeline:
         await self._repo.accept(NewQuestion(
             request=request,
             package=package,
-            reference_context={"text": reference, "chunk_ids": list(request.chunk_ids)},
-            generator_model=model_name,
-            prompt_version=prompt_version,
-            embedding=list(embedding),
+            reference_context={"text": checked.reference, "chunk_ids": list(request.chunk_ids)},
+            generator_model=checked.model_name,
+            prompt_version=checked.prompt_version,
+            embedding=checked.embedding,
             embedding_model=self._gateway.config.models[embedding_key].model or embedding_key,
         ))
         report.accepted += 1

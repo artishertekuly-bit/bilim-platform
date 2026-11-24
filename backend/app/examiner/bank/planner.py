@@ -179,20 +179,30 @@ def plan(
     *,
     concepts_by_topic: Mapping[str, int] | None = None,
     x3_limits: Mapping[tuple[str, str], int] | None = None,
+    targets_override: Mapping[tuple[str, str], int] | None = None,
 ) -> list[Slot]:
     """`have` — (topic_id, формат, санат) → белсенді сұрақ пен өңделмеген сұраныс саны.
     `concepts_by_topic` берілген §-терге норма ұғым санынан (`concept_targets`), қалғанына
     базалық `stock_targets`-тен есептеледі.
     `x3_limits` — (topic_id, формат) → X3-ке нысана бола алатын ұғым тобының саны (D80). X3 нормасы одан
-    аспайды, артығы X2 нормасына қосылады: форматтың жалпы қоры өзгермейді."""
+    аспайды, артығы X2 нормасына қосылады: форматтың жалпы қоры өзгермейді.
+    `targets_override` (D93) — бір сессияға керек қор (формат, санат) → сан: емтихан басталғанда банк тек
+    сол сессия үшін толтырылады, ұғымға байланған форматтың қоры бәрібір ұғым санынан аспайды."""
+    wanted = set(formats)
     fallback = stock_targets(level, applicable, policy, formats)
     slots: list[Slot] = []
     for topic_id in topic_ids:
-        targets = dict(
-            concept_targets(concepts_by_topic[topic_id], level, applicable, policy, formats)
-            if concepts_by_topic is not None and topic_id in concepts_by_topic
-            else fallback
-        )
+        if targets_override is not None:
+            targets = {key: value for key, value in targets_override.items() if key[0] in wanted and value > 0}
+            if concepts_by_topic is not None and topic_id in concepts_by_topic:
+                for name in ANCHORED_FORMATS & {name for name, _ in targets}:
+                    _cap_by_concepts(targets, name, concepts_by_topic[topic_id])
+        else:
+            targets = dict(
+                concept_targets(concepts_by_topic[topic_id], level, applicable, policy, formats)
+                if concepts_by_topic is not None and topic_id in concepts_by_topic
+                else fallback
+            )
         for (limit_topic, name), limit in (x3_limits or {}).items():
             x3 = targets.get((name, "X3"), 0)
             if limit_topic == topic_id and x3 > limit:

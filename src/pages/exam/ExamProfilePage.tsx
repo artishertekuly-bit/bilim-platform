@@ -35,10 +35,9 @@ export default function ExamProfilePage() {
       {profile.data?.subjects.map((subject) => {
         const mastered = subject.levels.filter((level) => level.mastered).map((level) => level.level);
         return (
-          <section key={subject.subject.book} className="flex flex-col gap-2.5">
-            <SectionLabel>
-              {subject.subject.title} · {subject.subject.grade}-сынып
-            </SectionLabel>
+          // D93: профиль пән бойынша, сыныпқа бөлінбейді.
+          <section key={subject.subject.id} className="flex flex-col gap-2.5">
+            <SectionLabel>{subject.subject.title}</SectionLabel>
             <Card className="flex items-center justify-between gap-3 px-4 py-3.5">
               <span className="flex flex-col gap-0.5">
                 <span className="text-[15px] font-semibold">

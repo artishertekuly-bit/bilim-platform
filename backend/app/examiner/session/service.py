@@ -6,12 +6,13 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import random
 import uuid
 from collections import defaultdict
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -78,8 +79,6 @@ from .dto import (
     TeacherGradeActionResponse,
     TeacherGradeDetail,
     Topic,
-    TopicMatch,
-    TopicSearchResponse,
     Total,
     X3Result,
 )
@@ -123,8 +122,47 @@ DEFAULT_ON_DEMAND_DAILY = 5
 ON_DEMAND_LIMIT_TEXT = ("Бүгін жаңа тапсырма құру шегі бітті. Тапсырмасы дайын тақырыптарды тапсыра аласыз, "
                         "жаңа тақырыпты ертең бастаңыз.")
 
+# Session-sized fill (D93): the first on-demand run built the whole § stock (51 requests for 10 items) and took
+# 6 minutes. Now each (format, tier) gets what one session needs times this margin (rejections run ~15–25 %).
+SESSION_MARGIN = 1.5
+ON_DEMAND_CONCURRENCY = 12
+
 # (scope, level, § to generate for, format applicability) → fills the bank. Injected in tests.
 Generator = Callable[["ResolvedScope", int, Sequence[str], Mapping[str, bool]], Awaitable[None]]
+
+
+def session_targets(level: int, applicable: Mapping[str, bool]) -> list[tuple[int, list[str], dict[tuple[str, str], int]]]:
+    """(bank level, formats, (format, tier) → target stock) for one session of `level` (D93).
+
+    X1/X2 slots get `SESSION_MARGIN`; the level's X3 item gets 1 (a session runs without it if it is rejected).
+    Level 3: the D block from level 3 formats, and the A block (`any_code`) from level 1 code formats."""
+    composition = build_composition(level, applicable)
+    plans: list[tuple[int, list[str], dict[tuple[str, str], int]]] = []
+    need: dict[tuple[str, str], int] = defaultdict(int)
+    code_need: dict[str, int] = defaultdict(int)
+    for slot in composition.slots:
+        if slot.format == "any_code":
+            code_need[slot.tier] += 1
+        else:
+            need[(slot.format, slot.tier)] += 1
+    targets = {key: math.ceil(count * SESSION_MARGIN - 1e-9) for key, count in need.items()}
+    formats = level_formats(level, applicable)
+    if formats:
+        x3_format = next((name for name, _ in need), formats[0])
+        targets[(x3_format, "X3")] = targets.get((x3_format, "X3"), 0) + 1
+    plans.append((level, formats, targets))
+    if code_need:
+        code = [name for name in level_formats(1, applicable) if name in CODE_FORMATS]
+        code_targets: dict[tuple[str, str], int] = {}
+        for tier, count in code_need.items():
+            total = math.ceil(count * SESSION_MARGIN - 1e-9)
+            first = math.ceil(total * 2 / 3) if len(code) > 1 else total
+            if code:
+                code_targets[(code[0], tier)] = first
+            if len(code) > 1 and total - first > 0:
+                code_targets[(code[1], tier)] = total - first
+        plans.append((1, code, code_targets))
+    return plans
 
 
 def on_demand_enabled() -> bool:
@@ -251,41 +289,34 @@ class ExaminerService:
             chapters=list(chapters.values()), topics=topics,
         )
 
-    async def search_topics(self, subject_id: str, query: str) -> TopicSearchResponse:
-        """The learner writes the topic, the platform finds its § (D93). Embedding first, without holding a
-        connection; the vector search is skipped when it is unavailable."""
+    async def resolve_topic(self, subject_id: str, query: str) -> str:
+        """D93: the learner or teacher writes the topic; the platform itself takes the textbook § that covers it
+        (all grades of the subject). Nobody picks from a list: the best match is used, or 404 when the
+        database has nothing on the topic. Returns the § topic_id."""
+        ranked = await self._rank_topics(subject_id, query, limit=1)
+        if not ranked:
+            raise ExaminerError(404, "TOPIC_NOT_FOUND", "Бұл тақырып бойынша дерекқорда материал жоқ. "
+                                "Тақырыпты басқаша жазып көріңіз.")
+        return ranked[0].paragraph.topic_id
+
+    async def _rank_topics(self, subject_id: str, query: str, *, limit: int) -> list[topic_search.Ranked]:
+        """§ titles first: when one title contains every word of the topic, it is used at once, without an
+        embedding call (the measured test spent 44 of its 51 seconds here waiting for one). Otherwise the vector
+        half joins; it is skipped when unavailable. No connection is held during the embedding call."""
         text = topic_search.clean_query(query)
         if len(text) < 2:
-            raise validation("Тақырыпты жазыңыз.", {"fields": ["q"]})
-        vector: list[float] | None = None
-        try:
-            vector = (await self._gateway().embed([text], model_key="corpus"))[0]
-        except (LLMUnavailableError, LLMRequestError, ValueError, KeyError, IndexError) as exc:
-            logger.warning("topic search embedding unavailable: %s", type(exc).__name__)
-        async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                select topic_id, book, grade::int as grade, book_title, paragraph_no, paragraph_title
-                from corpus.paragraphs
-                where subject_id = $1::uuid
-                order by grade, sort_no, paragraph_no
-                """,
-                subject_id,
-            )
-            if not rows:
-                raise not_found("Пән табылмады.")
-            distances: dict[str, float] = {}
-            if vector is not None:
-                try:
-                    hits = await conn.fetch(
-                        "select topic_id, min(distance)::float8 as distance "
-                        "from corpus.match_chunks($1::extensions.halfvec, $2) where topic_id is not null "
-                        "group by topic_id",
-                        _vector_literal(vector), topic_search.VECTOR_CHUNKS,
-                    )
-                    distances = {row["topic_id"]: row["distance"] for row in hits}
-                except asyncpg.PostgresError as exc:
-                    logger.warning("topic search vector lookup unavailable: %s", type(exc).__name__)
+            raise validation("Тақырыпты жазыңыз.", {"fields": ["topic"]})
+        rows = await self._pool.fetch(
+            """
+            select topic_id, book, grade::int as grade, book_title, paragraph_no, paragraph_title
+            from corpus.paragraphs
+            where subject_id = $1::uuid
+            order by grade, sort_no, paragraph_no
+            """,
+            subject_id,
+        )
+        if not rows:
+            raise not_found("Пән табылмады.")
         paragraphs = [
             topic_search.Paragraph(
                 topic_id=row["topic_id"], book=row["book"], book_title=row["book_title"], grade=row["grade"],
@@ -293,19 +324,60 @@ class ExaminerService:
             )
             for row in rows
         ]
-        ranked = topic_search.rank_topics(text, paragraphs, distances)
-        return TopicSearchResponse(
-            subject_id=subject_id,
-            query=text,
-            topics=[
-                TopicMatch(
-                    id=r.paragraph.topic_id, no=r.paragraph.paragraph_no,
-                    title=r.paragraph.paragraph_title or f"§{r.paragraph.paragraph_no}",
-                    book=r.paragraph.book, book_title=r.paragraph.book_title, grade=r.paragraph.grade,
+        if limit == 1:
+            exact = topic_search.full_title_match(text, paragraphs)
+            if exact is not None:
+                return [exact]
+        distances: dict[str, float] = {}
+        try:
+            vector = (await self._gateway().embed([text], model_key="corpus"))[0]
+        except (LLMUnavailableError, LLMRequestError, ValueError, KeyError, IndexError) as exc:
+            logger.warning("topic search embedding unavailable: %s", type(exc).__name__)
+        else:
+            try:
+                hits = await self._pool.fetch(
+                    "select topic_id, min(distance)::float8 as distance "
+                    "from corpus.match_chunks($1::extensions.halfvec, $2) where topic_id is not null "
+                    "group by topic_id",
+                    topic_search.halfvec_literal(vector), topic_search.VECTOR_CHUNKS,
                 )
-                for r in ranked
-            ],
-        )
+                distances = {row["topic_id"]: row["distance"] for row in hits}
+            except asyncpg.PostgresError as exc:
+                logger.warning("topic search vector lookup unavailable: %s", type(exc).__name__)
+        return topic_search.rank_topics(text, paragraphs, distances, limit=limit)
+
+    async def subject_levels(self, student_id: str, subject_id: str) -> LevelsResponse:
+        """D93: the exam is general testing by subject, at any level. The cards show each level's make-up and the
+        learner's latest result at that level in this subject, whatever topic it was on. Every level is open, so
+        stock is not counted here (it depends on the topic, which is written at start)."""
+        async with self._pool.acquire() as conn:
+            title = await conn.fetchval("select name_kk from corpus.subjects where id = $1::uuid", subject_id)
+            if title is None:
+                raise not_found("Пән табылмады.")
+            applicable = await self._applicability(conn, subject_id)
+            rows = await conn.fetch(
+                """
+                select distinct on (s.level) s.level::int as level, r.p::float8 as p, r.mastered, r.is_final,
+                       s.ended_at
+                from examiner.sessions s
+                join examiner.session_results r on r.session_id = s.session_id
+                where s.student_id = $1::uuid and s.subject_id = $2::uuid and s.status = 'completed'
+                order by s.level, s.ended_at desc
+                """,
+                student_id, subject_id,
+            )
+        last = {row["level"]: LevelResult(level=row["level"], p=row["p"], mastered=row["mastered"],
+                                          is_final=row["is_final"], taken_at=row["ended_at"]) for row in rows}
+        cards = []
+        for level in (1, 2, 3, 4):
+            composition = build_composition(level, applicable)
+            cards.append(LevelCard(
+                level=level, title=LEVEL_TITLES[level],
+                formats=[FORMAT_TITLES[name] for name in composition.formats],
+                tasks=composition.n, minutes=composition.minutes, available=True, availability="ready", note=None,
+                last=last.get(level, LevelResult(level=level, p=None, mastered=False, is_final=False, taken_at=None)),
+            ))
+        return LevelsResponse(scope=Scope(type="subject", id=subject_id, title=title), levels=cards)
 
     @staticmethod
     async def _paragraphs(conn: Any, book: str) -> list[asyncpg.Record]:
@@ -555,6 +627,13 @@ class ExaminerService:
         payload = request.model_dump(mode="json")
         request_id = str(request.client_request_id)
         request_hash = _hash("POST /sessions", {k: v for k, v in payload.items() if k != "client_request_id"})
+        # D93: a written topic is turned into its textbook § before the transaction (the embedding is a network
+        # call; examiner_svc closes transactions idle for 30 s).
+        topic_text: str | None = None
+        topic_id: str | None = None
+        if request.topic is not None and request.subject_id is not None:
+            topic_text = topic_search.clean_query(request.topic)
+            topic_id = await self.resolve_topic(str(request.subject_id), topic_text)
         async with self._pool.acquire() as conn:
             try:
                 async with conn.transaction():
@@ -570,7 +649,13 @@ class ExaminerService:
                     if open_id:
                         raise ExaminerError(409, "ACTIVE_SESSION_EXISTS", "Сізде аяқталмаған емтихан бар.",
                                             {"session_id": open_id})
-                    scope = await self.resolve_scope(conn, request.scope_type, request.scope_id)
+                    extra: dict[str, Any] | None = None
+                    if topic_id is not None and topic_text is not None:
+                        scope = await self.resolve_scope(conn, "topic", topic_id)
+                        extra = {"topic_text": topic_text, "paragraph": scope.title}
+                        scope = replace(scope, title=topic_text)  # the learner sees their own words
+                    else:
+                        scope = await self.resolve_scope(conn, str(request.scope_type), str(request.scope_id))
                     applicable = await self._applicability(conn, scope.subject_id)
                     composition = build_composition(request.level, applicable)
                     chosen: list[tuple[Slot, Candidate]] | None
@@ -590,7 +675,8 @@ class ExaminerService:
                             raise ExaminerError(429, "GENERATION_LIMIT", ON_DEMAND_LIMIT_TEXT) from exc
                         chosen = None
                     session_id = await self._create(conn, student_id, scope, composition, chosen or (),
-                                                    status="active" if chosen is not None else "preparing")
+                                                    status="active" if chosen is not None else "preparing",
+                                                    extra=extra)
                     session = await self._session(conn, student_id, session_id)
                     await self._remember(conn, student_id, request_id, "POST /sessions", request_hash,
                                          session.model_dump(mode="json"))
@@ -725,11 +811,12 @@ class ExaminerService:
         return order_items(slots, [c for c in chosen if c is not None])
 
     async def _create(self, conn: Any, student_id: str, scope: ResolvedScope, composition: Composition,
-                      chosen: Sequence[tuple[Slot, Candidate]], *, status: str = "active") -> str:
+                      chosen: Sequence[tuple[Slot, Candidate]], *, status: str = "active",
+                      extra: Mapping[str, Any] | None = None) -> str:
         """`preparing` (D93) has no items and no `started_at` yet; `_activate` adds both."""
         snapshot = composition.to_json() | {
             "scope": scope.dto().model_dump(), "topics": list(scope.topics), "book_title": scope.book_title,
-        }
+        } | dict(extra or {})
         if status == "preparing":
             snapshot["on_demand"] = True  # counted by the daily cost guard
         session_id = await conn.fetchval(
@@ -762,10 +849,17 @@ class ExaminerService:
                     return
                 async with self._pool.acquire() as conn:
                     applicable = await self._applicability(conn, scope.subject_id)
-                await asyncio.wait_for(
-                    self._generator(scope, level, self._generation_topics(scope), applicable), PREPARE_TIMEOUT_S
-                )
-            await self._activate(student_id, session_id, scope, level)
+                topics = self._generation_topics(scope)
+                await asyncio.wait_for(self._generator(scope, level, topics, applicable), PREPARE_TIMEOUT_S)
+            try:
+                await self._activate(student_id, session_id, scope, level)
+            except ExaminerError as exc:
+                if exc.code != "BANK_NOT_READY":
+                    raise
+                # Rejections left a gap: one top-up for exactly that gap, then the last try.
+                async with lock:
+                    await asyncio.wait_for(self._generator(scope, level, topics, applicable), PREPARE_TIMEOUT_S)
+                await self._activate(student_id, session_id, scope, level)
         except asyncio.CancelledError:
             raise  # the service is closing; the stale check closes the session later
         except ExaminerError as exc:
@@ -783,22 +877,25 @@ class ExaminerService:
     async def _generate_with_pipeline(
         self, scope: ResolvedScope, level: int, topics: Sequence[str], applicable: Mapping[str, bool]
     ) -> None:
-        """Fast Lane with the bank's own stock policy: the § gets the same stock the CLI would give it.
-        Level 3 also needs code questions of level 1 for its A block."""
+        """Fast Lane sized for one session (`session_targets`): one round, no cache warm-up wave, wider
+        concurrency. Level 3 also gets level 1 code questions for its A block. A short result is topped up once by
+        `_prepare`; the planner counts what is already in the bank, so a second call only asks for the gap."""
         from ..bank.pipeline import BankPipeline
         from ..bank.repository import PgBankRepository
 
         pipeline = BankPipeline(self._gateway(), PgBankRepository(self._pool))
-        plans: list[tuple[int, list[str]]] = [(level, level_formats(level, applicable))]
-        if level == 3:
-            plans.append((1, [name for name in level_formats(1, applicable) if name in CODE_FORMATS]))
-        for plan_level, formats in plans:
-            if not formats:
+        for plan_level, formats, targets in session_targets(level, applicable):
+            if not formats or not targets:
                 continue
-            report = await pipeline.generate_now([scope.book], plan_level, topics=list(topics), formats=formats)
+            started = asyncio.get_running_loop().time()
+            report = await pipeline.generate_now(
+                [scope.book], plan_level, topics=list(topics), formats=formats, targets=targets, rounds=1,
+                warmup=False, concurrency=ON_DEMAND_CONCURRENCY,
+            )
             logger.info(
                 "on-demand generation finished",
                 extra={"book": scope.book, "level": plan_level, "topics": len(topics),
+                       "seconds": round(asyncio.get_running_loop().time() - started, 1),
                        "accepted": report.accepted, "rejected": report.rejected, "failed": report.failed},
             )
 
@@ -1915,7 +2012,7 @@ class ExaminerService:
                 session_id,
             )
             items = await self._items(conn, session_id)
-            profiles = await self._profiles(conn, student_id, book=session["book"])
+            profiles = await self._profiles(conn, student_id, subject_id=session["subject_id"])
         graded = [
             GradedItem(item["tier"], item["format"], item["block"], item["s"], is_final=bool(item["is_final"]))
             for item in items
@@ -1975,26 +2072,46 @@ class ExaminerService:
                 raise not_found("Бала табылмады.")
             return StudentProfile(subjects=await self._profiles(conn, student_id))
 
-    async def _profiles(self, conn: Any, student_id: str, *, book: str | None = None) -> list[SubjectProfile]:
+    async def _profiles(self, conn: Any, student_id: str, *, subject_id: str | None = None) -> list[SubjectProfile]:
+        """One profile per subject (D93): the latest completed session of each level, whatever topic or textbook
+        it was on. `book` in the DTO is the textbook of the most recent of those sessions; `grade` is the
+        subject's lowest grade (kept for older clients, no screen shows it)."""
         rows = await conn.fetch(
             """
-            select l.subject_id::text as subject_id, l.book, l.level::int as level, l.p::float8 as p, l.mastered,
-                   l.is_final, l.taken_at, t.title as book_title, t.grade, s.name_kk
-            from examiner.subject_level_latest l
-            join corpus.textbooks t on t.book = l.book
+            with latest as (
+              select distinct on (s.subject_id, s.level)
+                     s.subject_id, s.book, s.level::int as level, r.p::float8 as p, r.mastered, r.is_final,
+                     s.ended_at as taken_at
+              from examiner.sessions s
+              join examiner.session_results r on r.session_id = s.session_id
+              where s.student_id = $1::uuid and s.status = 'completed'
+                and ($2::text is null or s.subject_id = $2::uuid)
+              order by s.subject_id, s.level, s.ended_at desc
+            )
+            select l.subject_id::text as subject_id, l.level, l.p, l.mastered, l.is_final, l.taken_at,
+                   first_value(l.book) over (partition by l.subject_id order by l.taken_at desc) as book,
+                   (select min(t.grade)::int from corpus.textbooks t where t.subject_id = l.subject_id) as grade,
+                   s.name_kk, s.sort_order
+            from latest l
             join corpus.subjects s on s.id = l.subject_id
-            where l.student_id = $1::uuid and ($2::text is null or l.book = $2)
-            order by s.sort_order nulls last, t.grade, l.level
+            order by s.sort_order nulls last, s.name_kk, l.level
             """,
-            student_id, book,
+            student_id, subject_id,
         )
+        titles = {
+            row["book"]: row["title"]
+            for row in await conn.fetch(
+                "select book, title from corpus.textbooks where book = any($1::text[])",
+                sorted({row["book"] for row in rows}),
+            )
+        } if rows else {}
         grouped: dict[str, SubjectProfile] = {}
         for row in rows:
-            profile = grouped.get(row["book"])
+            profile = grouped.get(row["subject_id"])
             if profile is None:
-                profile = grouped[row["book"]] = SubjectProfile(
-                    subject=SubjectInfo(id=row["subject_id"], title=row["name_kk"], grade=row["grade"],
-                                        book=row["book"], book_title=row["book_title"]),
+                profile = grouped[row["subject_id"]] = SubjectProfile(
+                    subject=SubjectInfo(id=row["subject_id"], title=row["name_kk"], grade=row["grade"] or 0,
+                                        book=row["book"], book_title=titles.get(row["book"], "")),
                     levels=[LevelResult(level=level, p=None, mastered=False, is_final=False, taken_at=None)
                             for level in (1, 2, 3, 4)],
                     f=None,
@@ -2007,8 +2124,6 @@ class ExaminerService:
             if all(level.p is not None for level in profile.levels):
                 profile.f = round(sum(level.p or 0 for level in profile.levels) / 4, 2)
                 profile.f_is_final = all(level.is_final for level in profile.levels)
-        if book is not None and not grouped:
-            return []
         return list(grouped.values())
 
     async def _empty_profile(self, book: str) -> SubjectProfile:

@@ -17,9 +17,6 @@ export interface Book { book: string; title: string; grade: number; has_chapters
 export interface SubjectCatalogItem { subject_id: string; title: string; books: Book[] }
 export interface Chapter { id: string; no: string; title: string }
 export interface Topic { id: string; no: string; title: string; chapter_id: string | null }
-/** A textbook § found for the topic the learner wrote (D93). `id` is a `topic` scope id. */
-export interface TopicMatch { id: string; no: string; title: string; book: string; book_title: string; grade: number }
-export interface TopicSearchResponse { subject_id: string; query: string; topics: TopicMatch[] }
 export interface ScopeCatalog {
   book: Book;
   subject_id: string;
@@ -460,11 +457,9 @@ export function createExaminerApi(token: string | undefined) {
   return {
     subjects: () => request<SubjectCatalogItem[]>(token, '/subjects'),
     scopes: (book: string) => request<ScopeCatalog>(token, `/scopes?book=${encodeURIComponent(book)}`),
-    searchTopics: (subjectId: string, query: string) =>
-      request<TopicSearchResponse>(
-        token,
-        `/topics/search?subject_id=${encodeURIComponent(subjectId)}&q=${encodeURIComponent(query)}`,
-      ),
+    /** D93: the four level cards of a subject with the latest result per level (any topic). */
+    subjectLevels: (subjectId: string) =>
+      request<LevelsResponse>(token, `/subject-levels?subject_id=${encodeURIComponent(subjectId)}`),
     levels: (scopeType: ScopeType, scopeId: string) =>
       request<LevelsResponse>(
         token,
@@ -475,6 +470,14 @@ export function createExaminerApi(token: string | undefined) {
         client_request_id: clientRequestId,
         scope_type: scopeType,
         scope_id: scopeId,
+        level,
+      }),
+    /** D93: a subject and the topic the learner or teacher wrote; the platform takes the textbook text itself. */
+    startByTopic: (subjectId: string, topic: string, level: number, clientRequestId = newRequestId()) =>
+      post<ExamSession>(token, '/sessions', {
+        client_request_id: clientRequestId,
+        subject_id: subjectId,
+        topic,
         level,
       }),
     active: () => request<ExamSession | null>(token, '/sessions/active'),

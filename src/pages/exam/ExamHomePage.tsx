@@ -1,8 +1,8 @@
-// Емтихан · деңгей таңдау (дизайн: Main.dc.html, ExamStates.dc.html «Аяқталмаған»).
-// Пән мен тақырып — бөлек бетте (/exam/picker, D93): оқушы тақырыпты өзі жазады.
-// Барлық деңгей ашық: банкте сұрақ жетпесе, деңгей басталғанда олар осы тақырыпқа құрылады (D93).
+// Емтихан · деңгей таңдау (дизайн: Main.dc.html, ExamStates.dc.html «Аяқталмаған»; D93).
+// Емтихан — пән бойынша жалпы тестілеу: пән мен тақырып /exam/picker бетінде (тақырыпты оқушы не мұғалім жазады),
+// деңгейдің кез келгені ашық. Банкте сұрақ жетпесе, деңгей басталғанда тапсырмалар осы тақырыпқа құрылады.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import AppShell from '@/components/bl/AppShell';
@@ -10,12 +10,6 @@ import { ChevronDownIcon, LessonsIcon } from '@/components/bl/icons';
 import { Badge, Banner, Button, ButtonLink, Card, ConfirmSheet, ErrorNote, LoadingBlock, Page } from '@/components/bl/ui';
 import { useExamSelection } from '@/lib/exam-selection';
 import { ExaminerApiError, type LevelCard, useExaminerApi } from '@/lib/examiner-api';
-
-const SCOPE_SUB: Record<string, string> = {
-  topic: 'Тақырыпты ауыстыру',
-  chapter: 'Тараудың әр бөлімінен тапсырма',
-  subject: 'Оқулықтың барлық бөлімінен тең үлеспен',
-};
 
 function levelStatus(card: LevelCard): { text: string; tone: 'good' | 'neutral' } {
   const p = card.last.p;
@@ -33,22 +27,18 @@ export default function ExamHomePage() {
   const [confirmAbandon, setConfirmAbandon] = useState(false);
 
   const subjects = useQuery({ queryKey: ['examiner', 'subjects'], queryFn: api.subjects });
-  const subjectTitle = useMemo(() => {
-    const list = subjects.data ?? [];
-    const subject = list.find((s) => s.subject_id === sel.subjectId) ?? list.find((s) => s.books.some((b) => b.book === sel.book));
-    return subject?.title ?? null;
-  }, [subjects.data, sel.subjectId, sel.book]);
+  const subject = subjects.data?.find((s) => s.subject_id === sel.subjectId) ?? null;
+  const chosen = Boolean(subject && sel.topic.trim().length >= 2);
 
-  const scopeId = sel.scopeType === 'topic' ? sel.topicId : sel.scopeType === 'chapter' ? sel.chapterId : sel.book;
   const levels = useQuery({
-    queryKey: ['examiner', 'levels', sel.scopeType, scopeId],
-    queryFn: () => api.levels(sel.scopeType, scopeId as string),
-    enabled: Boolean(scopeId),
+    queryKey: ['examiner', 'subject-levels', subject?.subject_id],
+    queryFn: () => api.subjectLevels(subject?.subject_id as string),
+    enabled: chosen,
   });
   const active = useQuery({ queryKey: ['examiner', 'active'], queryFn: api.active });
 
   const start = useMutation({
-    mutationFn: (level: number) => api.start(sel.scopeType, scopeId as string, level),
+    mutationFn: (level: number) => api.startByTopic(subject?.subject_id as string, sel.topic, level),
     onSuccess: (session) => navigate(`/exam/session/${session.session_id}`),
     onError: (error) => {
       if (error instanceof ExaminerApiError && error.code === 'ACTIVE_SESSION_EXISTS') {
@@ -70,22 +60,20 @@ export default function ExamHomePage() {
     },
   });
 
-  const scopeTitle = levels.data?.scope.title ?? null;
   const preparing = active.data?.status === 'preparing';
 
   return (
     <AppShell>
       <Page className="gap-[22px] pt-6">
         <div className="flex flex-col gap-[22px] lg:flex-row lg:flex-wrap lg:items-end lg:justify-between lg:gap-6">
-          <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 flex-col gap-1">
             <h1 className="m-0 text-[28px] font-bold leading-[1.15] tracking-[-0.02em]">Емтихан</h1>
             <Link
               to="/exam/picker"
-              aria-label={scopeId ? `Пән мен тақырыпты ауыстыру: ${subjectTitle ?? ''} ${scopeTitle ?? ''}` : 'Пән мен тақырыпты таңдау'}
-              className="flex min-h-8 items-center gap-1 self-start text-[15px] text-bl-ink2 no-underline"
+              aria-label={chosen ? `Пән мен тақырыпты ауыстыру: ${subject?.title}, ${sel.topic}` : 'Пән мен тақырыпты таңдау'}
+              className="flex min-h-8 min-w-0 items-center gap-1 self-start text-[15px] text-bl-ink2 no-underline"
             >
-              {scopeId ? subjectTitle ?? 'Пән' : 'Пән мен тақырыпты таңдаңыз'}
-              {scopeId && scopeTitle ? <span className="hidden lg:inline">&nbsp;· {scopeTitle}</span> : null}
+              <span className="truncate">{chosen ? `${subject?.title} · ${sel.topic}` : 'Пән мен тақырыпты таңдаңыз'}</span>
               <ChevronDownIcon size={16} />
             </Link>
           </div>
@@ -129,19 +117,9 @@ export default function ExamHomePage() {
               <ErrorNote error={subjects.error} onRetry={() => subjects.refetch()} />
             </div>
           ) : null}
-
-          {scopeId ? (
-            <Link
-              to="/exam/picker"
-              className="flex flex-col gap-0.5 rounded-2xl border border-bl-line bg-white px-4 py-3.5 text-bl-ink no-underline hover:border-bl-field lg:hidden"
-            >
-              <span className="text-base font-semibold">{scopeTitle ?? ' '}</span>
-              <span className="text-sm leading-[1.4] text-bl-ink2">{SCOPE_SUB[sel.scopeType]}</span>
-            </Link>
-          ) : null}
         </div>
 
-        {scopeId ? (
+        {chosen ? (
           <section className="flex flex-col gap-2.5">
             <div className="flex flex-col gap-0.5">
               <h2 className="m-0 text-xl font-bold tracking-[-0.01em]">Деңгейді таңдаңыз</h2>
