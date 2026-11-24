@@ -131,7 +131,7 @@ class ImportJsonTest(unittest.TestCase):
         self.assertEqual([r["fact_key"] for r in repo.rows], ["kz-abylai-born", "w-rome-capital", "kz-otrar"])
         linked = {r["fact_key"]: (r["topic_id"], r["status"]) for r in repo.rows}
         self.assertEqual(linked["kz-abylai-born"], ("kz5-p1", "active"))
-        self.assertEqual(linked["w-rome-capital"], (None, "review"))
+        self.assertEqual(linked["w-rome-capital"], (None, "active"))  # D96: served by subject queries
         first = repo.rows[0]
         self.assertEqual(first["question_content"]["options"][0], {"id": "a", "text": "1711"})
         self.assertEqual(first["ecd_evidence"]["code_check_target"], {"correct_option_id": "a"})
@@ -148,7 +148,7 @@ class ImportJsonTest(unittest.TestCase):
         _, repo, embedder = _run(self.path, Options(write=True, embed=False))
         self.assertEqual(repo.calls, ["load_subject", "insert_batch"])
         self.assertEqual(embedder.calls, [])
-        self.assertTrue(all(r["embedding"] is None and r["status"] == "review" for r in repo.rows))
+        self.assertTrue(all(r["embedding"] is None and r["status"] == "active" for r in repo.rows))
 
         _, repo, embedder = _run(self.path, Options(write=True), no_link=frozenset({self.path.resolve()}))
         self.assertNotIn("topic_centroids", repo.calls)

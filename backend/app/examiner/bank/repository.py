@@ -394,7 +394,7 @@ class PgBankRepository:
             select q.question_id::text as question_id, q.topic_id, q.level::int as level, q.format::text as format,
                    s.x_tier::text as x_tier, q.created_at, q.question_content, q.ecd_skill, q.ecd_evidence,
                    q.reference_context, q.content_embedding::text as embedding,
-                   q.rubric_0_4, q.socratic_checkpoints
+                   q.rubric_0_4, q.socratic_checkpoints, q.origin, q.subject
             from examiner.questions q
             join examiner.question_state s on s.question_id = q.question_id
             where s.status = 'active'
@@ -416,6 +416,7 @@ class PgBankRepository:
                 embedding=_parse_vector(row["embedding"]) if row["embedding"] else None,
                 rubric_0_4=_json_list(rubric_raw) if rubric_raw is not None else None,
                 socratic_checkpoints=_json_list(cp_raw) if cp_raw is not None else None,
+                origin=row["origin"] or "generated", subject=row["subject"],
             ))
         return questions
 

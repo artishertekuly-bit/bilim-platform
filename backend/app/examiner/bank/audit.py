@@ -13,6 +13,11 @@ MCQ-дің шешуші тексерісі (LLM) қайталанбайды: о�
 
 Белгіленген сұрақ өшірілмейді: `question_state.status = 'retired'`, себебі тарихқа жазылады
 (`question_state_history`), сондықтан оны қайта белсенді етуге болады.
+
+D96: импортталған сұрақ (`origin = 'imported'`) оқулық чанкынан жасалмаған: оның `support_quote`-ы бос,
+`reference_context.chunk_ids`-і жоқ. Сондықтан оған дәйексөз бен мәтінге сүйену тексерістері қолданылмайды, ал
+қайталау тексерісін импорттаушы өткізген (`fact_key` және 0.92). Импортталған сұрақ тек құрылым (Т6) қатесі
+үшін белгіленеді; генерацияланған сұрақ оған ұқсас болса, бұрынғыдай белгіленеді.
 """
 
 from __future__ import annotations
@@ -27,11 +32,15 @@ from pydantic import ValidationError
 from .checks import DUPLICATE_THRESHOLD, cosine, quote_problem, repeat_problem, rubric_grounded_problem
 from .formats import GEN_MODELS, Package, gen_from_package
 
+IMPORTED = "imported"
+# Problems an imported question cannot have by construction (no textbook chunk behind it, D96).
+IMPORTED_EXEMPT_PREFIXES = ("Т7: support_quote",)
+
 
 @dataclass(frozen=True)
 class BankQuestion:
     question_id: str
-    topic_id: str
+    topic_id: str | None
     level: int
     format: str
     x_tier: str
@@ -45,6 +54,12 @@ class BankQuestion:
     embedding: list[float] | None
     rubric_0_4: list[dict[str, Any]] | None = None
     socratic_checkpoints: list[dict[str, Any]] | None = None
+    origin: str = "generated"
+    subject: str | None = None
+
+    @property
+    def imported(self) -> bool:
+        return self.origin == IMPORTED
 
 
 @dataclass(frozen=True)
@@ -68,6 +83,8 @@ def question_problems(question: BankQuestion) -> list[str]:
     except (KeyError, ValueError, ValidationError, TypeError) as exc:
         return [f"Т6: пакет құрылымы оқылмады ({type(exc).__name__})"]
     problems = generated.problems()
+    if question.imported:
+        return [p for p in problems if not p.startswith(IMPORTED_EXEMPT_PREFIXES)]
     if question.reference_text:
         package = Package(
             format=question.format,
@@ -99,7 +116,12 @@ def audit(questions: Sequence[BankQuestion]) -> list[Finding]:
     for question in sorted(questions, key=lambda q: (q.created_at, q.question_id)):
         if reasons[question.question_id]:
             continue
-        group = kept.setdefault((question.topic_id, question.level), [])
+        # A question without a § is grouped by its subject, never with another subject's unlinked questions.
+        group_key = question.topic_id or f"subject:{question.subject or ''}"
+        group = kept.setdefault((group_key, question.level), [])
+        if question.imported:
+            group.append(question)  # deduplicated by the importer; later generated questions are still compared
+            continue
         package = Package(format=question.format, content=question.content, key=question.key,
                           ecd_skill=question.ecd_skill, evidence=question.evidence,
                           support_quote=question.support_quote)

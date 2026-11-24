@@ -82,6 +82,7 @@ from .dto import (
     Total,
     X3Result,
 )
+from . import retrieval
 from . import topics as topic_search
 from .errors import ExaminerError, not_found, validation
 from .grading import AnswerInvalid, check_answer, check_hybrid_answer, extract_text_answer
@@ -135,8 +136,16 @@ FORMAT_MARGIN: dict[str, float] = {"short_answer": 1.0}
 # Every request of a session-sized run goes out at once (14 at level 1), so none waits for a slot.
 ON_DEMAND_CONCURRENCY = 18
 
-# (scope, level, § to generate for, format applicability) → fills the bank. Injected in tests.
-Generator = Callable[["ResolvedScope", int, Sequence[str], Mapping[str, bool]], Awaitable[None]]
+# (scope, level, § to generate for, format applicability, deficit) → fills the bank. Injected in tests.
+# deficit (D96): the "tier/format" slots `_pick` could not fill; None means a whole session.
+Generator = Callable[["ResolvedScope", int, Sequence[str], Mapping[str, bool], "Sequence[str] | None"],
+                     Awaitable[None]]
+# (subject_id, query, how many MCQs are missing) → ids of the MCQs it added to the bank (D96). Injected in tests.
+McqGenerator = Callable[[str, retrieval.McqQuery, int], Awaitable[Sequence[str]]]
+# D96: a learner-written topic also draws level-1 MCQs from the whole subject bank (imported rows included).
+HYBRID_POOL_FACTOR = 2   # hybrid candidates per MCQ-capable slot, so the picker still has a choice
+QUESTION_EMBEDDING_KEY = "questions"   # the model of examiner.questions.content_embedding (bank.pipeline)
+BANK_EXPLANATION_MODEL = "bank"        # explanations.model of a stored explanation reused at $0 (D96)
 
 
 def _with_margin(count: int, margin: float) -> int:
@@ -161,21 +170,36 @@ def _pooled_code_targets(need: Mapping[tuple[str, str], int]) -> dict[tuple[str,
     return targets
 
 
-def session_targets(level: int, applicable: Mapping[str, bool]) -> list[tuple[int, list[str], dict[tuple[str, str], int]]]:
+def _missing_slots(missing: Sequence[str]) -> list[tuple[str, str]]:
+    """`BANK_NOT_READY` details ("tier/format") → (format, tier)."""
+    slots = []
+    for entry in missing:
+        tier, _, name = str(entry).partition("/")
+        if tier and name:
+            slots.append((name, tier))
+    return slots
+
+
+def session_targets(
+    level: int, applicable: Mapping[str, bool], missing: Sequence[str] | None = None
+) -> list[tuple[int, list[str], dict[tuple[str, str], int]]]:
     """(bank level, formats, (format, tier) → target stock) for one session of `level` (D93, D94).
 
     X1/X2 slots get a margin by measured acceptance (`CODE_POOL_MARGIN`, `FORMAT_MARGIN`, otherwise
     `SESSION_MARGIN`); the level's X3 item gets 1 (a session runs without it if it is rejected).
-    Level 3: the D block from level 3 formats, and the A block (`any_code`) from level 1 code formats."""
+    Level 3: the D block from level 3 formats, and the A block (`any_code`) from level 1 code formats.
+    `missing` (D96): only the slots the bank could not fill get targets, with the same margins."""
     composition = build_composition(level, applicable)
     plans: list[tuple[int, list[str], dict[tuple[str, str], int]]] = []
     need: dict[tuple[str, str], int] = defaultdict(int)
     code_need: dict[str, int] = defaultdict(int)
-    for slot in composition.slots:
-        if slot.format == "any_code":
-            code_need[slot.tier] += 1
+    wanted = ([(slot.format, slot.tier) for slot in composition.slots] if missing is None
+              else _missing_slots(missing))
+    for name, tier in wanted:
+        if name == "any_code":
+            code_need[tier] += 1
         else:
-            need[(slot.format, slot.tier)] += 1
+            need[(name, tier)] += 1
     targets = _pooled_code_targets({key: count for key, count in need.items() if key[0] in CODE_FORMATS})
     targets.update({(name, tier): _with_margin(count, FORMAT_MARGIN.get(name, SESSION_MARGIN))
                     for (name, tier), count in need.items() if name not in CODE_FORMATS})
@@ -222,6 +246,7 @@ class ResolvedScope:
     grade: int
     subject_id: str
     topics: tuple[str, ...]
+    query: str | None = None   # D96: the learner's written topic; MCQ slots also draw from the subject bank
 
     def dto(self) -> Scope:
         return Scope(type=self.type, id=self.api_id, title=self.title)
@@ -252,12 +277,14 @@ class ExaminerService:
         gateway: LLMGateway | None = None,
         rng: random.Random | None = None,
         generator: Generator | None = None,
+        mcq_generator: McqGenerator | None = None,
     ) -> None:
         self._pool = pool
         self._gateway_instance = gateway
         self._rng = rng or random.SystemRandom()
         self._bg_tasks: set[asyncio.Task[Any]] = set()
         self._generator: Generator = generator or self._generate_with_pipeline
+        self._mcq_generator: McqGenerator = mcq_generator or self._generate_mcq_deficit
         # One generation per (scope, level) at a time in this process: a second learner waits for the first.
         self._prep_locks: dict[tuple[str, str, str, int], asyncio.Lock] = {}
 
@@ -688,12 +715,14 @@ class ExaminerService:
                     if topic_id is not None and topic_text is not None:
                         scope = await self.resolve_scope(conn, "topic", topic_id)
                         extra = {"topic_text": topic_text, "paragraph": scope.title}
-                        scope = replace(scope, title=topic_text)  # the learner sees their own words
+                        # The learner sees their own words; MCQ slots also search the subject bank by them (D96).
+                        scope = replace(scope, title=topic_text, query=topic_text)
                     else:
                         scope = await self.resolve_scope(conn, str(request.scope_type), str(request.scope_id))
                     applicable = await self._applicability(conn, scope.subject_id)
                     composition = build_composition(request.level, applicable)
                     chosen: list[tuple[Slot, Candidate]] | None
+                    missing: list[str] | None = None
                     try:
                         chosen = await self._pick(conn, student_id, scope, request.level,
                                                   list(composition.slots), applicable)
@@ -709,6 +738,7 @@ class ExaminerService:
                         if started_today >= on_demand_daily_limit():
                             raise ExaminerError(429, "GENERATION_LIMIT", ON_DEMAND_LIMIT_TEXT) from exc
                         chosen = None
+                        missing = list(exc.details.get("missing") or [])  # D96: generate only this gap
                     session_id = await self._create(conn, student_id, scope, composition, chosen or (),
                                                     status="active" if chosen is not None else "preparing",
                                                     extra=extra)
@@ -717,7 +747,7 @@ class ExaminerService:
                                          session.model_dump(mode="json"))
                 # The transaction is committed: the background worker sees the preparing row.
                 if chosen is None:
-                    self._spawn(self._prepare(student_id, session_id, scope, request.level))
+                    self._spawn(self._prepare(student_id, session_id, scope, request.level, deficit=missing))
                 return session
             except asyncpg.UniqueViolationError as exc:
                 async with conn.transaction():
@@ -819,6 +849,10 @@ class ExaminerService:
             include_a_code_levels=(level == 3), code_formats=a_code,
         )
         picker_formats = list(dict.fromkeys(lvl_formats + a_code))
+        if scope.query and "mcq" in picker_formats:
+            known = {c.question_id for c in candidates}
+            candidates += [c for c in await self._hybrid_candidates(conn, student_id, scope, slots, tiers)
+                           if c.question_id not in known]
         picker = Picker(candidates, picker_formats, self._rng)
         chosen: list[Candidate | None] = [picker.take(slot) for slot in slots]
         accepted: set[str] = set()
@@ -873,9 +907,11 @@ class ExaminerService:
 
     # ============================================================== сұраныс бойынша генерация (D93)
 
-    async def _prepare(self, student_id: str, session_id: str, scope: ResolvedScope, level: int) -> None:
+    async def _prepare(self, student_id: str, session_id: str, scope: ResolvedScope, level: int, *,
+                       deficit: Sequence[str] | None = None) -> None:
         """Background worker of a preparing session: fill the bank, then pick the items. Every outcome
-        leaves the session active or closed with a notice; nothing waits on the HTTP request."""
+        leaves the session active or closed with a notice; nothing waits on the HTTP request.
+        `deficit` (D96): the slots the bank could not fill at start; only those are generated."""
         key = (scope.book, scope.type, scope.db_id, level)
         lock = self._prep_locks.setdefault(key, asyncio.Lock())
         try:
@@ -885,15 +921,16 @@ class ExaminerService:
                 async with self._pool.acquire() as conn:
                     applicable = await self._applicability(conn, scope.subject_id)
                 topics = self._generation_topics(scope)
-                await asyncio.wait_for(self._generator(scope, level, topics, applicable), PREPARE_TIMEOUT_S)
+                await asyncio.wait_for(self._generator(scope, level, topics, applicable, deficit), PREPARE_TIMEOUT_S)
             try:
                 await self._activate(student_id, session_id, scope, level)
             except ExaminerError as exc:
                 if exc.code != "BANK_NOT_READY":
                     raise
                 # Rejections left a gap: one top-up for exactly that gap, then the last try.
+                gap = list(exc.details.get("missing") or []) or deficit
                 async with lock:
-                    await asyncio.wait_for(self._generator(scope, level, topics, applicable), PREPARE_TIMEOUT_S)
+                    await asyncio.wait_for(self._generator(scope, level, topics, applicable, gap), PREPARE_TIMEOUT_S)
                 await self._activate(student_id, session_id, scope, level)
         except asyncio.CancelledError:
             raise  # the service is closing; the stale check closes the session later
@@ -910,22 +947,26 @@ class ExaminerService:
         return self._rng.sample(topics, GENERATION_TOPICS)
 
     async def _generate_with_pipeline(
-        self, scope: ResolvedScope, level: int, topics: Sequence[str], applicable: Mapping[str, bool]
+        self, scope: ResolvedScope, level: int, topics: Sequence[str], applicable: Mapping[str, bool],
+        deficit: Sequence[str] | None = None,
     ) -> None:
         """Fast Lane sized for one session (`session_targets`): one round, no cache warm-up wave, wider
         concurrency. Level 3 also gets level 1 code questions for its A block. A short result is topped up once by
-        `_prepare`; the planner counts what is already in the bank, so a second call only asks for the gap."""
+        `_prepare`; the planner counts what is already in the bank, so a second call only asks for the gap.
+        D96: with a `deficit`, only the missing slots get targets and the whole run is capped at their total, so
+        several § of a wide scope do not each generate the gap again."""
         from ..bank.pipeline import BankPipeline
         from ..bank.repository import PgBankRepository
 
         pipeline = BankPipeline(self._gateway(), PgBankRepository(self._pool))
-        for plan_level, formats, targets in session_targets(level, applicable):
+        for plan_level, formats, targets in session_targets(level, applicable, deficit):
             if not formats or not targets:
                 continue
             started = asyncio.get_running_loop().time()
             report = await pipeline.generate_now(
                 [scope.book], plan_level, topics=list(topics), formats=formats, targets=targets, rounds=1,
                 warmup=False, concurrency=ON_DEMAND_CONCURRENCY,
+                max_requests=sum(targets.values()) if deficit is not None else None,
             )
             # D94: per format, so a cost or speed audit reads the log instead of a paid rerun.
             logger.info(
@@ -935,6 +976,174 @@ class ExaminerService:
                        "accepted": report.accepted, "rejected": report.rejected, "failed": report.failed,
                        "cost_usd": round(report.cost_usd, 4), "formats": report.formats_log()},
             )
+
+    # ============================================================== гибрид MCQ іздеу (D96)
+
+    async def _bank_mcqs(
+        self,
+        conn: Any,
+        student_id: str,
+        subject_id: str,
+        query: retrieval.McqQuery,
+        *,
+        vector: Sequence[float] | None = None,
+        exclude: Sequence[str] = (),
+        only: Sequence[str] | None = None,
+    ) -> list[retrieval.BankMcq]:
+        """Active level-1 MCQs of the subject, generated and imported, `topic_id` not required. Rows the learner saw
+        recently are left out (λ of level 1, as in `_candidates`). A narrow query is prefiltered here by a superset
+        of `retrieval.qualifies` (similarity, year range, stem substring); `only` (fresh ids) skips the prefilter."""
+        years = query.years
+        rows = await conn.fetch(
+            """
+            select q.question_id::text as question_id, q.origin, q.topic_id, s.x_tier::text as tier,
+                   q.era, q.subtopic, q.period_label, q.year_sort, q.fact_key, q.concept_key, x.similarity,
+                   case when l.question_id is not null then l.leased_at end as leased_at
+            from examiner.questions q
+            join examiner.question_state s on s.question_id = q.question_id
+            cross join lateral (
+              select case when $3::text is not null and q.content_embedding is not null
+                          then (1 - (q.content_embedding operator(extensions.<=>) ($3::text)::extensions.vector))::float8
+                     end as similarity
+            ) x
+            left join examiner.exam_item_leases l on l.question_id = q.question_id and l.leased_until > now()
+            left join examiner.student_item_exposure e on e.question_id = q.question_id and e.student_id = $1::uuid
+            where q.subject_id = $2::uuid and q.level = 1 and q.format::text = 'mcq' and s.status = 'active'
+              and (e.question_id is null
+                   or e.last_seen_at < now() - make_interval(days => ceil(e.n * 1.204 / $4::float8)::int))
+              and not (q.question_id = any($5::text[]::uuid[]))
+              and ($6::text[] is null or q.question_id = any($6::text[]::uuid[]))
+              and ($7::boolean
+                   or x.similarity >= $8::float8
+                   or q.year_sort between $9::bigint and $10::bigint
+                   or lower(concat_ws(' ', q.subtopic, q.era, q.period_label)) like any($11::text[]))
+            """,
+            student_id, subject_id, _vector_literal(vector) if vector is not None else None, LAMBDA[1],
+            list(exclude), list(only) if only is not None else None, query.broad or only is not None,
+            retrieval.SIMILARITY_THRESHOLD,
+            years[0] - retrieval.YEAR_TOLERANCE if years else None,
+            years[1] + retrieval.YEAR_TOLERANCE if years else None,
+            retrieval.like_patterns(query),
+        )
+        return [retrieval.BankMcq(**dict(row)) for row in rows]
+
+    async def _hybrid_candidates(
+        self, conn: Any, student_id: str, scope: ResolvedScope, slots: Sequence[Slot], tiers: Sequence[str]
+    ) -> list[Candidate]:
+        """MCQ candidates for a learner-written topic from the whole subject bank. Metadata only: no embedding call
+        inside the transaction, so a bank hit stays $0 and fast. Unlinked rows are balanced by era/subtopic."""
+        query = retrieval.parse_query(scope.query, scope.book_title)
+        mcq_slots = sum(1 for slot in slots if slot.format in CODE_FORMATS or slot.format == "any_code")
+        if not mcq_slots:
+            return []
+        rows = [row for row in await self._bank_mcqs(conn, student_id, scope.subject_id, query)
+                if row.tier in tiers]
+        chosen = retrieval.select(rows, query, HYBRID_POOL_FACTOR * mcq_slots, self._rng)
+        return [Candidate(row.question_id, row.topic_id or f"{row.era or ''}/{row.subtopic or ''}", "mcq", row.tier,
+                          row.leased_at) for row in chosen]
+
+    async def _query_vector(self, text: str) -> list[float] | None:
+        try:
+            return (await self._gateway().embed([text], model_key=QUESTION_EMBEDDING_KEY))[0]
+        except (LLMUnavailableError, LLMRequestError, ValueError, KeyError, IndexError) as exc:
+            logger.warning("mcq query embedding unavailable: %s", type(exc).__name__)
+            return None
+
+    async def assemble_mcqs(self, student_id: str, subject_id: str, query_text: str | None,
+                            count: int) -> retrieval.McqAssembly:
+        """A custom MCQ set (e.g. 20–50 items) on a subject and an optional written topic (D96).
+
+        The bank goes first, generated and imported together. A narrow topic is matched by metadata without any
+        network call; only when that is short is the query embedded (cosine ≥ 0.76). Fast Lane generates only the
+        deficit (`count − found`): a full bank hit makes no LLM call. New MCQs closer than cosine 0.88 to a chosen
+        one are dropped."""
+        if not retrieval.MIN_SET <= count <= retrieval.MAX_SET:
+            raise validation(f"Сұрақ саны {retrieval.MIN_SET}–{retrieval.MAX_SET} аралығында болады.",
+                             {"fields": ["count"]})
+        title = await self._pool.fetchval("select name_kk from corpus.subjects where id = $1::uuid", subject_id)
+        if title is None:
+            raise not_found("Пән табылмады.")
+        query = retrieval.parse_query(query_text, title)
+        async with self._pool.acquire() as conn:
+            rows = await self._bank_mcqs(conn, student_id, subject_id, query)
+        chosen = retrieval.select(rows, query, count, self._rng)
+        if not query.broad and len(chosen) < count:
+            vector = await self._query_vector(query.text)  # no connection is held during the call
+            if vector is not None:
+                async with self._pool.acquire() as conn:
+                    rows = await self._bank_mcqs(conn, student_id, subject_id, query, vector=vector)
+                chosen = retrieval.select(rows, query, count, self._rng)
+        from_bank = len(chosen)
+        missing = retrieval.deficit(count, from_bank)
+        generated = 0
+        if missing and on_demand_enabled():
+            fresh_ids = list(await self._mcq_generator(subject_id, query, missing))
+            if fresh_ids:
+                chosen_ids = [row.question_id for row in chosen]
+                async with self._pool.acquire() as conn:
+                    fresh = await self._bank_mcqs(conn, student_id, subject_id, query, exclude=chosen_ids,
+                                                  only=fresh_ids)
+                    closeness = await self._closeness(conn, [row.question_id for row in fresh], chosen_ids)
+                fresh = retrieval.drop_near_duplicates(fresh, closeness)
+                added = retrieval.select(fresh, retrieval.McqQuery(query.text, (), None), missing, self._rng,
+                                         taken=[row.diversity_key for row in chosen])
+                chosen += added
+                generated = len(added)
+        return retrieval.McqAssembly(tuple(row.question_id for row in chosen), from_bank, generated, query.broad)
+
+    @staticmethod
+    async def _closeness(conn: Any, fresh_ids: Sequence[str], chosen_ids: Sequence[str]) -> dict[str, float]:
+        """Best cosine of each fresh MCQ to the chosen ones, computed in SQL (no vectors leave the database)."""
+        if not fresh_ids or not chosen_ids:
+            return {}
+        rows = await conn.fetch(
+            """
+            select n.question_id::text as question_id,
+                   max(1 - (n.content_embedding operator(extensions.<=>) k.content_embedding))::float8 as similarity
+            from examiner.questions n
+            join examiner.questions k on k.question_id = any($2::text[]::uuid[]) and k.content_embedding is not null
+            where n.question_id = any($1::text[]::uuid[]) and n.content_embedding is not null
+            group by 1
+            """,
+            list(fresh_ids), list(chosen_ids),
+        )
+        return {row["question_id"]: row["similarity"] for row in rows}
+
+    async def _generate_mcq_deficit(self, subject_id: str, query: retrieval.McqQuery, missing: int) -> list[str]:
+        """Fast Lane for exactly the missing MCQs on the topic's § (a random § for a broad set). A subject without
+        textbooks (world_history) has nothing to generate from: the set stays bank-only."""
+        from ..bank.pipeline import BankPipeline
+        from ..bank.repository import PgBankRepository
+
+        if query.broad:
+            topics = [row["topic_id"] for row in await self._pool.fetch(
+                "select topic_id from corpus.paragraphs where subject_id = $1::uuid", subject_id)]
+            if not topics:
+                return []
+            topic_id = self._rng.choice(topics)
+        else:
+            try:
+                topic_id = await self.resolve_topic(subject_id, query.text)
+            except ExaminerError:
+                return []
+        repo = PgBankRepository(self._pool)
+        need = _with_margin(missing, CODE_POOL_MARGIN)
+        have = (await repo.stock(subject_id, 1)).get((topic_id, "mcq", "X1"), 0)
+        since = await self._pool.fetchval("select now()")
+        report = await BankPipeline(self._gateway(), repo).generate_now(
+            [topic_id.split("#", 1)[0]], 1, topics=[topic_id], formats=["mcq"],
+            targets={("mcq", "X1"): have + need}, max_requests=need, rounds=1, warmup=False,
+            concurrency=ON_DEMAND_CONCURRENCY,
+        )
+        logger.info("mcq deficit generation finished",
+                    extra={"missing": missing, "requested": need, "accepted": report.accepted,
+                           "cost_usd": round(report.cost_usd, 4)})
+        rows = await self._pool.fetch(
+            "select question_id::text as question_id from examiner.questions "
+            "where topic_id = $1 and level = 1 and format::text = 'mcq' and created_at >= $2",
+            topic_id, since,
+        )
+        return [row["question_id"] for row in rows]
 
     async def _still_preparing(self, session_id: str) -> bool:
         status = await self._pool.fetchval(
@@ -1218,13 +1427,32 @@ class ExaminerService:
         if session["status"] != "active":
             raise ExaminerError(409, "SESSION_NOT_ACTIVE", "Сессия әлі басталған жоқ.")
 
+    @staticmethod
+    async def _queue_explanation(conn: Any, item_id: str, bank_text: str | None) -> bool:
+        """A wrong answer gets an explanation. When the question's bank row already has one (imported MCQs, D96),
+        it is stored as ready at once: $0, no LLM call. Returns True when the LLM explanation must be generated."""
+        text = (bank_text or "").strip()
+        if text:
+            await conn.execute(
+                "insert into examiner.explanations (item_id, status, text, model, ready_at) "
+                "values ($1::uuid, 'ready', $2, $3, now()) on conflict (item_id) do nothing",
+                item_id, text, BANK_EXPLANATION_MODEL,
+            )
+            return False
+        await conn.execute(
+            "insert into examiner.explanations (item_id, status) values ($1::uuid, 'pending') "
+            "on conflict (item_id) do nothing",
+            item_id,
+        )
+        return True
+
     async def _fetch_open_current_item(self, conn: Any, session_id: str, item_id: str) -> asyncpg.Record:
         item = await conn.fetchrow(
             """
             select i.item_id::text as item_id, i.state, i.tier::text as tier, i.block,
                    i.position::int as position, i.served_at, i.deadline_at,
                    q.question_id::text as question_id, q.format::text as format, q.question_content,
-                   q.ecd_evidence, q.rubric_0_4, q.socratic_checkpoints, q.reference_context
+                   q.ecd_evidence, q.rubric_0_4, q.socratic_checkpoints, q.reference_context, q.explanation
             from examiner.session_items i
             join examiner.questions q on q.question_id = i.question_id
             where i.item_id = $1::uuid and i.session_id = $2::uuid
@@ -1402,19 +1630,15 @@ class ExaminerService:
                         json.dumps(request.answer, ensure_ascii=False), is_late, c, 4 * c,
                     )
                     await conn.execute("update examiner.session_items set state = 'graded' where item_id = $1::uuid", item_id)
-                    if c == 0 and not is_late:
-                        await conn.execute(
-                            "insert into examiner.explanations (item_id, status) values ($1::uuid, 'pending') "
-                            "on conflict (item_id) do nothing",
-                            item_id,
-                        )
-                        spawn_explanation = True
+                    explained = c == 0 and not is_late
+                    if explained:
+                        spawn_explanation = await self._queue_explanation(conn, item_id, item.get("explanation"))
                     await self._advance(conn, student_id, session)
                     result = AnswerResult(
                         item_id=item_id,
                         check="correct" if c else "incorrect",
                         late=is_late,
-                        explanation="pending" if spawn_explanation else "none",
+                        explanation="pending" if explained else "none",
                         moderation=None,
                         session=await self._session(conn, student_id, session_id),
                     )
@@ -1463,19 +1687,15 @@ class ExaminerService:
                         json.dumps(request.answer, ensure_ascii=False), hybrid_c, s_val,
                     )
                     await conn.execute("update examiner.session_items set state = 'graded' where item_id = $1::uuid", item_id)
-                    if hybrid_c == 0:
-                        await conn.execute(
-                            "insert into examiner.explanations (item_id, status) values ($1::uuid, 'pending') "
-                            "on conflict (item_id) do nothing",
-                            item_id,
-                        )
-                        spawn_explanation = True
+                    explained = hybrid_c == 0
+                    if explained:
+                        spawn_explanation = await self._queue_explanation(conn, item_id, item.get("explanation"))
                     await self._advance(conn, student_id, session)
                     result = AnswerResult(
                         item_id=item_id,
                         check="correct" if s_val >= 3 else "incorrect",
                         late=False,
-                        explanation="pending" if spawn_explanation else "none",
+                        explanation="pending" if explained else "none",
                         moderation=None,
                         session=await self._session(conn, student_id, session_id),
                     )

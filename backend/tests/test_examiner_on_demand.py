@@ -176,11 +176,13 @@ class PrepareTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.pool = FakePool()
         self.generated: list[tuple[int, tuple[str, ...]]] = []
+        self.deficits: list[Any] = []
         self.activated: list[str] = []
 
     def service(self, generator=None, activate_error: Exception | None = None) -> ExaminerService:
-        async def default_generator(sc, level, topics, applicable) -> None:
+        async def default_generator(sc, level, topics, applicable, deficit=None) -> None:
             self.generated.append((level, tuple(topics)))
+            self.deficits.append(deficit)
 
         svc = ExaminerService(self.pool, generator=generator or default_generator)  # type: ignore[arg-type]
 

@@ -11,8 +11,9 @@ is one INSERT … ON CONFLICT DO NOTHING that also writes question_state. Per ba
 embedding calls: `questions` (text-embedding-3-small, stored, near-duplicate check) and `corpus`
 (text-embedding-3-large, nearest § only).
 
-A question linked to a § goes in as `active` (sessions select by topic_id); one without a § goes in as `review`,
-so no session, stock count or audit sees a row with no topic.
+Every question goes in as `active` (D96). One linked to a § also serves § sessions (they select by topic_id); one
+without a § is served by subject queries (`session.retrieval`): § sessions and stock counts never match a NULL
+topic_id, and the audit exempts imported rows from the textbook-quote checks.
 """
 
 from __future__ import annotations
@@ -148,7 +149,7 @@ def to_row(item: ImportItem, *, topic_id: str | None, embedding: Sequence[float]
         "embedding": None if embedding is None else _vector_literal(embedding),
         "era": item.era, "subtopic": item.subtopic, "year_sort": item.year_sort,
         "period_label": item.period_label, "fact_key": item.fact_key, "explanation": item.explanation,
-        "status": "active" if topic_id else "review",
+        "status": "active",  # D96: unlinked rows are served by subject queries
     }
 
 
