@@ -5,6 +5,12 @@
 --   * (subject, fact_key) is the import's idempotency key: a re-run inserts nothing twice.
 --   * corpus.topic_centroids gives examiner_svc one mean chunk vector per § (no chunk text, no rag access),
 --     so the importer can link a question to its nearest § in one query.
+--   * World history is its own subject: its imported bank must not mix with Kazakhstan history (`history`),
+--     whose textbooks are the only ones in the corpus.
+
+insert into public.subjects (name_kk, name_ru, slug, sort_order)
+values ('Дүниежүзі тарихы', 'Всемирная история', 'world_history', 5)
+on conflict (slug) do nothing;
 
 alter table examiner.questions
   add column origin       text not null default 'generated' check (origin in ('generated', 'imported')),
