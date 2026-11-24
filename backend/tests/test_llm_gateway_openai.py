@@ -125,6 +125,16 @@ class CallTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completion.model, "m-2026-01-01")
         self.assertEqual((completion.usage.input_tokens, completion.usage.cached_tokens, completion.usage.output_tokens), (12, 8, 3))
         self.assertEqual(completions.kwargs["timeout"], 5)
+        self.assertFalse(completion.truncated)
+
+    async def test_length_finish_reason_marks_truncation(self) -> None:
+        result = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=""), finish_reason="length")],
+            usage=SimpleNamespace(prompt_tokens=12, completion_tokens=8000, prompt_tokens_details=None),
+            model="m",
+        )
+        provider = OpenAICompatProvider("p", api_key="test", client=_client(_Completions(result=result)))
+        self.assertTrue((await provider.complete(REQUEST)).truncated)
 
     async def test_complete_wraps_sdk_errors(self) -> None:
         exc = openai.InternalServerError("down", response=_response(503), body=None)

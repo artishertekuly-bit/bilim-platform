@@ -813,7 +813,10 @@ class BankFakeProvider(FakeProvider):
                           "quote": f"Ұғым {i}-{tag} түсіндірмесі"} for i in range(1, 11)]
             return ProviderCompletion(json.dumps({"concepts": items}), Usage(10, 0, 10), request.model)
         if request.schema_name in {model.__name__ for model in GEN_MODELS.values()}:
-            return ProviderCompletion(self.generation_texts.pop(0), Usage(50, 0, 50), request.model)
+            item = self.generation_texts.pop(0)
+            if isinstance(item, ProviderCompletion):  # мысалы, токен шегінде үзілген жауап (D94)
+                return item
+            return ProviderCompletion(item, Usage(50, 0, 50), request.model)
         if self.solver_errors:
             raise self.solver_errors.pop(0)
         user = request.messages[-1].content
@@ -1478,6 +1481,32 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((report.accepted, report.rejected), (3, 1))
         self.assertTrue(any("қайталан" in r or "ұқсас" in r for r in report.reasons))
 
+    async def test_fast_lane_reports_cost_and_time_per_format_and_does_not_rerun_truncation(self) -> None:
+        """D94: the on-demand log carries cost and seconds per format; an answer cut at the token limit is one call,
+        rejected with its own reason (the dry run paid 3 × 8000 tokens for each such matching request)."""
+        config = gateway_config()
+        config["models"]["small"]["pricing"] = {"input_per_mtok": 1.0, "output_per_mtok": 2.0}
+        gateway = LLMGateway(parse_config(config, {"KEY": "k"}), providers={"primary": self.provider},
+                             sink=MemorySink(), sleep=no_sleep, rng=lambda: 0.0)
+        self.repo.chunk_rows["kazakh6.md#§1"] = [Chunk("c1", 1, SOURCE)]
+        self.provider.correct_texts = {"Ұлы Жібек жолы"}
+        cut = ProviderCompletion('{"stem": "Жібек', Usage(50, 0, 100), "small-model", truncated=True)
+        self.provider.generation_texts = [cut, *self.distinct_mcqs(2)]
+        report = await BankPipeline(gateway, self.repo, rng=random.Random(1)).generate_now(
+            ["kazakh6.md"], 1, topics=["kazakh6.md#§1"], formats=["mcq"], rounds=1, warmup=False,
+            targets={("mcq", "X1"): 3})
+        stats = report.formats["mcq"]
+        self.assertEqual((stats.requests, stats.accepted, stats.rejected, stats.truncated), (3, 2, 1, 1))
+        self.assertEqual(len([c for c in self.provider.calls if c.schema_name == "MCQGen"]), 3)  # no rerun
+        self.assertIn("Т6: жауап токен шегінде үзілді", report.reasons)
+        self.assertEqual(len(stats.seconds), 3)
+        self.assertGreater(stats.generation_cost_usd, 0)
+        self.assertGreater(stats.solver_cost_usd, 0)
+        self.assertAlmostEqual(report.cost_usd, stats.generation_cost_usd + stats.solver_cost_usd)
+        logged = report.formats_log()["mcq"]
+        self.assertEqual((logged["requests"], logged["truncated"]), (3, 1))
+        self.assertIsNotNone(logged["seconds_max"])
+
     async def test_all_new_formats_require_concept_key_and_l3_l4_get_full_paragraph(self) -> None:
         self.repo.chunk_rows["kazakh6.md#§1"] = [
             Chunk("c1", 1, SOURCE),
@@ -1724,6 +1753,20 @@ class CheckTests(unittest.IsolatedAsyncioTestCase):
 
         pkg = mcq(support_quote="Иудаизм, христиан және ислам діндері.").to_package(random.Random(1))
         self.assertIsNone(quote_problem(pkg, ocr_ref))
+
+    def test_quote_with_spaced_hyphen_break_is_found(self) -> None:
+        # D94: оқулықта «дүние-\nжүзілік», модель «дүние- жүзілік» деп көшірді — Т7 бұрын қабылдамайтын.
+        reference = ("Бірінші дүние-\nжүзілік соғыс кезінде Ресей империясындағы әлеуметтік қайшылықтар асқынды. "
+                     "Ол Сырдария губерния- сында туған.")
+        quote = "Бірінші дүние- жүзілік соғыс кезінде Ресей империясындағы әлеуметтік қайшылықтар асқынды."
+        self.assertIsNone(quote_problem(mcq(support_quote=quote).to_package(random.Random(1)), reference))
+        self.assertIsNone(quote_problem(mcq(support_quote="Ол Сырдария губерниясында туған.")
+                                        .to_package(random.Random(1)), reference))
+        self.assertEqual(normalize_text("дүние- жүзілік"), "дүниежүзілік")
+        # Бас әріп, сан, екі жағындағы бос орын — тасымал емес.
+        self.assertEqual(normalize_text("Солтүстік- Батыс"), "солтүстік- батыс")
+        self.assertEqual(normalize_text("1946- 1974"), "1946- 1974")
+        self.assertEqual(normalize_text("Орал - Каспий"), "орал - каспий")
 
     async def test_solver_unreadable_answer_fails_closed(self) -> None:
         provider = FakeProvider("primary", ["это не json"] * 3)

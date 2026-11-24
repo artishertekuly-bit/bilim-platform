@@ -14,6 +14,7 @@ from unittest import mock
 
 import asyncpg
 
+from app.examiner.bank.pipeline import ProcessReport
 from app.examiner.session import service as S
 from app.examiner.session import topics as T
 from app.examiner.session.errors import ExaminerError
@@ -262,7 +263,7 @@ class PrepareTests(unittest.IsolatedAsyncioTestCase):
 
             async def generate_now(self, books, level, **kwargs):
                 calls.append(dict(level=level, **kwargs))
-                return mock.Mock(accepted=0, rejected=0, failed=0)
+                return ProcessReport()
 
         svc = ExaminerService(self.pool, gateway=mock.Mock())  # type: ignore[arg-type]
         with mock.patch("app.examiner.bank.pipeline.BankPipeline", FakePipeline):
@@ -280,16 +281,32 @@ class SessionTargetsTests(unittest.TestCase):
     def test_level_one_asks_for_one_session_with_margin_not_the_whole_paragraph(self) -> None:
         [(level, formats, targets)] = S.session_targets(1, {})
         self.assertEqual((level, formats), (1, ["mcq", "matching", "short_answer"]))
-        # Session: mcq 2+3, matching 1+2, short answer 1+1; ×1.5 rounded up, plus the level's X3 item.
-        self.assertEqual(targets, {("mcq", "X1"): 3, ("mcq", "X2"): 5, ("matching", "X1"): 2, ("matching", "X2"): 3,
-                                   ("short_answer", "X1"): 2, ("short_answer", "X2"): 2, ("mcq", "X3"): 1})
-        self.assertEqual(sum(targets.values()), 18)  # the first on-demand run planned 51 requests for this level
+        # Session: mcq 2+3, matching 1+2, short answer 1+1. D94: the code pool (mcq + matching: 3 and 5) gets
+        # ×1.3 carried by mcq (4 and 7), matching gets its need, short answer (95 % accepted) no margin; + X3.
+        self.assertEqual(targets, {("mcq", "X1"): 3, ("mcq", "X2"): 5, ("matching", "X1"): 1, ("matching", "X2"): 2,
+                                   ("short_answer", "X1"): 1, ("short_answer", "X2"): 1, ("mcq", "X3"): 1})
+        # The first on-demand run planned 51 requests for this level, D93 planned 18.
+        self.assertEqual(sum(targets.values()), 14)
+
+    def test_pool_without_matching_puts_the_margin_on_mcq(self) -> None:
+        [(_, formats, targets)] = S.session_targets(1, {"matching": False})
+        self.assertEqual(formats, ["mcq", "short_answer"])
+        # matching's 3 items go to mcq: 3 + 5 → ×1.3 → 4 + 7.
+        self.assertEqual({k: v for k, v in targets.items() if k[0] == "mcq"},
+                         {("mcq", "X1"): 4, ("mcq", "X2"): 7, ("mcq", "X3"): 1})
+
+    def test_unmeasured_formats_keep_the_flat_margin(self) -> None:
+        [(_, _, targets)] = S.session_targets(2, {})
+        # Level 2 has no mcq: every format keeps ×1.5 (sequence 1+1 → 2+2, formula_builder 0+1 → 0+2).
+        self.assertEqual(targets[("sequence", "X1")], 2)
+        self.assertEqual(targets[("formula_builder", "X2")], 2)
+        self.assertEqual(targets[("true_false_fix", "X2")], 2)
 
     def test_level_three_splits_the_d_block_and_the_code_a_block(self) -> None:
         plans = S.session_targets(3, {})
         self.assertEqual([p[0] for p in plans], [3, 1])
         self.assertEqual(plans[0][2], {("socratic", "X1"): 2, ("feynman", "X2"): 2, ("socratic", "X3"): 1})
-        self.assertEqual(sum(plans[1][2].values()), 9)  # A block: 6 code items × 1.5
+        self.assertEqual(sum(plans[1][2].values()), 9)  # A block: 2 + 4 code items × 1.3 → 3 + 6
 
 
 class StartRequestTests(unittest.TestCase):

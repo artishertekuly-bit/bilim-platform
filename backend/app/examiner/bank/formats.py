@@ -50,14 +50,23 @@ TASK_SELF_REFERENCES: frozenset[str] = frozenset({"тапсырма"})
 # OCR тасымалы (D80): «иуда-\n\nизм» → «иудаизм». Тек жол соңындағы дефис және екі жағында да әріп:
 # «1946–\n1974», «Беғазы-Дәндібай» өзгермейді. Жұмсақ тасымал белгісі (U+00AD) әрқашан алынады.
 _OCR_HYPHEN = re.compile(r"(?<=[^\W\d_])-[ \t]*\r?\n\s*(?=[^\W\d_])")
+# Жол ішіндегі тасымал (D94): «губерния- сында», «аударыл- ған» (OCR жолды біріктіріп, бос орнын қалдырған),
+# модель де «дүние-\nжүзілік»-ті «дүние- жүзілік» деп көшіреді. Дефистен кейін бос орын мен кіші әріп болса ғана:
+# «Солтүстік- Батыс», «1946- 1974», «Орал - Каспий» өзгермейді.
+_SPACED_HYPHEN = re.compile(r"(?<=[^\W\d_])-[ \t]+(?=[^\W\d_])")
+
+
+def _join_spaced_hyphen(match: re.Match[str]) -> str:
+    return "" if match.string[match.end()].islower() else match.group(0)
 
 
 def normalize_text(text: str) -> str:
     """Салыстыру үшін: Unicode NFC, OCR тасымалы біріктірілген, кіші әріп, тырнақша мен сызықша бірізді,
     бос орын біреу. Тасымал сызықшаларды бірізді етпей тұрып біріктіріледі: жол соңындағы «–» (күн
-    аралығы) тасымал емес (D79, D80)."""
+    аралығы) тасымал емес (D79, D80, D94)."""
     text = unicodedata.normalize("NFC", text).replace("\u00ad", "")
-    text = _OCR_HYPHEN.sub("", text).casefold()
+    text = _OCR_HYPHEN.sub("", text)
+    text = _SPACED_HYPHEN.sub(_join_spaced_hyphen, text).casefold()
     text = re.sub(r"[«»“”„\"']", '"', text)
     text = re.sub(r"[–—−]", "-", text)
     return re.sub(r"\s+", " ", text).strip()

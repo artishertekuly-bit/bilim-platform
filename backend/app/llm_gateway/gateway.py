@@ -438,6 +438,12 @@ class LLMGateway:
                     parsed = schema.model_validate_json(strip_json_fence(text))
                 except ValidationError:
                     parsed = None
+                    if completion.truncated:
+                        # Токен шегінде үзілген жауап қайта сұралса, сол шекке қайта тіреледі: ақы екі-үш есе,
+                        # нәтиже жоқ (D94: mini сәйкестендіруде бір шақыру 3 × 8000 токен жұмсады). Қайталау тек
+                        # уақытша қатеде (желі, 408/409/429, 5xx) — `_with_retries`.
+                        outcome = "truncated"
+                        break
                     outcome = "format_error"
                     continue
                 outcome = "ok" if round_index == 0 else "retried"

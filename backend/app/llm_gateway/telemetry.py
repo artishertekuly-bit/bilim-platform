@@ -25,7 +25,7 @@ class CallLog:
     latency_ms: int = 0
     first_token_ms: int | None = None
     cost_usd: float | None = None
-    # ok | retried | format_error | unavailable | request_error | interrupted | cancelled
+    # ok | retried | format_error | truncated | unavailable | request_error | interrupted | cancelled
     # | batch_submitted | batch_completed
     outcome: str = "ok"
     attempts: int = 1

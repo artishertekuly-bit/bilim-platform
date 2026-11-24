@@ -123,18 +123,49 @@ ON_DEMAND_LIMIT_TEXT = ("Бүгін жаңа тапсырма құру шегі 
                         "жаңа тақырыпты ертең бастаңыз.")
 
 # Session-sized fill (D93): the first on-demand run built the whole § stock (51 requests for 10 items) and took
-# 6 minutes. Now each (format, tier) gets what one session needs times this margin (rejections run ~15–25 %).
-SESSION_MARGIN = 1.5
-ON_DEMAND_CONCURRENCY = 12
+# 6 minutes. Now each (format, tier) gets what one session needs times a margin for rejections.
+SESSION_MARGIN = 1.5            # formats without a measured acceptance rate
+# D94, margins by measured acceptance. mcq and matching fill each other's slots (code pool, bagalau §2.4), so the
+# pool gets one margin and mcq carries it: 80 % of mcq requests pass against 64 % of matching, and mcq is cheaper
+# (~$0.012 vs ~$0.031) and faster. Other code formats of the pool get exactly what the session needs. short_answer
+# passes 95 %, so it gets no margin. Level 1: 14 requests instead of 18.
+CODE_POOL_MARGIN = 1.3
+POOL_CARRIER = "mcq"
+FORMAT_MARGIN: dict[str, float] = {"short_answer": 1.0}
+# Every request of a session-sized run goes out at once (14 at level 1), so none waits for a slot.
+ON_DEMAND_CONCURRENCY = 18
 
 # (scope, level, § to generate for, format applicability) → fills the bank. Injected in tests.
 Generator = Callable[["ResolvedScope", int, Sequence[str], Mapping[str, bool]], Awaitable[None]]
 
 
-def session_targets(level: int, applicable: Mapping[str, bool]) -> list[tuple[int, list[str], dict[tuple[str, str], int]]]:
-    """(bank level, formats, (format, tier) → target stock) for one session of `level` (D93).
+def _with_margin(count: int, margin: float) -> int:
+    return math.ceil(count * margin - 1e-9)
 
-    X1/X2 slots get `SESSION_MARGIN`; the level's X3 item gets 1 (a session runs without it if it is rejected).
+
+def _pooled_code_targets(need: Mapping[tuple[str, str], int]) -> dict[tuple[str, str], int]:
+    """Code formats of one tier share a margin carried by `POOL_CARRIER` (D94); a pool without it (level 2, whose
+    formats have no measured acceptance) keeps `SESSION_MARGIN` per format."""
+    by_tier: dict[str, dict[str, int]] = defaultdict(dict)
+    for (name, tier), count in need.items():
+        by_tier[tier][name] = count
+    targets: dict[tuple[str, str], int] = {}
+    for tier, counts in by_tier.items():
+        if POOL_CARRIER not in counts:
+            targets.update({(name, tier): _with_margin(count, SESSION_MARGIN) for name, count in counts.items()})
+            continue
+        others = {name: count for name, count in counts.items() if name != POOL_CARRIER}
+        total = _with_margin(sum(counts.values()), CODE_POOL_MARGIN)
+        targets[(POOL_CARRIER, tier)] = total - sum(others.values())
+        targets.update({(name, tier): count for name, count in others.items()})
+    return targets
+
+
+def session_targets(level: int, applicable: Mapping[str, bool]) -> list[tuple[int, list[str], dict[tuple[str, str], int]]]:
+    """(bank level, formats, (format, tier) → target stock) for one session of `level` (D93, D94).
+
+    X1/X2 slots get a margin by measured acceptance (`CODE_POOL_MARGIN`, `FORMAT_MARGIN`, otherwise
+    `SESSION_MARGIN`); the level's X3 item gets 1 (a session runs without it if it is rejected).
     Level 3: the D block from level 3 formats, and the A block (`any_code`) from level 1 code formats."""
     composition = build_composition(level, applicable)
     plans: list[tuple[int, list[str], dict[tuple[str, str], int]]] = []
@@ -145,7 +176,9 @@ def session_targets(level: int, applicable: Mapping[str, bool]) -> list[tuple[in
             code_need[slot.tier] += 1
         else:
             need[(slot.format, slot.tier)] += 1
-    targets = {key: math.ceil(count * SESSION_MARGIN - 1e-9) for key, count in need.items()}
+    targets = _pooled_code_targets({key: count for key, count in need.items() if key[0] in CODE_FORMATS})
+    targets.update({(name, tier): _with_margin(count, FORMAT_MARGIN.get(name, SESSION_MARGIN))
+                    for (name, tier), count in need.items() if name not in CODE_FORMATS})
     formats = level_formats(level, applicable)
     if formats:
         x3_format = next((name for name, _ in need), formats[0])
@@ -154,8 +187,10 @@ def session_targets(level: int, applicable: Mapping[str, bool]) -> list[tuple[in
     if code_need:
         code = [name for name in level_formats(1, applicable) if name in CODE_FORMATS]
         code_targets: dict[tuple[str, str], int] = {}
+        margin = CODE_POOL_MARGIN if POOL_CARRIER in code else SESSION_MARGIN
         for tier, count in code_need.items():
-            total = math.ceil(count * SESSION_MARGIN - 1e-9)
+            # Any code format fills an A block slot; a third stays matching for variety.
+            total = _with_margin(count, margin)
             first = math.ceil(total * 2 / 3) if len(code) > 1 else total
             if code:
                 code_targets[(code[0], tier)] = first
@@ -892,11 +927,13 @@ class ExaminerService:
                 [scope.book], plan_level, topics=list(topics), formats=formats, targets=targets, rounds=1,
                 warmup=False, concurrency=ON_DEMAND_CONCURRENCY,
             )
+            # D94: per format, so a cost or speed audit reads the log instead of a paid rerun.
             logger.info(
                 "on-demand generation finished",
                 extra={"book": scope.book, "level": plan_level, "topics": len(topics),
                        "seconds": round(asyncio.get_running_loop().time() - started, 1),
-                       "accepted": report.accepted, "rejected": report.rejected, "failed": report.failed},
+                       "accepted": report.accepted, "rejected": report.rejected, "failed": report.failed,
+                       "cost_usd": round(report.cost_usd, 4), "formats": report.formats_log()},
             )
 
     async def _still_preparing(self, session_id: str) -> bool:

@@ -65,7 +65,8 @@ EXPECTED_MODE: dict[Task, str] = {
 }
 
 Role = Literal["system", "user", "assistant"]
-Outcome = Literal["ok", "format_error", "retried"]
+# truncated — жауап `max_output_tokens` шегінде үзілді: формат қайталанбайды (сол шекке қайта тіреледі, D94).
+Outcome = Literal["ok", "format_error", "retried", "truncated"]
 
 
 @dataclass(frozen=True)

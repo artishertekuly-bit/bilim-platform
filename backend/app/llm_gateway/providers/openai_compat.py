@@ -139,7 +139,9 @@ class OpenAICompatProvider:
             raise to_provider_error(exc) from exc
         choice = response.choices[0] if response.choices else None
         text = (choice.message.content or "") if choice is not None else ""
-        return ProviderCompletion(text=text, usage=_usage(response.usage), model=response.model or request.model)
+        truncated = getattr(choice, "finish_reason", None) == "length"
+        return ProviderCompletion(text=text, usage=_usage(response.usage), model=response.model or request.model,
+                                  truncated=truncated)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamChunk]:
         try:

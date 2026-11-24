@@ -27,6 +27,7 @@ class ProviderCompletion:
     text: str
     usage: Usage
     model: str
+    truncated: bool = False  # жауап токен шегінде үзілді (Chat Completions: finish_reason = "length")
 
 
 @dataclass(frozen=True)

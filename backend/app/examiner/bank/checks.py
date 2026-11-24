@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -94,14 +94,18 @@ def solver_messages(package: Package, reference_text: str) -> list[Message]:
 
 
 async def mcq_solver_problem(
-    gateway: LLMGateway, package: Package, reference_text: str, *, variant: str | None = None
+    gateway: LLMGateway, package: Package, reference_text: str, *, variant: str | None = None,
+    on_cost: Callable[[float], None] | None = None,
 ) -> str | None:
     """None — тексерістен өтті. Модель форматты бұзса, тексеріс өтпеді деп саналады.
-    `variant` — маршрут нұсқасы: X3 тестте қате нұсқалар нысанаға жақын, шешуші көбірек ойланады (D80)."""
+    `variant` — маршрут нұсқасы: X3 тестте қате нұсқалар нысанаға жақын, шешуші көбірек ойланады (D80).
+    `on_cost` — шақырудың құны (Fast Lane-нің формат бойынша есебі, D94)."""
     result = await gateway.complete(
         Task.MCQ_SOLVER_CHECK, SOLVER_PROMPT, solver_messages(package, reference_text), schema=SolverAnswer,
         variant=variant,
     )
+    if on_cost is not None:
+        on_cost(result.cost_usd or 0.0)
     if not isinstance(result.parsed, SolverAnswer):
         return "Т7: шешуші модель жауабы оқылмады"
     chosen = sorted(set(result.parsed.correct_option_ids))

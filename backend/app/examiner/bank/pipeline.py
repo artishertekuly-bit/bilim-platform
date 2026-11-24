@@ -166,12 +166,49 @@ class BankRepository(Protocol):
 
 
 @dataclass
+class FormatStats:
+    """Бір форматтың есебі (D94): нәтиже, генерация шақыруының құны мен уақыты, mcq шешушісінің құны.
+    Құн мен уақыт тек Fast Lane-де (синхрон шақыру) жазылады; batch-те олар провайдердің есебінде."""
+
+    requests: int = 0
+    accepted: int = 0
+    rejected: int = 0
+    failed: int = 0
+    truncated: int = 0
+    generation_cost_usd: float = 0.0
+    solver_cost_usd: float = 0.0
+    seconds: list[float] = field(default_factory=list)
+
+    def as_log(self) -> dict[str, float | int | None]:
+        return {
+            "requests": self.requests, "accepted": self.accepted, "rejected": self.rejected, "failed": self.failed,
+            "truncated": self.truncated,
+            "cost_usd": round(self.generation_cost_usd + self.solver_cost_usd, 4),
+            "generation_cost_usd": round(self.generation_cost_usd, 4),
+            "solver_cost_usd": round(self.solver_cost_usd, 4),
+            "seconds_mean": round(sum(self.seconds) / len(self.seconds), 1) if self.seconds else None,
+            "seconds_max": round(max(self.seconds), 1) if self.seconds else None,
+        }
+
+
+@dataclass
 class ProcessReport:
     accepted: int = 0
     rejected: int = 0
     failed: int = 0
     deferred: int = 0
     reasons: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    formats: dict[str, FormatStats] = field(default_factory=dict)
+
+    def format(self, name: str) -> FormatStats:
+        return self.formats.setdefault(name, FormatStats())
+
+    @property
+    def cost_usd(self) -> float:
+        return sum(stats.generation_cost_usd + stats.solver_cost_usd for stats in self.formats.values())
+
+    def formats_log(self) -> dict[str, dict[str, float | int | None]]:
+        return {name: stats.as_log() for name, stats in sorted(self.formats.items())}
 
 
 class _Deferred(Exception):
@@ -303,6 +340,8 @@ class BankPipeline:
 
             async def run(name: str, request: RequestRecord, messages: list) -> None:
                 prompt = generation_prompt_ref(name)
+                stats = report.format(name)
+                stats.requests += 1
                 async with limit:
                     try:
                         result = await self._gateway.complete(
@@ -312,6 +351,13 @@ class BankPipeline:
                     except (LLMUnavailableError, LLMRequestError) as exc:
                         await self._finish(report, request, "failed", [f"Fast Lane: генерация орындалмады ({exc})"])
                         return
+                stats.generation_cost_usd += result.cost_usd or 0.0
+                stats.seconds.append(result.latency_ms / 1000)
+                if result.outcome == "truncated":
+                    # Gateway мұндай жауапты қайта сұрамайды (D94); себебі логта анық көрінсін.
+                    stats.truncated += 1
+                    await self._finish(report, request, "rejected", ["Т6: жауап токен шегінде үзілді"])
+                    return
                 try:
                     checked = await self._check_item(report, request, result.text, result.model, prompt.version)
                     if checked is None:
@@ -759,9 +805,15 @@ class BankPipeline:
             existing = await self._repo.existing_packages(request.topic_id, request.level, request.format)
             problem = repeat_problem(package, existing)
         if problem is None and request.format == "mcq":
+            stats = report.format(request.format)
+
+            def add_solver_cost(cost: float) -> None:
+                stats.solver_cost_usd += cost
+
             try:
                 problem = await mcq_solver_problem(self._gateway, package, reference,
-                                                   variant=self._variant(Task.MCQ_SOLVER_CHECK, request))
+                                                   variant=self._variant(Task.MCQ_SOLVER_CHECK, request),
+                                                   on_cost=add_solver_cost)
             except LLMUnavailableError as exc:
                 logger.warning("mcq solver unavailable: %s", exc)
                 raise _Deferred from exc
@@ -808,6 +860,7 @@ class BankPipeline:
             embedding_model=self._gateway.config.models[embedding_key].model or embedding_key,
         ))
         report.accepted += 1
+        report.format(request.format).accepted += 1
 
     async def _fail_safely(self, report: ProcessReport, request: RequestRecord, exc: Exception) -> None:
         """Fast Lane-де бір сұраныстың күтпеген қатесі (мысалы, база байланысы үзілді). Қалған сұраныстар
@@ -819,14 +872,18 @@ class BankPipeline:
         except Exception:  # noqa: BLE001
             logger.exception("fast lane could not record failure for %s", request.custom_id)
             report.failed += 1
+            report.format(request.format).failed += 1
             report.reasons[reason] += 1
 
     async def _finish(self, report: ProcessReport, request: RequestRecord, status: str, reasons: list[str]) -> None:
         await self._repo.reject(request.custom_id, status, reasons)
+        stats = report.format(request.format)
         if status == "failed":
             report.failed += 1
+            stats.failed += 1
         else:
             report.rejected += 1
+            stats.rejected += 1
         for reason in reasons:
             report.reasons[reason.split(" (")[0]] += 1
 

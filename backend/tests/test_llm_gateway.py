@@ -312,6 +312,38 @@ class StructuredOutputTests(GatewayTestCase):
         self.assertIsNone(result.parsed)
         self.assertEqual(len(self.primary.calls), 3)  # format_retries = 2
 
+    async def test_truncated_response_is_not_retried(self) -> None:
+        """D94: жауап токен шегінде үзілсе, қайта сұрау сол шекке тіреледі — бір ғана шақыру, ақысы бір рет."""
+        gateway = self.make()
+        self.primary.push(
+            ProviderCompletion('{"sco', Usage(input_tokens=10, output_tokens=100), "small-model", truncated=True),
+            '{"score": 3}',
+        )
+        result = await gateway.complete(Task.OFFICIAL_GRADING, PROMPT, MESSAGES, schema=Grade)
+        self.assertEqual(result.outcome, "truncated")
+        self.assertIsNone(result.parsed)
+        self.assertEqual(len(self.primary.calls), 1)
+        self.assertEqual((result.attempts, result.output_tokens), (1, 100))
+        self.assertEqual(self.sink.records[-1].outcome, "truncated")
+
+    async def test_transient_error_is_retried_but_truncation_is_not(self) -> None:
+        gateway = self.make()
+        self.primary.push(
+            unavailable(),
+            ProviderCompletion("", Usage(input_tokens=10, output_tokens=100), "small-model", truncated=True),
+            '{"score": 3}',
+        )
+        result = await gateway.complete(Task.OFFICIAL_GRADING, PROMPT, MESSAGES, schema=Grade)
+        self.assertEqual(result.outcome, "truncated")
+        self.assertEqual(len(self.primary.calls), 2)  # 503 бір рет қайталанды, үзілген жауап — жоқ
+        self.assertEqual(self.clock.sleeps, [0.5])
+
+    async def test_truncated_but_complete_json_is_accepted(self) -> None:
+        gateway = self.make()
+        self.primary.push(ProviderCompletion('{"score": 2}', Usage(10, 0, 100), "small-model", truncated=True))
+        result = await gateway.complete(Task.OFFICIAL_GRADING, PROMPT, MESSAGES, schema=Grade)
+        self.assertEqual((result.outcome, result.parsed), ("ok", Grade(score=2)))
+
 
 class StreamTests(GatewayTestCase):
     async def collect(self, gateway: LLMGateway, task: Task = Task.TUTOR_REPLY) -> str:
