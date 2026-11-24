@@ -2,6 +2,7 @@
 // Tutor баға қоймайды. Әр пәннің диалогы бөлек; бұғат — уақытша (cooldown) немесе мұғалім жапқан.
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import AppShell from '@/components/bl/AppShell';
 import { ChevronDownIcon, SendIcon } from '@/components/bl/icons';
@@ -17,6 +18,7 @@ import {
   type TutorMessage,
 } from '@/lib/tutor-api';
 import { cn } from '@/lib/utils';
+import { readTutorDraft } from '@/modules/simulation-lab/services/tutor-bridge';
 
 const STARTERS = ['Бұл тақырыпты түсіндірші', 'Мысал келтірші', 'Не үйрендік?'];
 const SUBJECT_KEY = 'bilim.tutor.subject';
@@ -66,11 +68,14 @@ function LockMark() {
 
 export default function TutorPage() {
   const api = useTutorApi();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [subjectId, setSubjectId] = useState<string | null>(readSubject);
   const [picking, setPicking] = useState(false);
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [hasMore, setHasMore] = useState(false);
-  const [draft, setDraft] = useState('');
+  // Зертхана (D92) дайын хабарды router state арқылы береді: ол тек жолаққа жазылады, оқушы өзі жібереді.
+  const [draft, setDraft] = useState(() => readTutorDraft(location.state) ?? '');
   const [sending, setSending] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>(STARTERS);
   const [blocked, setBlocked] = useState<{ reason: BlockedReason; until: string | null } | null>(null);
@@ -101,6 +106,11 @@ export default function TutorPage() {
   }, [conversation.data]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Дайын хабар бір рет қана қойылады: бетті жаңартқанда қайта шықпауы үшін state тазаланады.
+  useEffect(() => {
+    if (readTutorDraft(location.state)) navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location.state, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });

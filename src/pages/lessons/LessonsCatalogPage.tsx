@@ -6,7 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 
 import AppShell from '@/components/bl/AppShell';
 import { BookmarkGlyph, SearchIcon } from '@/components/bl/icons';
-import { EmptyNote, ErrorNote, LoadingBlock, Page, PageTitle, Segmented } from '@/components/bl/ui';
+import { EmptyNote, ErrorNote, ListGroup, ListRow, LoadingBlock, Page, PageTitle, Segmented } from '@/components/bl/ui';
 import { useAuth } from '@/lib/auth-context';
 import { platformKeys, savedLessons, searchLessons, setBookmark, type LessonCard } from '@/lib/platform-api';
 
@@ -65,6 +65,15 @@ export default function LessonsCatalogPage() {
     <AppShell>
       <Page className="gap-4">
         <PageTitle title="Сабақтар" subtitle="Өмірде керек дағдылар туралы қысқа сабақтар" />
+
+        <ListGroup>
+          <ListRow to="/lab" trailing="3D модель">
+            <span className="flex flex-col gap-0.5 py-2">
+              <span className="font-semibold">Зертхана</span>
+              <span className="text-[13px] text-bl-ink2">Көшпелілердің маусымдық көшін өзің жүргізіп көр</span>
+            </span>
+          </ListRow>
+        </ListGroup>
 
         <div className="relative">
           <label htmlFor="lessons-q" className="sr-only">

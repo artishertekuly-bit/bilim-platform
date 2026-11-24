@@ -81,6 +81,10 @@ const GameJoinPage = lazy(() => import('./pages/games/GameJoinPage'));
 const GameRoomPage = lazy(() => import('./pages/games/GameRoomPage'));
 const TeacherGameHostPage = lazy(() => import('./pages/games/TeacherGameHostPage'));
 
+// Simulation Lab (D92): code-only registry of interactive models; three.js loads only inside a 3D scene.
+const LabHomePage = lazy(() => import('./modules/simulation-lab/components/LabPages').then((m) => ({ default: m.LabHomePage })));
+const LabSimulationPage = lazy(() => import('./modules/simulation-lab/components/LabPages').then((m) => ({ default: m.LabSimulationPage })));
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -329,6 +333,8 @@ const publicRoutes: AppRouteConfig[] = [
   { path: '/update-password', element: <NewPasswordPage mode="recovery" /> },
   { path: '/about', element: <Navigate to="/" replace /> },
   { path: '/auth/callback', element: <AuthCallbackPage /> },
+  // Dev-only harness for Playwright: the same simulation without the app shell, sign-in or saving.
+  ...(import.meta.env.DEV ? [{ path: '/dev/lab/:slug', element: <LabSimulationPage harness /> }] : []),
 ];
 
 const commonProtectedRoutes: AppRouteConfig[] = [
@@ -390,6 +396,8 @@ const sharedContentRoutes: AppRouteConfig[] = [
   { path: '/lessons', element: <LessonsCatalogPage />, allowedRoles: STUDENT_ROLES },
   { path: '/lessons/:lessonId', element: <LessonViewPage />, allowedRoles: LESSON_READER_ROLES },
   { path: '/saved-lessons', element: <Navigate to="/lessons?tab=saved" replace />, allowedRoles: STUDENT_ROLES },
+  { path: '/lab', element: <LabHomePage />, allowedRoles: LESSON_READER_ROLES },
+  { path: '/lab/:slug', element: <LabSimulationPage />, allowedRoles: LESSON_READER_ROLES },
 ];
 
 // Tutor — оқушының ортасы (personarag §1, api §4). Жаттығу Examiner-де, бейресми прогресс — тьютордан

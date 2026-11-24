@@ -34,7 +34,7 @@ export const NAV: Record<UserRole, NavItem[]> = {
     { to: '/ai-tutor', label: 'Тьютор', icon: TutorIcon, match: starts('/ai-tutor') },
     { to: '/exam', label: 'Емтихан', icon: ExamIcon, match: (p) => starts('/exam')(p) && !p.startsWith('/exam/profile') },
     { to: '/games', label: 'Ойындар', icon: GamesIcon, match: starts('/games') },
-    { to: '/lessons', label: 'Сабақтар', icon: LessonsIcon, match: starts('/lessons') },
+    { to: '/lessons', label: 'Сабақтар', icon: LessonsIcon, match: starts('/lessons', '/lab') },
     {
       to: '/profile',
       label: 'Профиль',
@@ -51,7 +51,7 @@ export const NAV: Record<UserRole, NavItem[]> = {
         p === '/teacher' || starts('/teacher/classes', '/teacher/students', '/teacher/games', '/settings', '/games', '/notifications')(p),
     },
     { to: '/teacher/review', label: 'Растау', icon: ReviewIcon, match: starts('/teacher/review', '/teacher/grades') },
-    { to: '/teacher/lessons', label: 'Сабақтар', icon: LessonsIcon, match: starts('/teacher/lessons', '/lessons') },
+    { to: '/teacher/lessons', label: 'Сабақтар', icon: LessonsIcon, match: starts('/teacher/lessons', '/lessons', '/lab') },
     { to: '/chat', label: 'Чат', icon: ChatIcon, match: starts('/chat') },
   ],
   parent: [
