@@ -8,8 +8,41 @@ import { Link, useNavigate } from 'react-router-dom';
 import AppShell from '@/components/bl/AppShell';
 import { ChevronDownIcon, LessonsIcon } from '@/components/bl/icons';
 import { Badge, Banner, Button, ButtonLink, Card, ConfirmSheet, ErrorNote, LoadingBlock, Page } from '@/components/bl/ui';
-import { useExamSelection } from '@/lib/exam-selection';
+import MixedTestPanel from '@/components/exam/MixedTestPanel';
+import { type ExamMode, useExamSelection } from '@/lib/exam-selection';
 import { ExaminerApiError, type LevelCard, useExaminerApi } from '@/lib/examiner-api';
+import { cn } from '@/lib/utils';
+
+const MODES: { id: ExamMode; label: string }[] = [
+  { id: 'levels', label: 'Деңгейлік емтихан' },
+  { id: 'mixed', label: 'Пән бойынша тест' },
+];
+
+/** D97: 4 деңгейлік емтихан мен пән бойынша аралас тесттің арасында таңдау. */
+function ModeSwitch({ mode, onChange }: { mode: ExamMode; onChange: (mode: ExamMode) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Емтихан түрі" className="grid grid-cols-2 gap-1 rounded-2xl border border-bl-line bg-white p-1 lg:max-w-[420px]">
+      {MODES.map((m) => {
+        const on = m.id === mode;
+        return (
+          <button
+            key={m.id}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(m.id)}
+            className={cn(
+              'min-h-11 rounded-xl border-0 px-3 text-[15px] font-semibold transition-colors',
+              on ? 'bg-bl-ink text-white' : 'bg-white text-bl-ink2 hover:text-bl-ink',
+            )}
+          >
+            {m.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function levelStatus(card: LevelCard): { text: string; tone: 'good' | 'neutral' } {
   const p = card.last.p;
@@ -22,7 +55,8 @@ export default function ExamHomePage() {
   const api = useExaminerApi();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [sel] = useExamSelection();
+  const [sel, update] = useExamSelection();
+  const mixedMode = sel.mode === 'mixed';
   const [startError, setStartError] = useState<string | null>(null);
   const [confirmAbandon, setConfirmAbandon] = useState(false);
 
@@ -33,7 +67,7 @@ export default function ExamHomePage() {
   const levels = useQuery({
     queryKey: ['examiner', 'subject-levels', subject?.subject_id],
     queryFn: () => api.subjectLevels(subject?.subject_id as string),
-    enabled: chosen,
+    enabled: chosen && !mixedMode,
   });
   const active = useQuery({ queryKey: ['examiner', 'active'], queryFn: api.active });
 
@@ -68,21 +102,29 @@ export default function ExamHomePage() {
         <div className="flex flex-col gap-[22px] lg:flex-row lg:flex-wrap lg:items-end lg:justify-between lg:gap-6">
           <div className="flex min-w-0 flex-col gap-1">
             <h1 className="m-0 text-[28px] font-bold leading-[1.15] tracking-[-0.02em]">Емтихан</h1>
-            <Link
-              to="/exam/picker"
-              aria-label={chosen ? `Пән мен тақырыпты ауыстыру: ${subject?.title}, ${sel.topic}` : 'Пән мен тақырыпты таңдау'}
-              className="flex min-h-8 min-w-0 items-center gap-1 self-start text-[15px] text-bl-ink2 no-underline"
-            >
-              <span className="truncate">{chosen ? `${subject?.title} · ${sel.topic}` : 'Пән мен тақырыпты таңдаңыз'}</span>
-              <ChevronDownIcon size={16} />
-            </Link>
+            {mixedMode ? (
+              <p className="m-0 flex min-h-8 items-center text-[15px] text-bl-ink2">10, 20 не 50 сұрақ · аралас форматтар</p>
+            ) : (
+              <Link
+                to="/exam/picker"
+                aria-label={chosen ? `Пән мен тақырыпты ауыстыру: ${subject?.title}, ${sel.topic}` : 'Пән мен тақырыпты таңдау'}
+                className="flex min-h-8 min-w-0 items-center gap-1 self-start text-[15px] text-bl-ink2 no-underline"
+              >
+                <span className="truncate">{chosen ? `${subject?.title} · ${sel.topic}` : 'Пән мен тақырыпты таңдаңыз'}</span>
+                <ChevronDownIcon size={16} />
+              </Link>
+            )}
+          </div>
+
+          <div className="lg:order-last lg:basis-full">
+            <ModeSwitch mode={sel.mode} onChange={(mode) => update({ mode })} />
           </div>
 
           {active.data ? (
             <Card className="flex flex-col gap-3 p-4 lg:order-last lg:basis-full">
               <div className="flex items-center gap-3.5">
                 <span aria-hidden="true" className="flex h-11 w-11 flex-none items-center justify-center rounded-xl bg-bl-ink text-lg font-bold text-white">
-                  {active.data.level}
+                  {active.data.mode === 'mixed' ? active.data.progress.total : active.data.level}
                 </span>
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="text-[17px] font-semibold">{preparing ? 'Тапсырмалар дайындалып жатыр' : 'Аяқталмаған сессия бар'}</span>
@@ -119,7 +161,15 @@ export default function ExamHomePage() {
           ) : null}
         </div>
 
-        {chosen ? (
+        {mixedMode ? (
+          <section className="flex flex-col gap-2.5 lg:max-w-[560px]">
+            <div className="flex flex-col gap-0.5">
+              <h2 className="m-0 text-xl font-bold tracking-[-0.01em]">Пән бойынша тест</h2>
+              <p className="m-0 text-sm text-bl-ink2">Пәнді таңдап, сұрақ санын белгілеңіз — тест бірден басталады</p>
+            </div>
+            <MixedTestPanel />
+          </section>
+        ) : chosen ? (
           <section className="flex flex-col gap-2.5">
             <div className="flex flex-col gap-0.5">
               <h2 className="m-0 text-xl font-bold tracking-[-0.01em]">Деңгейді таңдаңыз</h2>

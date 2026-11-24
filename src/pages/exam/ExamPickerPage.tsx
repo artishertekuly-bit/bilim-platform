@@ -39,7 +39,7 @@ export default function ExamPickerPage() {
   const apply = (event?: FormEvent) => {
     event?.preventDefault();
     if (!ready) return;
-    update({ subjectId, topic: clean });
+    update({ subjectId, topic: clean, mode: 'levels' });
     navigate('/exam');
   };
 

@@ -24,6 +24,7 @@ import {
   ExaminerApiError,
   FORMAT_TITLES,
   LEVEL_TITLES,
+  mixSummary,
   type SocraticContent,
   type TeachAiContent,
   newRequestId,
@@ -356,7 +357,11 @@ export default function ExamSessionPage() {
     );
   }
 
-  const levelLabel = `${session.level} · ${LEVEL_TITLES[session.level] ?? ''}`;
+  // D97: аралас тестте деңгей жоқ — оның орнына нақты құрамы («12 тест · 8 аралас тапсырма»).
+  const levelLabel =
+    session.mode === 'mixed' && session.mix
+      ? mixSummary(session.mix)
+      : `${session.level} · ${LEVEL_TITLES[session.level] ?? ''}`;
   const answered = feedback ? feedback.session.progress.answered - 1 : session.progress.answered;
   const total = feedback ? feedback.session.progress.total : session.progress.total;
   const isDialog = Boolean(shown && DIALOG_FORMATS.has(shown.format));

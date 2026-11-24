@@ -34,11 +34,13 @@ from .dto import (
     FalsePositiveRequest,
     FalsePositiveResponse,
     LevelsResponse,
+    MixedSubject,
     OverrideGradeRequest,
     ReviewQueueResponse,
     ScopeCatalog,
     ScopeType,
     SessionResult,
+    StartMixedRequest,
     StartSessionRequest,
     StudentProfile,
     SubjectCatalogItem,
@@ -158,6 +160,24 @@ async def start_session(
     service: ExaminerService = Depends(get_service),
 ) -> ExamSession:
     return await service.start(user_id, body)
+
+
+@router.get("/mixed-subjects", response_model=list[MixedSubject])
+async def mixed_subjects(
+    _: str = Depends(get_current_user_id), service: ExaminerService = Depends(get_service)
+) -> list[MixedSubject]:
+    """D97: subjects with active bank questions (with or without textbooks) for «Пән бойынша тест»."""
+    return await service.mixed_subjects()
+
+
+@router.post("/mixed-sessions", response_model=ExamSession)
+async def start_mixed_session(
+    body: StartMixedRequest,
+    user_id: str = Depends(get_current_user_id),
+    service: ExaminerService = Depends(get_service),
+) -> ExamSession:
+    """D97: a 10 / 20 / 50 item mixed test from the bank only (60 % MCQ, 40 % other formats, $0 at start)."""
+    return await service.start_mixed(user_id, body)
 
 
 @router.get("/sessions/active", response_model=ExamSession | None)

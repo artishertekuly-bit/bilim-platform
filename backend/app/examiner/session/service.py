@@ -11,7 +11,7 @@ import os
 import random
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
@@ -30,6 +30,7 @@ from .cache_filters import answer_hash
 from .composition import (
     A_BLOCK_SECONDS,
     AVAILABLE_LEVELS,
+    COMPOSITION_VERSION,
     FORMAT_TITLES,
     LAMBDA,
     LEVEL_TITLES,
@@ -62,6 +63,8 @@ from .dto import (
     LevelCard,
     LevelResult,
     LevelsResponse,
+    Mix,
+    MixedSubject,
     Moderation,
     OverrideGradeRequest,
     Progress,
@@ -71,6 +74,7 @@ from .dto import (
     ScopeCatalog,
     SessionItem,
     SessionResult,
+    StartMixedRequest,
     StartSessionRequest,
     StudentProfile,
     SubjectCatalogItem,
@@ -82,7 +86,7 @@ from .dto import (
     Total,
     X3Result,
 )
-from . import retrieval
+from . import mixed, retrieval
 from . import topics as topic_search
 from .errors import ExaminerError, not_found, validation
 from .grading import AnswerInvalid, check_answer, check_hybrid_answer, extract_text_answer
@@ -254,6 +258,16 @@ class ResolvedScope:
 
 def _loads(value: Any) -> Any:
     return json.loads(value) if isinstance(value, str) else value
+
+
+def _is_mixed(session: Any) -> bool:
+    """D97: a «Пән бойынша тест» session (composition.mode = 'mixed')."""
+    try:
+        raw = session["composition"]
+    except (KeyError, IndexError):
+        return False
+    composition = _loads(raw)
+    return isinstance(composition, Mapping) and composition.get("mode") == "mixed"
 
 
 def _hash(endpoint: str, payload: Any) -> str:
@@ -764,6 +778,160 @@ class ExaminerService:
                                         {"session_id": open_id}) from exc
                 raise
 
+    # ============================================================== пән бойынша аралас тест (D97)
+
+    async def mixed_subjects(self) -> list[MixedSubject]:
+        """Subjects with active bank MCQs, textbook or not (world_history has none). `levels` says whether the
+        4-level exam is open too (it needs textbooks); the mixed test itself only needs the bank."""
+        rows = await self._pool.fetch(
+            """
+            select s.id::text as subject_id, s.name_kk as title,
+                   (count(*) filter (where q.format::text = 'mcq' and q.level = 1))::int as mcq,
+                   (count(*) filter (where q.format::text = any($1::text[])))::int as other,
+                   exists (select 1 from corpus.textbooks t where t.subject_id = s.id) as levels
+            from examiner.questions q
+            join examiner.question_state st on st.question_id = q.question_id
+            join corpus.subjects s on s.id = q.subject_id
+            where st.status = 'active' and st.x_tier::text = any($2::text[])
+            group by s.id, s.name_kk, s.sort_order
+            order by s.sort_order nulls last, s.name_kk
+            """,
+            list(mixed.NON_MCQ_FORMATS), list(mixed.TIERS),
+        )
+        return [MixedSubject(**dict(row)) for row in rows if row["mcq"] > 0]
+
+    async def _mixed_non_mcq(self, conn: Any, student_id: str, subject_id: str, formats: Sequence[str],
+                             topic_ids: Sequence[str] | None) -> list[mixed.BankItem]:
+        """Active non-MCQ bank items of the subject (any level, X1/X2); `topic_ids` narrows them to those §.
+        Rows the learner saw recently are left out (λ of the item's level, as in `_candidates`)."""
+        rows = await conn.fetch(
+            """
+            select q.question_id::text as question_id, q.format::text as format, s.x_tier::text as tier, q.topic_id,
+                   q.fact_key, q.concept_key, case when l.question_id is not null then l.leased_at end as leased_at
+            from examiner.questions q
+            join examiner.question_state s on s.question_id = q.question_id
+            left join examiner.exam_item_leases l on l.question_id = q.question_id and l.leased_until > now()
+            left join examiner.student_item_exposure e on e.question_id = q.question_id and e.student_id = $1::uuid
+            where q.subject_id = $2::uuid and q.format::text = any($3::text[]) and s.status = 'active'
+              and s.x_tier::text = any($4::text[])
+              and ($5::text[] is null or q.topic_id = any($5::text[]))
+              and (e.question_id is null
+                   or e.last_seen_at < now() - make_interval(days => ceil(e.n * 1.204 / (
+                       case q.level when 1 then $6::float8 when 2 then $7::float8 else $8::float8 end
+                   ))::int))
+            """,
+            student_id, subject_id, list(formats), list(mixed.TIERS),
+            list(topic_ids) if topic_ids is not None else None, LAMBDA[1], LAMBDA[2], LAMBDA[3],
+        )
+        return [mixed.BankItem(**dict(row)) for row in rows]
+
+    async def start_mixed(self, student_id: str, request: StartMixedRequest) -> ExamSession:
+        """«Пән бойынша тест» (D97): 60 % MCQ / 40 % other formats from the active bank, nothing generated or
+        embedded ($0). A short non-MCQ pool is backfilled with bank MCQs. The session runs through the usual answer,
+        grading, $0 explanation and result flow; it writes no level result (profiles and ratings stay level-only)."""
+        payload = request.model_dump(mode="json")
+        request_id = str(request.client_request_id)
+        endpoint = "POST /mixed-sessions"
+        request_hash = _hash(endpoint, {k: v for k, v in payload.items() if k != "client_request_id"})
+        subject_id = str(request.subject_id)
+        items, snapshot, book = await self._plan_mixed(student_id, subject_id, request.count, request.topic_query)
+        async with self._pool.acquire() as conn:
+            try:
+                async with conn.transaction():
+                    replay = await self._replay(conn, student_id, request_id, request_hash)
+                    if replay is not None:
+                        return ExamSession.model_validate(replay)
+                    await self._abandon_idle(conn, student_id)
+                    await self._raise_if_open(conn, student_id)
+                    session_id = await conn.fetchval(
+                        """
+                        insert into examiner.sessions (student_id, subject_id, scope_type, scope_id, level, status,
+                                                       composition, started_at, book)
+                        values ($1::uuid, $2::uuid, 'subject', $3::text, 1, 'active', $4::jsonb, now(), $5)
+                        returning session_id::text
+                        """,
+                        student_id, subject_id, subject_id, json.dumps(snapshot, ensure_ascii=False), book,
+                    )
+                    await self._add_items(conn, student_id, session_id,
+                                          [(tier, None, question_id) for tier, question_id, _ in items], 1)
+                    session = await self._session(conn, student_id, session_id)
+                    await self._remember(conn, student_id, request_id, endpoint, request_hash,
+                                         session.model_dump(mode="json"))
+                return session
+            except asyncpg.UniqueViolationError as exc:
+                async with conn.transaction():
+                    replay = await self._replay(conn, student_id, request_id, request_hash)
+                    if replay is not None:
+                        return ExamSession.model_validate(replay)
+                    await self._raise_if_open(conn, student_id, cause=exc)
+                raise
+
+    async def _plan_mixed(self, student_id: str, subject_id: str, count: int, topic_query: str | None
+                          ) -> tuple[list[tuple[str, str, str]], dict[str, Any], str]:
+        """Read-only half of `start_mixed`: ([(tier, question_id, format)] in serving order, composition snapshot,
+        sessions.book). Bank only: no embedding, no generation."""
+        topic = topic_search.clean_query(topic_query or "") or None
+        _, other_target = mixed.split(count)
+        async with self._pool.acquire() as conn:
+            subject = await conn.fetchrow("select name_kk, slug from corpus.subjects where id = $1::uuid", subject_id)
+            if subject is None:
+                raise not_found("Пән табылмады.")
+            applicable = await self._applicability(conn, subject_id)
+            formats = [name for name in mixed.NON_MCQ_FORMATS if applicable.get(name, True)]
+            topic_ids: list[str] | None = None
+            if topic is not None:
+                paragraphs = [
+                    topic_search.Paragraph(topic_id=row["topic_id"], book=row["book"], book_title=row["book_title"],
+                                           grade=row["grade"], paragraph_no=row["paragraph_no"],
+                                           paragraph_title=row["paragraph_title"] or "")
+                    for row in await conn.fetch(
+                        "select topic_id, book, grade::int as grade, book_title, paragraph_no, paragraph_title "
+                        "from corpus.paragraphs where subject_id = $1::uuid",
+                        subject_id,
+                    )
+                ]
+                topic_ids = mixed.topic_ids(topic, paragraphs)
+            pool = (await self._mixed_non_mcq(conn, student_id, subject_id, formats, topic_ids)
+                    if formats and topic_ids != [] else [])
+            book = await conn.fetchval(
+                "select book from corpus.textbooks where subject_id = $1::uuid order by grade, book limit 1", subject_id)
+        others = mixed.pick_non_mcq(pool, other_target, self._rng)
+        mcqs = await self.assemble_mcqs(student_id, subject_id, topic, count - len(others), bank_only=True,
+                                        tiers=mixed.TIERS, taken=[item.diversity_key for item in others])
+        items = mixed.arrange(
+            [(item.tier, item.question_id, item.format) for item in others]
+            + [(tier, question_id, "mcq") for question_id, tier in zip(mcqs.question_ids, mcqs.tiers, strict=True)],
+            self._rng,
+        )
+        if not items:
+            raise ExaminerError(409, "BANK_NOT_READY", "Бұл тақырып бойынша банкте сұрақ табылмады. "
+                                "Тақырыпты басқаша жазып көріңіз немесе бос қалдырыңыз.")
+        mix = Mix(requested=count, mcq=len(mcqs.question_ids), other=len(others), topic=topic)
+        scope = Scope(type="subject", id=subject_id,
+                      title=f"{subject['name_kk']} · {topic}" if topic else subject["name_kk"])
+        counts: dict[str, int] = defaultdict(int)
+        for _, _, name in items:
+            counts[name] += 1
+        snapshot = {
+            "version": COMPOSITION_VERSION, "mode": "mixed", "level": 1, "x3": 0, "excluded": [],
+            "slots": [{"tier": tier, "format": name} for tier, _, name in items], "formats": dict(counts),
+            "scope": scope.model_dump(), "topics": list(topic_ids or []), "book_title": "",
+            "mix": mix.model_dump(), "topic_text": topic,
+        }
+        # sessions.book is required; a subject without textbooks (world_history) keeps its slug there.
+        return items, snapshot, book or subject["slug"]
+
+    @staticmethod
+    async def _raise_if_open(conn: Any, student_id: str, *, cause: BaseException | None = None) -> None:
+        open_id = await conn.fetchval(
+            "select session_id::text from examiner.sessions where student_id = $1::uuid "
+            "and status in ('preparing', 'active', 'blocked')",
+            student_id,
+        )
+        if open_id:
+            raise ExaminerError(409, "ACTIVE_SESSION_EXISTS", "Сізде аяқталмаған емтихан бар.",
+                                {"session_id": open_id}) from cause
+
     async def _candidates(
         self,
         conn: Any,
@@ -1050,13 +1218,15 @@ class ExaminerService:
             return None
 
     async def assemble_mcqs(self, student_id: str, subject_id: str, query_text: str | None,
-                            count: int) -> retrieval.McqAssembly:
+                            count: int, *, bank_only: bool = False, tiers: Sequence[str] | None = None,
+                            taken: Iterable[str] = ()) -> retrieval.McqAssembly:
         """A custom MCQ set (e.g. 20–50 items) on a subject and an optional written topic (D96).
 
         The bank goes first, generated and imported together. A narrow topic is matched by metadata without any
         network call; only when that is short is the query embedded (cosine ≥ 0.76). Fast Lane generates only the
         deficit (`count − found`): a full bank hit makes no LLM call. New MCQs closer than cosine 0.88 to a chosen
-        one are dropped."""
+        one are dropped. `bank_only` (D97, the mixed test): no embedding and no generation, a short bank stays
+        short. `tiers` keeps only those x_tiers; `taken` are diversity keys already in the set."""
         if not retrieval.MIN_SET <= count <= retrieval.MAX_SET:
             raise validation(f"Сұрақ саны {retrieval.MIN_SET}–{retrieval.MAX_SET} аралығында болады.",
                              {"fields": ["count"]})
@@ -1064,15 +1234,22 @@ class ExaminerService:
         if title is None:
             raise not_found("Пән табылмады.")
         query = retrieval.parse_query(query_text, title)
+        keep = set(tiers) if tiers is not None else None
+        taken = tuple(taken)
         async with self._pool.acquire() as conn:
-            rows = await self._bank_mcqs(conn, student_id, subject_id, query)
-        chosen = retrieval.select(rows, query, count, self._rng)
+            rows = [row for row in await self._bank_mcqs(conn, student_id, subject_id, query)
+                    if keep is None or row.tier in keep]
+        chosen = retrieval.select(rows, query, count, self._rng, taken=taken)
+        if bank_only:
+            return retrieval.McqAssembly(tuple(row.question_id for row in chosen), len(chosen), 0, query.broad,
+                                         tuple(row.tier for row in chosen))
         if not query.broad and len(chosen) < count:
             vector = await self._query_vector(query.text)  # no connection is held during the call
             if vector is not None:
                 async with self._pool.acquire() as conn:
-                    rows = await self._bank_mcqs(conn, student_id, subject_id, query, vector=vector)
-                chosen = retrieval.select(rows, query, count, self._rng)
+                    rows = [row for row in await self._bank_mcqs(conn, student_id, subject_id, query, vector=vector)
+                            if keep is None or row.tier in keep]
+                chosen = retrieval.select(rows, query, count, self._rng, taken=taken)
         from_bank = len(chosen)
         missing = retrieval.deficit(count, from_bank)
         generated = 0
@@ -1086,10 +1263,11 @@ class ExaminerService:
                     closeness = await self._closeness(conn, [row.question_id for row in fresh], chosen_ids)
                 fresh = retrieval.drop_near_duplicates(fresh, closeness)
                 added = retrieval.select(fresh, retrieval.McqQuery(query.text, (), None), missing, self._rng,
-                                         taken=[row.diversity_key for row in chosen])
+                                         taken=[*taken, *(row.diversity_key for row in chosen)])
                 chosen += added
                 generated = len(added)
-        return retrieval.McqAssembly(tuple(row.question_id for row in chosen), from_bank, generated, query.broad)
+        return retrieval.McqAssembly(tuple(row.question_id for row in chosen), from_bank, generated, query.broad,
+                                     tuple(row.tier for row in chosen))
 
     @staticmethod
     async def _closeness(conn: Any, fresh_ids: Sequence[str], chosen_ids: Sequence[str]) -> dict[str, float]:
@@ -1414,6 +1592,8 @@ class ExaminerService:
             upcoming=upcoming_dtos,
             strike_count=row["strike_count"], started_at=row["started_at"] or row["created_at"],
             notice=composition.get("notice") if row["status"] == "abandoned" else None,
+            mode=composition.get("mode", "level"),
+            mix=Mix.model_validate(composition["mix"]) if composition.get("mix") else None,
         )
 
     # ============================================================== жауап пен модерация
@@ -2188,7 +2368,8 @@ class ExaminerService:
             for item in items
         ]
         has_x3 = any(item.tier == "X3" for item in graded)
-        if not has_x3 and x3_eligible(graded):
+        # D97: a mixed test has no level boss item.
+        if not has_x3 and x3_eligible(graded) and not _is_mixed(session):
             composition = _loads(session["composition"])
             applicable = await self._applicability(conn, session["subject_id"])
             formats = level_formats(session["level"], applicable)
@@ -2216,7 +2397,9 @@ class ExaminerService:
 
     async def _complete(self, conn: Any, session: asyncpg.Record, graded: Sequence[GradedItem], *,
                         x3_available: bool) -> None:
-        score = level_score(session["level"], graded, x3_available=x3_available)
+        # D97: a mixed test is practice on the subject; it writes no level result, so profiles and ratings stay
+        # level-only. Its score is computed from the items when the result is read.
+        score = None if _is_mixed(session) else level_score(session["level"], graded, x3_available=x3_available)
         session_id = session["session_id"]
         await conn.execute(
             "update examiner.sessions set status = 'completed', ended_at = now(), last_activity_at = now() "
@@ -2224,6 +2407,8 @@ class ExaminerService:
             session_id,
         )
         await self._release_leases(conn, session_id)
+        if score is None:
+            return
         await conn.execute(
             """
             insert into examiner.session_results
@@ -2277,7 +2462,12 @@ class ExaminerService:
         has_x3 = any(item.tier == "X3" for item in graded)
         score = level_score(session["level"], graded, x3_available=has_x3)
         composition = _loads(session["composition"])
-        profile = profiles[0] if profiles else await self._empty_profile(session["book"])
+        is_mixed = composition.get("mode") == "mixed"
+        if stored is None and is_mixed:
+            # D97: no stored level result; the score of the items is the result (no mastery, no X3).
+            stored = {"p": score.p, "part_d": None, "part_a": None, "mastered": score.mastered,
+                      "is_final": score.is_final, "x3_status": "not_eligible", "x3_rating_valid": True}
+        profile = profiles[0] if profiles else await self._empty_profile(session["book"], session["subject_id"])
         item_summaries = [
             ResultItemSummary(
                 item_id=item["item_id"],
@@ -2306,9 +2496,11 @@ class ExaminerService:
             breakdown=[BreakdownRow(format=row.format, block=row.block, tasks=row.tasks, score=row.score, max=row.max)
                        for row in score.breakdown],
             total=Total(score=score.score, max=score.max),
-            x3=X3Result(status=stored["x3_status"], reason=score.x3_reason),
+            x3=X3Result(status=stored["x3_status"], reason=None if is_mixed else score.x3_reason),
             items=item_summaries,
             subject_profile=profile,
+            mode="mixed" if is_mixed else "level",
+            mix=Mix.model_validate(composition["mix"]) if composition.get("mix") else None,
         )
 
     async def profile(self, student_id: str) -> StudentProfile:
@@ -2383,7 +2575,7 @@ class ExaminerService:
                 profile.f_is_final = all(level.is_final for level in profile.levels)
         return list(grouped.values())
 
-    async def _empty_profile(self, book: str) -> SubjectProfile:
+    async def _empty_profile(self, book: str, subject_id: str | None = None) -> SubjectProfile:
         row = await self._pool.fetchrow(
             """
             select t.subject_id::text as subject_id, t.title, t.grade, s.name_kk
@@ -2391,6 +2583,10 @@ class ExaminerService:
             """,
             book,
         )
+        if row is None and subject_id is not None:
+            # D97: a subject without textbooks (world_history) has a mixed test only.
+            name = await self._pool.fetchval("select name_kk from corpus.subjects where id = $1::uuid", subject_id)
+            row = {"subject_id": subject_id, "title": "", "grade": 0, "name_kk": name or ""}
         return SubjectProfile(
             subject=SubjectInfo(id=row["subject_id"], title=row["name_kk"], grade=row["grade"], book=book,
                                 book_title=row["title"]),

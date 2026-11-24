@@ -78,6 +78,7 @@ class McqAssembly:
     from_bank: int
     generated: int
     broad: bool
+    tiers: tuple[str, ...] = ()   # x_tier of each question, in `question_ids` order
 
 
 def _roman(text: str) -> int | None:

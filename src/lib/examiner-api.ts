@@ -15,6 +15,24 @@ export type CodeFormat = 'mcq' | 'matching' | 'sequence' | 'error_step' | 'formu
 export interface Scope { type: ScopeType; id: string; title: string }
 export interface Book { book: string; title: string; grade: number; has_chapters: boolean }
 export interface SubjectCatalogItem { subject_id: string; title: string; books: Book[] }
+/** D97: «Пән бойынша тест» — сессия түрі. level — 4 деңгейлік емтихан, mixed — пән бойынша аралас тест. */
+export type SessionMode = 'level' | 'mixed';
+export const MIXED_COUNTS = [10, 20, 50] as const;
+export type MixedCount = (typeof MIXED_COUNTS)[number];
+/** Банкте белсенді сұрағы бар пән (оқулығы жоқ «Дүниежүзі тарихы» да). levels — 4 деңгейлік емтихан да ашық. */
+export interface MixedSubject { subject_id: string; title: string; mcq: number; other: number; levels: boolean }
+/** Аралас тесттің нақты құрамы: банкте басқа формат жетпесе, орнын тест сұрақтары толтырады. */
+export interface Mix { requested: number; mcq: number; other: number; topic?: string | null }
+
+/** «12 тест · 8 аралас тапсырма» — 60/40 межесі: 10 → 6 + 4, 20 → 12 + 8, 50 → 30 + 20. */
+export function mixTarget(count: number): Mix {
+  const mcq = Math.floor((count * 3) / 5);
+  return { requested: count, mcq, other: count - mcq };
+}
+
+export function mixSummary(mix: Pick<Mix, 'mcq' | 'other'>): string {
+  return mix.other > 0 ? `${mix.mcq} тест · ${mix.other} аралас тапсырма` : `${mix.mcq} тест`;
+}
 export interface Chapter { id: string; no: string; title: string }
 export interface Topic { id: string; no: string; title: string; chapter_id: string | null }
 export interface ScopeCatalog {
@@ -111,6 +129,8 @@ export interface ExamSession {
   started_at: string;
   /** Why a preparing session was closed (D93). */
   notice?: string | null;
+  mode?: SessionMode;
+  mix?: Mix | null;
 }
 
 export interface AnswerResult {
@@ -155,6 +175,8 @@ export interface SessionResult {
   x3: { status: 'not_eligible' | 'passed' | 'failed'; reason?: string | null };
   items?: ResultItemSummary[];
   subject_profile: SubjectProfile;
+  mode?: SessionMode;
+  mix?: Mix | null;
 }
 
 export interface ReviewQueueItem {
@@ -479,6 +501,16 @@ export function createExaminerApi(token: string | undefined) {
         subject_id: subjectId,
         topic,
         level,
+      }),
+    /** D97: subjects with active bank questions for «Пән бойынша тест». */
+    mixedSubjects: () => request<MixedSubject[]>(token, '/mixed-subjects'),
+    /** D97: a 10 / 20 / 50 item mixed test from the bank only; an empty topic takes the whole subject. */
+    startMixed: (subjectId: string, count: MixedCount, topicQuery: string, clientRequestId = newRequestId()) =>
+      post<ExamSession>(token, '/mixed-sessions', {
+        client_request_id: clientRequestId,
+        subject_id: subjectId,
+        count,
+        topic_query: topicQuery.trim() ? topicQuery.trim() : null,
       }),
     active: () => request<ExamSession | null>(token, '/sessions/active'),
     session: (sessionId: string) => request<ExamSession>(token, `/sessions/${sessionId}`),

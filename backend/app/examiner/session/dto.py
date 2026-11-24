@@ -38,6 +38,20 @@ class StartSessionRequest(BaseModel):
         return self
 
 
+SessionMode = Literal["level", "mixed"]
+MixedCount = Literal[10, 20, 50]
+
+
+class StartMixedRequest(BaseModel):
+    """«Пән бойынша тест» (D97): a subject-wide set from the active bank only (no generation), 60% MCQ and 40%
+    other single-turn formats. An empty `topic_query` takes the whole subject."""
+
+    client_request_id: UUID
+    subject_id: UUID
+    count: MixedCount
+    topic_query: str | None = Field(default=None, max_length=200)
+
+
 class AnswerRequest(BaseModel):
     client_request_id: UUID
     answer: dict[str, Any]
@@ -95,6 +109,16 @@ class SubjectCatalogItem(BaseModel):
     books: list[Book]
 
 
+class MixedSubject(BaseModel):
+    """A subject with active bank questions (D97). `levels`: it also has textbooks, so the 4-level exam is open."""
+
+    subject_id: str
+    title: str
+    mcq: int
+    other: int
+    levels: bool
+
+
 class Chapter(BaseModel):
     id: str
     no: str  # оқулықтағыдай, рим цифрымен: «I», «II»
@@ -144,6 +168,15 @@ class SessionItem(BaseModel):
     turns: list[DialogTurnDTO] | None = None
 
 
+class Mix(BaseModel):
+    """What a mixed test holds (D97): the asked count and the actual MCQ / other split after bank backfill."""
+
+    requested: int
+    mcq: int
+    other: int
+    topic: str | None = None
+
+
 class ExamSession(BaseModel):
     session_id: str
     status: SessionStatus
@@ -156,6 +189,8 @@ class ExamSession(BaseModel):
     started_at: datetime
     # Set when preparation failed and the session was closed (D93); shown to the learner as is.
     notice: str | None = None
+    mode: SessionMode = "level"
+    mix: Mix | None = None
 
 
 class Moderation(BaseModel):
@@ -259,6 +294,8 @@ class SessionResult(BaseModel):
     x3: X3Result
     items: list[ResultItemSummary] = []
     subject_profile: SubjectProfile
+    mode: SessionMode = "level"
+    mix: Mix | None = None
 
 
 # ------------------------------------------------------------------ мұғалім кезегі (api §3.9)

@@ -14,7 +14,7 @@ import {
   SimpleHeader,
 } from '@/components/exam/ExamUi';
 import { LevelGrid } from '@/components/exam/LevelGrid';
-import { FORMAT_TITLES, LEVEL_TITLES, useExaminerApi } from '@/lib/examiner-api';
+import { FORMAT_TITLES, LEVEL_TITLES, mixSummary, useExaminerApi } from '@/lib/examiner-api';
 
 function LockIcon() {
   return (
@@ -66,21 +66,28 @@ export default function ExamResultPage() {
         ? 'Деңгей боссы жеңілмеді'
         : 'Деңгей боссы ашылмады';
 
+  // D97: «Пән бойынша тест» — жаттығу. Меңгеру шегі, деңгей боссы мен профиль тек деңгейлік емтиханда.
+  const mixed = data.mode === 'mixed';
+
   return (
     <ExamScreen header={<SimpleHeader title="Нәтиже" to="/exam" />} footer={footer}>
       <p className="m-0 text-sm text-[#5E5E5E]">
-        {data.level} · {LEVEL_TITLES[data.level]} — {data.scope.title}
+        {mixed ? 'Пән бойынша тест' : `${data.level} · ${LEVEL_TITLES[data.level]}`} — {data.scope.title}
       </p>
       <Card className="flex flex-col items-center gap-2 rounded-[20px] px-4 py-6">
         <span className="text-[56px] font-bold leading-none tracking-[-0.03em]">{Math.round(data.p)}%</span>
-        {data.mastered ? (
+        {mixed ? (
+          <span className="text-[13px] text-[#5E5E5E]">
+            {data.mix ? mixSummary(data.mix) : `${data.total.max / 4} тапсырма`}
+          </span>
+        ) : data.mastered ? (
           <span className="flex items-center gap-1.5 rounded-full bg-[#E6F3EA] px-3 py-1.5 text-sm font-semibold text-[#1F6B3F]">
             <CheckIcon size={16} /> Меңгерілді
           </span>
         ) : (
           <span className="rounded-full bg-[#ECE9E3] px-3 py-1.5 text-sm font-semibold text-[#4A4A4A]">Әлі меңгерілмеді</span>
         )}
-        <span className="text-[13px] text-[#5E5E5E]">Меңгеру шегі — {data.threshold}%</span>
+        {mixed ? null : <span className="text-[13px] text-[#5E5E5E]">Меңгеру шегі — {data.threshold}%</span>}
       </Card>
 
       <Card className="flex flex-col">
@@ -132,20 +139,26 @@ export default function ExamResultPage() {
       ) : null}
 
 
-      <Card className="flex flex-col gap-1.5 px-4 py-3.5">
-        <span className="flex items-center gap-2 text-[15px] font-semibold">
-          {data.x3.status === 'passed' ? <CheckIcon /> : <LockIcon />}
-          {x3Title}
-        </span>
-        <p className="m-0 text-sm leading-snug text-[#5E5E5E]">
-          {data.x3.reason ??
-            (data.x3.status === 'passed'
-              ? 'Деңгейдің ең қиын тапсырмасына дұрыс жауап бердіңіз. Ол балға кірмейді, рейтингте ескеріледі.'
-              : 'Деңгейдің ең қиын тапсырмасы балға кірмейді, тек рейтингте ескеріледі.')}
-        </p>
-      </Card>
+      {mixed ? null : (
+        <Card className="flex flex-col gap-1.5 px-4 py-3.5">
+          <span className="flex items-center gap-2 text-[15px] font-semibold">
+            {data.x3.status === 'passed' ? <CheckIcon /> : <LockIcon />}
+            {x3Title}
+          </span>
+          <p className="m-0 text-sm leading-snug text-[#5E5E5E]">
+            {data.x3.reason ??
+              (data.x3.status === 'passed'
+                ? 'Деңгейдің ең қиын тапсырмасына дұрыс жауап бердіңіз. Ол балға кірмейді, рейтингте ескеріледі.'
+                : 'Деңгейдің ең қиын тапсырмасы балға кірмейді, тек рейтингте ескеріледі.')}
+          </p>
+        </Card>
+      )}
 
-      {data.scope.type === 'subject' ? (
+      {mixed ? (
+        <p className="m-0 text-[13px] leading-snug text-[#5E5E5E]">
+          Пән бойынша тест — жаттығу: нәтижесі деңгейлер профиліне және сынып рейтингіне кірмейді.
+        </p>
+      ) : data.scope.type === 'subject' ? (
         <section className="flex flex-col gap-2.5">
           <SectionLabel>Профиль · {data.subject_profile.subject.title}</SectionLabel>
           <LevelGrid levels={data.subject_profile.levels} />
