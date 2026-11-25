@@ -74,21 +74,26 @@ class BankDB(FakeDB):
             row["mcq"] += sum(1 for r in self.exam_pool if r["topic_id"] == row["topic_id"])
         return rows
 
-    def q_generated_pool(self, subject_key, topic_key):
-        return [g for g in self.generated if (g["subject_key"], g["topic_key"]) == (subject_key, topic_key)]
+    def q_generated_pool(self, subject_key, topic_key, formats=("mcq",)):
+        return [g for g in self.generated if (g["subject_key"], g["topic_key"]) == (subject_key, topic_key)
+                and g.get("format", "mcq") in formats]
+
+    def q_subject_by_slug(self, slug):
+        return {"history": HISTORY, "world_history": WORLD}.get(slug)
 
     def q_generated_items(self, ids):
         return next((g for g in self.generated if g["question_id"] in ids), None)
 
     def q_insert_generated(self, subject_key, topic_key, subject_title, topic_title, stem_hash, difficulty, content,
-                           key, checks, prompt_version, model, user):
-        if any((g["subject_key"], g["topic_key"], g["stem_hash"]) == (subject_key, topic_key, stem_hash)
-               for g in self.generated):
+                           key, checks, prompt_version, model, user, fmt="mcq"):
+        if any((g["subject_key"], g["topic_key"], g["stem_hash"], g.get("format", "mcq"))
+               == (subject_key, topic_key, stem_hash, fmt) for g in self.generated):
             return None
         qid = str(uuid.uuid4())
         self.generated.append({"question_id": qid, "subject_key": subject_key, "topic_key": topic_key,
                                "stem_hash": stem_hash, "difficulty": difficulty, "content": json.loads(content),
-                               "answer_key": json.loads(key)})
+                               "answer_key": json.loads(key), "format": fmt,
+                               "explanation": json.loads(checks).get("explanation")})
         return qid
 
     def q_generation_runs_today(self, user):

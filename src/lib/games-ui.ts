@@ -16,4 +16,27 @@ export const FINISH_TITLE: Record<GameType, string> = {
   battleship: 'Шайқас аяқталды',
   debate: 'Дебат аяқталды',
   baige: 'Бәйге аяқталды',
+  auction: 'Аукцион аяқталды',
+  fact_check: 'Ойын аяқталды',
+  escape_room: 'Эскейп рум аяқталды',
 };
+
+// D99: аукцион ставкасы — 50…баланс, 10-ға еселі; пресеттер баланстың үлесі.
+export const BET_STEP = 10;
+export const BET_PRESETS: { share: number; label: string }[] = [
+  { share: 0.1, label: '10%' },
+  { share: 0.25, label: '25%' },
+  { share: 0.5, label: '50%' },
+  { share: 1, label: 'Барлығы' },
+];
+
+export function clampBet(value: number, min: number, max: number): number {
+  if (max < min) return max;
+  return Math.min(max, Math.max(min, Math.round(value / BET_STEP) * BET_STEP));
+}
+
+/** Эскейп румның уақыты: 110 → «1:50». */
+export function formatTime(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return '—';
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}

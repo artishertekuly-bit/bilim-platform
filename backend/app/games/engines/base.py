@@ -37,6 +37,11 @@ class Question:
     stem: str
     options: tuple[dict[str, str], ...]
     correct: str
+    # D99: колодада mcq-дан басқа пішін де болады. true_false_fix: stem — тұжырым, options — түзету нұсқалары,
+    # correct — дұрыс түзету (тұжырым дұрыс болса бос), truth — тұжырымның шындығы. escape_step — mcq пішінді.
+    format: str = "mcq"
+    explanation: str = ""
+    truth: bool | None = None
 
 
 class QuestionSource(Protocol):

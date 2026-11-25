@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-GameType = Literal["conquest", "checkers", "battleship", "debate", "baige"]
+GameType = Literal["conquest", "checkers", "battleship", "debate", "baige", "auction", "fact_check", "escape_room"]
 Mode = Literal["multi", "bot", "solo"]
 # D98: сұрақ көзі — оқулық §-тері, дайын пән банкі не еркін тақырып (банк бірінші, тапшылығы генерацияланады).
 Source = Literal["paragraphs", "bank", "topic"]
@@ -61,13 +61,16 @@ class ActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     client_request_id: uuid.UUID
-    type: Literal["pick", "card", "answer", "move", "place", "auto_place", "shoot", "submit", "decide"]
+    type: Literal["pick", "card", "answer", "move", "place", "auto_place", "shoot", "submit", "decide",
+                  "bet", "verdict", "next", "code"]
     option: str | None = Field(default=None, max_length=8)
+    amount: int | None = Field(default=None, ge=0, le=1_000_000)   # аукцион ставкасы (шегін қозғалтқыш тексереді)
+    code: str | None = Field(default=None, max_length=12)          # эскейп румның шығыс коды
     cell: int | None = Field(default=None, ge=0, le=63)
     card: Literal["fifty", "double", "second", "shield"] | None = None
     path: list[int] | None = Field(default=None, max_length=20)
     ships: list[list[int]] | None = Field(default=None, max_length=5)
-    choice: Literal["stop", "continue"] | None = None
+    choice: Literal["stop", "continue", "true", "false"] | None = None
     text: str | None = Field(default=None, max_length=2000)
 
     def payload(self) -> dict:

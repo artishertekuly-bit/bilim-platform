@@ -71,6 +71,23 @@ describe('Ойын бөлмесі: сұрақ көзі', () => {
     );
   });
 
+  it('D99: аукцион мен эскейп рум пән банкінен өз баптауларымен ашылады', async () => {
+    renderPage('/games/new?game=auction&mode=solo');
+    fireEvent.click(await screen.findByRole('button', { name: '12' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Бастау' }));
+    expect(await screen.findByText('Бөлме: room-1')).toBeInTheDocument();
+    expect(api.createRoom).toHaveBeenCalledWith(
+      expect.objectContaining({ game_type: 'auction', mode: 'solo', source: 'bank', settings: { rounds: 12 } }),
+    );
+    cleanup();
+    renderPage('/games/new?game=escape_room&mode=solo');
+    expect(await screen.findByText(/Бес құлып кезекпен ашылады/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: '15' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Бастау' }));
+    expect(await screen.findByText('Бөлме: room-1')).toBeInTheDocument();
+    expect(api.createRoom).toHaveBeenLastCalledWith(expect.objectContaining({ game_type: 'escape_room', settings: { minutes: 15 } }));
+  });
+
   it('параграф банкі бос болса, тұйық емес — басқа көз ұсынылады', async () => {
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'Параграфтар' }));

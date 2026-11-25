@@ -22,7 +22,7 @@ import asyncpg
 
 from . import queries as Q
 from .dto import ActionRequest, CreateRoomRequest, PreviewRequest
-from .engines import ENGINES, MIN_BANK, MODES, debate
+from .engines import ENGINES, MIN_BANK, MODES, debate, deck_format
 from .provider import (
     INSERT_ANSWERS_SOURCED,
     BankShort,
@@ -308,7 +308,7 @@ class GamesService:
             scope = deck.scope("bank", subject_id=subject_id, book=None)
         elif req.source == "topic":
             deck = await self._deck(self._bank.topic_deck(user_id, req.subject_text or "", req.topic_query or "",
-                                                          min_bank=MIN_BANK[game]))
+                                                          min_bank=MIN_BANK[game], fmt=deck_format(game)))
             scope = deck.scope("topic", subject_id=None, book=None)
         async with self._pool.acquire() as conn:
             if scope is None:
@@ -368,7 +368,8 @@ class GamesService:
             return {"source": "bank", "available": found, "needed": needed, "deficit": 0, "generate": False,
                     "ready": found >= needed}
         if req.source == "topic":
-            plan = await self._bank.topic_plan(req.subject_text or "", req.topic_query or "")
+            plan = await self._bank.topic_plan(req.subject_text or "", req.topic_query or "",
+                                               fmt=deck_format(req.game_type))
             generate = bool(plan.deficit) and on_demand_enabled()
             return {"source": "topic", "available": plan.found, "needed": needed, "deficit": plan.deficit,
                     "generate": generate, "ready": plan.found >= needed or generate,

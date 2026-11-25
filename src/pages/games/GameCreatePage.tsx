@@ -51,6 +51,9 @@ const META: Record<GameType, string> = {
   battleship: '1 × 1 немесе ботпен',
   debate: '1 × 1 · 3 раунд, әрқайсысы 5 мин',
   baige: '2–6 ойыншы немесе жеке жаттығу',
+  auction: '1–6 ойыншы немесе жеке жаттығу',
+  fact_check: '1–6 ойыншы немесе жеке жаттығу',
+  escape_room: '1–6 ойыншы немесе жеке жаттығу',
 };
 
 const MODE_LABEL: Record<GameType, Partial<Record<GameMode, string>>> = {
@@ -59,6 +62,9 @@ const MODE_LABEL: Record<GameType, Partial<Record<GameMode, string>>> = {
   checkers: { multi: 'Сыныптаспен', bot: 'Ботпен' },
   battleship: { multi: 'Сыныптаспен', bot: 'Ботпен' },
   baige: { multi: 'Сыныптастармен', solo: 'Жеке жаттығу' },
+  auction: { multi: 'Сыныптастармен', solo: 'Жеке жаттығу' },
+  fact_check: { multi: 'Сыныптастармен', solo: 'Жеке жаттығу' },
+  escape_room: { multi: 'Жарыс', solo: 'Жеке өту' },
 };
 
 const NOTES: Record<GameType, string> = {
@@ -67,6 +73,9 @@ const NOTES: Record<GameType, string> = {
   battleship: 'Кемелерді өзіңіз орналастырасыз немесе автоматты түрде қойылады.',
   debate: 'Тақырып таңдалған §-тен алынады. «Жақтаймын» мен «Қарсымын» позициялары кездейсоқ беріледі.',
   baige: 'Әр сұрақ алдында шешесіз: ұпайды сақтайсыз ба, әлде тәуекел етесіз бе.',
+  auction: 'Әр ойыншыда 1000 ұпай. Сұрақтың тек тақырыбы мен қиындығын көріп ставка қоясыз: дұрыс жауап ставканы еселейді, қатесі күйдіреді.',
+  fact_check: 'Тұжырымға «Сенемін» не «Сенбеймін» дейсіз. Қатесін аңғарсаңыз — жарты ұпай, дұрыс түзетсеңіз — толық ұпай.',
+  escape_room: 'Бес құлып кезекпен ашылады: әрқайсысы шығыс кодының бір таңбасын береді. Қате жауап — +10 секунд айыппұл.',
 };
 
 function RadioDot({ on }: { on: boolean }) {
@@ -101,6 +110,8 @@ export default function GameCreatePage() {
   const [size, setSize] = useState(6);
   const [answerS, setAnswerS] = useState(30);
   const [stages, setStages] = useState(5);
+  const [rounds, setRounds] = useState(8);
+  const [minutes, setMinutes] = useState(10);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -149,7 +160,17 @@ export default function GameCreatePage() {
     );
 
   const settings: Record<string, number> =
-    gameType === 'conquest' ? { size, answer_s: answerS } : gameType === 'baige' ? { stages } : gameType === 'debate' ? {} : { answer_s: answerS };
+    gameType === 'conquest'
+      ? { size, answer_s: answerS }
+      : gameType === 'baige'
+        ? { stages }
+        : gameType === 'auction' || gameType === 'fact_check'
+          ? { rounds }
+          : gameType === 'escape_room'
+            ? { minutes }
+            : gameType === 'debate'
+              ? {}
+              : { answer_s: answerS };
 
   const sourceBody =
     source === 'bank'
@@ -466,6 +487,18 @@ export default function GameCreatePage() {
           <section className="flex flex-col gap-2 rounded-2xl border border-bl-line bg-white p-4">
             <span className="text-[13px] text-bl-ink2">Кезең саны · әр кезеңде 5 сұрақ</span>
             {seg([3, 4, 5, 6, 7], stages, setStages, 'Кезең саны')}
+          </section>
+        ) : null}
+        {gameType === 'auction' || gameType === 'fact_check' ? (
+          <section className="flex flex-col gap-2 rounded-2xl border border-bl-line bg-white p-4">
+            <span className="text-[13px] text-bl-ink2">Раунд саны</span>
+            {seg([5, 8, 10, 12], rounds, setRounds, 'Раунд саны')}
+          </section>
+        ) : null}
+        {gameType === 'escape_room' ? (
+          <section className="flex flex-col gap-2 rounded-2xl border border-bl-line bg-white p-4">
+            <span className="text-[13px] text-bl-ink2">Бөлмеден шығуға уақыт, минут</span>
+            {seg([5, 10, 15], minutes, setMinutes, 'Уақыт')}
           </section>
         ) : null}
 

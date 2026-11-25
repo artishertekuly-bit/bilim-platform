@@ -15,8 +15,11 @@
   topic      — еркін пән мен тақырып: алдымен кэш пен емтихан банкі (метадерек/кілт сөз), сосын тек тапшылық
                генерацияланады (бір шақыру, ≤ 20 сұрақ), өткені кэшке жазылады. Сол тақырыпқа қайта ойнау — $0.
 
-`format` өрісі болашақ ойындарға ашық (`FORMATS`): қазір mcq ойналады, true_false_fix, term_card, role_card,
-escape_step 2–3-кезеңде колода мен кэшті өзгертпей қосылады.
+`format` өрісі ойындарға ашық (`FORMATS`). D99 (2-кезең): mcq-мен бірге true_false_fix («Сенемін — Сенбеймін»)
+және escape_step («Эскейп рум») ойналады. Еркін тақырыпта ойынның өз пішіні кэштен алынады, mcq кэші мен емтихан
+банкі де саналады (тест $0 түрленеді); тапшылық қана ойынның өз пішінімен генерацияланады.
+Пән атауының балама жазылуы («Қазақ тарихы» → history) банк пәніне сәйкестендіріледі: банкте сұрақ болса,
+генерация қажетсіз шақырылмайды.
 """
 
 from __future__ import annotations
@@ -34,7 +37,16 @@ from typing import Any
 SOURCE_MODES: tuple[str, ...] = ("paragraphs", "bank", "topic")
 ITEM_SOURCES: tuple[str, ...] = ("game", "examiner", "generated")
 FORMATS: tuple[str, ...] = ("mcq", "debate_topic", "true_false_fix", "term_card", "role_card", "escape_step")
-PLAYABLE_FORMATS: frozenset[str] = frozenset({"mcq"})
+PLAYABLE_FORMATS: frozenset[str] = frozenset({"mcq", "true_false_fix", "escape_step"})
+
+# Пәннің балама атаулары (normalize_key пішінінде) → corpus.subjects.slug. Кэш кілті де біреу болады (CANON).
+SUBJECT_ALIASES: dict[str, str] = {
+    "қазақстан тарихы": "history", "қазақ тарихы": "history", "казахстан тарихы": "history",
+    "история казахстана": "history", "kazakhstan history": "history", "history of kazakhstan": "history",
+    "дүниежүзі тарихы": "world_history", "дүние жүзі тарихы": "world_history", "әлем тарихы": "world_history",
+    "жалпы тарих": "world_history", "всемирная история": "world_history", "world history": "world_history",
+}
+SUBJECT_CANON: dict[str, str] = {"history": "қазақстан тарихы", "world_history": "дүниежүзі тарихы"}
 
 MAX_TOPICS = 8            # масштабтың тақырыбы (Әдіс жорығында — карта аймағы), § шегімен бірдей
 DECK_MIN, DECK_MAX = 30, 120
@@ -86,24 +98,30 @@ where question_id = any($1::uuid[]) and kind = 'mcq' and status = 'active'
 """
 
 GENERATED_POOL = """/* games:generated_pool */
-select question_id::text as question_id, difficulty, content, answer_key
+select question_id::text as question_id, format, difficulty, content, answer_key
 from games.generated_questions
-where subject_key = $1 and topic_key = $2 and format = 'mcq' and status = 'active'
+where subject_key = $1 and topic_key = $2 and format = any($3::text[]) and status = 'active'
 """
 
 GENERATED_ITEMS = """/* games:generated_items */
-select question_id::text as question_id, difficulty, content, answer_key
+select question_id::text as question_id, format, difficulty, content, answer_key,
+       checks ->> 'explanation' as explanation
 from games.generated_questions
-where question_id = any($1::uuid[]) and format = 'mcq' and status = 'active'
+where question_id = any($1::uuid[]) and format = any(array['mcq', 'true_false_fix', 'escape_step'])
+  and status = 'active'
 """
 
 INSERT_GENERATED = """/* games:insert_generated */
 insert into games.generated_questions
   (format, subject_key, topic_key, subject_title, topic_title, stem_hash, difficulty, content, answer_key, checks,
    prompt_version, model, created_by)
-values ('mcq', $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12::uuid)
+values ($13, $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12::uuid)
 on conflict (subject_key, topic_key, format, stem_hash) do nothing
 returning question_id::text
+"""
+
+SUBJECT_BY_SLUG = """/* games:subject_by_slug */
+select id::text from corpus.subjects where slug = $1
 """
 
 RUNS_TODAY = """/* games:generation_runs_today */
@@ -170,6 +188,17 @@ class Deck:
 def normalize_key(text: str | None, limit: int = 200) -> str:
     """Кэш кілті: кіші әріп, тек сөздер, бір бос орын. «Excel  формулалары!» → «excel формулалары»."""
     return " ".join(_WORD_RE.findall((text or "").casefold()))[:limit]
+
+
+def subject_slug(subject_key: str) -> str | None:
+    """«Қазақ тарихы», «Қазақстан тарихы» → history: банк пәнінің slug-ы (балама жазылу), болмаса None."""
+    return SUBJECT_ALIASES.get(normalize_key(subject_key, 80))
+
+
+def canonical_subject_key(subject_key: str) -> str:
+    """Кэш кілті: балама атаулар бір кілтке келеді («қазақ тарихы» → «қазақстан тарихы»)."""
+    slug = subject_slug(subject_key)
+    return SUBJECT_CANON.get(slug, subject_key) if slug else subject_key
 
 
 def clean_title(text: str | None, limit: int) -> str:
@@ -285,6 +314,7 @@ class TopicPlan:
     cached: list[dict[str, Any]]
     examiner: list[dict[str, Any]]
     deficit: int
+    format: str = "mcq"     # тапшылық осы пішінмен генерацияланады (ойынның DECK_FORMAT-ы)
 
     @property
     def found(self) -> int:
@@ -332,29 +362,36 @@ class QuestionBank:
         query = clean_title(topic_query, 200) or None
         return Deck(topic_ids, labels, items, {"topic_query": query})
 
-    async def topic_plan(self, subject_text: str, topic_text: str) -> TopicPlan:
-        """1-қадам: кэш (сол пән мен тақырып) және емтихан банкі (пәннің атауы банк пәнімен бірдей болса, кілт
-        сөзбен). Тапшылық = TOPIC_TARGET − табылғаны, ең көбі MAX_GENERATE."""
+    async def topic_plan(self, subject_text: str, topic_text: str, *, fmt: str = "mcq") -> TopicPlan:
+        """1-қадам: кэш (сол пән мен тақырып; ойынның пішіні мен mcq) және емтихан банкі (пәннің атауы не балама
+        атауы банк пәніне сай келсе, кілт сөзбен). Тапшылық = TOPIC_TARGET − табылғаны, ең көбі MAX_GENERATE."""
         from .bank.topic import MAX_GENERATE
 
         subject_title, topic_title = clean_title(subject_text, 80), clean_title(topic_text, 200)
-        subject_key, topic_key = normalize_key(subject_title, 80), normalize_key(topic_title, 200)
+        subject_key = canonical_subject_key(normalize_key(subject_title, 80))
+        topic_key = normalize_key(topic_title, 200)
+        formats = list(dict.fromkeys([fmt, "mcq"]))
         async with self._pool.acquire() as conn:
-            cached = [dict(r) for r in await conn.fetch(GENERATED_POOL, subject_key, topic_key)]
+            cached = [dict(r) for r in await conn.fetch(GENERATED_POOL, subject_key, topic_key, formats)]
             examiner: list[dict[str, Any]] = []
             patterns = like_patterns(topic_title)
             if patterns:
                 bank = {normalize_key(r["title"], 80): r["subject_id"] for r in await conn.fetch(BANK_SUBJECTS)}
-                if subject_key in bank:
-                    examiner = [dict(r) for r in await conn.fetch(EXAMINER_POOL, bank[subject_key], None, patterns,
+                subject_id = bank.get(subject_key)
+                slug = subject_slug(subject_key)
+                if subject_id is None and slug:
+                    subject_id = await conn.fetchval(SUBJECT_BY_SLUG, slug)
+                if subject_id is not None and subject_id in bank.values():
+                    examiner = [dict(r) for r in await conn.fetch(EXAMINER_POOL, subject_id, None, patterns,
                                                                     TOPIC_TARGET)]
         found = len(cached) + len(examiner)
         return TopicPlan(subject_key, topic_key, subject_title, topic_title, cached, examiner,
-                         min(MAX_GENERATE, max(0, TOPIC_TARGET - found)))
+                         min(MAX_GENERATE, max(0, TOPIC_TARGET - found)), fmt)
 
-    async def topic_deck(self, user_id: str, subject_text: str, topic_text: str, *, min_bank: int) -> Deck:
-        """Еркін тақырып: банк бірінші, жетпесе тек тапшылық генерацияланады да кэшке жазылады."""
-        plan = await self.topic_plan(subject_text, topic_text)
+    async def topic_deck(self, user_id: str, subject_text: str, topic_text: str, *, min_bank: int,
+                         fmt: str = "mcq") -> Deck:
+        """Еркін тақырып: банк бірінші, жетпесе тек тапшылық (ойынның пішінімен) генерацияланады да кэшке жазылады."""
+        plan = await self.topic_plan(subject_text, topic_text, fmt=fmt)
         generated: list[dict[str, Any]] = []
         if plan.deficit and on_demand_enabled():
             try:
@@ -362,7 +399,8 @@ class QuestionBank:
             except GenerationLimit:
                 if plan.found < min_bank:
                     raise  # бар сұрақпен ойнауға жетпейді; жетсе — бармен басталады
-        items = [DeckItem("generated", r["question_id"], "topic", int(r["difficulty"])) for r in plan.cached + generated]
+        items = [DeckItem("generated", r["question_id"], "topic", int(r["difficulty"]), str(r.get("format") or "mcq"))
+                 for r in plan.cached + generated]
         items += [DeckItem("examiner", r["question_id"], "topic", tier_difficulty(r["tier"])) for r in plan.examiner]
         if len(items) < min_bank:
             raise BankShort(len(items), min_bank)
@@ -373,16 +411,17 @@ class QuestionBank:
         })
 
     async def _generate(self, user_id: str, plan: TopicPlan) -> list[dict[str, Any]]:
-        from .bank.topic import TOPIC_PROMPT_REF, build_topic_mcq
+        from .bank.topic import BUILDERS, PROMPT_REFS
 
         async with self._pool.acquire() as conn:
             if await conn.fetchval(RUNS_TODAY, user_id) >= daily_limit():
                 raise GenerationLimit()
-            existing = [(_json(r["content"]) or {}, _json(r["answer_key"]) or {}) for r in plan.cached]
+            existing = [(_json(r["content"]) or {}, _json(r["answer_key"]) or {}) for r in plan.cached
+                        if (r.get("format") or "mcq") == plan.format]
         gateway = self._gateway()
         if gateway is None and self._generator is None:
             return []
-        build = self._generator or build_topic_mcq
+        build = self._generator or BUILDERS[plan.format]
         # Байланыс ұсталмайды: LLM шақыруы транзакция мен пулдан тыс.
         batch = await build(gateway, plan.subject_title, plan.topic_title, plan.deficit, existing, self._rng)
         rows: list[dict[str, Any]] = []
@@ -393,10 +432,10 @@ class QuestionBank:
                     stem_hash(str(item.content.get("stem") or "")), item.difficulty,
                     json.dumps(item.content, ensure_ascii=False), json.dumps(item.answer_key),
                     json.dumps({"explanation": item.explanation}, ensure_ascii=False),
-                    TOPIC_PROMPT_REF.version, batch.model, user_id,
+                    PROMPT_REFS[plan.format].version, batch.model, user_id, plan.format,
                 )
                 if qid:  # бір мәтін екі рет келсе (қатар генерация), кэште біреуі қалады
-                    rows.append({"question_id": qid, "difficulty": item.difficulty})
+                    rows.append({"question_id": qid, "difficulty": item.difficulty, "format": plan.format})
             await conn.execute(INSERT_RUN, user_id, plan.subject_key, plan.topic_key, max(1, batch.requested),
                                len(rows), batch.outcome, batch.cost_usd)
         return rows
@@ -447,11 +486,22 @@ class DeckQuestions:
         content = _json(row["content"]) or {}
         options = tuple({"id": str(o["id"]), "text": str(o["text"])} for o in content.get("options") or [])
         correct = str(key.get("correct_option_id") or "")
+        fmt = str((row.get("format") if item.src == "generated" else None) or item.format or "mcq")
+        explanation = str((row.get("explanation") if item.src == "generated" else None) or "")
+        paragraph = row["paragraph"] if item.src == "game" else self._labels.get(item.topic, "")
+        paragraph = clean_title(paragraph, LABEL_CHARS)
+        if fmt == "true_false_fix":
+            # D99: тұжырым дұрыс болса — түзету жоқ (correct бос), қате болса — түзету нұсқалардың бірі.
+            truth = bool(key.get("is_true"))
+            stem = str(content.get("statement") or content.get("stem") or "")
+            if not stem or len(options) < 2 or (not truth and correct not in {o["id"] for o in options}):
+                return None
+            return Question(item.id, item.topic, paragraph, item.difficulty, stem, options,
+                            "" if truth else correct, fmt, explanation, truth)
         if len(options) < 2 or correct not in {o["id"] for o in options}:
             return None
-        paragraph = row["paragraph"] if item.src == "game" else self._labels.get(item.topic, "")
-        return Question(item.id, item.topic, clean_title(paragraph, LABEL_CHARS), item.difficulty,
-                        str(content.get("stem") or ""), options, correct)
+        return Question(item.id, item.topic, paragraph, item.difficulty, str(content.get("stem") or ""), options,
+                        correct, fmt, explanation)
 
 
 def _uuid_like(value: str) -> bool:

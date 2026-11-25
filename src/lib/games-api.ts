@@ -9,7 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { getAiApiBaseUrl } from '@/lib/ai-api';
 import { useAuth } from '@/lib/auth-context';
 
-export type GameType = 'conquest' | 'checkers' | 'battleship' | 'debate' | 'baige';
+export type GameType = 'conquest' | 'checkers' | 'battleship' | 'debate' | 'baige' | 'auction' | 'fact_check' | 'escape_room';
 export type GameMode = 'multi' | 'bot' | 'solo';
 export type RoomStatus = 'lobby' | 'playing' | 'finished' | 'abandoned';
 
@@ -32,6 +32,12 @@ export const GAMES: GameInfo[] = [
     summary: '6 × 6 алаң: әр оқ алдында сұрақ, тигізсең — тағы атасың.' },
   { type: 'debate', title: 'Дебат аренасы', players: '1 × 1', modes: ['multi'],
     summary: 'Тарихи тұжырымды жақта не оған қарсы шық. Үш раунд, ЖИ-төреші.' },
+  { type: 'auction', title: 'Білім аукционы', players: '1–6 ойыншы', modes: ['multi', 'solo'],
+    summary: 'Сұрақты көрмей тұрып ставка қой: дұрыс жауап ставканы еселейді, қатесі күйдіреді.' },
+  { type: 'fact_check', title: 'Сенемін — Сенбеймін', players: '1–6 ойыншы', modes: ['multi', 'solo'],
+    summary: 'Тұжырым дұрыс па? Қатесін тауып, түзетсең — толық ұпай.' },
+  { type: 'escape_room', title: 'Эскейп рум', players: '1–6 ойыншы', modes: ['multi', 'solo'],
+    summary: 'Бес құлыпты кезекпен аш, шығыс кодын жинап, бөлмеден бірінші шық.' },
 ];
 
 export const GAME_TITLE: Record<GameType, string> = Object.fromEntries(GAMES.map((g) => [g.type, g.title])) as Record<
@@ -134,7 +140,11 @@ export type GameAction =
   | { type: 'auto_place' }
   | { type: 'shoot'; cell: number }
   | { type: 'submit'; text: string }
-  | { type: 'decide'; choice: 'stop' | 'continue' };
+  | { type: 'decide'; choice: 'stop' | 'continue' }
+  | { type: 'bet'; amount: number }
+  | { type: 'verdict'; choice: 'true' } | { type: 'verdict'; choice: 'false'; option: string }
+  | { type: 'next' }
+  | { type: 'code'; code: string };
 
 export class GamesApiError extends Error {
   constructor(message: string, readonly status: number, readonly code: string) {

@@ -5,11 +5,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { BackIcon } from '@/components/bl/icons';
 import { Banner, Button, ButtonLink, ConfirmSheet, LoadingBlock, StateCard } from '@/components/bl/ui';
+import AuctionView from '@/components/games/AuctionView';
 import BaigeView from '@/components/games/BaigeView';
 import BattleshipView from '@/components/games/BattleshipView';
 import CheckersView from '@/components/games/CheckersView';
 import ConquestView from '@/components/games/ConquestView';
 import DebateView from '@/components/games/DebateView';
+import EscapeRoomView from '@/components/games/EscapeRoomView';
+import FactCheckView from '@/components/games/FactCheckView';
 import { ActionError, JoinQr, type ResultRow } from '@/components/games/GameUi';
 import { PlayerGrid, Podium } from '@/components/games/RoomParts';
 import type { GameViewProps } from '@/components/games/types';
@@ -22,6 +25,9 @@ const VIEWS: Record<GameType, (props: GameViewProps) => JSX.Element> = {
   battleship: BattleshipView,
   debate: DebateView,
   baige: BaigeView,
+  auction: AuctionView,
+  fact_check: FactCheckView,
+  escape_room: EscapeRoomView,
 };
 
 type Standing = { seat: number; name: string; score?: number; left?: boolean };

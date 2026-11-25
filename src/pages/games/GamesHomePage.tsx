@@ -69,6 +69,39 @@ const CARDS: { type: GameType; text: string; art: ReactNode; wide?: boolean }[] 
       </span>
     ),
   },
+  {
+    type: 'auction',
+    text: '1–6 ойыншы. Сұрақты көрмей ставка қой.',
+    art: (
+      <span aria-hidden="true" className="flex h-[27px] items-end gap-[3px]">
+        {[10, 16, 22, 27].map((h) => (
+          <i key={h} className="block w-[9px] rounded-[2px] bg-bl-ink" style={{ height: h }} />
+        ))}
+      </span>
+    ),
+  },
+  {
+    type: 'fact_check',
+    text: '1–6 ойыншы. Тұжырым дұрыс па, қате ме?',
+    art: (
+      <span aria-hidden="true" className="flex h-[27px] items-center gap-1">
+        <i className="flex h-[18px] w-[26px] items-center justify-center rounded-[6px] bg-bl-ink text-[11px] not-italic text-white">✓</i>
+        <i className="box-border flex h-[18px] w-[26px] items-center justify-center rounded-[6px] border-2 border-bl-ink text-[11px] not-italic">✕</i>
+      </span>
+    ),
+  },
+  {
+    type: 'escape_room',
+    wide: true,
+    text: '1–6 ойыншы. Бес құлыпты аш, кодты жинап, бөлмеден шық.',
+    art: (
+      <span aria-hidden="true" className="flex w-14 flex-none gap-[3px]">
+        {[1, 1, 1, 0, 0].map((on, i) => (
+          <i key={i} className={on ? 'block h-3 w-2 rounded-[2px] bg-bl-ink' : 'box-border block h-3 w-2 rounded-[2px] border border-bl-ink'} />
+        ))}
+      </span>
+    ),
+  },
 ];
 
 export default function GamesHomePage() {
